@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>門市排班神器 🚀 </title>
+  <title>門市排班神器 </title>
   
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
@@ -31,7 +31,7 @@
     #syncStatus { text-align: center; font-size: 12px; color: #70757a; margin-bottom: 12px; height: 24px; display: flex; align-items: center; justify-content: center; gap: 8px; }
     #syncStatus .dot { width: 10px; height: 10px; border-radius: 50%; background: #34a853; box-shadow: 0 0 5px rgba(52,168,83,0.5); }
     #syncStatus.syncing { color: #d93025; font-weight: bold; }
-    #syncStatus.syncing .dot { background: #d93025; animation: blink 0.8s infinite; box-shadow: 0 0 8px rgba(217,48,37,0.6); }
+    #syncStatus.syncing .dot { background: #d93025; animation: blink 0.8s infinite; }
     @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
 
     .controls { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-bottom: 15px; }
@@ -76,23 +76,52 @@
     .total-row { background-color: #e8f5e9; font-weight: bold; font-size: 15px; color: #2e7d32; }
     .quick-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 15px 0; }
     .emp-row { display: flex; align-items: center; padding: 12px; border-bottom: 1px solid #eee; background: white; gap: 10px; }
+
+    /* 🌟 專為 A4 產圖設計的隱藏容器 */
+    #exportContainer {
+        display: none; 
+        width: 800px; /* 模擬 A4 寬度 */
+        background-color: white; 
+        padding: 40px; /* 紙張留白邊界 */
+        box-sizing: border-box;
+        color: black;
+        font-family: "Microsoft JhengHei", "Segoe UI", sans-serif;
+    }
+    #exportContainer table {
+        width: 100%;
+        border-collapse: collapse;
+        border: 3px solid black; /* 外框加粗 */
+        table-layout: fixed;
+    }
+    #exportContainer th, #exportContainer td {
+        border: 2px solid black; /* 內線也加粗 */
+        padding: 6px;
+        text-align: center;
+        vertical-align: middle;
+        color: black;
+    }
+    /* 斜線表頭 */
+    .diagonal-header {
+        position: relative;
+        background: linear-gradient(to bottom right, transparent calc(50% - 1px), black calc(50% - 1px), black calc(50% + 1px), transparent calc(50% + 1px));
+    }
   </style>
 </head>
 <body>
 
   <div id="loadingOverlay"><div class="spinner"></div><div id="loadingText">雲端處理中...</div></div>
 
-  <div id="exportContainer" style="display: none; width: 1000px; padding: 20px; box-sizing: border-box; background-color: white;">
-    <h1 id="exportTitle" style="text-align: center; font-size: 26px; font-weight: bold; color: black; margin-bottom: 8px;">門市輪班表</h1>
-    <p id="exportDates" style="text-align: center; font-size: 14px; color: black; margin-bottom: 15px;"></p>
-    <table style="width: 100%; border-collapse: collapse; border: 2px solid black; font-family: 'Segoe UI', serif; table-layout: fixed;">
+  <div id="exportContainer">
+    <h1 id="exportTitle" style="text-align: center; font-size: 32px; font-weight: 900; margin-bottom: 10px; letter-spacing: 2px;">門市 職員輪班表</h1>
+    <p id="exportDates" style="text-align: center; font-size: 18px; color: #333; margin-bottom: 20px; letter-spacing: 2px;"></p>
+    <table id="exportTable">
       <thead id="exportHeader"></thead>
       <tbody id="exportBody"></tbody>
     </table>
-    <p style="text-align: center; font-size: 12px; font-weight: bold; color: black; margin-top: 25px;">※每周五、六公佈下週排班表，若有變動者，請事先向店長反映，勿私自調動！</p>
+    <p style="text-align: left; font-size: 13px; font-weight: bold; margin-top: 15px; margin-left: 5px;">※每周五、六公佈下週排班表，若有變動者，請事先向店長反映，勿私自調動！</p>
   </div>
 
-  <h2>📅 門市排班神器 🚀 終極穩定版</h2>
+  <h2>📅 門市排班神器 🚀 終極產圖版</h2>
   <div id="syncStatus"><div class="dot"></div><span>✅ 所有變更已儲存</span></div>
   
   <div class="controls">
@@ -101,7 +130,7 @@
     <button class="btn-undo" onclick="undoLastAction()">↩️ 撤銷</button>
     <button class="btn-copy" onclick="copyLastWeek()">📋 複製上週</button>
     <button class="btn-save" onclick="saveScheduleData(true)">💾 強制儲存</button>
-    <button class="btn-print" onclick="exportImage()">📱 產圖</button>
+    <button class="btn-print" onclick="exportImage()">📱 產圖 (A4)</button>
     <button class="btn-virtual" onclick="addVirtualRow()">➕ 待補</button>
     <button class="btn-manage" onclick="openEmpModal()">👥 人員管理</button>
     <button class="btn-sys" onclick="openSysModal()">🛠️ 系統設定</button>
@@ -130,14 +159,12 @@
   <div id="sysModal" class="modal"><div class="modal-content"><h3>🛠️ 系統基礎設定</h3><div id="sysStoreList"></div><div style="display:flex; gap:5px; margin-top:10px;"><input type="text" id="newStoreInput" placeholder="門市名稱" style="padding:10px; width:100%; box-sizing:border-box;"><button onclick="addSysStore()" style="background:#1a73e8; color:white;">新增門市</button></div><div id="sysShiftList" style="margin-top:20px; border-top:1px solid #eee; padding-top:15px;"></div><div style="display:flex; gap:5px; margin-top:10px;"><input type="text" id="newShiftName" placeholder="班別" style="flex:2; padding:10px; box-sizing:border-box;"><input type="number" id="newShiftHours" placeholder="時數" style="flex:1; padding:10px; box-sizing:border-box;"><button onclick="addSysShift()" style="background:#34a853; color:white;">新增</button></div><button onclick="saveSysConfig()" style="width:100%; padding:18px; background:#3c4043; color:white; margin-top:30px; border-radius:10px; border:none; font-size:16px; cursor:pointer;">💾 儲存並套用</button><button onclick="closeModal('sysModal')" style="width:100%; border:none; background:none; margin-top:10px; color:#666; cursor:pointer;">取消</button></div></div>
 
   <script>
-    // --- 核心變數設定 ---
     let appConfig = { stores: [], shifts: ["排休", "指休"], shiftHours: {} };
     let appData = { employees: [], records: [] };
     let undoStack = [], currentWeekDates = [], virtualRowNames = [], localActiveEmps = [], localDeletedNames = [];
     let currentCell = null, isPaintMode = false, autoSaveTimer = null;
     const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
 
-    // 🌟 1. 找回消失的日期核心函數
     function getNextWeekString() {
         let d = new Date(); d.setDate(d.getDate() + 7);
         let yr = d.getFullYear(); let first = new Date(yr, 0, 1);
@@ -159,7 +186,6 @@
         return res;
     }
 
-    // --- 初始化 ---
     window.onload = async () => {
         showLoading("正在連線雲端庫...");
         document.getElementById('weekSelector').value = getNextWeekString();
@@ -172,7 +198,6 @@
         hideLoading();
     };
 
-    // --- 同步與存檔 ---
     function triggerAutoSave() {
         const s = document.getElementById('syncStatus');
         s.innerHTML = '<div class="dot"></div><span>☁️ 雲端同步中...</span>';
@@ -196,66 +221,89 @@
         } catch(e) { document.getElementById('syncStatus').innerText = "❌ 同步失敗：" + e.message; }
     }
 
-    // --- 產圖功能 (紅框指休) ---
+    // --- 🌟 A4 完美重置版 產圖功能 ---
     function exportImage() {
         syncUIToMemory();
-        showLoading("📸 正在產生高清紙本表格...");
+        showLoading("📸 正在產生A4高清排班表...");
         
         let store = document.getElementById('storeSelector').value;
         let weekStr = document.getElementById('weekSelector').value;
         let emps = [...appData.employees]; 
         virtualRowNames.forEach(n => emps.push({name: n, role: '待補'}));
 
-        document.getElementById('exportTitle').innerText = `${store} 輪班表`;
-        document.getElementById('exportDates').innerText = `(${weekStr.split('-W')[0]}年 第${weekStr.split('-W')[1]}週：${currentWeekDates[0]} 至 ${currentWeekDates[6]})`;
+        // 標題與日期
+        document.getElementById('exportTitle').innerText = `${store} 職員輪班表`;
+        let startD = currentWeekDates[0].split('/'); let endD = currentWeekDates[6].split('/');
+        document.getElementById('exportDates').innerText = `${startD[0]} 月 ${startD[1]} 日 至 ${endD[0]} 月 ${endD[1]} 日`;
 
-        let headerHtml = `<tr style="border: 2px solid black;"><th style="border: 1px solid black; padding: 10px; text-align: center; width:80px; color:black;">月/日 <br> 週</th>`;
-        dayNames.forEach((d,i) => { headerHtml += `<th style="border: 1px solid black; padding: 8px; text-align: center; font-size:16px; color:black;"><strong>${currentWeekDates[i]}</strong><br><small style="font-weight:normal;">(${d})</small></th>`; });
-        headerHtml += `<th style="border: 1px solid black; padding: 8px; text-align: center; color:black;">本月累計</th></tr>`;
+        // 🌟 表頭：斜線與無結算欄
+        let headerHtml = `
+            <tr>
+                <th class="diagonal-header" style="width: 80px; height: 50px;">
+                    <span style="position: absolute; top: 4px; right: 5px; font-size: 11px;">月/日</span>
+                    <span style="position: absolute; bottom: 4px; left: 5px; font-size: 11px;">姓名</span>
+                </th>
+        `;
+        dayNames.forEach((d,i) => { 
+            headerHtml += `<th style="padding: 8px;">
+                <div style="font-size: 16px; font-weight: 800;">${currentWeekDates[i]}</div>
+                <div style="font-size: 13px; font-weight: normal;">${d}</div>
+            </th>`; 
+        });
+        headerHtml += `</tr>`;
         document.getElementById('exportHeader').innerHTML = headerHtml;
 
+        // 🌟 表身：方框休與藍綠色備註
         let bodyHtml = '';
-        emps.forEach((emp, eIdx) => {
-            bodyHtml += `<tr style="border-bottom: 1px solid #ccc; height:60px; color:black;">
-                <td style="border: 1px solid black; padding: 10px; text-align: left; vertical-align:middle; font-weight:bold; color:black;">${emp.name}</td>`;
+        emps.forEach((emp) => {
+            bodyHtml += `<tr style="height: 60px;">
+                <td style="font-weight: 800; font-size: 16px;">${emp.name}</td>`;
             
             dayNames.forEach(day => {
                 let rec = appData.records.find(r => r.name === emp.name && r.day === day && r.week === weekStr) || {shift:'', note:'', actualHours:''};
                 let shiftHtml = '';
                 
                 if(rec.shift === '指休') {
-                    shiftHtml = `<div style="padding: 2px 8px; border: 2px solid #d93025; border-radius: 4px; color:#d93025; font-weight:bold;">休</div>`;
+                    shiftHtml = `<div style="display:inline-block; padding: 1px 12px; border: 2px solid #d93025; border-radius: 6px; color:#d93025; font-weight:900;">休</div>`;
                 } else if(rec.shift === '排休') {
-                    shiftHtml = `<div style="padding: 2px 8px; border: 1px solid black; border-radius: 4px; color:black;">休</div>`;
+                    shiftHtml = `<div style="display:inline-block; padding: 1px 12px; border: 2px solid black; border-radius: 6px; color:black; font-weight:900;">休</div>`;
                 } else if(rec.shift) {
                     shiftHtml = rec.shift.replace('-', ' / ');
-                } else { shiftHtml = '-'; }
+                }
 
-                let noteText = rec.note ? `<div style="font-size: 11px; color: #007777; margin-top:2px; font-weight:normal;">${rec.note}</div>` : '';
+                let noteText = rec.note ? `<div style="font-size: 12px; color: #0088aa; margin-top:4px; font-weight:bold;">${rec.note}</div>` : '';
 
-                bodyHtml += `<td style="border: 1px solid black; padding: 5px; text-align: center; vertical-align: middle; font-size:15px; font-weight:800; color:black;">
-                    ${shiftHtml}
-                    ${noteText}
-                </td>`;
+                bodyHtml += `<td style="font-size:17px; font-weight:900;">${shiftHtml}${noteText}</td>`;
             });
-            bodyHtml += `<td style="border: 1px solid black; padding: 5px; text-align: left; vertical-align: middle; font-size:11px; color:#555;">${document.getElementById(`sum-${eIdx}`).innerText}</td></tr>`;
+            bodyHtml += `</tr>`;
         });
 
-        bodyHtml += `<tr style="border-top: 2px solid black; height:70px; color:black;"><td style="border: 1px solid black; padding:10px; font-weight:bold; color:black;">門市備註</td>`;
+        // 門市備註行
+        bodyHtml += `<tr style="height: 65px;"><td style="font-weight:900; font-size:15px;">門市備註</td>`;
         dayNames.forEach(day => {
             let rec = appData.records.find(r => r.name === '門市備註' && r.day === day && r.week === weekStr);
-            bodyHtml += `<td style="border: 1px solid black; padding: 5px; text-align: center; vertical-align: middle; font-size:13px; font-weight:600; color:#007777;">${rec?rec.note:''}</td>`;
+            bodyHtml += `<td style="font-size:14px; font-weight:bold; color:#0088aa;">${rec?rec.note:''}</td>`;
         });
-        bodyHtml += `<td style="border: 1px solid black;"></td></tr>`;
+        bodyHtml += `</tr>`;
+
+        // 🌟 底部補充 4 行空白列
+        for(let i=0; i<4; i++) {
+            bodyHtml += `<tr style="height: 50px;"><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>`;
+        }
 
         document.getElementById('exportBody').innerHTML = bodyHtml;
         const container = document.getElementById('exportContainer');
         container.style.display = 'block'; 
 
         setTimeout(() => {
-            html2canvas(container, { scale: 2, useCORS: true, backgroundColor: "#ffffff", logging: false }).then(canvas => {
+            html2canvas(container, { 
+                scale: 2.5, // 超高畫質
+                useCORS: true, 
+                backgroundColor: "#ffffff", 
+                logging: false 
+            }).then(canvas => {
                 const img = document.getElementById('previewImg');
-                img.src = canvas.toDataURL("image/jpeg", 0.9);
+                img.src = canvas.toDataURL("image/jpeg", 0.95);
                 document.getElementById('imagePreviewModal').style.display = 'flex';
                 document.getElementById('downloadImgBtn').onclick = () => {
                     let a = document.createElement('a'); a.href = img.src;
@@ -264,11 +312,10 @@
                 };
                 container.style.display = 'none'; 
                 hideLoading();
-            }).catch(e => { alert("產圖失敗"); hideLoading(); });
-        }, 300);
+            }).catch(e => { alert("產圖失敗: " + e); hideLoading(); });
+        }, 500);
     }
 
-    // --- 其餘所有功能保留 ---
     function addVirtualRow() { syncUIToMemory(); let n = 1; while(virtualRowNames.includes('🆘待補'+n)) n++; virtualRowNames.push('🆘待補'+n); renderTable(); triggerAutoSave(); }
     async function copyLastWeek() { let store = document.getElementById('storeSelector').value; let week = document.getElementById('weekSelector').value; let parts = week.split('-W'); let prevW = parseInt(parts[1]) - 1; let prevWeekStr = parts[0] + '-W' + (prevW < 10 ? '0'+prevW : prevW); if(!confirm(`確定要複製上週 (${prevWeekStr}) 的班表到本週嗎？`)) return; showLoading("複製資料中..."); const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(prevWeekStr).get(); if(snap.exists) { let newRecords = snap.data().records.map(r => ({ ...r, week: week })); appData.records = appData.records.filter(r => r.week !== week).concat(newRecords); renderTable(); triggerAutoSave(); alert("📋 複製完成！"); } else { alert("找不到上週的排班資料。"); } hideLoading(); }
     function pushToUndo(b) { undoStack.push({ btn:b, s:b.dataset.shift, h:b.dataset.hours, l:b.dataset.loc, n:b.dataset.note }); if(undoStack.length>30) undoStack.shift(); }
@@ -302,7 +349,7 @@
     function renderSysStoreItems() { let h = ''; (appConfig.stores || []).forEach((s, i) => h += `<div style="display:flex; justify-content:space-between; padding:8px; border-bottom:1px solid #eee;"><span>🏪 ${s}</span><button onclick="delSysStore(${i})" style="background:red; color:white; padding:4px 8px; border:none; border-radius:4px; cursor:pointer;">刪除</button></div>`); document.getElementById('sysStoreList').innerHTML = h; }
     function addSysStore() { let v = document.getElementById('newStoreInput').value.trim(); if(v) { if(!appConfig.stores) appConfig.stores=[]; appConfig.stores.push(v); document.getElementById('newStoreInput').value=''; renderSysStoreItems(); } }
     function delSysStore(i) { appConfig.stores.splice(i,1); renderSysStoreItems(); }
-    function renderSysShiftItems() { let h = ''; (appConfig.shifts || []).forEach((s, i) => { let hr = appConfig.shiftHours[s] || 0; h += `<div style="display:flex; justify-content:space-between; padding:8px; border-bottom:1px solid #eee;"><span>⏰ ${s} (${hr}h)</span><button onclick="delSysShift(${i}, '${s}')" style="background:red; color:white; padding:4px 8px; border:none; border-radius:4px; cursor:pointer;">刪除</button></div>`; }); document.getElementById('sysShiftList').innerHTML = h; }
+    function renderSysShiftItems() { let h = ''; (appConfig.shifts || []).forEach((s, i) => { let hr = appConfig.shiftHours[s] || 0; h += `<div style="display:flex; justify-content:space-between; padding:8px; border-bottom:1px solid #eee;"><span>⏰ ${s} (${hr}h)</span><button onclick="delSysShift(${i}, '${s}')" style="background:red; color:white; padding:4px 8px; border:none; border-radius:4px; cursor:pointer;">刪除</button></div>`; document.getElementById('sysShiftList').innerHTML = h; }); }
     function addSysShift() { let n = document.getElementById('newShiftName').value.trim(); let hr = parseFloat(document.getElementById('newShiftHours').value) || 0; if(n) { if(!appConfig.shifts) appConfig.shifts=[]; if(!appConfig.shifts.includes(n)) appConfig.shifts.push(n); appConfig.shiftHours[n] = hr; renderSysShiftItems(); } }
     function delSysShift(i, n) { appConfig.shifts.splice(i,1); delete appConfig.shiftHours[n]; renderSysShiftItems(); }
     async function saveSysConfig() { showLoading("儲存系統設定..."); await window.db.collection('settings').doc('globalConfig').set(appConfig); refreshStoreList(); loadScheduleData(); closeModal('sysModal'); hideLoading(); }
