@@ -173,7 +173,7 @@
         } catch(e) { document.getElementById('syncStatus').innerText = "❌ 同步失敗：" + e.message; }
     }
 
-    // 🌟 終極核彈：原生 Canvas 繪圖引擎 (字體全面放大版) 🌟
+    // 🌟 原生 Canvas 繪圖引擎 (無框排休版) 🌟
     function exportNativeImage() {
         syncUIToMemory();
         showLoading("📸 正在啟動高解析度原生繪圖引擎...");
@@ -185,59 +185,56 @@
                 let emps = [...appData.employees]; 
                 virtualRowNames.forEach(n => emps.push({name: n, role: '待補'}));
 
-                // --- 🌟 版面數值設定 (等比例全面放大) ---
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
                 
-                const W = 1400; // 寬度加大，確保字體放大不會換行
+                const W = 1400; // 寬度加大
                 const startX = 80; // 左邊界
-                const gridW = W - startX * 2; // 表格總寬 = 1240
-                const colW = gridW / 8; // 每一欄寬度 = 155
+                const gridW = W - startX * 2; // 表格寬 = 1240
+                const colW = gridW / 8; // 每一欄寬 = 155
                 
-                const rowH = 95; // 每一列高度 (原本 80)
-                const headerH = 95; // 表頭高度
+                const rowH = 95; // 每一列高
+                const headerH = 95; // 表頭高
                 const numEmpRows = emps.length;
                 const numEmptyRows = 5; // 底部留白列數
                 
                 const gridH = headerH + (numEmpRows * rowH) + rowH + (numEmptyRows * rowH);
-                const startY = 240; // 表格起始 Y 座標
-                const H = startY + gridH + 120; // 畫布總高度
+                const startY = 240; 
+                const H = startY + gridH + 120; 
 
                 canvas.width = W;
                 canvas.height = H;
 
-                // --- 1. 畫純白背景 ---
+                // 1. 畫純白背景
                 ctx.fillStyle = "#ffffff";
                 ctx.fillRect(0, 0, W, H);
 
-                // --- 2. 畫標題與日期 ---
+                // 2. 畫標題與日期
                 ctx.textAlign = "center";
                 ctx.textBaseline = "middle";
                 ctx.fillStyle = "#000000";
                 
-                ctx.font = "900 48px 'Microsoft JhengHei', sans-serif"; // 標題放大
+                ctx.font = "900 48px 'Microsoft JhengHei', sans-serif"; 
                 ctx.fillText(`${store} 職員輪班表`, W / 2, 90);
                 
                 let startArr = currentWeekDates[0].split('/');
                 let endArr = currentWeekDates[6].split('/');
-                ctx.font = "bold 26px 'Microsoft JhengHei', sans-serif"; // 日期放大
+                ctx.font = "bold 26px 'Microsoft JhengHei', sans-serif"; 
                 ctx.fillStyle = "#333333";
                 ctx.fillText(`${startArr[0]} 月 ${startArr[1]} 日 至 ${endArr[0]} 月 ${endArr[1]} 日`, W / 2, 160);
 
-                // --- 3. 畫表格外框與格線 ---
+                // 3. 畫表格外框與格線
                 ctx.lineWidth = 3; 
                 ctx.strokeStyle = "#000000";
                 ctx.strokeRect(startX, startY, gridW, gridH);
 
                 ctx.lineWidth = 2; 
-                // 畫直線
                 for(let i = 1; i < 8; i++) {
                     ctx.beginPath();
                     ctx.moveTo(startX + i * colW, startY);
                     ctx.lineTo(startX + i * colW, startY + gridH);
                     ctx.stroke();
                 }
-                // 畫橫線
                 let currentY = startY + headerH;
                 while (currentY < startY + gridH) {
                     ctx.beginPath();
@@ -247,32 +244,31 @@
                     currentY += rowH;
                 }
 
-                // --- 4. 畫左上角斜線與文字 ---
+                // 4. 畫左上角斜線與文字
                 ctx.beginPath();
                 ctx.moveTo(startX, startY);
                 ctx.lineTo(startX + colW, startY + headerH);
                 ctx.lineWidth = 2;
                 ctx.stroke();
 
-                ctx.font = "bold 20px 'Microsoft JhengHei', sans-serif"; // 月日姓名放大
+                ctx.font = "bold 20px 'Microsoft JhengHei', sans-serif"; 
                 ctx.fillStyle = "#000000";
                 ctx.textAlign = "right";
                 ctx.fillText("月/日", startX + colW - 15, startY + 30);
                 ctx.textAlign = "left";
                 ctx.fillText("姓名", startX + 15, startY + headerH - 30);
 
-                // --- 5. 畫表頭日期 ---
+                // 5. 畫表頭日期
                 ctx.textAlign = "center";
                 for(let i = 0; i < 7; i++) {
                     let cx = startX + (i + 1) * colW + colW / 2;
                     let cy = startY + headerH / 2;
-                    ctx.font = "900 26px 'Microsoft JhengHei', sans-serif"; // 3/30 放大
+                    ctx.font = "900 26px 'Microsoft JhengHei', sans-serif"; 
                     ctx.fillText(currentWeekDates[i], cx, cy - 12);
-                    ctx.font = "normal 20px 'Microsoft JhengHei', sans-serif"; // 週一 放大
+                    ctx.font = "normal 20px 'Microsoft JhengHei', sans-serif"; 
                     ctx.fillText(dayNames[i], cx, cy + 20);
                 }
 
-                // 畫圓角矩形輔助函數
                 function drawRoundRect(x, y, w, h, r, color) {
                     ctx.beginPath(); ctx.moveTo(x+r, y); ctx.lineTo(x+w-r, y); ctx.quadraticCurveTo(x+w, y, x+w, y+r);
                     ctx.lineTo(x+w, y+h-r); ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h); ctx.lineTo(x+r, y+h);
@@ -280,12 +276,12 @@
                     ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.stroke();
                 }
 
-                // --- 6. 填寫員工資料與班別 ---
+                // 6. 填寫員工資料與班別
                 let rowY = startY + headerH;
                 emps.forEach(emp => {
                     let cy = rowY + rowH / 2;
                     
-                    // 姓名放大
+                    // 姓名
                     ctx.fillStyle = "#000000";
                     ctx.font = "900 26px 'Microsoft JhengHei', sans-serif"; 
                     if(!emp.name.includes('待補')) {
@@ -298,37 +294,35 @@
                         let rec = appData.records.find(r => r.name === emp.name && r.day === dayNames[i] && r.week === weekStr) || {shift:'', note:'', location:''};
                         
                         let hasSubtext = (rec.note || (rec.location && rec.location !== '本店'));
-                        // 🌟 若有備註，主時間往上提一點，給下面大字體空間
                         let textY = hasSubtext ? cy - 14 : cy;
 
                         if (rec.shift === '指休') {
-                            drawRoundRect(cx - 35, textY - 24, 70, 48, 10, '#d93025'); // 方框放大
+                            drawRoundRect(cx - 35, textY - 24, 70, 48, 10, '#d93025'); 
                             ctx.fillStyle = "#d93025";
-                            ctx.font = "900 28px 'Microsoft JhengHei', sans-serif"; // 休 放大
+                            ctx.font = "900 28px 'Microsoft JhengHei', sans-serif"; 
                             ctx.fillText("休", cx, textY + 2);
                         } else if (rec.shift === '排休') {
-                            drawRoundRect(cx - 35, textY - 24, 70, 48, 10, '#000000');
+                            // 🌟 排休無外框，只有黑字 🌟
                             ctx.fillStyle = "#000000";
                             ctx.font = "900 28px 'Microsoft JhengHei', sans-serif";
                             ctx.fillText("休", cx, textY + 2);
                         } else if (rec.shift) {
                             ctx.fillStyle = "#000000";
-                            ctx.font = "900 30px 'Arial', 'Microsoft JhengHei', sans-serif"; // 23/07 放大
+                            ctx.font = "900 30px 'Arial', 'Microsoft JhengHei', sans-serif"; 
                             ctx.fillText(rec.shift.replace('-', ' / '), cx, textY);
                         }
 
-                        // 🌟 畫備註/調店大字體
                         if (hasSubtext) {
-                            let subtextY = cy + 20; // 第一行備註位置
+                            let subtextY = cy + 20; 
                             if (rec.location && rec.location !== '本店') {
                                 ctx.fillStyle = "#e67e22";
-                                ctx.font = "bold 18px 'Microsoft JhengHei', sans-serif"; // 調店 放大
+                                ctx.font = "bold 18px 'Microsoft JhengHei', sans-serif"; 
                                 ctx.fillText(rec.location, cx, subtextY);
-                                subtextY += 22; // 如果還有備註，下一行距離加大
+                                subtextY += 22; 
                             }
                             if (rec.note) {
                                 ctx.fillStyle = "#0088aa";
-                                ctx.font = "bold 18px 'Microsoft JhengHei', sans-serif"; // 備註 放大
+                                ctx.font = "bold 18px 'Microsoft JhengHei', sans-serif"; 
                                 ctx.fillText(rec.note, cx, subtextY);
                             }
                         }
@@ -336,10 +330,10 @@
                     rowY += rowH;
                 });
 
-                // --- 7. 填寫門市備註 ---
+                // 7. 填寫門市備註
                 let cyNote = rowY + rowH / 2;
                 ctx.fillStyle = "#000000";
-                ctx.font = "900 24px 'Microsoft JhengHei', sans-serif"; // 門市備註標籤放大
+                ctx.font = "900 24px 'Microsoft JhengHei', sans-serif"; 
                 ctx.fillText("門市備註", startX + colW / 2, cyNote);
 
                 for(let i = 0; i < 7; i++) {
@@ -347,18 +341,18 @@
                     let rec = appData.records.find(r => r.name === '門市備註' && r.day === dayNames[i] && r.week === weekStr);
                     if (rec && rec.note) {
                         ctx.fillStyle = "#0088aa";
-                        ctx.font = "bold 22px 'Microsoft JhengHei', sans-serif"; // 門市備註內容放大
+                        ctx.font = "bold 22px 'Microsoft JhengHei', sans-serif"; 
                         ctx.fillText(rec.note, cx, cyNote);
                     }
                 }
 
-                // --- 8. 畫底部文字 ---
+                // 8. 畫底部文字
                 ctx.textAlign = "left";
                 ctx.fillStyle = "#000000";
-                ctx.font = "bold 20px 'Microsoft JhengHei', sans-serif"; // 底部宣告放大
+                ctx.font = "bold 20px 'Microsoft JhengHei', sans-serif"; 
                 ctx.fillText("※每周五、六公佈下週排班表，若有變動者，請事先向店長反映，勿私自調動！", startX + 5, H - 40);
 
-                // --- 9. 輸出圖片 ---
+                // 9. 輸出圖片
                 const img = document.getElementById('previewImg');
                 img.src = canvas.toDataURL("image/jpeg", 0.95);
                 document.getElementById('imagePreviewModal').style.display = 'flex';
@@ -373,10 +367,10 @@
                 alert("產圖引擎發生錯誤：" + err);
                 hideLoading();
             }
-        }, 100); // 因為不用依賴 HTML，延遲可以大幅縮短
+        }, 100); 
     }
 
-    // --- 以下為網頁操作與渲染邏輯 ---
+    // --- 網頁表格渲染與其餘邏輯 ---
     function renderTable() { let tbody = document.getElementById('tableBody'); tbody.innerHTML = ''; let week = document.getElementById('weekSelector').value; currentWeekDates = getWeekDates(week); let hRow = document.getElementById('headerRow'); let hHtml = '<th>員工</th>'; dayNames.forEach((d, i) => { hHtml += `<th><span class="date-text">${currentWeekDates[i]}</span>${d}</th>`; }); hHtml += '<th>本月累計</th>'; hRow.innerHTML = hHtml; let emps = [...appData.employees]; virtualRowNames.forEach(n => emps.push({name: n, role: '待補'})); emps.forEach((emp, eIdx) => { let tr = document.createElement('tr'); tr.innerHTML = `<td><strong>${emp.name}</strong><br><small>${emp.role}</small></td>`; dayNames.forEach(day => { let rec = appData.records.find(r => r.name === emp.name && r.day === day && r.week === week) || {shift:'', location:'本店', note:'', actualHours:''}; let td = document.createElement('td'); let btn = document.createElement('button'); btn.className = 'cell-btn'; btn.dataset.emp = emp.name; btn.dataset.day = day; btn.dataset.shift = rec.shift; btn.dataset.hours = rec.actualHours; btn.dataset.loc = rec.location; btn.dataset.note = rec.note; updateCellUI(btn); btn.onclick = () => handleCellClick(btn, eIdx); td.appendChild(btn); tr.appendChild(td); }); let sumTd = document.createElement('td'); sumTd.id = `sum-${eIdx}`; sumTd.className = 'summary-box'; tr.appendChild(sumTd); tbody.appendChild(tr); updateSummary(eIdx, emp); }); let nTr = document.createElement('tr'); nTr.innerHTML = `<td style="background:#fff3e0;"><strong>📝 備註</strong></td>`; dayNames.forEach(day => { let rec = appData.records.find(r => r.name === '門市備註' && r.day === day && r.week === week); nTr.innerHTML += `<td style="padding:0; background:#fff8e1;"><input type="text" class="daily-note-input" data-day="${day}" oninput="triggerAutoSave()" value="${rec?rec.note:''}" style="width:100%; height:55px; border:none; background:transparent; text-align:center;"></td>`; }); tbody.appendChild(nTr); updateDailyTotals(); }
     function updateCellUI(b) { let s=b.dataset.shift, h=b.dataset.hours, l=b.dataset.loc, n=b.dataset.note; let txt = s || '+'; if(s==='排休'||s==='指休') txt='休'; if(h && h!=appConfig.shiftHours[s] && s!=='排休' && s!=='指休') txt += `<br><small>(${h}h)</small>`; if(l && l!=='本店') txt += `<br><small style="color:#d93025; font-weight:800;">📍${l}</small>`; if(n) txt += `<br><small style="color:#1a73e8;">${n}</small>`; b.innerHTML = txt; b.className = 'cell-btn'; if(s==='指休') b.classList.add('zhi-xiu'); else if(s==='排休') b.classList.add('pai-xiu'); else if(s) { let start=parseInt(s); if(start>=15||start<6) b.classList.add('shift-night'); else b.classList.add('shift-morning'); } }
     function addVirtualRow() { syncUIToMemory(); let n = 1; while(virtualRowNames.includes('🆘待補'+n)) n++; virtualRowNames.push('🆘待補'+n); renderTable(); triggerAutoSave(); }
