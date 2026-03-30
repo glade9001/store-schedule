@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>門市排班神器 🚀 終極完備版</title>
+  <title>門市排班神器 </title>
   
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
@@ -25,7 +25,6 @@
   </script>
 
   <style>
-    /* --- 網頁介面 UI --- */
     body { font-family: -apple-system, "Segoe UI", "Microsoft JhengHei", sans-serif; padding: 15px; background-color: #f1f3f4; margin: 0; color: #202124; }
     h2 { text-align: center; margin-bottom: 5px; font-size: 22px; font-weight: 800; color: #1a73e8; }
     #syncStatus { text-align: center; font-size: 12px; color: #70757a; margin-bottom: 12px; height: 24px; display: flex; align-items: center; justify-content: center; gap: 8px; }
@@ -74,12 +73,19 @@
     .quick-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 15px 0; }
     .emp-row { display: flex; align-items: center; padding: 12px; border-bottom: 1px solid #eee; background: white; gap: 10px; }
 
-    /* 🌟 A4 完美比例產圖樣式設定 */
+    /* 🌟 防切邊：A4 完美比例產圖樣式設定 */
     #exportContainer {
         display: none; 
-        width: 820px; /* 寬度瘦身，更逼近 A4 比例 */
+        /* 🚨 強制懸浮定位，不讓設備寬度影響它 */
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: -10;
+        width: 900px !important; 
+        min-width: 900px !important; 
+        max-width: 900px !important; 
         background-color: #ffffff; 
-        padding: 30px 40px; /* 紙張左右留白 */
+        padding: 30px 40px; 
         box-sizing: border-box;
         font-family: "Microsoft JhengHei", "Segoe UI", sans-serif;
     }
@@ -89,7 +95,6 @@
         border: 3px solid #000000;
         table-layout: fixed;
     }
-    /* 強制覆蓋所有網頁表頭顏色 */
     #exportContainer th, #exportContainer td {
         border: 2px solid #000000 !important;
         background-color: #ffffff !important;
@@ -217,23 +222,21 @@
         } catch(e) { document.getElementById('syncStatus').innerText = "❌ 同步失敗：" + e.message; }
     }
 
-    // 🌟 核心：A4 完美產圖引擎 (絕對隔離版) 🌟
+    // 🌟 核心防裁切產圖引擎 🌟
     function exportImage() {
         syncUIToMemory();
-        showLoading("📸 正在產生 A4 高清排班表，請稍候...");
+        showLoading("📸 正在產生防裁切 A4 排班表...");
         
         let store = document.getElementById('storeSelector').value;
         let weekStr = document.getElementById('weekSelector').value;
         let emps = [...appData.employees]; 
         virtualRowNames.forEach(n => emps.push({name: n, role: '待補'}));
 
-        // 1. 標題與日期格式化
         document.getElementById('exportTitle').innerText = `${store} 職員輪班表`;
         let startArr = currentWeekDates[0].split('/');
         let endArr = currentWeekDates[6].split('/');
         document.getElementById('exportDates').innerText = `${startArr[0]} 月 ${startArr[1]} 日 至 ${endArr[0]} 月 ${endArr[1]} 日`;
 
-        // 2. 表頭：精準的 SVG 對半切割斜線
         let headerHtml = `<tr>
             <th style="width: 100px; height: 75px; position: relative; padding: 0;">
                 <svg style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block;" preserveAspectRatio="none">
@@ -252,7 +255,6 @@
         headerHtml += `</tr>`;
         document.getElementById('exportHeader').innerHTML = headerHtml;
 
-        // 3. 表身 (行高拉長至 75px，姓名待補空白)
         let bodyHtml = '';
         emps.forEach((emp) => {
             let empNameDisplay = emp.name.includes('待補') ? '' : emp.name;
@@ -270,7 +272,6 @@
                     shiftHtml = `<div style="font-size:20px; font-weight:900; color:black;">${rec.shift.replace('-', ' / ')}</div>`;
                 }
 
-                // 地點(調店)與備註
                 let locText = (rec.location && rec.location !== '本店') ? `<div style="font-size: 12px; color: #e67e22; margin-top:3px; font-weight:bold;">${rec.location}</div>` : '';
                 let noteText = rec.note ? `<div style="font-size: 12px; color: #0088aa; margin-top:3px; font-weight:bold;">${rec.note}</div>` : '';
 
@@ -279,7 +280,6 @@
             bodyHtml += `</tr>`;
         });
 
-        // 4. 門市備註行 (行高 80px)
         bodyHtml += `<tr style="height: 80px;"><td style="font-weight: 900; font-size: 16px; padding: 12px 5px; color: black;">門市備註</td>`;
         dayNames.forEach(day => {
             let rec = appData.records.find(r => r.name === '門市備註' && r.day === day && r.week === weekStr);
@@ -287,7 +287,6 @@
         });
         bodyHtml += `</tr>`;
 
-        // 5. 底部補充 5 行空白列，拉滿 A4 比例
         for(let i=0; i<5; i++) {
             bodyHtml += `<tr style="height: 75px;">`;
             for(let j=0; j<8; j++) { bodyHtml += `<td></td>`; }
@@ -295,17 +294,18 @@
         }
 
         document.getElementById('exportBody').innerHTML = bodyHtml;
-        
         const container = document.getElementById('exportContainer');
         container.style.display = 'block'; 
 
         setTimeout(() => {
+            // 🚨 強制參數：無視設備寬度，寫死產圖解析寬度 900px
             html2canvas(container, { 
                 scale: 2.2, 
                 useCORS: true, 
                 backgroundColor: "#ffffff", 
                 logging: false,
-                windowWidth: 1000 // 防止右側切斷
+                width: 900,
+                windowWidth: 900
             }).then(canvas => {
                 const img = document.getElementById('previewImg');
                 img.src = canvas.toDataURL("image/jpeg", 0.95);
@@ -321,54 +321,9 @@
         }, 500);
     }
 
-    // --- 網頁表格渲染與其餘邏輯 ---
-    function renderTable() {
-        let tbody = document.getElementById('tableBody'); tbody.innerHTML = '';
-        let week = document.getElementById('weekSelector').value;
-        currentWeekDates = getWeekDates(week);
-        let hRow = document.getElementById('headerRow');
-        let hHtml = '<th>員工</th>';
-        dayNames.forEach((d, i) => { hHtml += `<th><span class="date-text">${currentWeekDates[i]}</span>${d}</th>`; });
-        hHtml += '<th>本月累計</th>'; hRow.innerHTML = hHtml;
-
-        let emps = [...appData.employees]; 
-        virtualRowNames.forEach(n => emps.push({name: n, role: '待補'}));
-
-        emps.forEach((emp, eIdx) => {
-            let tr = document.createElement('tr'); 
-            tr.innerHTML = `<td><strong>${emp.name}</strong><br><small>${emp.role}</small></td>`;
-            dayNames.forEach(day => {
-                let rec = appData.records.find(r => r.name === emp.name && r.day === day && r.week === week) || {shift:'', location:'本店', note:'', actualHours:''};
-                let td = document.createElement('td'); let btn = document.createElement('button'); btn.className = 'cell-btn';
-                btn.dataset.emp = emp.name; btn.dataset.day = day; btn.dataset.shift = rec.shift;
-                btn.dataset.hours = rec.actualHours; btn.dataset.loc = rec.location; btn.dataset.note = rec.note;
-                updateCellUI(btn); btn.onclick = () => handleCellClick(btn, eIdx); td.appendChild(btn); tr.appendChild(td);
-            });
-            let sumTd = document.createElement('td'); sumTd.id = `sum-${eIdx}`; sumTd.className = 'summary-box'; tr.appendChild(sumTd); tbody.appendChild(tr);
-            updateSummary(eIdx, emp);
-        });
-
-        let nTr = document.createElement('tr'); nTr.innerHTML = `<td style="background:#fff3e0;"><strong>📝 備註</strong></td>`;
-        dayNames.forEach(day => {
-            let rec = appData.records.find(r => r.name === '門市備註' && r.day === day && r.week === week);
-            nTr.innerHTML += `<td style="padding:0; background:#fff8e1;"><input type="text" class="daily-note-input" data-day="${day}" oninput="triggerAutoSave()" value="${rec?rec.note:''}" style="width:100%; height:55px; border:none; background:transparent; text-align:center;"></td>`;
-        });
-        tbody.appendChild(nTr);
-        updateDailyTotals();
-    }
-
-    function updateCellUI(b) {
-        let s=b.dataset.shift, h=b.dataset.hours, l=b.dataset.loc, n=b.dataset.note;
-        let txt = s || '+'; if(s==='排休'||s==='指休') txt='休';
-        if(h && h!=appConfig.shiftHours[s] && s!=='排休' && s!=='指休') txt += `<br><small>(${h}h)</small>`;
-        if(l && l!=='本店') txt += `<br><small style="color:#d93025; font-weight:800;">📍${l}</small>`;
-        if(n) txt += `<br><small style="color:#1a73e8;">${n}</small>`;
-        b.innerHTML = txt; b.className = 'cell-btn';
-        if(s==='指休') b.classList.add('zhi-xiu'); else if(s==='排休') b.classList.add('pai-xiu');
-        else if(s) { let start=parseInt(s); if(start>=15||start<6) b.classList.add('shift-night'); else b.classList.add('shift-morning'); }
-    }
-
-    // --- 其餘輔助功能 ---
+    // --- 其餘所有邏輯 ---
+    function renderTable() { let tbody = document.getElementById('tableBody'); tbody.innerHTML = ''; let week = document.getElementById('weekSelector').value; currentWeekDates = getWeekDates(week); let hRow = document.getElementById('headerRow'); let hHtml = '<th>員工</th>'; dayNames.forEach((d, i) => { hHtml += `<th><span class="date-text">${currentWeekDates[i]}</span>${d}</th>`; }); hHtml += '<th>本月累計</th>'; hRow.innerHTML = hHtml; let emps = [...appData.employees]; virtualRowNames.forEach(n => emps.push({name: n, role: '待補'})); emps.forEach((emp, eIdx) => { let tr = document.createElement('tr'); tr.innerHTML = `<td><strong>${emp.name}</strong><br><small>${emp.role}</small></td>`; dayNames.forEach(day => { let rec = appData.records.find(r => r.name === emp.name && r.day === day && r.week === week) || {shift:'', location:'本店', note:'', actualHours:''}; let td = document.createElement('td'); let btn = document.createElement('button'); btn.className = 'cell-btn'; btn.dataset.emp = emp.name; btn.dataset.day = day; btn.dataset.shift = rec.shift; btn.dataset.hours = rec.actualHours; btn.dataset.loc = rec.location; btn.dataset.note = rec.note; updateCellUI(btn); btn.onclick = () => handleCellClick(btn, eIdx); td.appendChild(btn); tr.appendChild(td); }); let sumTd = document.createElement('td'); sumTd.id = `sum-${eIdx}`; sumTd.className = 'summary-box'; tr.appendChild(sumTd); tbody.appendChild(tr); updateSummary(eIdx, emp); }); let nTr = document.createElement('tr'); nTr.innerHTML = `<td style="background:#fff3e0;"><strong>📝 備註</strong></td>`; dayNames.forEach(day => { let rec = appData.records.find(r => r.name === '門市備註' && r.day === day && r.week === week); nTr.innerHTML += `<td style="padding:0; background:#fff8e1;"><input type="text" class="daily-note-input" data-day="${day}" oninput="triggerAutoSave()" value="${rec?rec.note:''}" style="width:100%; height:55px; border:none; background:transparent; text-align:center;"></td>`; }); tbody.appendChild(nTr); updateDailyTotals(); }
+    function updateCellUI(b) { let s=b.dataset.shift, h=b.dataset.hours, l=b.dataset.loc, n=b.dataset.note; let txt = s || '+'; if(s==='排休'||s==='指休') txt='休'; if(h && h!=appConfig.shiftHours[s] && s!=='排休' && s!=='指休') txt += `<br><small>(${h}h)</small>`; if(l && l!=='本店') txt += `<br><small style="color:#d93025; font-weight:800;">📍${l}</small>`; if(n) txt += `<br><small style="color:#1a73e8;">${n}</small>`; b.innerHTML = txt; b.className = 'cell-btn'; if(s==='指休') b.classList.add('zhi-xiu'); else if(s==='排休') b.classList.add('pai-xiu'); else if(s) { let start=parseInt(s); if(start>=15||start<6) b.classList.add('shift-night'); else b.classList.add('shift-morning'); } }
     function addVirtualRow() { syncUIToMemory(); let n = 1; while(virtualRowNames.includes('🆘待補'+n)) n++; virtualRowNames.push('🆘待補'+n); renderTable(); triggerAutoSave(); }
     async function copyLastWeek() { let store = document.getElementById('storeSelector').value; let week = document.getElementById('weekSelector').value; let parts = week.split('-W'); let prevW = parseInt(parts[1]) - 1; let prevWeekStr = parts[0] + '-W' + (prevW < 10 ? '0'+prevW : prevW); if(!confirm(`確定複製上週 (${prevWeekStr}) 班表？`)) return; showLoading("複製資料中..."); const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(prevWeekStr).get(); if(snap.exists) { let newRecords = snap.data().records.map(r => ({ ...r, week: week })); appData.records = appData.records.filter(r => r.week !== week).concat(newRecords); renderTable(); triggerAutoSave(); alert("📋 複製完成！"); } else { alert("找不到上週資料。"); } hideLoading(); }
     function pushToUndo(b) { undoStack.push({ btn:b, s:b.dataset.shift, h:b.dataset.hours, l:b.dataset.loc, n:b.dataset.note }); if(undoStack.length>30) undoStack.shift(); }
