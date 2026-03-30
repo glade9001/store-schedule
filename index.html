@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>門市排班神器 🚀 原生大字體版</title>
+  <title>📅 門市排班神器 🚀</title>
   
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
@@ -25,21 +25,20 @@
 
   <style>
     body { font-family: -apple-system, "Segoe UI", "Microsoft JhengHei", sans-serif; padding: 15px; background-color: #f1f3f4; margin: 0; color: #202124; }
-    h2 { text-align: center; margin-bottom: 5px; font-size: 22px; font-weight: 800; color: #1a73e8; }
+    h2 { text-align: center; margin-bottom: 5px; font-size: 24px; font-weight: 900; color: #1a73e8; letter-spacing: 1px; }
     #syncStatus { text-align: center; font-size: 12px; color: #70757a; margin-bottom: 12px; height: 24px; display: flex; align-items: center; justify-content: center; gap: 8px; }
     #syncStatus .dot { width: 10px; height: 10px; border-radius: 50%; background: #34a853; box-shadow: 0 0 5px rgba(52,168,83,0.5); }
     #syncStatus.syncing { color: #d93025; font-weight: bold; }
     #syncStatus.syncing .dot { background: #d93025; animation: blink 0.8s infinite; }
     @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
 
-    .controls { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-bottom: 15px; }
+    .controls { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; margin-bottom: 15px; }
     select, input, button { padding: 9px 12px; border-radius: 6px; border: 1px solid #dadce0; font-size: 14px; background: white; }
     button { cursor: pointer; font-weight: 700; transition: 0.1s; border: none; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
     button:active { transform: translateY(1px); box-shadow: none; }
     
+    .btn-nav { background: #5f6368; color: white; padding: 9px 15px; }
     .btn-save { background: #1a73e8; color: white; }
-    .btn-undo { background: #5f6368; color: white; }
-    .btn-copy { background: #34a853; color: white; }
     .btn-print { background: #e67e22; color: white; }
     .btn-manage { background: #9334e6; color: white; }
     .btn-sys { background: #3c4043; color: white; }
@@ -47,7 +46,7 @@
     .btn-paint-toggle { background: #00897b; color: white; }
     .btn-paint-toggle.active { background: #d93025; }
 
-    .table-responsive { width: 100%; height: 68vh; overflow: auto; background: white; border-radius: 8px; border: 1px solid #dadce0; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+    .table-responsive { width: 100%; height: 65vh; overflow: auto; background: white; border-radius: 8px; border: 1px solid #dadce0; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
     table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 1000px; }
     th, td { border-right: 1px solid #e8eaed; border-bottom: 1px solid #e8eaed; padding: 8px; text-align: center; vertical-align: middle; }
     th { position: sticky; top: 0; z-index: 10; background-color: #1a73e8; color: white; font-size: 14px; }
@@ -71,22 +70,32 @@
     .total-row { background-color: #e8f5e9; font-weight: bold; font-size: 15px; color: #2e7d32; }
     .quick-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 15px 0; }
     .emp-row { display: flex; align-items: center; padding: 12px; border-bottom: 1px solid #eee; background: white; gap: 10px; }
+
+    #exportContainer {
+        display: none; position: absolute; top: 0; left: 0; z-index: -10;
+        width: 1400px !important; min-width: 1400px !important; max-width: 1400px !important; 
+        background-color: #ffffff; padding: 40px 60px; box-sizing: border-box;
+        font-family: "Microsoft JhengHei", "Segoe UI", sans-serif;
+    }
+    #exportContainer table { width: 100%; border-collapse: collapse; border: 3px solid #000; table-layout: fixed; }
+    #exportContainer th, #exportContainer td { border: 2px solid #000 !important; background-color: #fff !important; color: #000 !important; text-align: center; vertical-align: middle; }
+    .footer-copyright { text-align: center; margin-top: 20px; font-size: 13px; color: #aaa; font-weight: bold; letter-spacing: 1px; }
   </style>
 </head>
 <body>
 
   <div id="loadingOverlay"><div class="spinner"></div><div id="loadingText">處理中...</div></div>
 
-  <h2>📅 門市排班神器 🚀 原生大字體版</h2>
+  <h2>📅 門市排班神器 🚀</h2>
   <div id="syncStatus"><div class="dot"></div><span>✅ 所有變更已儲存</span></div>
   
   <div class="controls">
     <select id="storeSelector" onchange="handleStoreChange()"></select>
+    <button class="btn-nav" onclick="changeWeek(-1)">◀ 上週</button>
     <input type="week" id="weekSelector" onchange="loadScheduleData()">
-    <button class="btn-undo" onclick="undoLastAction()">↩️ 撤銷</button>
-    <button class="btn-copy" onclick="copyLastWeek()">📋 複製上週</button>
+    <button class="btn-nav" onclick="changeWeek(1)">下週 ▶</button>
     <button class="btn-save" onclick="saveScheduleData(true)">💾 強制儲存</button>
-    <button class="btn-print" onclick="exportNativeImage()">📱 產圖 (A4大字體)</button>
+    <button class="btn-print" onclick="exportNativeImage()">📱 產圖 (A4大字)</button>
     <button class="btn-virtual" onclick="addVirtualRow()">➕ 待補</button>
     <button class="btn-manage" onclick="openEmpModal()">👥 人員管理</button>
     <button class="btn-sys" onclick="openSysModal()">🛠️ 系統設定</button>
@@ -97,8 +106,8 @@
     <strong>🖌️ 刷頭：</strong>
     <select id="paintShift" onchange="autoFillPaintHours()"></select>
     <input type="number" id="paintHours" placeholder="時數" style="width:70px;">
-    <input type="text" id="paintLoc" value="本店" style="width:80px;">
-    <input type="text" id="paintNote" placeholder="備註內容" style="width:120px;">
+    <select id="paintLoc" style="width:90px;"></select>
+    <input type="text" id="paintNote" placeholder="備註 / 人員" style="width:120px;">
   </div>
 
   <div class="table-responsive">
@@ -109,15 +118,43 @@
     </table>
   </div>
 
-  <div id="shiftModal" class="modal"><div class="modal-content"><h3 id="modalTitle">設定班別</h3><div id="quickShiftButtons" class="quick-grid"></div><div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;"><div><label style="font-size:12px; font-weight:bold; color:#5f6368;">📝 班別名稱</label><input type="text" id="modalShift" oninput="autoFillHours()" style="width:100%; padding:12px; box-sizing:border-box;"></div><div><label style="font-size:12px; font-weight:bold; color:#5f6368;">⏱️ 工時 (自動)</label><input type="number" id="modalHours" step="0.5" style="width:100%; padding:12px; box-sizing:border-box;"></div></div><div style="display:grid; grid-template-columns:1fr 1fr; gap:15px; margin-top:15px;"><div><label style="font-size:12px; font-weight:bold; color:#5f6368;">📍 工作地點</label><input type="text" id="modalLocation" style="width:100%; padding:12px; box-sizing:border-box;"></div><div><label style="font-size:12px; font-weight:bold; color:#5f6368;">💡 備註</label><input type="text" id="modalNote" style="width:100%; padding:12px; box-sizing:border-box;"></div></div><button onclick="applyShift()" style="width:100%; padding:15px; background:#1a73e8; color:white; margin-top:25px; border-radius:10px; font-size:16px;">確認套用並同步</button><button onclick="closeModal('shiftModal')" style="width:100%; background:none; border:none; color:#666; margin-top:10px; cursor:pointer;">取消返回</button></div></div>
+  <div class="footer-copyright">© Kai Kai All Rights Reserved.</div>
+
+  <div id="shiftModal" class="modal">
+    <div class="modal-content">
+      <h3 id="modalTitle">設定班別</h3>
+      <div id="quickShiftButtons" class="quick-grid"></div>
+      
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
+        <div><label style="font-size:12px; font-weight:bold; color:#5f6368;">📝 班別名稱</label><input type="text" id="modalShift" oninput="autoFillHours()" style="width:100%; padding:12px; box-sizing:border-box;"></div>
+        <div><label style="font-size:12px; font-weight:bold; color:#5f6368;">⏱️ 工時 (自動)</label><input type="number" id="modalHours" step="0.5" style="width:100%; padding:12px; box-sizing:border-box;"></div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px; margin-top:15px;">
+        <div id="modalLocGroup"><label style="font-size:12px; font-weight:bold; color:#5f6368;">📍 工作地點</label><select id="modalLocation" style="width:100%; padding:12px; box-sizing:border-box;"></select></div>
+        <div id="modalNoteGroup"><label id="modalNoteLabel" style="font-size:12px; font-weight:bold; color:#5f6368;">💡 備註</label><input type="text" id="modalNote" style="width:100%; padding:12px; box-sizing:border-box;"></div>
+      </div>
+
+      <button onclick="applyShift()" style="width:100%; padding:15px; background:#1a73e8; color:white; margin-top:25px; border-radius:10px; font-size:16px;">確認套用並同步</button>
+      <button onclick="closeModal('shiftModal')" style="width:100%; background:none; border:none; color:#666; margin-top:10px; cursor:pointer;">取消返回</button>
+    </div>
+  </div>
+  
   <div id="imagePreviewModal" class="modal"><div class="modal-content" style="max-width:800px;"><img id="previewImg" style="width:100%; border-radius:8px; border:1px solid #ddd;"><button id="downloadImgBtn" style="width:100%; padding:15px; background:#1a73e8; color:white; margin-top:15px; border-radius:10px; border:none; font-size:16px; cursor:pointer;">⬇️ 下載班表圖片</button><button onclick="closeModal('imagePreviewModal')" style="width:100%; border:none; background:none; margin-top:10px; color:#666; cursor:pointer;">關閉預覽</button></div></div>
   <div id="empModal" class="modal"><div class="modal-content" style="max-width:650px;"><h3>👥 人員與調店管理系統</h3><div style="background:#e8f5e9; padding:15px; border-radius:10px; display:flex; gap:10px; margin-bottom:15px;"><input type="text" id="newEmpName" placeholder="員工姓名" style="width:35%; padding:10px; box-sizing:border-box;"><select id="newEmpRole" style="width:25%; padding:10px; box-sizing:border-box;"><option value="工讀">工讀</option><option value="正職">正職</option></select><input type="number" id="newEmpWage" placeholder="薪資" style="width:30%; padding:10px; box-sizing:border-box;"><button onclick="localAddEmp()" style="background:#34a853; color:white; padding:10px 15px; border-radius:8px;">加入</button></div><div id="localEmpList" style="max-height:350px; overflow-y:auto; border:1px solid #eee; border-radius:8px;"></div><button onclick="batchSaveEmps()" style="width:100%; padding:18px; background:#9334e6; color:white; margin-top:20px; border-radius:10px; border:none; font-size:16px; cursor:pointer;">💾 儲存所有異動</button><button onclick="closeModal('empModal')" style="width:100%; border:none; background:none; margin-top:10px; color:#666; cursor:pointer;">取消</button></div></div>
   <div id="sysModal" class="modal"><div class="modal-content"><h3>🛠️ 系統基礎設定</h3><div id="sysStoreList"></div><div style="display:flex; gap:5px; margin-top:10px;"><input type="text" id="newStoreInput" placeholder="門市名稱" style="padding:10px; width:100%; box-sizing:border-box;"><button onclick="addSysStore()" style="background:#1a73e8; color:white;">新增門市</button></div><div id="sysShiftList" style="margin-top:20px; border-top:1px solid #eee; padding-top:15px;"></div><div style="display:flex; gap:5px; margin-top:10px;"><input type="text" id="newShiftName" placeholder="班別" style="flex:2; padding:10px; box-sizing:border-box;"><input type="number" id="newShiftHours" placeholder="時數" style="flex:1; padding:10px; box-sizing:border-box;"><button onclick="addSysShift()" style="background:#34a853; color:white;">新增</button></div><button onclick="saveSysConfig()" style="width:100%; padding:18px; background:#3c4043; color:white; margin-top:30px; border-radius:10px; border:none; font-size:16px; cursor:pointer;">💾 儲存並套用</button><button onclick="closeModal('sysModal')" style="width:100%; border:none; background:none; margin-top:10px; color:#666; cursor:pointer;">取消</button></div></div>
 
+  <div id="exportContainer">
+    <h1 id="exportTitle" style="text-align: center; font-size: 48px; font-weight: 900; margin-bottom: 10px; letter-spacing: 4px; color: #000;">美德 職員輪班表</h1>
+    <p id="exportDates" style="text-align: center; font-size: 26px; color: #333; margin-bottom: 25px; font-weight:bold; letter-spacing: 3px;"></p>
+    <table id="exportTable"><thead id="exportHeader"></thead><tbody id="exportBody"></tbody></table>
+    <p style="text-align: left; font-size: 20px; font-weight: bold; color: #000; margin-top: 15px; margin-left: 5px;">※每周五、六公佈下週排班表，若有變動者，請事先向店長反映，勿私自調動！</p>
+  </div>
+
   <script>
     let appConfig = { stores: [], shifts: ["排休", "指休"], shiftHours: {} };
     let appData = { employees: [], records: [] };
-    let undoStack = [], currentWeekDates = [], virtualRowNames = [], localActiveEmps = [], localDeletedNames = [];
+    let currentWeekDates = [], virtualRowNames = [], localActiveEmps = [], localDeletedNames = [];
     let currentCell = null, isPaintMode = false, autoSaveTimer = null;
     const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
 
@@ -137,6 +174,23 @@
         let res = [];
         for(let i=0; i<7; i++) { res.push((d.getMonth()+1)+'/'+d.getDate()); d.setDate(d.getDate()+1); }
         return res;
+    }
+
+    function changeWeek(offset) {
+        let input = document.getElementById('weekSelector');
+        if(!input.value) return;
+        input.stepUp(offset); 
+        loadScheduleData();
+    }
+
+    function updateLocDropdowns() {
+        let currentStore = document.getElementById('storeSelector').value;
+        let opts = `<option value="本店">本店</option>`;
+        (appConfig.stores || []).forEach(s => {
+            if (s !== currentStore) opts += `<option value="${s}">${s}</option>`;
+        });
+        let mLoc = document.getElementById('modalLocation'); if(mLoc) mLoc.innerHTML = opts;
+        let pLoc = document.getElementById('paintLoc'); if(pLoc) pLoc.innerHTML = opts;
     }
 
     window.onload = async () => {
@@ -173,7 +227,7 @@
         } catch(e) { document.getElementById('syncStatus').innerText = "❌ 同步失敗：" + e.message; }
     }
 
-    // 🌟 原生 Canvas 繪圖引擎 (無框排休版) 🌟
+    // 🌟 原生 Canvas 產圖
     function exportNativeImage() {
         syncUIToMemory();
         showLoading("📸 正在啟動高解析度原生繪圖引擎...");
@@ -188,85 +242,47 @@
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
                 
-                const W = 1400; // 寬度加大
-                const startX = 80; // 左邊界
-                const gridW = W - startX * 2; // 表格寬 = 1240
-                const colW = gridW / 8; // 每一欄寬 = 155
+                const W = 1400; 
+                const startX = 80; 
+                const gridW = W - startX * 2; 
+                const colW = gridW / 8; 
                 
-                const rowH = 95; // 每一列高
-                const headerH = 95; // 表頭高
+                const rowH = 95; 
+                const headerH = 95; 
                 const numEmpRows = emps.length;
-                const numEmptyRows = 5; // 底部留白列數
+                const numEmptyRows = 5; 
                 
                 const gridH = headerH + (numEmpRows * rowH) + rowH + (numEmptyRows * rowH);
                 const startY = 240; 
                 const H = startY + gridH + 120; 
 
-                canvas.width = W;
-                canvas.height = H;
+                canvas.width = W; canvas.height = H;
+                ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, W, H);
 
-                // 1. 畫純白背景
-                ctx.fillStyle = "#ffffff";
-                ctx.fillRect(0, 0, W, H);
-
-                // 2. 畫標題與日期
-                ctx.textAlign = "center";
-                ctx.textBaseline = "middle";
-                ctx.fillStyle = "#000000";
-                
+                ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "#000000";
                 ctx.font = "900 48px 'Microsoft JhengHei', sans-serif"; 
                 ctx.fillText(`${store} 職員輪班表`, W / 2, 90);
                 
-                let startArr = currentWeekDates[0].split('/');
-                let endArr = currentWeekDates[6].split('/');
-                ctx.font = "bold 26px 'Microsoft JhengHei', sans-serif"; 
-                ctx.fillStyle = "#333333";
+                let startArr = currentWeekDates[0].split('/'); let endArr = currentWeekDates[6].split('/');
+                ctx.font = "bold 26px 'Microsoft JhengHei', sans-serif"; ctx.fillStyle = "#333333";
                 ctx.fillText(`${startArr[0]} 月 ${startArr[1]} 日 至 ${endArr[0]} 月 ${endArr[1]} 日`, W / 2, 160);
 
-                // 3. 畫表格外框與格線
-                ctx.lineWidth = 3; 
-                ctx.strokeStyle = "#000000";
-                ctx.strokeRect(startX, startY, gridW, gridH);
-
+                ctx.lineWidth = 3; ctx.strokeStyle = "#000000"; ctx.strokeRect(startX, startY, gridW, gridH);
                 ctx.lineWidth = 2; 
-                for(let i = 1; i < 8; i++) {
-                    ctx.beginPath();
-                    ctx.moveTo(startX + i * colW, startY);
-                    ctx.lineTo(startX + i * colW, startY + gridH);
-                    ctx.stroke();
-                }
+                for(let i = 1; i < 8; i++) { ctx.beginPath(); ctx.moveTo(startX + i * colW, startY); ctx.lineTo(startX + i * colW, startY + gridH); ctx.stroke(); }
                 let currentY = startY + headerH;
-                while (currentY < startY + gridH) {
-                    ctx.beginPath();
-                    ctx.moveTo(startX, currentY);
-                    ctx.lineTo(startX + gridW, currentY);
-                    ctx.stroke();
-                    currentY += rowH;
-                }
+                while (currentY < startY + gridH) { ctx.beginPath(); ctx.moveTo(startX, currentY); ctx.lineTo(startX + gridW, currentY); ctx.stroke(); currentY += rowH; }
 
-                // 4. 畫左上角斜線與文字
-                ctx.beginPath();
-                ctx.moveTo(startX, startY);
-                ctx.lineTo(startX + colW, startY + headerH);
-                ctx.lineWidth = 2;
-                ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(startX, startY); ctx.lineTo(startX + colW, startY + headerH); ctx.lineWidth = 2; ctx.stroke();
 
-                ctx.font = "bold 20px 'Microsoft JhengHei', sans-serif"; 
-                ctx.fillStyle = "#000000";
-                ctx.textAlign = "right";
-                ctx.fillText("月/日", startX + colW - 15, startY + 30);
-                ctx.textAlign = "left";
-                ctx.fillText("姓名", startX + 15, startY + headerH - 30);
+                ctx.font = "bold 20px 'Microsoft JhengHei', sans-serif"; ctx.fillStyle = "#000000"; ctx.textAlign = "right"; ctx.fillText("月/日", startX + colW - 15, startY + 30);
+                ctx.textAlign = "left"; ctx.fillText("姓名", startX + 15, startY + headerH - 30);
 
-                // 5. 畫表頭日期
                 ctx.textAlign = "center";
                 for(let i = 0; i < 7; i++) {
-                    let cx = startX + (i + 1) * colW + colW / 2;
-                    let cy = startY + headerH / 2;
-                    ctx.font = "900 26px 'Microsoft JhengHei', sans-serif"; 
-                    ctx.fillText(currentWeekDates[i], cx, cy - 12);
-                    ctx.font = "normal 20px 'Microsoft JhengHei', sans-serif"; 
-                    ctx.fillText(dayNames[i], cx, cy + 20);
+                    let cx = startX + (i + 1) * colW + colW / 2; let cy = startY + headerH / 2;
+                    ctx.font = "900 26px 'Microsoft JhengHei', sans-serif"; ctx.fillText(currentWeekDates[i], cx, cy - 12);
+                    ctx.font = "normal 20px 'Microsoft JhengHei', sans-serif"; ctx.fillText(dayNames[i], cx, cy + 20);
                 }
 
                 function drawRoundRect(x, y, w, h, r, color) {
@@ -276,19 +292,12 @@
                     ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.stroke();
                 }
 
-                // 6. 填寫員工資料與班別
                 let rowY = startY + headerH;
                 emps.forEach(emp => {
                     let cy = rowY + rowH / 2;
-                    
-                    // 姓名
-                    ctx.fillStyle = "#000000";
-                    ctx.font = "900 26px 'Microsoft JhengHei', sans-serif"; 
-                    if(!emp.name.includes('待補')) {
-                        ctx.fillText(emp.name, startX + colW / 2, cy);
-                    }
+                    ctx.fillStyle = "#000000"; ctx.font = "900 26px 'Microsoft JhengHei', sans-serif"; 
+                    if(!emp.name.includes('待補')) ctx.fillText(emp.name, startX + colW / 2, cy);
 
-                    // 班別
                     for(let i = 0; i < 7; i++) {
                         let cx = startX + (i + 1) * colW + colW / 2;
                         let rec = appData.records.find(r => r.name === emp.name && r.day === dayNames[i] && r.week === weekStr) || {shift:'', note:'', location:''};
@@ -298,31 +307,21 @@
 
                         if (rec.shift === '指休') {
                             drawRoundRect(cx - 35, textY - 24, 70, 48, 10, '#d93025'); 
-                            ctx.fillStyle = "#d93025";
-                            ctx.font = "900 28px 'Microsoft JhengHei', sans-serif"; 
-                            ctx.fillText("休", cx, textY + 2);
+                            ctx.fillStyle = "#d93025"; ctx.font = "900 28px 'Microsoft JhengHei', sans-serif"; ctx.fillText("休", cx, textY + 2);
                         } else if (rec.shift === '排休') {
-                            // 🌟 排休無外框，只有黑字 🌟
-                            ctx.fillStyle = "#000000";
-                            ctx.font = "900 28px 'Microsoft JhengHei', sans-serif";
-                            ctx.fillText("休", cx, textY + 2);
+                            ctx.fillStyle = "#000000"; ctx.font = "900 28px 'Microsoft JhengHei', sans-serif"; ctx.fillText("休", cx, textY + 2);
                         } else if (rec.shift) {
-                            ctx.fillStyle = "#000000";
-                            ctx.font = "900 30px 'Arial', 'Microsoft JhengHei', sans-serif"; 
-                            ctx.fillText(rec.shift.replace('-', ' / '), cx, textY);
+                            ctx.fillStyle = "#000000"; ctx.font = "900 30px 'Arial', 'Microsoft JhengHei', sans-serif"; ctx.fillText(rec.shift.replace('-', ' / '), cx, textY);
                         }
 
                         if (hasSubtext) {
                             let subtextY = cy + 20; 
                             if (rec.location && rec.location !== '本店') {
-                                ctx.fillStyle = "#e67e22";
-                                ctx.font = "bold 18px 'Microsoft JhengHei', sans-serif"; 
-                                ctx.fillText(rec.location, cx, subtextY);
-                                subtextY += 22; 
+                                ctx.fillStyle = "#e67e22"; ctx.font = "bold 18px 'Microsoft JhengHei', sans-serif"; 
+                                ctx.fillText(rec.location, cx, subtextY); subtextY += 22; 
                             }
                             if (rec.note) {
-                                ctx.fillStyle = "#0088aa";
-                                ctx.font = "bold 18px 'Microsoft JhengHei', sans-serif"; 
+                                ctx.fillStyle = "#0088aa"; ctx.font = "bold 18px 'Microsoft JhengHei', sans-serif"; 
                                 ctx.fillText(rec.note, cx, subtextY);
                             }
                         }
@@ -330,64 +329,158 @@
                     rowY += rowH;
                 });
 
-                // 7. 填寫門市備註
                 let cyNote = rowY + rowH / 2;
-                ctx.fillStyle = "#000000";
-                ctx.font = "900 24px 'Microsoft JhengHei', sans-serif"; 
-                ctx.fillText("門市備註", startX + colW / 2, cyNote);
+                ctx.fillStyle = "#000000"; ctx.font = "900 24px 'Microsoft JhengHei', sans-serif"; ctx.fillText("門市備註", startX + colW / 2, cyNote);
 
                 for(let i = 0; i < 7; i++) {
                     let cx = startX + (i + 1) * colW + colW / 2;
                     let rec = appData.records.find(r => r.name === '門市備註' && r.day === dayNames[i] && r.week === weekStr);
                     if (rec && rec.note) {
-                        ctx.fillStyle = "#0088aa";
-                        ctx.font = "bold 22px 'Microsoft JhengHei', sans-serif"; 
-                        ctx.fillText(rec.note, cx, cyNote);
+                        ctx.fillStyle = "#0088aa"; ctx.font = "bold 22px 'Microsoft JhengHei', sans-serif"; ctx.fillText(rec.note, cx, cyNote);
                     }
                 }
 
-                // 8. 畫底部文字
-                ctx.textAlign = "left";
-                ctx.fillStyle = "#000000";
-                ctx.font = "bold 20px 'Microsoft JhengHei', sans-serif"; 
+                ctx.textAlign = "left"; ctx.fillStyle = "#000000"; ctx.font = "bold 20px 'Microsoft JhengHei', sans-serif"; 
                 ctx.fillText("※每周五、六公佈下週排班表，若有變動者，請事先向店長反映，勿私自調動！", startX + 5, H - 40);
 
-                // 9. 輸出圖片
-                const img = document.getElementById('previewImg');
-                img.src = canvas.toDataURL("image/jpeg", 0.95);
+                const img = document.getElementById('previewImg'); img.src = canvas.toDataURL("image/jpeg", 0.95);
                 document.getElementById('imagePreviewModal').style.display = 'flex';
-                document.getElementById('downloadImgBtn').onclick = () => {
-                    let a = document.createElement('a'); a.href = img.src;
-                    a.download = `${store}_排班表_${weekStr}.jpg`;
-                    a.click();
-                };
+                document.getElementById('downloadImgBtn').onclick = () => { let a = document.createElement('a'); a.href = img.src; a.download = `${store}_排班表_${weekStr}.jpg`; a.click(); };
                 hideLoading();
-
-            } catch (err) {
-                alert("產圖引擎發生錯誤：" + err);
-                hideLoading();
-            }
+            } catch (err) { alert("產圖發生錯誤：" + err); hideLoading(); }
         }, 100); 
     }
 
-    // --- 網頁表格渲染與其餘邏輯 ---
-    function renderTable() { let tbody = document.getElementById('tableBody'); tbody.innerHTML = ''; let week = document.getElementById('weekSelector').value; currentWeekDates = getWeekDates(week); let hRow = document.getElementById('headerRow'); let hHtml = '<th>員工</th>'; dayNames.forEach((d, i) => { hHtml += `<th><span class="date-text">${currentWeekDates[i]}</span>${d}</th>`; }); hHtml += '<th>本月累計</th>'; hRow.innerHTML = hHtml; let emps = [...appData.employees]; virtualRowNames.forEach(n => emps.push({name: n, role: '待補'})); emps.forEach((emp, eIdx) => { let tr = document.createElement('tr'); tr.innerHTML = `<td><strong>${emp.name}</strong><br><small>${emp.role}</small></td>`; dayNames.forEach(day => { let rec = appData.records.find(r => r.name === emp.name && r.day === day && r.week === week) || {shift:'', location:'本店', note:'', actualHours:''}; let td = document.createElement('td'); let btn = document.createElement('button'); btn.className = 'cell-btn'; btn.dataset.emp = emp.name; btn.dataset.day = day; btn.dataset.shift = rec.shift; btn.dataset.hours = rec.actualHours; btn.dataset.loc = rec.location; btn.dataset.note = rec.note; updateCellUI(btn); btn.onclick = () => handleCellClick(btn, eIdx); td.appendChild(btn); tr.appendChild(td); }); let sumTd = document.createElement('td'); sumTd.id = `sum-${eIdx}`; sumTd.className = 'summary-box'; tr.appendChild(sumTd); tbody.appendChild(tr); updateSummary(eIdx, emp); }); let nTr = document.createElement('tr'); nTr.innerHTML = `<td style="background:#fff3e0;"><strong>📝 備註</strong></td>`; dayNames.forEach(day => { let rec = appData.records.find(r => r.name === '門市備註' && r.day === day && r.week === week); nTr.innerHTML += `<td style="padding:0; background:#fff8e1;"><input type="text" class="daily-note-input" data-day="${day}" oninput="triggerAutoSave()" value="${rec?rec.note:''}" style="width:100%; height:55px; border:none; background:transparent; text-align:center;"></td>`; }); tbody.appendChild(nTr); updateDailyTotals(); }
+    function deleteVirtualRow(name) {
+        if(!confirm(`確定要刪除 ${name} 嗎？`)) return;
+        let week = document.getElementById('weekSelector').value;
+        appData.records = appData.records.filter(r => !(r.name === name && r.week === week));
+        virtualRowNames = virtualRowNames.filter(n => n !== name);
+        renderTable();
+        triggerAutoSave();
+    }
+
+    function renderTable() { 
+        let tbody = document.getElementById('tableBody'); tbody.innerHTML = ''; 
+        let week = document.getElementById('weekSelector').value; currentWeekDates = getWeekDates(week); 
+        let hRow = document.getElementById('headerRow'); let hHtml = '<th>員工</th>'; 
+        dayNames.forEach((d, i) => { hHtml += `<th><span class="date-text">${currentWeekDates[i]}</span>${d}</th>`; }); 
+        hHtml += '<th>本月累計</th>'; hRow.innerHTML = hHtml; 
+        
+        let emps = [...appData.employees]; 
+        virtualRowNames.forEach(n => emps.push({name: n, role: '待補'})); 
+        
+        emps.forEach((emp, eIdx) => { 
+            let tr = document.createElement('tr'); 
+            let empNameDisplay = emp.name;
+            if(emp.name.startsWith('🆘待補')) {
+                empNameDisplay += ` <span style="color:#d93025; font-size:12px; cursor:pointer;" onclick="deleteVirtualRow('${emp.name}')">✖</span>`;
+            }
+            tr.innerHTML = `<td><strong>${empNameDisplay}</strong><br><small>${emp.role}</small></td>`; 
+            
+            dayNames.forEach(day => { 
+                let rec = appData.records.find(r => r.name === emp.name && r.day === day && r.week === week) || {shift:'', location:'本店', note:'', actualHours:''}; 
+                let td = document.createElement('td'); let btn = document.createElement('button'); btn.className = 'cell-btn'; 
+                btn.dataset.emp = emp.name; btn.dataset.day = day; btn.dataset.shift = rec.shift; btn.dataset.hours = rec.actualHours; btn.dataset.loc = rec.location; btn.dataset.note = rec.note; 
+                updateCellUI(btn); btn.onclick = () => handleCellClick(btn, eIdx); td.appendChild(btn); tr.appendChild(td); 
+            }); 
+            let sumTd = document.createElement('td'); sumTd.id = `sum-${eIdx}`; sumTd.className = 'summary-box'; tr.appendChild(sumTd); tbody.appendChild(tr); 
+            updateSummary(eIdx, emp); 
+        }); 
+        
+        let nTr = document.createElement('tr'); nTr.innerHTML = `<td style="background:#fff3e0;"><strong>📝 備註</strong></td>`; 
+        dayNames.forEach(day => { 
+            let rec = appData.records.find(r => r.name === '門市備註' && r.day === day && r.week === week); 
+            nTr.innerHTML += `<td style="padding:0; background:#fff8e1;"><input type="text" class="daily-note-input" data-day="${day}" oninput="triggerAutoSave()" value="${rec?rec.note:''}" style="width:100%; height:55px; border:none; background:transparent; text-align:center;"></td>`; 
+        }); 
+        tbody.appendChild(nTr); 
+        updateDailyTotals(); 
+    }
+    
     function updateCellUI(b) { let s=b.dataset.shift, h=b.dataset.hours, l=b.dataset.loc, n=b.dataset.note; let txt = s || '+'; if(s==='排休'||s==='指休') txt='休'; if(h && h!=appConfig.shiftHours[s] && s!=='排休' && s!=='指休') txt += `<br><small>(${h}h)</small>`; if(l && l!=='本店') txt += `<br><small style="color:#d93025; font-weight:800;">📍${l}</small>`; if(n) txt += `<br><small style="color:#1a73e8;">${n}</small>`; b.innerHTML = txt; b.className = 'cell-btn'; if(s==='指休') b.classList.add('zhi-xiu'); else if(s==='排休') b.classList.add('pai-xiu'); else if(s) { let start=parseInt(s); if(start>=15||start<6) b.classList.add('shift-night'); else b.classList.add('shift-morning'); } }
     function addVirtualRow() { syncUIToMemory(); let n = 1; while(virtualRowNames.includes('🆘待補'+n)) n++; virtualRowNames.push('🆘待補'+n); renderTable(); triggerAutoSave(); }
-    async function copyLastWeek() { let store = document.getElementById('storeSelector').value; let week = document.getElementById('weekSelector').value; let parts = week.split('-W'); let prevW = parseInt(parts[1]) - 1; let prevWeekStr = parts[0] + '-W' + (prevW < 10 ? '0'+prevW : prevW); if(!confirm(`確定複製上週 (${prevWeekStr}) 班表？`)) return; showLoading("複製資料中..."); const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(prevWeekStr).get(); if(snap.exists) { let newRecords = snap.data().records.map(r => ({ ...r, week: week })); appData.records = appData.records.filter(r => r.week !== week).concat(newRecords); renderTable(); triggerAutoSave(); alert("📋 複製完成！"); } else { alert("找不到上週資料。"); } hideLoading(); }
-    function pushToUndo(b) { undoStack.push({ btn:b, s:b.dataset.shift, h:b.dataset.hours, l:b.dataset.loc, n:b.dataset.note }); if(undoStack.length>30) undoStack.shift(); }
-    function undoLastAction() { if(undoStack.length===0) return alert("沒動作可撤銷"); let l = undoStack.pop(); l.btn.dataset.shift=l.s; l.btn.dataset.hours=l.h; l.btn.dataset.loc=l.l; l.btn.dataset.note=l.n; updateCellUI(l.btn); updateDailyTotals(); triggerAutoSave(); }
     function autoFillHours() { let s = document.getElementById('modalShift').value.trim(); let t = document.getElementById('modalHours'); if(appConfig.shiftHours && appConfig.shiftHours[s]) { t.value = appConfig.shiftHours[s]; } else { let m = s.match(/(\d+)-(\d+)/); if(m) { let h = parseInt(m[2])-parseInt(m[1]); t.value = h<0 ? h+24 : h; } else if(s==='排休'||s==='指休') t.value=0; } }
     async function loadScheduleData() { let store = document.getElementById('storeSelector').value; let week = document.getElementById('weekSelector').value; if(!store) return; localStorage.setItem('lastStore', store); showLoading("讀取資料..."); const empSnap = await window.db.collection('stores').doc(store).collection('employees').get(); appData.employees = []; empSnap.forEach(d => { if(d.data().status !== '離職') appData.employees.push({name: d.id, ...d.data()}); }); appData.employees.sort((a,b) => (a.sortKey||0) - (b.sortKey||0)); const weekSnap = await window.db.collection('stores').doc(store).collection('weeks').get(); appData.records = []; weekSnap.forEach(d => { if(d.data().records) d.data().records.forEach(r => { r.week = d.id; appData.records.push(r); })}); virtualRowNames = appData.records.filter(r => r.week === week).map(r => r.name).filter(n => n && n.startsWith('🆘')).filter((v,i,a) => a.indexOf(v)===i); renderTable(); hideLoading(); }
     function syncUIToMemory() { let week = document.getElementById('weekSelector').value; document.querySelectorAll('.cell-btn').forEach(btn => { if (btn.dataset.shift) { let idx = appData.records.findIndex(r => r.name===btn.dataset.emp && r.day===btn.dataset.day && r.week===week); let data = { week: week, day: btn.dataset.day, name: btn.dataset.emp, shift: btn.dataset.shift, location: btn.dataset.loc, note: btn.dataset.note, actualHours: btn.dataset.hours }; if (idx !== -1) appData.records[idx] = data; else appData.records.push(data); } }); }
-    function handleCellClick(b, eIdx) { if(isPaintMode) { pushToUndo(b); let s = document.getElementById('paintShift').value; b.dataset.shift = s; b.dataset.hours = document.getElementById('paintHours').value; b.dataset.loc = document.getElementById('paintLoc').value; b.dataset.note = document.getElementById('paintNote').value; updateCellUI(b); updateDailyTotals(); triggerAutoSave(); } else { currentCell = b; document.getElementById('modalTitle').innerText = b.dataset.emp; document.getElementById('modalShift').value = b.dataset.shift; document.getElementById('modalHours').value = b.dataset.hours; document.getElementById('modalLocation').value = b.dataset.loc || '本店'; document.getElementById('modalNote').value = b.dataset.note; renderQuickShifts(); document.getElementById('shiftModal').style.display = 'flex'; } }
-    function renderQuickShifts() { let h = ''; (appConfig.shifts || []).forEach(s => { let isOff = (s==='排休'||s==='指休'); h += `<button class="cell-btn ${isOff?'zhi-xiu':''}" style="padding:10px; font-weight:bold; cursor:pointer;" onclick="setModalShift('${s}')">${s}</button>`; }); document.getElementById('quickShiftButtons').innerHTML = h; }
+    
+    // 🌟 核心：排班點擊的智慧動態視窗邏輯
+    function handleCellClick(b, eIdx) { 
+        let isVirtual = b.dataset.emp.includes('待補');
+        if(isPaintMode) { 
+            let s = document.getElementById('paintShift').value; 
+            b.dataset.shift = s; 
+            b.dataset.hours = document.getElementById('paintHours').value; 
+            // 待補強制本店
+            b.dataset.loc = isVirtual ? '本店' : document.getElementById('paintLoc').value; 
+            b.dataset.note = document.getElementById('paintNote').value; 
+            updateCellUI(b); updateDailyTotals(); triggerAutoSave(); 
+        } else { 
+            currentCell = b; 
+            document.getElementById('modalTitle').innerText = b.dataset.emp; 
+            document.getElementById('modalShift').value = b.dataset.shift; 
+            document.getElementById('modalHours').value = b.dataset.hours; 
+            document.getElementById('modalLocation').value = isVirtual ? '本店' : (b.dataset.loc || '本店'); 
+            document.getElementById('modalNote').value = b.dataset.note; 
+
+            // 🌟 智慧動態隱藏：待補列隱藏地點，備註改名
+            if(isVirtual) {
+                document.getElementById('modalLocGroup').style.display = 'none';
+                document.getElementById('modalNoteGroup').style.gridColumn = '1 / span 2';
+                document.getElementById('modalNoteLabel').innerHTML = '👤 支援人員 (填寫代班者)';
+            } else {
+                document.getElementById('modalLocGroup').style.display = 'block';
+                document.getElementById('modalNoteGroup').style.gridColumn = 'auto';
+                document.getElementById('modalNoteLabel').innerHTML = '💡 備註';
+            }
+
+            renderQuickShifts(); 
+            document.getElementById('shiftModal').style.display = 'flex'; 
+        } 
+    }
+    
+    function renderQuickShifts() { 
+        let h = `<button class="cell-btn" style="padding:10px; font-weight:bold; cursor:pointer; background:#f1f3f4;" onclick="clearModalShift()">🗑️ 清空</button>`; 
+        (appConfig.shifts || []).forEach(s => { let isOff = (s==='排休'||s==='指休'); h += `<button class="cell-btn ${isOff?'zhi-xiu':''}" style="padding:10px; font-weight:bold; cursor:pointer;" onclick="setModalShift('${s}')">${s}</button>`; }); 
+        document.getElementById('quickShiftButtons').innerHTML = h; 
+    }
     function setModalShift(s) { document.getElementById('modalShift').value = s; autoFillHours(); }
-    function applyShift() { pushToUndo(currentCell); currentCell.dataset.shift = document.getElementById('modalShift').value; currentCell.dataset.hours = document.getElementById('modalHours').value; currentCell.dataset.loc = document.getElementById('modalLocation').value; currentCell.dataset.note = document.getElementById('modalNote').value; updateCellUI(currentCell); updateDailyTotals(); closeModal('shiftModal'); triggerAutoSave(); }
+    
+    function clearModalShift() { 
+        document.getElementById('modalShift').value = ''; 
+        document.getElementById('modalHours').value = ''; 
+        document.getElementById('modalLocation').value = '本店'; 
+        document.getElementById('modalNote').value = ''; 
+    }
+    
+    function applyShift() { currentCell.dataset.shift = document.getElementById('modalShift').value; currentCell.dataset.hours = document.getElementById('modalHours').value; currentCell.dataset.loc = document.getElementById('modalLocation').value; currentCell.dataset.note = document.getElementById('modalNote').value; updateCellUI(currentCell); updateDailyTotals(); closeModal('shiftModal'); triggerAutoSave(); }
     function updateDailyTotals() { let sums = [0,0,0,0,0,0,0]; document.querySelectorAll('.cell-btn').forEach(b => { let idx = dayNames.indexOf(b.dataset.day); if(b.dataset.loc === '本店') sums[idx] += parseFloat(b.dataset.hours || 0); }); sums.forEach((s, i) => document.getElementById(`dailyTotal-${i}`).innerText = s.toFixed(1)); document.getElementById('tableFoot').style.display = 'table-row-group'; }
-    function updateSummary(idx, emp) { let t = document.getElementById(`sum-${idx}`); if(!t) return; let month = currentWeekDates[3].split('/')[0]; let totalH = 0, offD = 0; appData.records.forEach(r => { if(r.name === emp.name) { let m = getWeekDates(r.week)[3].split('/')[0]; if(m === month) { if(r.shift==='排休'||r.shift==='指休') offD++; else totalH += parseFloat(r.actualHours || 0); } } }); let info = appData.employees.find(e => e.name === emp.name) || {role:'待補', wage:0}; if(info.role === '正職') t.innerHTML = `月休:${offD}天<br>薪:${info.wage}`; else t.innerHTML = `月時:${totalH.toFixed(1)}h<br>估:$${Math.round(totalH * info.wage)}`; }
-    function refreshStoreList() { let sel = document.getElementById('storeSelector'); sel.innerHTML = ''; (appConfig.stores || []).forEach(s => sel.innerHTML += `<option value="${s}">${s}</option>`); sel.value = localStorage.getItem('lastStore') || appConfig.stores[0] || ""; }
-    function handleStoreChange() { loadScheduleData(); }
+    
+    function updateSummary(idx, emp) { 
+        let t = document.getElementById(`sum-${idx}`); if(!t) return; 
+        let month = currentWeekDates[3].split('/')[0]; 
+        let weekStr = document.getElementById('weekSelector').value;
+        let totalH = 0, offD = 0, weekOffD = 0; 
+        appData.records.forEach(r => { 
+            if(r.name === emp.name) { 
+                if (r.week === weekStr && (r.shift==='排休'||r.shift==='指休')) weekOffD++;
+                let m = getWeekDates(r.week)[3].split('/')[0]; 
+                if(m === month) { 
+                    if(r.shift==='排休'||r.shift==='指休') offD++; 
+                    else totalH += parseFloat(r.actualHours || 0); 
+                } 
+            } 
+        }); 
+        let info = appData.employees.find(e => e.name === emp.name) || {role:'待補', wage:0}; 
+        if(info.role === '正職') {
+            let warn = weekOffD < 2 ? `<span style="color:#d93025;font-weight:bold;">(當週休不足2天)</span>` : `<span style="color:#34a853;">(當週休滿)</span>`;
+            t.innerHTML = `週休:${weekOffD}天<br>${warn}<br>月休:${offD}天`; 
+        } else {
+            t.innerHTML = `月時:${totalH.toFixed(1)}h<br>估:$${Math.round(totalH * info.wage)}`; 
+        }
+    }
+    
+    function refreshStoreList() { let sel = document.getElementById('storeSelector'); sel.innerHTML = ''; (appConfig.stores || []).forEach(s => sel.innerHTML += `<option value="${s}">${s}</option>`); sel.value = localStorage.getItem('lastStore') || appConfig.stores[0] || ""; updateLocDropdowns(); }
+    function handleStoreChange() { updateLocDropdowns(); loadScheduleData(); }
     function showLoading(t) { document.getElementById('loadingText').innerText = t; document.getElementById('loadingOverlay').style.display = 'flex'; }
     function hideLoading() { document.getElementById('loadingOverlay').style.display = 'none'; }
     function closeModal(id) { document.getElementById(id).style.display = 'none'; }
