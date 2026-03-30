@@ -49,6 +49,7 @@
     .btn-paint-toggle { background: #00897b; color: white; }
     .btn-paint-toggle.active { background: #d93025; }
 
+    /* --- 網頁表格 --- */
     .table-responsive { width: 100%; height: 68vh; overflow: auto; background: white; border-radius: 8px; border: 1px solid #dadce0; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
     table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 1000px; }
     th, td { border-right: 1px solid #e8eaed; border-bottom: 1px solid #e8eaed; padding: 8px; text-align: center; vertical-align: middle; }
@@ -74,27 +75,36 @@
     .quick-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 15px 0; }
     .emp-row { display: flex; align-items: center; padding: 12px; border-bottom: 1px solid #eee; background: white; gap: 10px; }
 
-    /* 🌟 A4 紙本表格絕對隔離設定 */
+    /* 🌟 A4 紙本產圖絕對隔離樣式 */
     #exportContainer {
         display: none; 
-        width: 850px; 
+        width: 1050px; /* 放寬確保六日不被切斷 */
         background-color: #ffffff; 
         padding: 40px; 
         box-sizing: border-box;
+        font-family: "Microsoft JhengHei", "Segoe UI", sans-serif;
     }
     #exportContainer table {
         width: 100%;
         border-collapse: collapse;
-        border: 2px solid #000000;
+        border: 3px solid #000000;
         table-layout: fixed;
     }
-    /* 強制覆蓋，確保不會變藍色 */
+    /* 強制覆蓋所有網頁表頭顏色 */
     #exportContainer th, #exportContainer td {
         border: 2px solid #000000 !important;
         background-color: #ffffff !important;
         color: #000000 !important;
         text-align: center;
         vertical-align: middle;
+    }
+    
+    /* 完美 SVG 斜線表頭背景 */
+    .diagonal-cell {
+        position: relative;
+        background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%"><line x1="0" y1="0" x2="100%" y2="100%" stroke="black" stroke-width="2"/></svg>') !important;
+        background-size: 100% 100% !important;
+        background-repeat: no-repeat !important;
     }
   </style>
 </head>
@@ -103,8 +113,8 @@
   <div id="loadingOverlay"><div class="spinner"></div><div id="loadingText">雲端處理中...</div></div>
 
   <div id="exportContainer">
-    <h1 id="exportTitle" style="text-align: center; font-size: 32px; font-weight: 900; margin-bottom: 10px; letter-spacing: 4px; color: #000;">美德 職員輪班表</h1>
-    <p id="exportDates" style="text-align: center; font-size: 18px; color: #333; margin-bottom: 20px; font-weight:bold; letter-spacing: 2px;"></p>
+    <h1 id="exportTitle" style="text-align: center; font-size: 34px; font-weight: 900; margin-bottom: 15px; letter-spacing: 4px; color: #000;">美德 職員輪班表</h1>
+    <p id="exportDates" style="text-align: center; font-size: 20px; color: #333; margin-bottom: 25px; font-weight:bold; letter-spacing: 3px;"></p>
     
     <table id="exportTable">
       <thead id="exportHeader"></thead>
@@ -216,98 +226,97 @@
         } catch(e) { document.getElementById('syncStatus').innerText = "❌ 同步失敗：" + e.message; }
     }
 
-    // 🌟 核心：A4 完美產圖引擎 🌟
+    // 🌟 核心：A4 完美產圖引擎 (絕對隔離版) 🌟
     function exportImage() {
         syncUIToMemory();
-        showLoading("📸 正在產生A4高清排班表...");
+        showLoading("📸 正在產生A4高清排班表，請稍候...");
         
         let store = document.getElementById('storeSelector').value;
         let weekStr = document.getElementById('weekSelector').value;
         let emps = [...appData.employees]; 
         virtualRowNames.forEach(n => emps.push({name: n, role: '待補'}));
 
-        // 標題 (美德 職員輪班表)
+        // 1. 標題與日期格式化
         document.getElementById('exportTitle').innerText = `${store} 職員輪班表`;
-        
-        // 日期轉換 (3/30 -> 3 月 30 日)
         let startArr = currentWeekDates[0].split('/');
         let endArr = currentWeekDates[6].split('/');
         document.getElementById('exportDates').innerText = `${startArr[0]} 月 ${startArr[1]} 日 至 ${endArr[0]} 月 ${endArr[1]} 日`;
 
-        // 🌟 表頭設計 (SVG 完美斜線)
+        // 2. 表頭 (移除結算欄、使用 SVG 對角線)
         let headerHtml = `<tr>
-            <th style="width: 90px; height: 60px; padding: 0; position: relative;">
-                <svg style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;" preserveAspectRatio="none">
-                    <line x1="0" y1="0" x2="100%" y2="100%" stroke="black" stroke-width="2" />
-                </svg>
-                <div style="position: absolute; top: 6px; right: 10px; font-size: 12px; font-weight: bold;">月/日</div>
-                <div style="position: absolute; bottom: 6px; left: 10px; font-size: 12px; font-weight: bold;">姓名</div>
+            <th class="diagonal-cell" style="width: 100px; height: 65px; position: relative; padding: 0;">
+                <div style="position: absolute; top: 10px; right: 12px; font-size: 13px; font-weight: bold; color: black;">月/日</div>
+                <div style="position: absolute; bottom: 8px; left: 12px; font-size: 13px; font-weight: bold; color: black;">姓名</div>
             </th>`;
         
         dayNames.forEach((d,i) => { 
             headerHtml += `<th style="padding: 6px;">
-                <div style="font-size: 18px; font-weight: 900;">${currentWeekDates[i]}</div>
-                <div style="font-size: 14px; font-weight: normal;">${d}</div>
+                <div style="font-size: 18px; font-weight: 900; color: black;">${currentWeekDates[i]}</div>
+                <div style="font-size: 14px; font-weight: normal; color: black;">${d}</div>
             </th>`; 
         });
         headerHtml += `</tr>`;
         document.getElementById('exportHeader').innerHTML = headerHtml;
 
-        // 🌟 表身設計 (僅 8 欄，不含結算)
+        // 3. 表身 (僅 1+7=8 欄，姓名待補空白，無框排休，紅框指休)
         let bodyHtml = '';
         emps.forEach((emp) => {
-            bodyHtml += `<tr><td style="font-weight: 900; font-size: 18px; padding: 12px 5px;">${emp.name}</td>`;
+            // 姓名欄：如果是待補，就給空白
+            let empNameDisplay = emp.name.includes('待補') ? '' : emp.name;
+            bodyHtml += `<tr style="height: 65px;"><td style="font-weight: 900; font-size: 18px; padding: 12px 5px; color: black;">${empNameDisplay}</td>`;
             
             dayNames.forEach(day => {
-                let rec = appData.records.find(r => r.name === emp.name && r.day === day && r.week === weekStr) || {shift:'', note:''};
+                let rec = appData.records.find(r => r.name === emp.name && r.day === day && r.week === weekStr) || {shift:'', note:'', location:''};
                 let shiftHtml = '';
                 
-                // 方框休設計
                 if(rec.shift === '指休') {
-                    shiftHtml = `<div style="border: 2px solid #d93025; border-radius: 8px; width: 45px; height: 32px; line-height: 32px; margin: 0 auto; font-weight: bold; font-size:18px; color: #d93025;">休</div>`;
+                    // 指休：紅色圓角外框
+                    shiftHtml = `<div style="display:inline-block; padding: 2px 14px; border: 2px solid #d93025; border-radius: 6px; color:#d93025; font-weight:900; font-size:18px;">休</div>`;
                 } else if(rec.shift === '排休') {
-                    shiftHtml = `<div style="border: 2px solid black; border-radius: 8px; width: 45px; height: 32px; line-height: 32px; margin: 0 auto; font-weight: bold; font-size:18px; color: black;">休</div>`;
+                    // 排休：無框黑字
+                    shiftHtml = `<div style="font-weight:900; font-size:19px; color:black;">休</div>`;
                 } else if(rec.shift) {
-                    shiftHtml = `<div style="font-size:19px; font-weight:900;">${rec.shift.replace('-', ' / ')}</div>`;
-                } else {
-                    shiftHtml = `<div style="font-size:19px;"></div>`;
+                    // 一般班別
+                    shiftHtml = `<div style="font-size:20px; font-weight:900; color:black;">${rec.shift.replace('-', ' / ')}</div>`;
                 }
 
-                // 備註小字 (藍綠色)
-                let noteText = rec.note ? `<div style="font-size: 12px; color: #0088aa; margin-top:5px; font-weight:bold;">${rec.note}</div>` : '';
+                // 地點與備註小字
+                let locText = (rec.location && rec.location !== '本店') ? `<div style="font-size: 12px; color: #e67e22; margin-top:3px; font-weight:bold;">${rec.location}</div>` : '';
+                let noteText = rec.note ? `<div style="font-size: 12px; color: #0088aa; margin-top:3px; font-weight:bold;">${rec.note}</div>` : '';
 
-                bodyHtml += `<td style="padding: 6px;">${shiftHtml}${noteText}</td>`;
+                bodyHtml += `<td style="padding: 6px;">${shiftHtml}${locText}${noteText}</td>`;
             });
             bodyHtml += `</tr>`;
         });
 
-        // 門市備註行
-        bodyHtml += `<tr><td style="font-weight: 900; font-size: 16px; padding: 12px 5px;">門市備註</td>`;
+        // 4. 門市備註行 (姓名欄空白)
+        bodyHtml += `<tr style="height: 65px;"><td></td>`;
         dayNames.forEach(day => {
             let rec = appData.records.find(r => r.name === '門市備註' && r.day === day && r.week === weekStr);
             bodyHtml += `<td style="font-size:15px; font-weight:bold; color:#0088aa; padding: 8px;">${rec?rec.note:''}</td>`;
         });
         bodyHtml += `</tr>`;
 
-        // 🌟 底部空白列 (補充 4 行)
+        // 5. 底部補充 4 行完全空白的列
         for(let i=0; i<4; i++) {
-            bodyHtml += `<tr style="height: 45px;">`;
-            for(let j=0; j<8; j++) { bodyHtml += `<td></td>`; } // 1 姓名 + 7 天 = 8 欄
+            bodyHtml += `<tr style="height: 50px;">`;
+            for(let j=0; j<8; j++) { bodyHtml += `<td></td>`; } // 共 8 欄
             bodyHtml += `</tr>`;
         }
 
         document.getElementById('exportBody').innerHTML = bodyHtml;
         
-        // 觸發產圖
+        // 6. 觸發產圖 (強制設定 windowWidth 防止六日被切斷)
         const container = document.getElementById('exportContainer');
         container.style.display = 'block'; 
 
         setTimeout(() => {
             html2canvas(container, { 
-                scale: 2.5, // 確保高畫質，字體不模糊
+                scale: 2.2, 
                 useCORS: true, 
                 backgroundColor: "#ffffff", 
-                logging: false 
+                logging: false,
+                windowWidth: 1200 // 騙過瀏覽器，強制展開 1200px 寬度防止切邊
             }).then(canvas => {
                 const img = document.getElementById('previewImg');
                 img.src = canvas.toDataURL("image/jpeg", 0.95);
