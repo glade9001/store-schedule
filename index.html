@@ -49,7 +49,6 @@
     .btn-paint-toggle { background: #00897b; color: white; }
     .btn-paint-toggle.active { background: #d93025; }
 
-    /* --- 網頁表格 --- */
     .table-responsive { width: 100%; height: 68vh; overflow: auto; background: white; border-radius: 8px; border: 1px solid #dadce0; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
     table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 1000px; }
     th, td { border-right: 1px solid #e8eaed; border-bottom: 1px solid #e8eaed; padding: 8px; text-align: center; vertical-align: middle; }
@@ -75,12 +74,12 @@
     .quick-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 15px 0; }
     .emp-row { display: flex; align-items: center; padding: 12px; border-bottom: 1px solid #eee; background: white; gap: 10px; }
 
-    /* 🌟 A4 紙本產圖絕對隔離樣式 */
+    /* 🌟 A4 完美比例產圖樣式設定 */
     #exportContainer {
         display: none; 
-        width: 1050px; /* 放寬確保六日不被切斷 */
+        width: 820px; /* 寬度瘦身，更逼近 A4 比例 */
         background-color: #ffffff; 
-        padding: 40px; 
+        padding: 30px 40px; /* 紙張左右留白 */
         box-sizing: border-box;
         font-family: "Microsoft JhengHei", "Segoe UI", sans-serif;
     }
@@ -98,14 +97,6 @@
         text-align: center;
         vertical-align: middle;
     }
-    
-    /* 完美 SVG 斜線表頭背景 */
-    .diagonal-cell {
-        position: relative;
-        background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%"><line x1="0" y1="0" x2="100%" y2="100%" stroke="black" stroke-width="2"/></svg>') !important;
-        background-size: 100% 100% !important;
-        background-repeat: no-repeat !important;
-    }
   </style>
 </head>
 <body>
@@ -113,8 +104,8 @@
   <div id="loadingOverlay"><div class="spinner"></div><div id="loadingText">雲端處理中...</div></div>
 
   <div id="exportContainer">
-    <h1 id="exportTitle" style="text-align: center; font-size: 34px; font-weight: 900; margin-bottom: 15px; letter-spacing: 4px; color: #000;">美德 職員輪班表</h1>
-    <p id="exportDates" style="text-align: center; font-size: 20px; color: #333; margin-bottom: 25px; font-weight:bold; letter-spacing: 3px;"></p>
+    <h1 id="exportTitle" style="text-align: center; font-size: 34px; font-weight: 900; margin-bottom: 10px; letter-spacing: 4px; color: #000;">美德 職員輪班表</h1>
+    <p id="exportDates" style="text-align: center; font-size: 18px; color: #333; margin-bottom: 25px; font-weight:bold; letter-spacing: 3px;"></p>
     
     <table id="exportTable">
       <thead id="exportHeader"></thead>
@@ -135,7 +126,7 @@
     <button class="btn-undo" onclick="undoLastAction()">↩️ 撤銷</button>
     <button class="btn-copy" onclick="copyLastWeek()">📋 複製上週</button>
     <button class="btn-save" onclick="saveScheduleData(true)">💾 強制儲存</button>
-    <button class="btn-print" onclick="exportImage()">📱 產圖 (A4)</button>
+    <button class="btn-print" onclick="exportImage()">📱 產圖 (A4直式)</button>
     <button class="btn-virtual" onclick="addVirtualRow()">➕ 待補</button>
     <button class="btn-manage" onclick="openEmpModal()">👥 人員管理</button>
     <button class="btn-sys" onclick="openSysModal()">🛠️ 系統設定</button>
@@ -229,7 +220,7 @@
     // 🌟 核心：A4 完美產圖引擎 (絕對隔離版) 🌟
     function exportImage() {
         syncUIToMemory();
-        showLoading("📸 正在產生A4高清排班表，請稍候...");
+        showLoading("📸 正在產生 A4 高清排班表，請稍候...");
         
         let store = document.getElementById('storeSelector').value;
         let weekStr = document.getElementById('weekSelector').value;
@@ -242,11 +233,14 @@
         let endArr = currentWeekDates[6].split('/');
         document.getElementById('exportDates').innerText = `${startArr[0]} 月 ${startArr[1]} 日 至 ${endArr[0]} 月 ${endArr[1]} 日`;
 
-        // 2. 表頭 (移除結算欄、使用 SVG 對角線)
+        // 2. 表頭：精準的 SVG 對半切割斜線
         let headerHtml = `<tr>
-            <th class="diagonal-cell" style="width: 100px; height: 65px; position: relative; padding: 0;">
-                <div style="position: absolute; top: 10px; right: 12px; font-size: 13px; font-weight: bold; color: black;">月/日</div>
-                <div style="position: absolute; bottom: 8px; left: 12px; font-size: 13px; font-weight: bold; color: black;">姓名</div>
+            <th style="width: 100px; height: 75px; position: relative; padding: 0;">
+                <svg style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block;" preserveAspectRatio="none">
+                    <line x1="0" y1="0" x2="100%" y2="100%" stroke="black" stroke-width="2.5" />
+                </svg>
+                <div style="position: absolute; top: 8px; right: 10px; font-size: 13px; font-weight: 900; color: black; z-index: 2;">月/日</div>
+                <div style="position: absolute; bottom: 8px; left: 10px; font-size: 13px; font-weight: 900; color: black; z-index: 2;">姓名</div>
             </th>`;
         
         dayNames.forEach((d,i) => { 
@@ -258,29 +252,25 @@
         headerHtml += `</tr>`;
         document.getElementById('exportHeader').innerHTML = headerHtml;
 
-        // 3. 表身 (僅 1+7=8 欄，姓名待補空白，無框排休，紅框指休)
+        // 3. 表身 (行高拉長至 75px，姓名待補空白)
         let bodyHtml = '';
         emps.forEach((emp) => {
-            // 姓名欄：如果是待補，就給空白
             let empNameDisplay = emp.name.includes('待補') ? '' : emp.name;
-            bodyHtml += `<tr style="height: 65px;"><td style="font-weight: 900; font-size: 18px; padding: 12px 5px; color: black;">${empNameDisplay}</td>`;
+            bodyHtml += `<tr style="height: 75px;"><td style="font-weight: 900; font-size: 18px; padding: 12px 5px; color: black;">${empNameDisplay}</td>`;
             
             dayNames.forEach(day => {
                 let rec = appData.records.find(r => r.name === emp.name && r.day === day && r.week === weekStr) || {shift:'', note:'', location:''};
                 let shiftHtml = '';
                 
                 if(rec.shift === '指休') {
-                    // 指休：紅色圓角外框
-                    shiftHtml = `<div style="display:inline-block; padding: 2px 14px; border: 2px solid #d93025; border-radius: 6px; color:#d93025; font-weight:900; font-size:18px;">休</div>`;
+                    shiftHtml = `<div style="display:inline-block; padding: 2px 14px; border: 2.5px solid #d93025; border-radius: 8px; color:#d93025; font-weight:900; font-size:18px;">休</div>`;
                 } else if(rec.shift === '排休') {
-                    // 排休：無框黑字
                     shiftHtml = `<div style="font-weight:900; font-size:19px; color:black;">休</div>`;
                 } else if(rec.shift) {
-                    // 一般班別
                     shiftHtml = `<div style="font-size:20px; font-weight:900; color:black;">${rec.shift.replace('-', ' / ')}</div>`;
                 }
 
-                // 地點與備註小字
+                // 地點(調店)與備註
                 let locText = (rec.location && rec.location !== '本店') ? `<div style="font-size: 12px; color: #e67e22; margin-top:3px; font-weight:bold;">${rec.location}</div>` : '';
                 let noteText = rec.note ? `<div style="font-size: 12px; color: #0088aa; margin-top:3px; font-weight:bold;">${rec.note}</div>` : '';
 
@@ -289,24 +279,23 @@
             bodyHtml += `</tr>`;
         });
 
-        // 4. 門市備註行 (姓名欄空白)
-        bodyHtml += `<tr style="height: 65px;"><td></td>`;
+        // 4. 門市備註行 (行高 80px)
+        bodyHtml += `<tr style="height: 80px;"><td style="font-weight: 900; font-size: 16px; padding: 12px 5px; color: black;">門市備註</td>`;
         dayNames.forEach(day => {
             let rec = appData.records.find(r => r.name === '門市備註' && r.day === day && r.week === weekStr);
             bodyHtml += `<td style="font-size:15px; font-weight:bold; color:#0088aa; padding: 8px;">${rec?rec.note:''}</td>`;
         });
         bodyHtml += `</tr>`;
 
-        // 5. 底部補充 4 行完全空白的列
-        for(let i=0; i<4; i++) {
-            bodyHtml += `<tr style="height: 50px;">`;
-            for(let j=0; j<8; j++) { bodyHtml += `<td></td>`; } // 共 8 欄
+        // 5. 底部補充 5 行空白列，拉滿 A4 比例
+        for(let i=0; i<5; i++) {
+            bodyHtml += `<tr style="height: 75px;">`;
+            for(let j=0; j<8; j++) { bodyHtml += `<td></td>`; }
             bodyHtml += `</tr>`;
         }
 
         document.getElementById('exportBody').innerHTML = bodyHtml;
         
-        // 6. 觸發產圖 (強制設定 windowWidth 防止六日被切斷)
         const container = document.getElementById('exportContainer');
         container.style.display = 'block'; 
 
@@ -316,7 +305,7 @@
                 useCORS: true, 
                 backgroundColor: "#ffffff", 
                 logging: false,
-                windowWidth: 1200 // 騙過瀏覽器，強制展開 1200px 寬度防止切邊
+                windowWidth: 1000 // 防止右側切斷
             }).then(canvas => {
                 const img = document.getElementById('previewImg');
                 img.src = canvas.toDataURL("image/jpeg", 0.95);
