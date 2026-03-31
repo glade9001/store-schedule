@@ -71,6 +71,7 @@
     .quick-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 15px 0; }
     .emp-row { display: flex; align-items: center; padding: 12px; border-bottom: 1px solid #eee; background: white; gap: 10px; }
 
+    /* A4 產圖隱藏樣式 */
     #exportContainer {
         display: none; position: absolute; top: 0; left: 0; z-index: -10;
         width: 1400px !important; min-width: 1400px !important; max-width: 1400px !important; 
@@ -79,6 +80,7 @@
     }
     #exportContainer table { width: 100%; border-collapse: collapse; border: 3px solid #000; table-layout: fixed; }
     #exportContainer th, #exportContainer td { border: 2px solid #000 !important; background-color: #fff !important; color: #000 !important; text-align: center; vertical-align: middle; }
+    
     .footer-copyright { text-align: center; margin-top: 20px; font-size: 13px; color: #aaa; font-weight: bold; letter-spacing: 1px; }
   </style>
 </head>
@@ -124,17 +126,14 @@
     <div class="modal-content">
       <h3 id="modalTitle">設定班別</h3>
       <div id="quickShiftButtons" class="quick-grid"></div>
-      
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
         <div><label style="font-size:12px; font-weight:bold; color:#5f6368;">📝 班別名稱</label><input type="text" id="modalShift" oninput="autoFillHours()" style="width:100%; padding:12px; box-sizing:border-box;"></div>
         <div><label style="font-size:12px; font-weight:bold; color:#5f6368;">⏱️ 工時 (自動)</label><input type="number" id="modalHours" step="0.5" style="width:100%; padding:12px; box-sizing:border-box;"></div>
       </div>
-
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px; margin-top:15px;">
         <div id="modalLocGroup"><label style="font-size:12px; font-weight:bold; color:#5f6368;">📍 工作地點</label><select id="modalLocation" style="width:100%; padding:12px; box-sizing:border-box;"></select></div>
         <div id="modalNoteGroup"><label id="modalNoteLabel" style="font-size:12px; font-weight:bold; color:#5f6368;">💡 備註</label><input type="text" id="modalNote" style="width:100%; padding:12px; box-sizing:border-box;"></div>
       </div>
-
       <button onclick="applyShift()" style="width:100%; padding:15px; background:#1a73e8; color:white; margin-top:25px; border-radius:10px; font-size:16px;">確認套用並同步</button>
       <button onclick="closeModal('shiftModal')" style="width:100%; background:none; border:none; color:#666; margin-top:10px; cursor:pointer;">取消返回</button>
     </div>
@@ -360,6 +359,44 @@
         triggerAutoSave();
     }
 
+    // 🌟 動態歷史還原：加入離職且有排班者
+    async function loadScheduleData() { 
+        let store = document.getElementById('storeSelector').value; 
+        let week = document.getElementById('weekSelector').value; 
+        if(!store) return; 
+        localStorage.setItem('lastStore', store); 
+        showLoading("讀取資料..."); 
+        
+        // 先抓全部的排班紀錄
+        const weekSnap = await window.db.collection('stores').doc(store).collection('weeks').get(); 
+        appData.records = []; 
+        weekSnap.forEach(d => { 
+            if(d.data().records) d.data().records.forEach(r => { r.week = d.id; appData.records.push(r); })
+        }); 
+
+        // 過濾出本週「真的有排班或備註」的員工名單 (避免清空後殘留)
+        let currentWeekRecords = appData.records.filter(r => r.week === week);
+        let scheduledNames = currentWeekRecords
+            .filter(r => (r.shift && r.shift.trim() !== '') || (r.note && r.note.trim() !== ''))
+            .map(r => r.name);
+
+        // 抓取員工清單，結合在職狀態與歷史紀錄
+        const empSnap = await window.db.collection('stores').doc(store).collection('employees').get(); 
+        appData.employees = []; 
+        empSnap.forEach(d => { 
+            let e = d.data();
+            // 在職者，或是雖然離職但本週有排班紀錄者，皆顯示
+            if(e.status !== '離職' || scheduledNames.includes(d.id)) {
+                appData.employees.push({name: d.id, ...e});
+            }
+        }); 
+        appData.employees.sort((a,b) => (a.sortKey||0) - (b.sortKey||0)); 
+        
+        virtualRowNames = currentWeekRecords.map(r => r.name).filter(n => n && n.startsWith('🆘')).filter((v,i,a) => a.indexOf(v)===i); 
+        renderTable(); 
+        hideLoading(); 
+    }
+
     function renderTable() { 
         let tbody = document.getElementById('tableBody'); tbody.innerHTML = ''; 
         let week = document.getElementById('weekSelector').value; currentWeekDates = getWeekDates(week); 
@@ -372,11 +409,19 @@
         
         emps.forEach((emp, eIdx) => { 
             let tr = document.createElement('tr'); 
+            
             let empNameDisplay = emp.name;
             if(emp.name.startsWith('🆘待補')) {
                 empNameDisplay += ` <span style="color:#d93025; font-size:12px; cursor:pointer;" onclick="deleteVirtualRow('${emp.name}')">✖</span>`;
             }
-            tr.innerHTML = `<td><strong>${empNameDisplay}</strong><br><small>${emp.role}</small></td>`; 
+
+            // 標示已離職身分
+            let roleDisplay = emp.role;
+            if(emp.status === '離職') {
+                roleDisplay += ' <span style="color:#d93025; font-size:11px; font-weight:bold;">(已離職)</span>';
+            }
+
+            tr.innerHTML = `<td><strong>${empNameDisplay}</strong><br><small>${roleDisplay}</small></td>`; 
             
             dayNames.forEach(day => { 
                 let rec = appData.records.find(r => r.name === emp.name && r.day === day && r.week === week) || {shift:'', location:'本店', note:'', actualHours:''}; 
@@ -400,17 +445,32 @@
     function updateCellUI(b) { let s=b.dataset.shift, h=b.dataset.hours, l=b.dataset.loc, n=b.dataset.note; let txt = s || '+'; if(s==='排休'||s==='指休') txt='休'; if(h && h!=appConfig.shiftHours[s] && s!=='排休' && s!=='指休') txt += `<br><small>(${h}h)</small>`; if(l && l!=='本店') txt += `<br><small style="color:#d93025; font-weight:800;">📍${l}</small>`; if(n) txt += `<br><small style="color:#1a73e8;">${n}</small>`; b.innerHTML = txt; b.className = 'cell-btn'; if(s==='指休') b.classList.add('zhi-xiu'); else if(s==='排休') b.classList.add('pai-xiu'); else if(s) { let start=parseInt(s); if(start>=15||start<6) b.classList.add('shift-night'); else b.classList.add('shift-morning'); } }
     function addVirtualRow() { syncUIToMemory(); let n = 1; while(virtualRowNames.includes('🆘待補'+n)) n++; virtualRowNames.push('🆘待補'+n); renderTable(); triggerAutoSave(); }
     function autoFillHours() { let s = document.getElementById('modalShift').value.trim(); let t = document.getElementById('modalHours'); if(appConfig.shiftHours && appConfig.shiftHours[s]) { t.value = appConfig.shiftHours[s]; } else { let m = s.match(/(\d+)-(\d+)/); if(m) { let h = parseInt(m[2])-parseInt(m[1]); t.value = h<0 ? h+24 : h; } else if(s==='排休'||s==='指休') t.value=0; } }
-    async function loadScheduleData() { let store = document.getElementById('storeSelector').value; let week = document.getElementById('weekSelector').value; if(!store) return; localStorage.setItem('lastStore', store); showLoading("讀取資料..."); const empSnap = await window.db.collection('stores').doc(store).collection('employees').get(); appData.employees = []; empSnap.forEach(d => { if(d.data().status !== '離職') appData.employees.push({name: d.id, ...d.data()}); }); appData.employees.sort((a,b) => (a.sortKey||0) - (b.sortKey||0)); const weekSnap = await window.db.collection('stores').doc(store).collection('weeks').get(); appData.records = []; weekSnap.forEach(d => { if(d.data().records) d.data().records.forEach(r => { r.week = d.id; appData.records.push(r); })}); virtualRowNames = appData.records.filter(r => r.week === week).map(r => r.name).filter(n => n && n.startsWith('🆘')).filter((v,i,a) => a.indexOf(v)===i); renderTable(); hideLoading(); }
+    
+    // 🌟 複製上週邏輯也修正為強制等待儲存後重讀，確保離職人員若被複製過來能正確顯示
+    async function copyLastWeek() { 
+        let store = document.getElementById('storeSelector').value; 
+        let week = document.getElementById('weekSelector').value; 
+        let parts = week.split('-W'); let prevW = parseInt(parts[1]) - 1; let prevWeekStr = parts[0] + '-W' + (prevW < 10 ? '0'+prevW : prevW); 
+        if(!confirm(`確定複製上週 (${prevWeekStr}) 班表？`)) return; 
+        showLoading("複製資料中..."); 
+        const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(prevWeekStr).get(); 
+        if(snap.exists) { 
+            let newRecords = snap.data().records.map(r => ({ ...r, week: week })); 
+            appData.records = appData.records.filter(r => r.week !== week).concat(newRecords); 
+            await saveScheduleData(false); // 強制先存檔
+            alert("📋 複製完成！"); 
+            loadScheduleData(); // 重新讀取確保介面正確載入所有人員
+        } else { alert("找不到上週資料。"); hideLoading(); } 
+    }
+    
     function syncUIToMemory() { let week = document.getElementById('weekSelector').value; document.querySelectorAll('.cell-btn').forEach(btn => { if (btn.dataset.shift) { let idx = appData.records.findIndex(r => r.name===btn.dataset.emp && r.day===btn.dataset.day && r.week===week); let data = { week: week, day: btn.dataset.day, name: btn.dataset.emp, shift: btn.dataset.shift, location: btn.dataset.loc, note: btn.dataset.note, actualHours: btn.dataset.hours }; if (idx !== -1) appData.records[idx] = data; else appData.records.push(data); } }); }
     
-    // 🌟 核心：排班點擊的智慧動態視窗邏輯
     function handleCellClick(b, eIdx) { 
         let isVirtual = b.dataset.emp.includes('待補');
         if(isPaintMode) { 
             let s = document.getElementById('paintShift').value; 
             b.dataset.shift = s; 
             b.dataset.hours = document.getElementById('paintHours').value; 
-            // 待補強制本店
             b.dataset.loc = isVirtual ? '本店' : document.getElementById('paintLoc').value; 
             b.dataset.note = document.getElementById('paintNote').value; 
             updateCellUI(b); updateDailyTotals(); triggerAutoSave(); 
@@ -422,7 +482,6 @@
             document.getElementById('modalLocation').value = isVirtual ? '本店' : (b.dataset.loc || '本店'); 
             document.getElementById('modalNote').value = b.dataset.note; 
 
-            // 🌟 智慧動態隱藏：待補列隱藏地點，備註改名
             if(isVirtual) {
                 document.getElementById('modalLocGroup').style.display = 'none';
                 document.getElementById('modalNoteGroup').style.gridColumn = '1 / span 2';
@@ -486,12 +545,20 @@
     function closeModal(id) { document.getElementById(id).style.display = 'none'; }
     function togglePaintMode() { isPaintMode = !isPaintMode; document.getElementById('paintToggleBtn').className = isPaintMode ? 'btn-paint-toggle active' : 'btn-paint-toggle'; document.getElementById('paintToggleBtn').innerText = isPaintMode ? '🖌️ 刷子(開)' : '🖌️ 刷子(關)'; document.getElementById('paintToolbar').style.display = isPaintMode ? 'flex' : 'none'; if(isPaintMode) { let sel = document.getElementById('paintShift'); sel.innerHTML = ''; appConfig.shifts.forEach(s => sel.innerHTML += `<option value="${s}">${s}</option>`); autoFillPaintHours(); } }
     function autoFillPaintHours() { document.getElementById('paintHours').value = appConfig.shiftHours[document.getElementById('paintShift').value] || 0; }
-    function openEmpModal() { syncUIToMemory(); localActiveEmps = JSON.parse(JSON.stringify(appData.employees)); localDeletedNames = []; renderLocalEmpTable(); document.getElementById('empModal').style.display = 'flex'; }
-    function renderLocalEmpTable() { let c = document.getElementById('localEmpList'); c.innerHTML = ''; localActiveEmps.forEach((e,i)=>{ let r=document.createElement('div'); r.className='emp-row'; let otherStores=appConfig.stores.filter(s=>s!==document.getElementById('storeSelector').value); let tOpts=otherStores.map(s=>`<option value="${s}">${s}</option>`).join(''); r.innerHTML=`<div style="display:flex; flex-direction:column;"><button style="border:none; cursor:pointer;" onclick="localSwapEmp(${i},-1)" ${i===0?'disabled':''}>▲</button><button style="border:none; cursor:pointer;" onclick="localSwapEmp(${i},1)" ${i===localActiveEmps.length-1?'disabled':''}>▼</button></div><div style="width:85px; margin-left:10px;"><strong>${e.name}</strong></div><div style="font-size:12px;">${e.role}</div><div style="margin-left:auto;"><select id="trans-to-${i}" style="font-size:11px;">${tOpts}</select><button onclick="localTransferEmp(${i})" style="background:orange; color:white; border:none; border-radius:4px; padding:4px 8px; cursor:pointer;">調店</button><button onclick="localDelEmp(${i},'${e.name}')" style="background:red; color:white; border:none; border-radius:4px; padding:4px 8px; cursor:pointer;">刪除</button></div>`; c.appendChild(r); }); }
+    
+    // 🌟 人員管理過濾：只列出在職員工
+    function openEmpModal() { 
+        syncUIToMemory(); 
+        localActiveEmps = JSON.parse(JSON.stringify(appData.employees.filter(e => e.status !== '離職'))); 
+        localDeletedNames = []; 
+        renderLocalEmpTable(); 
+        document.getElementById('empModal').style.display = 'flex'; 
+    }
+    function renderLocalEmpTable() { let c = document.getElementById('localEmpList'); c.innerHTML = ''; localActiveEmps.forEach((e,i)=>{ let r=document.createElement('div'); r.className='emp-row'; let otherStores=appConfig.stores.filter(s=>s!==document.getElementById('storeSelector').value); let tOpts=otherStores.map(s=>`<option value="${s}">${s}</option>`).join(''); r.innerHTML=`<div style="display:flex; flex-direction:column;"><button style="border:none; cursor:pointer;" onclick="localSwapEmp(${i},-1)" ${i===0?'disabled':''}>▲</button><button style="border:none; cursor:pointer;" onclick="localSwapEmp(${i},1)" ${i===localActiveEmps.length-1?'disabled':''}>▼</button></div><div style="width:85px; margin-left:10px;"><strong>${e.name}</strong></div><div style="font-size:12px;">${e.role}</div><div style="margin-left:auto;"><select id="trans-to-${i}" style="font-size:11px;">${tOpts}</select><button onclick="localTransferEmp(${i})" style="background:orange; color:white; border:none; border-radius:4px; padding:4px 8px; cursor:pointer;">調店</button><button onclick="localDelEmp(${i},'${e.name}')" style="background:red; color:white; border:none; border-radius:4px; padding:4px 8px; cursor:pointer;">刪除(離職)</button></div>`; c.appendChild(r); }); }
     function localSwapEmp(i,d){ let t=i+d; if(t<0||t>=localActiveEmps.length)return; let tmp=localActiveEmps[i]; localActiveEmps[i]=localActiveEmps[t]; localActiveEmps[t]=tmp; renderLocalEmpTable(); }
     function localAddEmp(){ let nI=document.getElementById('newEmpName'),wI=document.getElementById('newEmpWage'); let n=nI.value.trim(),r=document.getElementById('newEmpRole').value,w=wI.value; if(!n||!w)return; localActiveEmps.push({name:n,role:r,wage:w}); nI.value=''; wI.value=''; renderLocalEmpTable(); }
     async function localTransferEmp(i){ let e=localActiveEmps[i],tS=document.getElementById(`trans-to-${i}`).value; if(!tS||!confirm(`轉調 ${e.name} 至 ${tS}?`))return; showLoading("跨店調度中..."); await window.db.collection('stores').doc(tS).collection('employees').doc(e.name).set({role:e.role,wage:e.wage,status:'在職',sortKey:999}); localDeletedNames.push(e.name); localActiveEmps.splice(i,1); renderLocalEmpTable(); hideLoading(); }
-    function localDelEmp(i,n){ if(confirm(`確定移除 ${n}?`)){ localDeletedNames.push(n); localActiveEmps.splice(i,1); renderLocalEmpTable(); } }
+    function localDelEmp(i,n){ if(confirm(`確定將 ${n} 設為離職?`)){ localDeletedNames.push(n); localActiveEmps.splice(i,1); renderLocalEmpTable(); } }
     async function batchSaveEmps(){ let s=document.getElementById('storeSelector').value; showLoading("正在更新人事..."); for(let i=0;i<localActiveEmps.length;i++){ let e=localActiveEmps[i]; await window.db.collection('stores').doc(s).collection('employees').doc(e.name).set({role:e.role,wage:e.wage,status:'在職',sortKey:i}, {merge:true}); } for(let n of localDeletedNames) await window.db.collection('stores').doc(s).collection('employees').doc(n).set({status:'離職'}, {merge:true}); closeModal('empModal'); loadScheduleData(); }
     function openSysModal() { renderSysStoreItems(); renderSysShiftItems(); document.getElementById('sysModal').style.display = 'flex'; }
     function renderSysStoreItems() { let h = ''; (appConfig.stores || []).forEach((s, i) => h += `<div style="display:flex; justify-content:space-between; padding:8px; border-bottom:1px solid #eee;"><span>🏪 ${s}</span><button onclick="delSysStore(${i})" style="background:red; color:white; padding:4px 8px; border:none; border-radius:4px; cursor:pointer;">刪除</button></div>`); document.getElementById('sysStoreList').innerHTML = h; }
