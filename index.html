@@ -70,7 +70,6 @@
     .emp-row { display: flex; align-items: center; padding: 12px; border-bottom: 1px solid #eee; background: white; gap: 10px; }
     .quick-note-btn { background:#e8f0fe; color:#1a73e8; border:1px solid #1a73e8; border-radius:4px; padding:4px 8px; font-size:12px; cursor:pointer; font-weight:bold; margin-top: 4px; }
 
-    /* A4 產圖隱藏樣式 */
     #exportContainer { display: none; position: absolute; top: 0; left: 0; z-index: -10; width: 1400px !important; min-width: 1400px !important; max-width: 1400px !important; background-color: #ffffff; padding: 40px 60px; box-sizing: border-box; font-family: "Microsoft JhengHei", "Segoe UI", sans-serif; }
     #exportContainer table { width: 100%; border-collapse: collapse; border: 3px solid #000; table-layout: fixed; }
     #exportContainer th, #exportContainer td { border: 2px solid #000 !important; background-color: #fff !important; color: #000 !important; text-align: center; vertical-align: middle; }
@@ -79,7 +78,6 @@
     .ot-text { color: #d93025; font-weight: bold; }
     .warn-tag { display: inline-block; background: #fce8e6; color: #d93025; font-weight: bold; font-size: 11px; padding: 2px 4px; border-radius: 4px; margin-top: 3px; border: 1px solid #d93025; }
 
-    /* 🌟 跨店支援特殊樣式 */
     .unfilled-shift { background-color: #ffe0b2 !important; border: 2px dashed #f57c00 !important; color: #e65100 !important; }
     .pending-badge { display: block; background: #fef08a; border: 2px solid #fbc02d; color: #d84315; font-size: 12px; font-weight: bold; border-radius: 6px; padding: 6px; margin-top: 6px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.2); animation: pulse 1.5s infinite; line-height: 1.3; }
     @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
@@ -157,7 +155,7 @@
                 <select id="modalSupportEmp" style="width:65%; padding:12px; box-sizing:border-box; border:2px solid #1a73e8;" onchange="toggleApprovalStatusVis()"></select>
                 <select id="modalApprovalStatus" style="width:35%; padding:12px; box-sizing:border-box; display:none; background:#e8f0fe;">
                     <option value="pending">⏳ 待審核 (預設)</option>
-                    <option value="approved">✅ 直接核准 (本商店操作)</option>
+                    <option value="approved">✅ 直接核准</option>
                 </select>
             </div>
         </div>
@@ -237,6 +235,16 @@
         fetchAllStoreData();
     }
 
+    function updateLocDropdowns() {
+        let currentStore = document.getElementById('storeSelector').value;
+        let opts = `<option value="本店">本店</option>`;
+        (appConfig.stores || []).forEach(s => {
+            if (s !== currentStore) opts += `<option value="${s}">${s}</option>`;
+        });
+        let mLoc = document.getElementById('modalLocation'); if(mLoc) mLoc.innerHTML = opts;
+        let pLoc = document.getElementById('paintLoc'); if(pLoc) pLoc.innerHTML = opts;
+    }
+
     function appendNote(text) {
         let noteInput = document.getElementById('modalNote');
         if(noteInput.value.trim() === '') noteInput.value = text;
@@ -249,13 +257,14 @@
         try {
             const snap = await window.db.collection('settings').doc('globalConfig').get();
             if (snap.exists) appConfig = snap.data();
-            
-            let sel = document.getElementById('storeSelector'); sel.innerHTML = ''; 
-            (appConfig.stores || []).forEach(s => sel.innerHTML += `<option value="${s}">${s}</option>`); 
-            sel.value = localStorage.getItem('lastStore') || appConfig.stores[0] || ""; 
-            
+            let sel = document.getElementById('storeSelector'); sel.innerHTML = '';
+            (appConfig.stores || []).forEach(s => sel.innerHTML += `<option value="${s}">${s}</option>`);
+            sel.value = localStorage.getItem('lastStore') || appConfig.stores[0] || "";
             fetchAllStoreData();
-        } catch (e) { alert("連線失敗：" + e.message); }
+        } catch (e) { 
+            alert("連線失敗：" + e.message + "\n(可能是 Firebase 30天安全鎖到期了，請照著 AI 的教學去解鎖！)"); 
+            hideLoading();
+        }
     };
 
     function triggerAutoSave() {
@@ -272,7 +281,7 @@
         let week = document.getElementById('weekSelector').value;
         if(!store || !week) return;
         try {
-            let schedule = appData.records;
+            let schedule = appData.records.filter(r => r.week === week);
             await window.db.collection('stores').doc(store).collection('weeks').doc(week).set({ records: schedule });
             const s = document.getElementById('syncStatus');
             s.innerHTML = '<div class="dot"></div><span>✅ 所有變更已儲存 (' + new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) + ')</span>';
@@ -285,6 +294,7 @@
         undoStack.push({ btn:b, s:b.dataset.shift, h:b.dataset.hours, l:b.dataset.loc, n:b.dataset.note, ot:b.dataset.ot, warn:b.dataset.warn, supp:b.dataset.support, app:b.dataset.approval }); 
         if(undoStack.length>30) undoStack.shift(); 
     }
+    
     function undoLastAction() { 
         if(undoStack.length===0) return alert("沒動作可回上一步囉！"); 
         let l = undoStack.pop(); 
@@ -292,11 +302,155 @@
         syncUIToMemory(); renderTable(); triggerAutoSave(); 
     }
 
-    // 🌟 核心：一次性抓取各店資料 (實現跨店連動)
+    // 🌟 原生 Canvas 產圖 (乾淨無警告版)
+    function exportNativeImage() {
+        syncUIToMemory();
+        showLoading("📸 正在啟動高解析度原生繪圖引擎...");
+
+        setTimeout(() => {
+            try {
+                let store = document.getElementById('storeSelector').value;
+                let weekStr = document.getElementById('weekSelector').value;
+                let emps = [...appData.employees]; 
+                virtualRowNames.forEach(n => emps.push({name: n, role: '待補'}));
+
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                const W = 1400, startX = 80, gridW = W - startX * 2, colW = gridW / 8, rowH = 95, headerH = 95, numEmpRows = emps.length, numEmptyRows = 5; 
+                const gridH = headerH + (numEmpRows * rowH) + rowH + (numEmptyRows * rowH), startY = 240, H = startY + gridH + 120; 
+
+                canvas.width = W; canvas.height = H;
+                ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, W, H);
+
+                ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "#000000";
+                ctx.font = "900 48px 'Microsoft JhengHei', sans-serif"; ctx.fillText(`${store} 職員輪班表`, W / 2, 90);
+                
+                let startArr = currentWeekDates[0].split('/'); let endArr = currentWeekDates[6].split('/');
+                ctx.font = "bold 26px 'Microsoft JhengHei', sans-serif"; ctx.fillStyle = "#333333";
+                ctx.fillText(`${startArr[0]} 月 ${startArr[1]} 日 至 ${endArr[0]} 月 ${endArr[1]} 日`, W / 2, 160);
+
+                ctx.lineWidth = 3; ctx.strokeStyle = "#000000"; ctx.strokeRect(startX, startY, gridW, gridH);
+                ctx.lineWidth = 2; 
+                for(let i = 1; i < 8; i++) { ctx.beginPath(); ctx.moveTo(startX + i * colW, startY); ctx.lineTo(startX + i * colW, startY + gridH); ctx.stroke(); }
+                let currentY = startY + headerH;
+                while (currentY < startY + gridH) { ctx.beginPath(); ctx.moveTo(startX, currentY); ctx.lineTo(startX + gridW, currentY); ctx.stroke(); currentY += rowH; }
+
+                ctx.beginPath(); ctx.moveTo(startX, startY); ctx.lineTo(startX + colW, startY + headerH); ctx.lineWidth = 2; ctx.stroke();
+
+                ctx.font = "bold 20px 'Microsoft JhengHei', sans-serif"; ctx.fillStyle = "#000000"; ctx.textAlign = "right"; ctx.fillText("月/日", startX + colW - 15, startY + 30);
+                ctx.textAlign = "left"; ctx.fillText("姓名", startX + 15, startY + headerH - 30);
+
+                ctx.textAlign = "center";
+                for(let i = 0; i < 7; i++) {
+                    let cx = startX + (i + 1) * colW + colW / 2; let cy = startY + headerH / 2;
+                    ctx.font = "900 26px 'Microsoft JhengHei', sans-serif"; ctx.fillText(currentWeekDates[i], cx, cy - 12);
+                    ctx.font = "normal 20px 'Microsoft JhengHei', sans-serif"; ctx.fillText(dayNames[i], cx, cy + 20);
+                }
+
+                function drawRoundRect(x, y, w, h, r, color) {
+                    ctx.beginPath(); ctx.moveTo(x+r, y); ctx.lineTo(x+w-r, y); ctx.quadraticCurveTo(x+w, y, x+w, y+r);
+                    ctx.lineTo(x+w, y+h-r); ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h); ctx.lineTo(x+r, y+h);
+                    ctx.quadraticCurveTo(x, y+h, x, y+h-r); ctx.lineTo(x, y+r); ctx.quadraticCurveTo(x, y, x+r, y); ctx.closePath();
+                    ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.stroke();
+                }
+
+                let rowY = startY + headerH;
+                emps.forEach(emp => {
+                    let cy = rowY + rowH / 2;
+                    ctx.fillStyle = "#000000"; ctx.font = "900 26px 'Microsoft JhengHei', sans-serif"; 
+                    if(!emp.name.includes('待補')) ctx.fillText(emp.name, startX + colW / 2, cy);
+
+                    for(let i = 0; i < 7; i++) {
+                        let cx = startX + (i + 1) * colW + colW / 2;
+                        let rec = appData.records.find(r => r.name === emp.name && r.day === dayNames[i] && r.week === weekStr) || {shift:'', note:'', location:'', actualHours:0, isOT:false, supportEmp:'', approvalStatus:''};
+                        
+                        let hasSubtext = (rec.note || (rec.location && rec.location !== '本店') || (rec.supportEmp && rec.approvalStatus === 'approved'));
+                        let textY = hasSubtext ? cy - 14 : cy;
+                        let hVal = parseFloat(rec.actualHours || 0);
+
+                        if (emp.name.includes('待補') && !rec.supportEmp && rec.shift && rec.shift !== '排休' && rec.shift !== '指休') {
+                            ctx.fillStyle = "#000000"; ctx.font = "900 30px 'Arial', 'Microsoft JhengHei', sans-serif"; 
+                            ctx.fillText(rec.shift.replace('-', ' / '), cx, cy);
+                            continue;
+                        }
+
+                        if (rec.shift === '指休') {
+                            drawRoundRect(cx - 35, textY - 24, 70, 48, 10, '#d93025'); 
+                            ctx.fillStyle = "#d93025"; ctx.font = "900 28px 'Microsoft JhengHei', sans-serif"; ctx.fillText("休", cx, textY + 2);
+                        } else if (rec.shift === '排休') {
+                            ctx.fillStyle = "#000000"; ctx.font = "900 28px 'Microsoft JhengHei', sans-serif"; ctx.fillText("休", cx, textY + 2);
+                        } else if (rec.shift) {
+                            ctx.font = "900 30px 'Arial', 'Microsoft JhengHei', sans-serif"; 
+                            if (rec.isOT) {
+                                ctx.fillStyle = "#d93025"; ctx.fillText(rec.shift.replace('-', ' / '), cx, textY);
+                            } else if (hVal > 8 && rec.shift.includes('-')) {
+                                let parts = rec.shift.split('-');
+                                if (parts.length === 2) {
+                                    ctx.fillStyle = "#000000"; ctx.textAlign = "right"; ctx.fillText(parts[0] + ' / ', cx, textY);
+                                    ctx.fillStyle = "#d93025"; ctx.textAlign = "left"; ctx.fillText(parts[1], cx, textY);
+                                    ctx.textAlign = "center"; 
+                                }
+                            } else {
+                                ctx.fillStyle = "#000000"; ctx.fillText(rec.shift.replace('-', ' / '), cx, textY);
+                            }
+                        }
+
+                        if (hasSubtext) {
+                            let subtextY = cy + 20; 
+                            if (emp.name.includes('待補') && rec.supportEmp && rec.approvalStatus === 'approved') {
+                                ctx.fillStyle = "#1a73e8"; ctx.font = "900 18px 'Microsoft JhengHei', sans-serif"; 
+                                ctx.fillText(rec.supportEmp.split('-')[1] || rec.supportEmp, cx, subtextY);
+                            } else {
+                                if (rec.location && rec.location !== '本店') {
+                                    ctx.fillStyle = "#e67e22"; ctx.font = "bold 18px 'Microsoft JhengHei', sans-serif"; 
+                                    ctx.fillText(rec.location, cx, subtextY); subtextY += 22; 
+                                }
+                                if (rec.note) {
+                                    ctx.fillStyle = "#0088aa"; ctx.font = "bold 18px 'Microsoft JhengHei', sans-serif"; 
+                                    ctx.fillText(rec.note, cx, subtextY);
+                                }
+                            }
+                        }
+                    }
+                    rowY += rowH;
+                });
+
+                let cyNote = rowY + rowH / 2;
+                ctx.fillStyle = "#000000"; ctx.font = "900 24px 'Microsoft JhengHei', sans-serif"; ctx.fillText("門市備註", startX + colW / 2, cyNote);
+
+                for(let i = 0; i < 7; i++) {
+                    let cx = startX + (i + 1) * colW + colW / 2;
+                    let rec = appData.records.find(r => r.name === '門市備註' && r.day === dayNames[i] && r.week === weekStr);
+                    if (rec && rec.note) {
+                        ctx.fillStyle = "#0088aa"; ctx.font = "bold 22px 'Microsoft JhengHei', sans-serif"; ctx.fillText(rec.note, cx, cyNote);
+                    }
+                }
+
+                ctx.textAlign = "left"; ctx.fillStyle = "#000000"; ctx.font = "bold 20px 'Microsoft JhengHei', sans-serif"; 
+                ctx.fillText("※每周五、六公佈下週排班表，若有變動者，請事先向店長反映，勿私自調動！", startX + 5, H - 40);
+
+                const img = document.getElementById('previewImg'); img.src = canvas.toDataURL("image/jpeg", 0.95);
+                document.getElementById('imagePreviewModal').style.display = 'flex';
+                document.getElementById('downloadImgBtn').onclick = () => { let a = document.createElement('a'); a.href = img.src; a.download = `${store}_排班表_${weekStr}.jpg`; a.click(); };
+                hideLoading();
+            } catch (err) { alert("產圖發生錯誤：" + err); hideLoading(); }
+        }, 100); 
+    }
+
+    function deleteVirtualRow(name) {
+        if(!confirm(`確定要刪除 ${name} 嗎？`)) return;
+        let week = document.getElementById('weekSelector').value;
+        appData.records = appData.records.filter(r => !(r.name === name && r.week === week));
+        virtualRowNames = virtualRowNames.filter(n => n !== name);
+        renderTable();
+        triggerAutoSave();
+    }
+
+    // 🌟 一次抓取所有門市資料 (解決跨店崩潰)
     async function fetchAllStoreData() {
         let store = document.getElementById('storeSelector').value;
-        let week = document.getElementById('weekSelector').value;
-        if(!store || !week) return;
+        let weekStr = document.getElementById('weekSelector').value;
+        if(!store || !weekStr) return;
         localStorage.setItem('lastStore', store);
         showLoading("同步各門市最新資料...");
 
@@ -304,14 +458,13 @@
         appData.allStoresEmployees = {};
 
         try {
-            // 抓取所有門市的員工與排班
             for (let s of appConfig.stores) {
                 let empSnap = await window.db.collection('stores').doc(s).collection('employees').get();
                 let emps = [];
                 empSnap.forEach(d => { if(d.data().status !== '離職') emps.push(d.id); });
                 appData.allStoresEmployees[s] = emps;
 
-                let weekSnap = await window.db.collection('stores').doc(s).collection('weeks').doc(week).get();
+                let weekSnap = await window.db.collection('stores').doc(s).collection('weeks').doc(weekStr).get();
                 if(weekSnap.exists && weekSnap.data().records) {
                     weekSnap.data().records.forEach(r => {
                         appData.allStoresRecords.push({ ...r, _store: s });
@@ -319,30 +472,26 @@
                 }
             }
 
-            // 過濾出本店的排班紀錄
             appData.records = appData.allStoresRecords.filter(r => r._store === store);
 
-            // 重建本店員工名單
-            const empSnap = await window.db.collection('stores').doc(store).collection('employees').get(); 
-            appData.employees = []; 
-            empSnap.forEach(d => { 
+            const empSnap = await window.db.collection('stores').doc(store).collection('employees').get();
+            appData.employees = [];
+            let scheduledNames = appData.records.filter(r => (r.shift && r.shift.trim() !== '') || (r.note && r.note.trim() !== '')).map(r => r.name);
+
+            empSnap.forEach(d => {
                 let e = d.data();
-                let scheduled = appData.records.some(r => r.name === d.id && (r.shift || r.note));
-                if(e.status !== '離職' || scheduled) {
+                if(e.status !== '離職' || scheduledNames.includes(d.id)) {
                     appData.employees.push({name: d.id, ...e});
                 }
-            }); 
-            appData.employees.sort((a,b) => (a.sortKey||0) - (b.sortKey||0)); 
-            
-            // 找出所有待補列
-            virtualRowNames = appData.records.map(r => r.name).filter(n => n && n.startsWith('🆘')).filter((v,i,a) => a.indexOf(v)===i); 
+            });
+            appData.employees.sort((a,b) => (a.sortKey||0) - (b.sortKey||0));
 
-            // 更新支援人員下拉選單選項
+            virtualRowNames = appData.records.map(r => r.name).filter(n => n && n.startsWith('🆘')).filter((v,i,a) => a.indexOf(v)===i);
+
             renderSupportDropdown();
-            renderTable(); 
+            renderTable();
         } catch (e) {
-            console.error(e);
-            alert("讀取資料失敗，請檢查網路連線。");
+            alert("讀取資料失敗：" + e.message);
         }
         hideLoading();
     }
@@ -370,10 +519,10 @@
 
     function toggleApprovalStatusVis() {
         let val = document.getElementById('modalSupportEmp').value;
-        document.getElementById('modalApprovalStatus').style.display = val ? 'block' : 'none';
+        let el = document.getElementById('modalApprovalStatus');
+        if(el) el.style.display = val ? 'block' : 'none';
     }
 
-    // 🌟 網頁表格渲染與勞資檢核計算
     function renderTable() { 
         let tbody = document.getElementById('tableBody'); tbody.innerHTML = ''; 
         let weekStr = document.getElementById('weekSelector').value; currentWeekDates = getWeekDates(weekStr); 
@@ -398,7 +547,6 @@
             let consecDays = 0;
             let prevEndTime = null;
 
-            // 抓出這個人在所有門市（包含本店 + 去別店支援）的班表，用來計算勞資防呆
             let myShiftsThisWeek = [];
             if (!isVirtual && emp.role !== '店長') {
                 myShiftsThisWeek = appData.allStoresRecords.filter(r => 
@@ -409,11 +557,9 @@
             }
 
             dayNames.forEach(day => { 
-                // 找出這個人在本表格（本店）當天的格子資料
                 let rec = appData.records.find(r => r.name === emp.name && r.day === day && r.week === weekStr) || {shift:'', location:'本店', note:'', actualHours:'', isOT:false, supportEmp:'', approvalStatus:''}; 
                 let warnings = [];
 
-                // 🌟 勞資防呆計算
                 if (!isVirtual && emp.role !== '店長') {
                     let globalRec = myShiftsThisWeek.find(r => r.day === day);
                     if (globalRec && globalRec.shift && globalRec.shift !== '排休' && globalRec.shift !== '指休') {
@@ -436,7 +582,6 @@
                     }
                 }
 
-                // 🌟 跨店審核鈴鐺 (錦花店長看自己的員工時，檢查是否有別人借調)
                 let pendingBadges = '';
                 if (!isVirtual) {
                     let pendingReqs = appData.allStoresRecords.filter(r => 
@@ -451,7 +596,6 @@
                 let td = document.createElement('td'); let btn = document.createElement('button'); btn.className = 'cell-btn'; 
                 btn.dataset.emp = emp.name; btn.dataset.day = day; btn.dataset.shift = rec.shift; btn.dataset.hours = rec.actualHours; btn.dataset.loc = rec.location; btn.dataset.note = rec.note; btn.dataset.ot = rec.isOT; btn.dataset.warn = warnings.join('|');
                 btn.dataset.support = rec.supportEmp || ''; btn.dataset.approval = rec.approvalStatus || '';
-                
                 updateCellUI(btn, pendingBadges); 
                 btn.onclick = (e) => handleCellClick(b, eIdx); td.appendChild(btn); tr.appendChild(td); 
             }); 
@@ -478,7 +622,6 @@
         
         b.classList.remove('unfilled-shift', 'zhi-xiu', 'pai-xiu', 'shift-night', 'shift-morning');
 
-        // 🌟 待補空缺警告色
         if (isVirtual && !supportEmp && s && s !== '排休' && s !== '指休') {
             b.classList.add('unfilled-shift');
         } else if (s === '排休' || s === '指休') {
@@ -495,7 +638,6 @@
         let txt = shiftHtml;
         if(h && h != appConfig.shiftHours[s] && s !== '排休' && s !== '指休') txt += `<br><small>(${Math.round(h)}h)</small>`; 
 
-        // 顯示支援人員狀態
         if (isVirtual && supportEmp) {
             let empNameOnly = supportEmp.split('-')[1] || supportEmp;
             if (approvalStatus === 'pending') txt += `<br><small style="color:#d84315; font-weight:bold;">${empNameOnly}<br>(待審核)</small>`;
@@ -508,8 +650,7 @@
         
         b.innerHTML = txt + extraHtml; 
     }
-    
-    // 🌟 跨店支援審核操作
+
     function openApprovalModal(encodedReq) {
         let req = JSON.parse(decodeURIComponent(encodedReq));
         document.getElementById('approvalReqData').value = encodedReq;
@@ -533,21 +674,20 @@
                     if (isApproved) {
                         records[idx].approvalStatus = 'approved';
                     } else {
-                        // 拒絕：清空對方格子裡的人員，讓它變橘色警告
                         records[idx].supportEmp = '';
                         records[idx].approvalStatus = '';
                     }
                     await docRef.update({ records: records });
                     alert(isApproved ? "已同意支援！對方班表已生效。" : "已拒絕支援，對方格子已清空人員。");
                     closeModal('approvalModal');
-                    fetchAllStoreData(); // 重新讀取全局資料
+                    fetchAllStoreData(); 
                 } else {
                     alert("找不到該筆申請紀錄，可能已被對方刪除。"); closeModal('approvalModal'); hideLoading();
                 }
             }
         } catch (err) { alert("發生錯誤：" + err); hideLoading(); }
     }
-
+    
     function addVirtualRow() { syncUIToMemory(); let n = 1; while(virtualRowNames.includes('🆘待補'+n)) n++; virtualRowNames.push('🆘待補'+n); renderTable(); triggerAutoSave(); }
     function autoFillHours() { let s = document.getElementById('modalShift').value.trim(); let t = document.getElementById('modalHours'); if(appConfig.shiftHours && appConfig.shiftHours[s]) { t.value = appConfig.shiftHours[s]; } else { let m = s.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)/); if(m) { let sT = parseFloat(m[1]), eT = parseFloat(m[2]); if(eT <= sT) eT += 24; let h = eT - sT; t.value = h; } else if(s==='排休'||s==='指休') t.value=0; } }
     
@@ -638,28 +778,30 @@
         let myStore = document.getElementById('storeSelector').value;
         let weekHours = 0, monthHours = 0, monthOT = 0, offD = 0, weekOffD = 0; 
         
-        appData.allStoresRecords.forEach(r => { 
-            let isNative = (r._store === myStore && r.name === emp.name);
-            let isSupport = (r.supportEmp === `${myStore}-${emp.name}` && r.approvalStatus === 'approved');
+        if(appData.allStoresRecords) {
+            appData.allStoresRecords.forEach(r => { 
+                let isNative = (r._store === myStore && r.name === emp.name);
+                let isSupport = (r.supportEmp === `${myStore}-${emp.name}` && r.approvalStatus === 'approved');
 
-            if(isNative || isSupport) { 
-                let hr = parseFloat(r.actualHours || 0);
-                let ot = r.isOT ? hr : Math.max(0, hr - 8);
-                
-                let isCurrentWeek = (r.week === weekStr);
-                let isCurrentMonth = (getWeekDates(r.week)[3].split('/')[0] === month);
+                if(isNative || isSupport) { 
+                    let hr = parseFloat(r.actualHours || 0);
+                    let ot = r.isOT ? hr : Math.max(0, hr - 8);
+                    
+                    let isCurrentWeek = (r.week === weekStr);
+                    let isCurrentMonth = (getWeekDates(r.week)[3].split('/')[0] === month);
 
-                if (isCurrentWeek) {
-                    if (r.shift==='排休'||r.shift==='指休') weekOffD++;
-                    weekHours += hr;
-                }
-                if (isCurrentMonth) {
-                    if (r.shift==='排休'||r.shift==='指休') offD++;
-                    monthHours += hr;
-                    monthOT += ot;
-                }
-            } 
-        }); 
+                    if (isCurrentWeek) {
+                        if (r.shift==='排休'||r.shift==='指休') weekOffD++;
+                        weekHours += hr;
+                    }
+                    if (isCurrentMonth) {
+                        if (r.shift==='排休'||r.shift==='指休') offD++;
+                        monthHours += hr;
+                        monthOT += ot;
+                    }
+                } 
+            }); 
+        }
         
         let info = appData.employees.find(e => e.name === emp.name) || {role:'待補', wage:0}; 
         
@@ -673,142 +815,13 @@
         }
     }
 
-    // 🌟 原生 Canvas 產圖 (乾淨版：無警告、無鈴鐺)
-    function exportNativeImage() {
-        syncUIToMemory();
-        showLoading("📸 正在啟動高解析度原生繪圖引擎...");
-
-        setTimeout(() => {
-            try {
-                let store = document.getElementById('storeSelector').value;
-                let weekStr = document.getElementById('weekSelector').value;
-                let emps = [...appData.employees]; 
-                virtualRowNames.forEach(n => emps.push({name: n, role: '待補'}));
-
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
-                
-                const W = 1400, startX = 80, gridW = W - startX * 2, colW = gridW / 8, rowH = 95, headerH = 95, numEmpRows = emps.length, numEmptyRows = 5; 
-                const gridH = headerH + (numEmpRows * rowH) + rowH + (numEmptyRows * rowH), startY = 240, H = startY + gridH + 120; 
-
-                canvas.width = W; canvas.height = H;
-                ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, W, H);
-
-                ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "#000000";
-                ctx.font = "900 48px 'Microsoft JhengHei', sans-serif"; ctx.fillText(`${store} 職員輪班表`, W / 2, 90);
-                
-                let startArr = currentWeekDates[0].split('/'); let endArr = currentWeekDates[6].split('/');
-                ctx.font = "bold 26px 'Microsoft JhengHei', sans-serif"; ctx.fillStyle = "#333333";
-                ctx.fillText(`${startArr[0]} 月 ${startArr[1]} 日 至 ${endArr[0]} 月 ${endArr[1]} 日`, W / 2, 160);
-
-                ctx.lineWidth = 3; ctx.strokeStyle = "#000000"; ctx.strokeRect(startX, startY, gridW, gridH);
-                ctx.lineWidth = 2; 
-                for(let i = 1; i < 8; i++) { ctx.beginPath(); ctx.moveTo(startX + i * colW, startY); ctx.lineTo(startX + i * colW, startY + gridH); ctx.stroke(); }
-                let currentY = startY + headerH;
-                while (currentY < startY + gridH) { ctx.beginPath(); ctx.moveTo(startX, currentY); ctx.lineTo(startX + gridW, currentY); ctx.stroke(); currentY += rowH; }
-
-                ctx.beginPath(); ctx.moveTo(startX, startY); ctx.lineTo(startX + colW, startY + headerH); ctx.lineWidth = 2; ctx.stroke();
-
-                ctx.font = "bold 20px 'Microsoft JhengHei', sans-serif"; ctx.fillStyle = "#000000"; ctx.textAlign = "right"; ctx.fillText("月/日", startX + colW - 15, startY + 30);
-                ctx.textAlign = "left"; ctx.fillText("姓名", startX + 15, startY + headerH - 30);
-
-                ctx.textAlign = "center";
-                for(let i = 0; i < 7; i++) {
-                    let cx = startX + (i + 1) * colW + colW / 2; let cy = startY + headerH / 2;
-                    ctx.font = "900 26px 'Microsoft JhengHei', sans-serif"; ctx.fillText(currentWeekDates[i], cx, cy - 12);
-                    ctx.font = "normal 20px 'Microsoft JhengHei', sans-serif"; ctx.fillText(dayNames[i], cx, cy + 20);
-                }
-
-                function drawRoundRect(x, y, w, h, r, color) {
-                    ctx.beginPath(); ctx.moveTo(x+r, y); ctx.lineTo(x+w-r, y); ctx.quadraticCurveTo(x+w, y, x+w, y+r);
-                    ctx.lineTo(x+w, y+h-r); ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h); ctx.lineTo(x+r, y+h);
-                    ctx.quadraticCurveTo(x, y+h, x, y+h-r); ctx.lineTo(x, y+r); ctx.quadraticCurveTo(x, y, x+r, y); ctx.closePath();
-                    ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.stroke();
-                }
-
-                let rowY = startY + headerH;
-                emps.forEach(emp => {
-                    let cy = rowY + rowH / 2;
-                    ctx.fillStyle = "#000000"; ctx.font = "900 26px 'Microsoft JhengHei', sans-serif"; 
-                    if(!emp.name.includes('待補')) ctx.fillText(emp.name, startX + colW / 2, cy);
-
-                    for(let i = 0; i < 7; i++) {
-                        let cx = startX + (i + 1) * colW + colW / 2;
-                        let rec = appData.records.find(r => r.name === emp.name && r.day === dayNames[i] && r.week === weekStr) || {shift:'', note:'', location:'', actualHours:0, isOT:false, supportEmp:'', approvalStatus:''};
-                        
-                        let hasSubtext = (rec.note || (rec.location && rec.location !== '本店') || (rec.supportEmp && rec.approvalStatus === 'approved'));
-                        let textY = hasSubtext ? cy - 14 : cy;
-                        let hVal = parseFloat(rec.actualHours || 0);
-
-                        // 如果是待補列且沒有人接，只印時間
-                        if (emp.name.includes('待補') && !rec.supportEmp && rec.shift && rec.shift !== '排休' && rec.shift !== '指休') {
-                            ctx.fillStyle = "#000000"; ctx.font = "900 30px 'Arial', 'Microsoft JhengHei', sans-serif"; 
-                            ctx.fillText(rec.shift.replace('-', ' / '), cx, cy);
-                            continue;
-                        }
-
-                        if (rec.shift === '指休') {
-                            drawRoundRect(cx - 35, textY - 24, 70, 48, 10, '#d93025'); 
-                            ctx.fillStyle = "#d93025"; ctx.font = "900 28px 'Microsoft JhengHei', sans-serif"; ctx.fillText("休", cx, textY + 2);
-                        } else if (rec.shift === '排休') {
-                            ctx.fillStyle = "#000000"; ctx.font = "900 28px 'Microsoft JhengHei', sans-serif"; ctx.fillText("休", cx, textY + 2);
-                        } else if (rec.shift) {
-                            ctx.font = "900 30px 'Arial', 'Microsoft JhengHei', sans-serif"; 
-                            if (rec.isOT) {
-                                ctx.fillStyle = "#d93025"; ctx.fillText(rec.shift.replace('-', ' / '), cx, textY);
-                            } else if (hVal > 8 && rec.shift.includes('-')) {
-                                let parts = rec.shift.split('-');
-                                if (parts.length === 2) {
-                                    ctx.fillStyle = "#000000"; ctx.textAlign = "right"; ctx.fillText(parts[0] + ' / ', cx, textY);
-                                    ctx.fillStyle = "#d93025"; ctx.textAlign = "left"; ctx.fillText(parts[1], cx, textY);
-                                    ctx.textAlign = "center"; 
-                                }
-                            } else {
-                                ctx.fillStyle = "#000000"; ctx.fillText(rec.shift.replace('-', ' / '), cx, textY);
-                            }
-                        }
-
-                        if (hasSubtext) {
-                            let subtextY = cy + 20; 
-                            if (emp.name.includes('待補') && rec.supportEmp && rec.approvalStatus === 'approved') {
-                                ctx.fillStyle = "#1a73e8"; ctx.font = "900 18px 'Microsoft JhengHei', sans-serif"; 
-                                ctx.fillText(rec.supportEmp.split('-')[1] || rec.supportEmp, cx, subtextY);
-                            } else {
-                                if (rec.location && rec.location !== '本店') {
-                                    ctx.fillStyle = "#e67e22"; ctx.font = "bold 18px 'Microsoft JhengHei', sans-serif"; 
-                                    ctx.fillText(rec.location, cx, subtextY); subtextY += 22; 
-                                }
-                                if (rec.note) {
-                                    ctx.fillStyle = "#0088aa"; ctx.font = "bold 18px 'Microsoft JhengHei', sans-serif"; 
-                                    ctx.fillText(rec.note, cx, subtextY);
-                                }
-                            }
-                        }
-                    }
-                    rowY += rowH;
-                });
-
-                let cyNote = rowY + rowH / 2;
-                ctx.fillStyle = "#000000"; ctx.font = "900 24px 'Microsoft JhengHei', sans-serif"; ctx.fillText("門市備註", startX + colW / 2, cyNote);
-
-                for(let i = 0; i < 7; i++) {
-                    let cx = startX + (i + 1) * colW + colW / 2;
-                    let rec = appData.records.find(r => r.name === '門市備註' && r.day === dayNames[i] && r.week === weekStr);
-                    if (rec && rec.note) {
-                        ctx.fillStyle = "#0088aa"; ctx.font = "bold 22px 'Microsoft JhengHei', sans-serif"; ctx.fillText(rec.note, cx, cyNote);
-                    }
-                }
-
-                ctx.textAlign = "left"; ctx.fillStyle = "#000000"; ctx.font = "bold 20px 'Microsoft JhengHei', sans-serif"; 
-                ctx.fillText("※每周五、六公佈下週排班表，若有變動者，請事先向店長反映，勿私自調動！", startX + 5, H - 40);
-
-                const img = document.getElementById('previewImg'); img.src = canvas.toDataURL("image/jpeg", 0.95);
-                document.getElementById('imagePreviewModal').style.display = 'flex';
-                document.getElementById('downloadImgBtn').onclick = () => { let a = document.createElement('a'); a.href = img.src; a.download = `${store}_排班表_${weekStr}.jpg`; a.click(); };
-                hideLoading();
-            } catch (err) { alert("產圖發生錯誤：" + err); hideLoading(); }
-        }, 100); 
-    }
+    function refreshStoreList() { let sel = document.getElementById('storeSelector'); sel.innerHTML = ''; (appConfig.stores || []).forEach(s => sel.innerHTML += `<option value="${s}">${s}</option>`); sel.value = localStorage.getItem('lastStore') || appConfig.stores[0] || ""; updateLocDropdowns(); }
+    function handleStoreChange() { updateLocDropdowns(); fetchAllStoreData(); }
+    function showLoading(t) { document.getElementById('loadingText').innerText = t; document.getElementById('loadingOverlay').style.display = 'flex'; }
+    function hideLoading() { document.getElementById('loadingOverlay').style.display = 'none'; }
+    function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+    function togglePaintMode() { isPaintMode = !isPaintMode; document.getElementById('paintToggleBtn').className = isPaintMode ? 'btn-paint-toggle active' : 'btn-paint-toggle'; document.getElementById('paintToggleBtn').innerText = isPaintMode ? '🖌️ 刷子(開)' : '🖌️ 刷子(關)'; document.getElementById('paintToolbar').style.display = isPaintMode ? 'flex' : 'none'; if(isPaintMode) { let sel = document.getElementById('paintShift'); sel.innerHTML = ''; appConfig.shifts.forEach(s => sel.innerHTML += `<option value="${s}">${s}</option>`); autoFillPaintHours(); } }
+    function autoFillPaintHours() { document.getElementById('paintHours').value = appConfig.shiftHours[document.getElementById('paintShift').value] || 0; }
     
     function openEmpModal() { 
         syncUIToMemory(); localActiveEmps = JSON.parse(JSON.stringify(appData.employees.filter(e => e.status !== '離職'))); localDeletedNames = []; 
