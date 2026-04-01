@@ -42,7 +42,6 @@
     .btn-save { background: #1a73e8; color: white; }
     .btn-print { background: #e67e22; color: white; }
     .btn-manage { background: #9334e6; color: white; }
-    .btn-sys { background: #3c4043; color: white; }
     .btn-virtual { background: #ff9800; color: white; }
     .btn-paint-toggle { background: #00897b; color: white; }
     .btn-paint-toggle.active { background: #d93025; }
@@ -69,13 +68,15 @@
     .total-row { background-color: #e8f5e9; font-weight: bold; font-size: 15px; color: #2e7d32; }
     .quick-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 15px 0; }
     .emp-row { display: flex; align-items: center; padding: 12px; border-bottom: 1px solid #eee; background: white; gap: 10px; }
-    .quick-note-btn { background:#e8f0fe; color:#1a73e8; border:1px solid #1a73e8; border-radius:4px; padding:4px 8px; font-size:12px; cursor:pointer; font-weight:bold; }
+    .quick-note-btn { background:#e8f0fe; color:#1a73e8; border:1px solid #1a73e8; border-radius:4px; padding:4px 8px; font-size:12px; cursor:pointer; font-weight:bold; margin-top: 4px; }
 
     #exportContainer { display: none; position: absolute; top: 0; left: 0; z-index: -10; width: 1400px !important; min-width: 1400px !important; max-width: 1400px !important; background-color: #ffffff; padding: 40px 60px; box-sizing: border-box; font-family: "Microsoft JhengHei", "Segoe UI", sans-serif; }
     #exportContainer table { width: 100%; border-collapse: collapse; border: 3px solid #000; table-layout: fixed; }
     #exportContainer th, #exportContainer td { border: 2px solid #000 !important; background-color: #fff !important; color: #000 !important; text-align: center; vertical-align: middle; }
+    
     .footer-copyright { text-align: center; margin-top: 20px; font-size: 13px; color: #aaa; font-weight: bold; letter-spacing: 1px; }
     .ot-text { color: #d93025; font-weight: bold; }
+    .warn-tag { display: inline-block; background: #fce8e6; color: #d93025; font-weight: bold; font-size: 11px; padding: 2px 4px; border-radius: 4px; margin-top: 3px; border: 1px solid #d93025; }
   </style>
 </head>
 <body>
@@ -91,13 +92,11 @@
     <input type="week" id="weekSelector" onchange="loadScheduleData()">
     <button class="btn-nav" onclick="changeWeek(1)">下週 ▶</button>
     
-    <button class="btn-undo" onclick="undoLastAction()">↩️ 撤銷</button>
-    
+    <button class="btn-undo" onclick="undoLastAction()">↩️ 上一步</button>
     <button class="btn-save" onclick="saveScheduleData(true)">💾 強制儲存</button>
     <button class="btn-print" onclick="exportNativeImage()">📱 產圖 (A4)</button>
     <button class="btn-virtual" onclick="addVirtualRow()">➕ 待補</button>
     <button class="btn-manage" onclick="openEmpModal()">👥 人員管理</button>
-    <button class="btn-sys" onclick="openSysModal()">🛠️ 系統設定</button>
     <button id="paintToggleBtn" class="btn-paint-toggle" onclick="togglePaintMode()">🖌️ 刷子(關)</button>
   </div>
 
@@ -117,7 +116,10 @@
     </table>
   </div>
 
-  <div class="footer-copyright">© Kai Kai All Rights Reserved.</div>
+  <div class="footer-copyright">
+      © Kai Kai All Rights Reserved. 
+      <span onclick="openSysModal()" style="cursor:pointer; color:#ccc; margin-left:10px;" title="系統設定">⚙️</span>
+  </div>
 
   <div id="shiftModal" class="modal">
     <div class="modal-content">
@@ -142,7 +144,7 @@
         <div id="modalNoteGroup">
             <label id="modalNoteLabel" style="font-size:12px; font-weight:bold; color:#5f6368;">💡 備註</label>
             <input type="text" id="modalNote" style="width:100%; padding:12px; box-sizing:border-box;">
-            <div style="margin-top:8px; display:flex; gap:6px; flex-wrap:wrap;">
+            <div style="margin-top:5px; display:flex; gap:6px; flex-wrap:wrap;">
                 <button class="quick-note-btn" onclick="appendNote('作帳')">作帳</button>
                 <button class="quick-note-btn" onclick="appendNote('訂鮮食')">訂鮮食</button>
                 <button class="quick-note-btn" onclick="appendNote('訂捷盟')">訂捷盟</button>
@@ -174,7 +176,7 @@
     let appConfig = { stores: [], shifts: ["排休", "指休"], shiftHours: {} };
     let appData = { employees: [], records: [] };
     let currentWeekDates = [], virtualRowNames = [], localActiveEmps = [], localDeletedNames = [];
-    let undoStack = []; // 撤銷堆疊回歸
+    let undoStack = []; 
     let currentCell = null, isPaintMode = false, autoSaveTimer = null;
     const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
 
@@ -213,14 +215,10 @@
         let pLoc = document.getElementById('paintLoc'); if(pLoc) pLoc.innerHTML = opts;
     }
 
-    // 🌟 快捷輸入備註
     function appendNote(text) {
         let noteInput = document.getElementById('modalNote');
-        if(noteInput.value.trim() === '') {
-            noteInput.value = text;
-        } else {
-            noteInput.value += ' ' + text;
-        }
+        if(noteInput.value.trim() === '') noteInput.value = text;
+        else noteInput.value += ' ' + text;
     }
 
     window.onload = async () => {
@@ -257,19 +255,18 @@
         } catch(e) { document.getElementById('syncStatus').innerText = "❌ 同步失敗：" + e.message; }
     }
 
-    // 🌟 撤銷功能 (上一步)
     function pushToUndo(b) { 
-        undoStack.push({ btn:b, s:b.dataset.shift, h:b.dataset.hours, l:b.dataset.loc, n:b.dataset.note, ot:b.dataset.ot }); 
+        undoStack.push({ btn:b, s:b.dataset.shift, h:b.dataset.hours, l:b.dataset.loc, n:b.dataset.note, ot:b.dataset.ot, warn:b.dataset.warn }); 
         if(undoStack.length>30) undoStack.shift(); 
     }
     function undoLastAction() { 
-        if(undoStack.length===0) return alert("沒動作可以撤銷囉！"); 
+        if(undoStack.length===0) return alert("沒動作可回上一步囉！"); 
         let l = undoStack.pop(); 
         l.btn.dataset.shift=l.s; l.btn.dataset.hours=l.h; l.btn.dataset.loc=l.l; l.btn.dataset.note=l.n; l.btn.dataset.ot=l.ot;
-        updateCellUI(l.btn); updateDailyTotals(); triggerAutoSave(); 
+        syncUIToMemory(); renderTable(); triggerAutoSave(); 
     }
 
-    // 原生 Canvas 產圖
+    // 🌟 原生 Canvas 產圖 (隱藏勞資警告標籤)
     function exportNativeImage() {
         syncUIToMemory();
         showLoading("📸 正在啟動高解析度原生繪圖引擎...");
@@ -284,25 +281,14 @@
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
                 
-                const W = 1400; 
-                const startX = 80; 
-                const gridW = W - startX * 2; 
-                const colW = gridW / 8; 
-                const rowH = 95; 
-                const headerH = 95; 
-                const numEmpRows = emps.length;
-                const numEmptyRows = 5; 
-                
-                const gridH = headerH + (numEmpRows * rowH) + rowH + (numEmptyRows * rowH);
-                const startY = 240; 
-                const H = startY + gridH + 120; 
+                const W = 1400, startX = 80, gridW = W - startX * 2, colW = gridW / 8, rowH = 95, headerH = 95, numEmpRows = emps.length, numEmptyRows = 5; 
+                const gridH = headerH + (numEmpRows * rowH) + rowH + (numEmptyRows * rowH), startY = 240, H = startY + gridH + 120; 
 
                 canvas.width = W; canvas.height = H;
                 ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, W, H);
 
                 ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "#000000";
-                ctx.font = "900 48px 'Microsoft JhengHei', sans-serif"; 
-                ctx.fillText(`${store} 職員輪班表`, W / 2, 90);
+                ctx.font = "900 48px 'Microsoft JhengHei', sans-serif"; ctx.fillText(`${store} 職員輪班表`, W / 2, 90);
                 
                 let startArr = currentWeekDates[0].split('/'); let endArr = currentWeekDates[6].split('/');
                 ctx.font = "bold 26px 'Microsoft JhengHei', sans-serif"; ctx.fillStyle = "#333333";
@@ -355,27 +341,27 @@
                         } else if (rec.shift) {
                             ctx.font = "900 30px 'Arial', 'Microsoft JhengHei', sans-serif"; 
                             if (rec.isOT) {
-                                ctx.fillStyle = "#d93025"; 
-                                ctx.fillText(rec.shift.replace('-', ' / '), cx, textY);
+                                ctx.fillStyle = "#d93025"; ctx.fillText(rec.shift.replace('-', ' / '), cx, textY);
                             } else if (hVal > 8 && rec.shift.includes('-')) {
                                 let parts = rec.shift.split('-');
-                                ctx.fillStyle = "#000000"; ctx.textAlign = "right"; ctx.fillText(parts[0] + ' / ', cx, textY);
-                                ctx.fillStyle = "#d93025"; ctx.textAlign = "left"; ctx.fillText(parts[1], cx, textY);
-                                ctx.textAlign = "center"; 
+                                if (parts.length === 2) {
+                                    ctx.fillStyle = "#000000"; ctx.textAlign = "right"; ctx.fillText(parts[0] + ' / ', cx, textY);
+                                    ctx.fillStyle = "#d93025"; ctx.textAlign = "left"; ctx.fillText(parts[1], cx, textY);
+                                    ctx.textAlign = "center"; 
+                                }
                             } else {
-                                ctx.fillStyle = "#000000"; 
-                                ctx.fillText(rec.shift.replace('-', ' / '), cx, textY);
+                                ctx.fillStyle = "#000000"; ctx.fillText(rec.shift.replace('-', ' / '), cx, textY);
                             }
                         }
 
                         if (hasSubtext) {
                             let subtextY = cy + 20; 
                             if (rec.location && rec.location !== '本店') {
-                                ctx.fillStyle = "#e67e22"; ctx.font = "bold 18px 'Microsoft JhengHei', sans-serif"; 
-                                ctx.fillText(rec.location, cx, subtextY); subtextY += 22; 
+                                ctx.fillStyle = "#e67e22"; ctx.font = "bold 16px 'Microsoft JhengHei', sans-serif"; 
+                                ctx.fillText(rec.location, cx, subtextY); subtextY += 18; 
                             }
                             if (rec.note) {
-                                ctx.fillStyle = "#0088aa"; ctx.font = "bold 18px 'Microsoft JhengHei', sans-serif"; 
+                                ctx.fillStyle = "#0088aa"; ctx.font = "bold 16px 'Microsoft JhengHei', sans-serif"; 
                                 ctx.fillText(rec.note, cx, subtextY);
                             }
                         }
@@ -464,10 +450,36 @@
 
             tr.innerHTML = `<td><strong>${empNameDisplay}</strong><br><small>${roleDisplay}</small></td>`; 
             
+            let consecDays = 0;
+            let prevEndTime = null;
+
             dayNames.forEach(day => { 
                 let rec = appData.records.find(r => r.name === emp.name && r.day === day && r.week === week) || {shift:'', location:'本店', note:'', actualHours:'', isOT:false}; 
+                let warnings = [];
+
+                if (emp.role !== '店長' && !emp.name.includes('待補')) {
+                    if (rec.shift && rec.shift !== '排休' && rec.shift !== '指休') {
+                        consecDays++;
+                        if (consecDays >= 7) warnings.push('連上7天');
+
+                        let m = rec.shift.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)/);
+                        if (m) {
+                            let sT = parseFloat(m[1]), eT = parseFloat(m[2]);
+                            if (eT <= sT) eT += 24;
+                            if (prevEndTime !== null && ((sT + 24) - prevEndTime < 11)) {
+                                if (sT <= 11) warnings.push('晚接早');
+                                else if (sT >= 20) warnings.push('早接夜');
+                                else warnings.push('夜接晚');
+                            }
+                            prevEndTime = eT;
+                        } else prevEndTime = null;
+                    } else {
+                        consecDays = 0; prevEndTime = null;
+                    }
+                }
+
                 let td = document.createElement('td'); let btn = document.createElement('button'); btn.className = 'cell-btn'; 
-                btn.dataset.emp = emp.name; btn.dataset.day = day; btn.dataset.shift = rec.shift; btn.dataset.hours = rec.actualHours; btn.dataset.loc = rec.location; btn.dataset.note = rec.note; btn.dataset.ot = rec.isOT;
+                btn.dataset.emp = emp.name; btn.dataset.day = day; btn.dataset.shift = rec.shift; btn.dataset.hours = rec.actualHours; btn.dataset.loc = rec.location; btn.dataset.note = rec.note; btn.dataset.ot = rec.isOT; btn.dataset.warn = warnings.join('|');
                 updateCellUI(btn); btn.onclick = () => handleCellClick(btn, eIdx); td.appendChild(btn); tr.appendChild(td); 
             }); 
             let sumTd = document.createElement('td'); sumTd.id = `sum-${eIdx}`; sumTd.className = 'summary-box'; tr.appendChild(sumTd); tbody.appendChild(tr); 
@@ -484,7 +496,7 @@
     }
     
     function updateCellUI(b) { 
-        let s = b.dataset.shift, h = b.dataset.hours, l = b.dataset.loc, n = b.dataset.note, isOT = (b.dataset.ot === 'true'); 
+        let s = b.dataset.shift, h = b.dataset.hours, l = b.dataset.loc, n = b.dataset.note, isOT = (b.dataset.ot === 'true'), w = b.dataset.warn; 
         let hVal = parseFloat(h) || 0;
         let shiftHtml = s || '+'; 
         
@@ -494,12 +506,12 @@
             shiftHtml = `<span class="ot-text">${s}</span>`;
         } else if (hVal > 8 && s.includes('-')) {
             let p = s.split('-');
-            shiftHtml = `${p[0]}-<span class="ot-text">${p[1]}</span>`;
+            if (p.length === 2) shiftHtml = `${p[0]}-<span class="ot-text">${p[1]}</span>`;
         }
 
         let txt = shiftHtml;
-        // 小字不顯示整數後的 .0
         if(h && h != appConfig.shiftHours[s] && s !== '排休' && s !== '指休') txt += `<br><small>(${Math.round(h)}h)</small>`; 
+        if (w) { let wArr = w.split('|'); wArr.forEach(warn => { if(warn) txt += `<br><span class="warn-tag">⚠️ ${warn}</span>`; }); }
         if(l && l !== '本店') txt += `<br><small style="color:#d93025; font-weight:800;">📍${l}</small>`; 
         if(n) txt += `<br><small style="color:#1a73e8;">${n}</small>`; 
         
@@ -509,7 +521,7 @@
     }
     
     function addVirtualRow() { syncUIToMemory(); let n = 1; while(virtualRowNames.includes('🆘待補'+n)) n++; virtualRowNames.push('🆘待補'+n); renderTable(); triggerAutoSave(); }
-    function autoFillHours() { let s = document.getElementById('modalShift').value.trim(); let t = document.getElementById('modalHours'); if(appConfig.shiftHours && appConfig.shiftHours[s]) { t.value = appConfig.shiftHours[s]; } else { let m = s.match(/(\d+)-(\d+)/); if(m) { let h = parseInt(m[2])-parseInt(m[1]); t.value = h<0 ? h+24 : h; } else if(s==='排休'||s==='指休') t.value=0; } }
+    function autoFillHours() { let s = document.getElementById('modalShift').value.trim(); let t = document.getElementById('modalHours'); if(appConfig.shiftHours && appConfig.shiftHours[s]) { t.value = appConfig.shiftHours[s]; } else { let m = s.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)/); if(m) { let sT = parseFloat(m[1]), eT = parseFloat(m[2]); if(eT <= sT) eT += 24; let h = eT - sT; t.value = h; } else if(s==='排休'||s==='指休') t.value=0; } }
     
     function syncUIToMemory() { 
         let week = document.getElementById('weekSelector').value; 
@@ -533,7 +545,7 @@
         if(isPaintMode) { 
             pushToUndo(b);
             let s = document.getElementById('paintShift').value; b.dataset.shift = s; b.dataset.hours = document.getElementById('paintHours').value; b.dataset.loc = isVirtual ? '本店' : document.getElementById('paintLoc').value; b.dataset.note = document.getElementById('paintNote').value; b.dataset.ot = "false";
-            updateCellUI(b); updateDailyTotals(); triggerAutoSave(); 
+            syncUIToMemory(); renderTable(); triggerAutoSave(); 
         } else { 
             currentCell = b; 
             document.getElementById('modalTitle').innerText = b.dataset.emp; 
@@ -571,12 +583,11 @@
         currentCell.dataset.ot = document.getElementById('modalOvertime').checked;
         currentCell.dataset.loc = document.getElementById('modalLocation').value; 
         currentCell.dataset.note = document.getElementById('modalNote').value; 
-        updateCellUI(currentCell); updateDailyTotals(); closeModal('shiftModal'); triggerAutoSave(); 
+        syncUIToMemory(); renderTable(); closeModal('shiftModal'); triggerAutoSave(); 
     }
     
     function updateDailyTotals() { let sums = [0,0,0,0,0,0,0]; document.querySelectorAll('.cell-btn').forEach(b => { let idx = dayNames.indexOf(b.dataset.day); if(b.dataset.loc === '本店') sums[idx] += parseFloat(b.dataset.hours || 0); }); sums.forEach((s, i) => document.getElementById(`dailyTotal-${i}`).innerText = Math.round(s)); document.getElementById('tableFoot').style.display = 'table-row-group'; }
     
-    // 🌟 取整數統計結算
     function updateSummary(idx, emp) { 
         let t = document.getElementById(`sum-${idx}`); if(!t) return; 
         let month = currentWeekDates[3].split('/')[0]; 
@@ -602,10 +613,11 @@
                 }
             } 
         }); 
+        
         let info = appData.employees.find(e => e.name === emp.name) || {role:'待補', wage:0}; 
         
         if(info.role === '店長') {
-            t.innerHTML = `<span style="color:#1a73e8;font-weight:bold;">店長</span><br>-`; 
+            t.innerHTML = `<span style="color:#1a73e8;font-weight:bold; font-size:15px;">店長</span><br><span style="color:#999">-</span>`; 
         } else if(info.role === '正職') {
             let warn = weekOffD < 2 ? `<span style="color:#d93025;font-weight:bold;">(未達2天)</span>` : `<span style="color:#34a853;">(達標)</span>`;
             t.innerHTML = `週休:${Math.round(weekOffD)}天 ${warn}<br>月加班:${Math.round(monthOT)}h`; 
