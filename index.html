@@ -15,8 +15,7 @@
       projectId: "store-schedule-3b056",
       storageBucket: "store-schedule-3b056.firebasestorage.app",
       messagingSenderId: "296522693619",
-      appId: "1:296522693619:web:f90ec5d666c7a4a5943086",
-      measurementId: "G-Q237DZTBFR"
+      appId: "1:296522693619:web:f90ec5d666c7a4a5943086"
     };
     firebase.initializeApp(firebaseConfig);
     window.db = firebase.firestore();
@@ -43,8 +42,7 @@
     .btn-print { background: #e67e22; color: white; }
     .btn-manage { background: #9334e6; color: white; }
     .btn-virtual { background: #ff9800; color: white; }
-    .btn-paint-toggle { background: #00897b; color: white; }
-    .btn-paint-toggle.active { background: #d93025; }
+    .btn-log { background: #00897b; color: white; }
 
     .table-responsive { width: 100%; height: 65vh; overflow: auto; background: white; border-radius: 8px; border: 1px solid #dadce0; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
     table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 1000px; }
@@ -64,7 +62,7 @@
     .modal-content { background: white; width: 90%; max-width: 500px; padding: 25px; border-radius: 15px; box-shadow: 0 15px 40px rgba(0,0,0,0.4); max-height: 90vh; overflow-y: auto;}
     #loadingOverlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000000; flex-direction: column; justify-content: center; align-items: center; color: white; font-weight: bold; }
     .spinner { border: 4px solid rgba(255,255,255,0.2); border-top: 4px solid #fff; border-radius: 50%; width: 45px; height: 45px; animation: spin 1s linear infinite; margin-bottom: 20px; }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    @keyframes spin { 100% { transform: rotate(360deg); } }
     
     .summary-box { font-size: 11px; text-align: left; background: #f8f9fa; line-height: 1.6; min-width: 140px; font-weight: 600; padding: 5px; }
     .total-row { background-color: #e8f5e9; font-weight: bold; font-size: 15px; color: #2e7d32; }
@@ -79,6 +77,7 @@
     .footer-copyright { text-align: center; margin-top: 20px; font-size: 13px; color: #aaa; font-weight: bold; letter-spacing: 1px; }
     .ot-text { color: #d93025; font-weight: bold; }
     .warn-tag { display: inline-block; background: #fce8e6; color: #d93025; font-weight: bold; font-size: 11px; padding: 2px 4px; border-radius: 4px; margin-top: 3px; border: 1px solid #d93025; }
+    .req-tag { display: inline-block; background: #e8f0fe; color: #1a73e8; font-weight: bold; font-size: 11px; padding: 2px 4px; border-radius: 4px; margin-top: 3px; border: 1px solid #1a73e8; }
 
     .unfilled-shift { background-color: #ffe0b2 !important; border: 2px dashed #f57c00 !important; color: #e65100 !important; }
     .pending-badge { display: block; background: #fef08a; border: 2px solid #fbc02d; color: #d84315; font-size: 12px; font-weight: bold; border-radius: 6px; padding: 6px; margin-top: 6px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.2); animation: pulse 1.5s infinite; line-height: 1.3; }
@@ -103,15 +102,7 @@
     <button class="btn-print" onclick="exportNativeImage()">📱 產圖 (A4)</button>
     <button class="btn-virtual" onclick="addVirtualRow()">➕ 待補</button>
     <button class="btn-manage" onclick="openEmpModal()">👥 人員管理</button>
-    <button id="paintToggleBtn" class="btn-paint-toggle" onclick="togglePaintMode()">🖌️ 刷子(關)</button>
-  </div>
-
-  <div id="paintToolbar" style="display:none; justify-content: center; gap:12px; margin-bottom:15px; background:#e8f0fe; padding:15px; border:2px solid #1a73e8; border-radius:10px;">
-    <strong>🖌️ 刷頭：</strong>
-    <select id="paintShift" onchange="autoFillPaintHours()"></select>
-    <input type="number" id="paintHours" placeholder="時數" style="width:60px;">
-    <select id="paintLoc" style="width:90px;"></select>
-    <input type="text" id="paintNote" placeholder="備註/人員" style="width:120px;">
+    <button class="btn-log" onclick="openLogModal()">📜 畫休紀錄</button>
   </div>
 
   <div class="table-responsive">
@@ -125,6 +116,16 @@
   <div class="footer-copyright">
       © Kai Kai All Rights Reserved. 
       <span onclick="openSysModal()" style="cursor:pointer; color:#ccc; margin-left:10px;" title="系統設定">⚙️</span>
+  </div>
+
+  <div id="logModal" class="modal">
+    <div class="modal-content" style="max-width:500px;">
+        <h3 style="color:#00897b;">📜 員工畫休異動紀錄</h3>
+        <div id="logContent" style="background:#f1f3f4; padding:15px; border-radius:8px; max-height:400px; overflow-y:auto; font-size:13px; line-height:1.6; border:1px solid #ccc;">
+            讀取中...
+        </div>
+        <button onclick="closeModal('logModal')" style="width:100%; padding:12px; background:#5f6368; color:white; margin-top:15px; border-radius:8px; font-weight:bold; cursor:pointer;">關閉</button>
+    </div>
   </div>
 
   <div id="shiftModal" class="modal">
@@ -170,7 +171,11 @@
         </div>
       </div>
 
-      <button onclick="applyShift()" style="width:100%; padding:15px; background:#1a73e8; color:white; margin-top:25px; border-radius:10px; font-size:16px;">確認套用並同步</button>
+      <label id="modalReqClearWrapper" style="display:none; align-items:center; font-size:14px; font-weight:bold; color:#1a73e8; cursor:pointer; margin-top:15px; background:#e8f0fe; padding:10px; border-radius:6px;">
+        <input type="checkbox" id="modalClearReq" style="width:18px; height:18px; margin-right:8px;"> ✅ 員工畫休已處理完畢 (清除畫休標籤)
+      </label>
+
+      <button onclick="applyShift()" style="width:100%; padding:15px; background:#1a73e8; color:white; margin-top:15px; border-radius:10px; font-size:16px;">確認套用並同步</button>
       <button onclick="closeModal('shiftModal')" style="width:100%; background:none; border:none; color:#666; margin-top:10px; cursor:pointer;">取消返回</button>
     </div>
   </div>
@@ -202,10 +207,10 @@
 
   <script>
     let appConfig = { stores: [], shifts: ["排休", "指休"], shiftHours: {} };
-    let appData = { employees: [], records: [], allStoresRecords: [], allStoresEmployees: {} };
+    let appData = { employees: [], records: [], allStoresRecords: [], allStoresEmployees: {}, currentWeekLogs: [] };
     let currentWeekDates = [], virtualRowNames = [], localActiveEmps = [], localDeletedNames = [];
     let undoStack = []; 
-    let currentCell = null, isPaintMode = false, autoSaveTimer = null;
+    let currentCell = null, autoSaveTimer = null;
     const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
 
     function getNextWeekString() {
@@ -240,7 +245,6 @@
             if (s !== currentStore) opts += `<option value="${s}">${s}</option>`;
         });
         let mLoc = document.getElementById('modalLocation'); if(mLoc) mLoc.innerHTML = opts;
-        let pLoc = document.getElementById('paintLoc'); if(pLoc) pLoc.innerHTML = opts;
     }
 
     function appendNote(text) {
@@ -280,7 +284,7 @@
         if(!store || !week) return;
         try {
             let schedule = appData.records.filter(r => r.week === week);
-            await window.db.collection('stores').doc(store).collection('weeks').doc(week).set({ records: schedule });
+            await window.db.collection('stores').doc(store).collection('weeks').doc(week).set({ records: schedule }, {merge: true});
             const s = document.getElementById('syncStatus');
             s.innerHTML = '<div class="dot"></div><span>✅ 所有變更已儲存 (' + new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) + ')</span>';
             s.className = "";
@@ -289,17 +293,18 @@
     }
 
     function pushToUndo(b) { 
-        undoStack.push({ btn:b, s:b.dataset.shift, h:b.dataset.hours, l:b.dataset.loc, n:b.dataset.note, ot:b.dataset.ot, warn:b.dataset.warn, supp:b.dataset.support, app:b.dataset.approval }); 
+        undoStack.push({ btn:b, s:b.dataset.shift, h:b.dataset.hours, l:b.dataset.loc, n:b.dataset.note, ot:b.dataset.ot, warn:b.dataset.warn, supp:b.dataset.support, app:b.dataset.approval, reqOff:b.dataset.reqoff }); 
         if(undoStack.length>30) undoStack.shift(); 
     }
     
     function undoLastAction() { 
         if(undoStack.length===0) return alert("沒動作可回上一步囉！"); 
         let l = undoStack.pop(); 
-        l.btn.dataset.shift=l.s; l.btn.dataset.hours=l.h; l.btn.dataset.loc=l.l; l.btn.dataset.note=l.n; l.btn.dataset.ot=l.ot; l.btn.dataset.support=l.supp; l.btn.dataset.approval=l.app;
+        l.btn.dataset.shift=l.s; l.btn.dataset.hours=l.h; l.btn.dataset.loc=l.l; l.btn.dataset.note=l.n; l.btn.dataset.ot=l.ot; l.btn.dataset.support=l.supp; l.btn.dataset.approval=l.app; l.btn.dataset.reqoff=l.reqOff;
         syncUIToMemory(); renderTable(); triggerAutoSave(); 
     }
 
+    // 🌟 原生 Canvas 產圖 (乾淨過濾版)
     function exportNativeImage() {
         syncUIToMemory();
         showLoading("📸 正在啟動高解析度原生繪圖引擎...");
@@ -369,17 +374,9 @@
                         }
 
                         if (supportOutRec) {
-                            rec = {
-                                shift: supportOutRec.shift,
-                                location: `支援${supportOutRec._store}`,
-                                note: supportOutRec.note,
-                                actualHours: supportOutRec.actualHours,
-                                isOT: supportOutRec.isOT,
-                                supportEmp: '',
-                                approvalStatus: ''
-                            };
+                            rec = { shift: supportOutRec.shift, location: `支援${supportOutRec._store}`, note: supportOutRec.note, actualHours: supportOutRec.actualHours, isOT: supportOutRec.isOT, supportEmp: '', approvalStatus: '' };
                         } else if (!rec) {
-                            rec = {shift:'', location:'本店', note:'', actualHours:0, isOT:false, supportEmp:'', approvalStatus:''};
+                            rec = {shift:'', location:'本店', note:'', actualHours:0, isOT:false, supportEmp:'', approvalStatus:'', requestOff:false};
                         }
                         
                         let hasSubtext = (rec.note || (rec.location && rec.location !== '本店') || (rec.supportEmp && rec.approvalStatus === 'approved'));
@@ -469,6 +466,7 @@
         triggerAutoSave();
     }
 
+    // 🌟 一次抓取所有門市資料 (修復：抓取整月資料以計算月工時)
     async function fetchAllStoreData() {
         let store = document.getElementById('storeSelector').value;
         let weekStr = document.getElementById('weekSelector').value;
@@ -478,6 +476,7 @@
 
         appData.allStoresRecords = [];
         appData.allStoresEmployees = {};
+        appData.currentWeekLogs = [];
 
         try {
             for (let s of appConfig.stores) {
@@ -493,6 +492,10 @@
                             appData.allStoresRecords.push({ ...r, _store: s, week: docSnap.id });
                         });
                     }
+                    // 抓取本週的畫休紀錄
+                    if (s === store && docSnap.id === weekStr && docSnap.data().logs) {
+                        appData.currentWeekLogs = docSnap.data().logs;
+                    }
                 });
             }
 
@@ -502,7 +505,7 @@
             appData.employees = [];
             
             let currentWeekRecords = appData.records.filter(r => r.week === weekStr);
-            let scheduledNames = currentWeekRecords.filter(r => (r.shift && r.shift.trim() !== '') || (r.note && r.note.trim() !== '')).map(r => r.name);
+            let scheduledNames = currentWeekRecords.filter(r => (r.shift && r.shift.trim() !== '') || (r.note && r.note.trim() !== '') || r.requestOff).map(r => r.name);
 
             empSnap.forEach(d => {
                 let e = d.data();
@@ -540,7 +543,6 @@
         let opts = `<option value="本店">本店</option>`;
         (appConfig.stores || []).forEach(s => { if (s !== myStore) opts += `<option value="${s}">${s}</option>`; });
         document.getElementById('modalLocation').innerHTML = opts;
-        document.getElementById('paintLoc').innerHTML = opts;
     }
 
     function toggleApprovalStatusVis() {
@@ -597,18 +599,10 @@
                 }
 
                 if (supportOutRec) {
-                    rec = {
-                        shift: supportOutRec.shift,
-                        location: `支援${supportOutRec._store}`,
-                        note: supportOutRec.note,
-                        actualHours: supportOutRec.actualHours,
-                        isOT: supportOutRec.isOT,
-                        supportEmp: '',
-                        approvalStatus: ''
-                    };
+                    rec = { shift: supportOutRec.shift, location: `支援${supportOutRec._store}`, note: supportOutRec.note, actualHours: supportOutRec.actualHours, isOT: supportOutRec.isOT, supportEmp: '', approvalStatus: '', requestOff: false };
                     isSupportOut = true;
                 } else if (!rec) {
-                    rec = {shift:'', location:'本店', note:'', actualHours:'', isOT:false, supportEmp:'', approvalStatus:''};
+                    rec = {shift:'', location:'本店', note:'', actualHours:'', isOT:false, supportEmp:'', approvalStatus:'', requestOff:false};
                 }
 
                 let warnings = [];
@@ -648,7 +642,7 @@
 
                 let td = document.createElement('td'); let btn = document.createElement('button'); btn.className = 'cell-btn'; 
                 btn.dataset.emp = emp.name; btn.dataset.day = day; btn.dataset.shift = rec.shift; btn.dataset.hours = rec.actualHours; btn.dataset.loc = rec.location; btn.dataset.note = rec.note; btn.dataset.ot = rec.isOT; btn.dataset.warn = warnings.join('|');
-                btn.dataset.support = rec.supportEmp || ''; btn.dataset.approval = rec.approvalStatus || '';
+                btn.dataset.support = rec.supportEmp || ''; btn.dataset.approval = rec.approvalStatus || ''; btn.dataset.reqoff = rec.requestOff || 'false';
                 updateCellUI(btn, pendingBadges); 
                 
                 if (isSupportOut) {
@@ -677,6 +671,7 @@
         let isVirtual = btn.dataset.emp.includes('待補');
         let supportEmp = btn.dataset.support;
         let approvalStatus = btn.dataset.approval;
+        let requestOff = btn.dataset.reqoff === 'true';
         let hVal = parseFloat(h) || 0;
         let shiftHtml = s || '+'; 
         
@@ -707,6 +702,11 @@
         if (w) { let wArr = w.split('|'); wArr.forEach(warn => { if(warn) txt += `<br><span class="warn-tag">⚠️ ${warn}</span>`; }); }
         if (l && l !== '本店' && !isVirtual) txt += `<br><small style="color:#d93025; font-weight:800;">📍${l}</small>`; 
         if (n) txt += `<br><small style="color:#1a73e8;">${n}</small>`; 
+        
+        // 🌟 顯示員工畫休標籤
+        if (requestOff) {
+            txt += `<br><span class="req-tag">🙋‍♀️ 想排休</span>`;
+        }
         
         btn.innerHTML = txt + extraHtml; 
     }
@@ -758,9 +758,9 @@
             let data = { 
                 week: week, day: btn.dataset.day, name: btn.dataset.emp, shift: btn.dataset.shift || '', 
                 location: btn.dataset.loc || '本店', note: btn.dataset.note || '', actualHours: parseFloat(btn.dataset.hours || 0), isOT: btn.dataset.ot === 'true',
-                supportEmp: btn.dataset.support || '', approvalStatus: btn.dataset.approval || ''
+                supportEmp: btn.dataset.support || '', approvalStatus: btn.dataset.approval || '', requestOff: btn.dataset.reqoff === 'true'
             }; 
-            let hasData = btn.dataset.shift || btn.dataset.note || btn.dataset.ot === 'true' || btn.dataset.support;
+            let hasData = btn.dataset.shift || btn.dataset.note || btn.dataset.ot === 'true' || btn.dataset.support || btn.dataset.reqoff === 'true';
             if (hasData) { if (idx !== -1) appData.records[idx] = data; else appData.records.push(data); } 
             else { if (idx !== -1) appData.records.splice(idx, 1); }
         }); 
@@ -774,12 +774,7 @@
     
     function handleCellClick(btn, eIdx) { 
         let isVirtual = btn.dataset.emp.includes('待補');
-        if(isPaintMode) { 
-            pushToUndo(btn);
-            let s = document.getElementById('paintShift').value; btn.dataset.shift = s; btn.dataset.hours = document.getElementById('paintHours').value; 
-            btn.dataset.loc = isVirtual ? '本店' : document.getElementById('paintLoc').value; btn.dataset.note = document.getElementById('paintNote').value; btn.dataset.ot = "false";
-            syncUIToMemory(); renderTable(); triggerAutoSave(); 
-        } else { 
+        if(!isPaintMode) { 
             currentCell = btn; 
             document.getElementById('modalTitle').innerText = btn.dataset.emp; 
             document.getElementById('modalShift').value = btn.dataset.shift; 
@@ -793,10 +788,22 @@
                 document.getElementById('modalSupportGroup').style.display = 'block';
                 document.getElementById('modalSupportEmp').value = btn.dataset.support || '';
                 document.getElementById('modalApprovalStatus').value = btn.dataset.approval || 'pending';
+                document.getElementById('modalReqClearWrapper').style.display = 'none';
                 toggleApprovalStatusVis();
             } else {
                 document.getElementById('modalLocGroup').style.display = 'block';
                 document.getElementById('modalSupportGroup').style.display = 'none';
+                
+                // 若有畫休標籤，顯示清除選項
+                let clearWrapper = document.getElementById('modalReqClearWrapper');
+                let clearCheckbox = document.getElementById('modalClearReq');
+                if(btn.dataset.reqoff === 'true') {
+                    clearWrapper.style.display = 'flex';
+                    clearCheckbox.checked = true; // 預設勾選清除
+                } else {
+                    clearWrapper.style.display = 'none';
+                    clearCheckbox.checked = false;
+                }
             }
             renderQuickShifts(); document.getElementById('shiftModal').style.display = 'flex'; 
         } 
@@ -824,6 +831,10 @@
             currentCell.dataset.approval = document.getElementById('modalApprovalStatus').value;
         } else {
             currentCell.dataset.loc = document.getElementById('modalLocation').value; 
+            // 檢查是否要清除畫休標籤
+            if(document.getElementById('modalReqClearWrapper').style.display !== 'none' && document.getElementById('modalClearReq').checked) {
+                currentCell.dataset.reqoff = 'false';
+            }
         }
         syncUIToMemory(); renderTable(); closeModal('shiftModal'); triggerAutoSave(); 
     }
@@ -881,13 +892,27 @@
         }
     }
 
+    // 🌟 畫休紀錄功能
+    function openLogModal() {
+        let contentDiv = document.getElementById('logContent');
+        contentDiv.innerHTML = '';
+        if(!appData.currentWeekLogs || appData.currentWeekLogs.length === 0) {
+            contentDiv.innerHTML = '<div style="text-align:center; padding:20px; color:#777;">本週目前沒有任何畫休異動紀錄喔！</div>';
+        } else {
+            // 反轉陣列讓最新紀錄排在最上面
+            let sortedLogs = [...appData.currentWeekLogs].reverse();
+            sortedLogs.forEach(log => {
+                contentDiv.innerHTML += `<div style="padding:8px 0; border-bottom:1px dashed #ddd;">${log}</div>`;
+            });
+        }
+        document.getElementById('logModal').style.display = 'flex';
+    }
+
     function refreshStoreList() { let sel = document.getElementById('storeSelector'); sel.innerHTML = ''; (appConfig.stores || []).forEach(s => sel.innerHTML += `<option value="${s}">${s}</option>`); sel.value = localStorage.getItem('lastStore') || appConfig.stores[0] || ""; updateLocDropdowns(); }
     function handleStoreChange() { updateLocDropdowns(); fetchAllStoreData(); }
     function showLoading(t) { document.getElementById('loadingText').innerText = t; document.getElementById('loadingOverlay').style.display = 'flex'; }
     function hideLoading() { document.getElementById('loadingOverlay').style.display = 'none'; }
     function closeModal(id) { document.getElementById(id).style.display = 'none'; }
-    function togglePaintMode() { isPaintMode = !isPaintMode; document.getElementById('paintToggleBtn').className = isPaintMode ? 'btn-paint-toggle active' : 'btn-paint-toggle'; document.getElementById('paintToggleBtn').innerText = isPaintMode ? '🖌️ 刷子(開)' : '🖌️ 刷子(關)'; document.getElementById('paintToolbar').style.display = isPaintMode ? 'flex' : 'none'; if(isPaintMode) { let sel = document.getElementById('paintShift'); sel.innerHTML = ''; appConfig.shifts.forEach(s => sel.innerHTML += `<option value="${s}">${s}</option>`); autoFillPaintHours(); } }
-    function autoFillPaintHours() { document.getElementById('paintHours').value = appConfig.shiftHours[document.getElementById('paintShift').value] || 0; }
     
     function openEmpModal() { 
         syncUIToMemory(); localActiveEmps = JSON.parse(JSON.stringify(appData.employees.filter(e => e.status !== '離職'))); localDeletedNames = []; 
@@ -899,7 +924,6 @@
             let r=document.createElement('div'); r.className='emp-row'; 
             r.innerHTML=`<div style="display:flex; flex-direction:column;"><button style="border:none; cursor:pointer;" onclick="localSwapEmp(${i},-1)" ${i===0?'disabled':''}>▲</button><button style="border:none; cursor:pointer;" onclick="localSwapEmp(${i},1)" ${i===localActiveEmps.length-1?'disabled':''}>▼</button></div>
             <div style="width:75px; margin-left:10px;"><strong>${e.name}</strong></div>
-            
             <select id="edit-role-${i}" style="width:75px; padding:6px; font-size:12px; border:1px solid #ccc; border-radius:4px;">
                 <option value="工讀" ${e.role==='工讀'?'selected':''}>工讀</option>
                 <option value="正職" ${e.role==='正職'?'selected':''}>正職</option>
@@ -907,7 +931,6 @@
                 <option value="店長" ${e.role==='店長'?'selected':''}>店長</option>
             </select>
             <input type="number" id="edit-wage-${i}" value="${e.wage}" style="width:60px; padding:6px; font-size:13px; border:1px solid #ccc; border-radius:4px; margin-left:5px;">
-            
             <div style="margin-left:auto;">
                 <button onclick="openTransferModal(${i})" style="background:orange; color:white; border:none; border-radius:4px; padding:6px 10px; cursor:pointer;">調店</button>
                 <button onclick="localDelEmp(${i},'${e.name}')" style="background:red; color:white; border:none; border-radius:4px; padding:6px 10px; cursor:pointer;">刪除</button>
@@ -942,9 +965,7 @@
     async function batchSaveEmps(){ 
         let s=document.getElementById('storeSelector').value; showLoading("更新薪資與人事..."); 
         for(let i=0;i<localActiveEmps.length;i++){ 
-            let e=localActiveEmps[i]; 
-            let newWage = document.getElementById(`edit-wage-${i}`).value;
-            let newRole = document.getElementById(`edit-role-${i}`).value;
+            let e=localActiveEmps[i]; let newWage = document.getElementById(`edit-wage-${i}`).value; let newRole = document.getElementById(`edit-role-${i}`).value;
             await window.db.collection('stores').doc(s).collection('employees').doc(e.name).set({role:newRole,wage:newWage,status:'在職',sortKey:i}, {merge:true}); 
         } 
         for(let n of localDeletedNames) await window.db.collection('stores').doc(s).collection('employees').doc(n).set({status:'離職'}, {merge:true}); 
