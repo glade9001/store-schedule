@@ -54,7 +54,7 @@
     td:first-child, th:first-child { position: sticky; left: 0; z-index: 11; background-color: #f8f9fa; border-right: 2px solid #dadce0; width: 90px; }
     th:first-child { background-color: #185abc; z-index: 12; }
 
-    .cell-btn { width: 100%; height: 100%; min-height: 55px; border: 1px solid #f1f3f4; background: #fff; cursor: pointer; border-radius: 4px; font-size: 15px; font-weight: 700; color: #3c4043; }
+    .cell-btn { width: 100%; height: 100%; min-height: 55px; border: 1px solid #f1f3f4; background: #fff; cursor: pointer; border-radius: 4px; font-size: 15px; font-weight: 700; color: #3c4043; position: relative; }
     .zhi-xiu { color: #d93025 !important; border: 2px solid #d93025 !important; background: #fce8e6 !important; }
     .pai-xiu { color: #70757a !important; background: #f1f3f4 !important; border: 1px solid #dadce0 !important; }
 
@@ -70,6 +70,7 @@
     .emp-row { display: flex; align-items: center; padding: 12px; border-bottom: 1px solid #eee; background: white; gap: 10px; }
     .quick-note-btn { background:#e8f0fe; color:#1a73e8; border:1px solid #1a73e8; border-radius:4px; padding:4px 8px; font-size:12px; cursor:pointer; font-weight:bold; margin-top: 4px; }
 
+    /* A4 產圖隱藏樣式 */
     #exportContainer { display: none; position: absolute; top: 0; left: 0; z-index: -10; width: 1400px !important; min-width: 1400px !important; max-width: 1400px !important; background-color: #ffffff; padding: 40px 60px; box-sizing: border-box; font-family: "Microsoft JhengHei", "Segoe UI", sans-serif; }
     #exportContainer table { width: 100%; border-collapse: collapse; border: 3px solid #000; table-layout: fixed; }
     #exportContainer th, #exportContainer td { border: 2px solid #000 !important; background-color: #fff !important; color: #000 !important; text-align: center; vertical-align: middle; }
@@ -77,19 +78,24 @@
     .footer-copyright { text-align: center; margin-top: 20px; font-size: 13px; color: #aaa; font-weight: bold; letter-spacing: 1px; }
     .ot-text { color: #d93025; font-weight: bold; }
     .warn-tag { display: inline-block; background: #fce8e6; color: #d93025; font-weight: bold; font-size: 11px; padding: 2px 4px; border-radius: 4px; margin-top: 3px; border: 1px solid #d93025; }
+
+    /* 🌟 跨店支援特殊樣式 */
+    .unfilled-shift { background-color: #ffe0b2 !important; border: 2px dashed #f57c00 !important; color: #e65100 !important; }
+    .pending-badge { display: block; background: #fef08a; border: 2px solid #fbc02d; color: #d84315; font-size: 12px; font-weight: bold; border-radius: 6px; padding: 6px; margin-top: 6px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.2); animation: pulse 1.5s infinite; line-height: 1.3; }
+    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
   </style>
 </head>
 <body>
 
-  <div id="loadingOverlay"><div class="spinner"></div><div id="loadingText">處理中...</div></div>
+  <div id="loadingOverlay"><div class="spinner"></div><div id="loadingText">跨店資料同步中...</div></div>
 
   <h2>📅 門市排班神器 🚀</h2>
   <div id="syncStatus"><div class="dot"></div><span>✅ 所有變更已儲存</span></div>
   
   <div class="controls">
-    <select id="storeSelector" onchange="handleStoreChange()"></select>
+    <select id="storeSelector" onchange="fetchAllStoreData()"></select>
     <button class="btn-nav" onclick="changeWeek(-1)">◀ 上週</button>
-    <input type="week" id="weekSelector" onchange="loadScheduleData()">
+    <input type="week" id="weekSelector" onchange="fetchAllStoreData()">
     <button class="btn-nav" onclick="changeWeek(1)">下週 ▶</button>
     
     <button class="btn-undo" onclick="undoLastAction()">↩️ 上一步</button>
@@ -127,7 +133,7 @@
       <div id="quickShiftButtons" class="quick-grid"></div>
       
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
-        <div><label style="font-size:12px; font-weight:bold; color:#5f6368;">📝 班別名稱</label><input type="text" id="modalShift" oninput="autoFillHours()" style="width:100%; padding:12px; box-sizing:border-box;"></div>
+        <div><label style="font-size:12px; font-weight:bold; color:#5f6368;">📝 班別名稱 (時間)</label><input type="text" id="modalShift" oninput="autoFillHours()" style="width:100%; padding:12px; box-sizing:border-box;"></div>
         <div>
             <label style="font-size:12px; font-weight:bold; color:#5f6368;">⏱️ 工時 (自動)</label>
             <div style="display:flex; gap:10px; align-items:center;">
@@ -140,7 +146,22 @@
       </div>
 
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px; margin-top:15px;">
-        <div id="modalLocGroup"><label style="font-size:12px; font-weight:bold; color:#5f6368;">📍 工作地點</label><select id="modalLocation" style="width:100%; padding:12px; box-sizing:border-box;"></select></div>
+        <div id="modalLocGroup">
+            <label style="font-size:12px; font-weight:bold; color:#5f6368;">📍 工作地點</label>
+            <select id="modalLocation" style="width:100%; padding:12px; box-sizing:border-box;"></select>
+        </div>
+        
+        <div id="modalSupportGroup" style="display:none; grid-column: 1 / span 2;">
+            <label style="font-size:12px; font-weight:bold; color:#d93025;">👤 指派支援人員 (跨店支援請從此選)</label>
+            <div style="display:flex; gap:10px;">
+                <select id="modalSupportEmp" style="width:65%; padding:12px; box-sizing:border-box; border:2px solid #1a73e8;" onchange="toggleApprovalStatusVis()"></select>
+                <select id="modalApprovalStatus" style="width:35%; padding:12px; box-sizing:border-box; display:none; background:#e8f0fe;">
+                    <option value="pending">⏳ 待審核 (預設)</option>
+                    <option value="approved">✅ 直接核准 (本商店操作)</option>
+                </select>
+            </div>
+        </div>
+
         <div id="modalNoteGroup">
             <label id="modalNoteLabel" style="font-size:12px; font-weight:bold; color:#5f6368;">💡 備註</label>
             <input type="text" id="modalNote" style="width:100%; padding:12px; box-sizing:border-box;">
@@ -157,12 +178,23 @@
       <button onclick="closeModal('shiftModal')" style="width:100%; background:none; border:none; color:#666; margin-top:10px; cursor:pointer;">取消返回</button>
     </div>
   </div>
+
+  <div id="approvalModal" class="modal">
+    <div class="modal-content" style="max-width:400px; text-align:center;">
+        <h3 id="approvalTitle" style="color:#d93025; font-weight:900;">跨店支援請求審核</h3>
+        <p id="approvalDesc" style="font-size:16px; margin: 20px 0; line-height:1.6;"></p>
+        <input type="hidden" id="approvalReqData">
+        <div style="display:flex; gap:10px; margin-top:25px;">
+            <button onclick="handleApproval(true)" style="flex:1; padding:15px; background:#34a853; color:white; border-radius:8px; font-size:16px; font-weight:bold;">✅ 同意支援</button>
+            <button onclick="handleApproval(false)" style="flex:1; padding:15px; background:#d93025; color:white; border-radius:8px; font-size:16px; font-weight:bold;">❌ 拒絕 (退回)</button>
+        </div>
+        <button onclick="closeModal('approvalModal')" style="width:100%; background:none; border:none; color:#666; margin-top:15px; cursor:pointer;">取消</button>
+    </div>
+  </div>
   
   <div id="imagePreviewModal" class="modal"><div class="modal-content" style="max-width:800px;"><img id="previewImg" style="width:100%; border-radius:8px; border:1px solid #ddd;"><button id="downloadImgBtn" style="width:100%; padding:15px; background:#1a73e8; color:white; margin-top:15px; border-radius:10px; border:none; font-size:16px; cursor:pointer;">⬇️ 下載班表圖片</button><button onclick="closeModal('imagePreviewModal')" style="width:100%; border:none; background:none; margin-top:10px; color:#666; cursor:pointer;">關閉預覽</button></div></div>
-  
   <div id="empModal" class="modal"><div class="modal-content" style="max-width:650px;"><h3>👥 人員與調店管理系統</h3><div style="background:#e8f5e9; padding:15px; border-radius:10px; display:flex; gap:10px; margin-bottom:15px;"><input type="text" id="newEmpName" placeholder="員工姓名" style="width:35%; padding:10px; box-sizing:border-box;"><select id="newEmpRole" style="width:25%; padding:10px; box-sizing:border-box;"><option value="工讀">工讀</option><option value="正職">正職</option><option value="店長">店長</option></select><input type="number" id="newEmpWage" placeholder="薪資" style="width:30%; padding:10px; box-sizing:border-box;"><button onclick="localAddEmp()" style="background:#34a853; color:white; padding:10px 15px; border-radius:8px;">加入</button></div><div id="localEmpList" style="max-height:350px; overflow-y:auto; border:1px solid #eee; border-radius:8px;"></div><button onclick="batchSaveEmps()" style="width:100%; padding:18px; background:#9334e6; color:white; margin-top:20px; border-radius:10px; border:none; font-size:16px; cursor:pointer;">💾 儲存薪資與異動</button><button onclick="closeModal('empModal')" style="width:100%; border:none; background:none; margin-top:10px; color:#666; cursor:pointer;">取消</button></div></div>
   <div id="transferModal" class="modal"><div class="modal-content" style="max-width:300px;"><h3>🏪 選擇調往門市</h3><input type="hidden" id="transferEmpIdx"><select id="transferStoreSelect" style="width:100%; padding:12px; margin-bottom:15px; border-radius:6px;"></select><button onclick="confirmTransfer()" style="width:100%; padding:15px; background:#e67e22; color:white; border-radius:8px; font-weight:bold; cursor:pointer;">確認調店</button><button onclick="closeModal('transferModal')" style="width:100%; background:none; border:none; color:#666; margin-top:10px; cursor:pointer;">取消</button></div></div>
-  
   <div id="sysModal" class="modal"><div class="modal-content"><h3>🛠️ 系統基礎設定</h3><div id="sysStoreList"></div><div style="display:flex; gap:5px; margin-top:10px;"><input type="text" id="newStoreInput" placeholder="門市名稱" style="padding:10px; width:100%; box-sizing:border-box;"><button onclick="addSysStore()" style="background:#1a73e8; color:white;">新增門市</button></div><div id="sysShiftList" style="margin-top:20px; border-top:1px solid #eee; padding-top:15px;"></div><div style="display:flex; gap:5px; margin-top:10px;"><input type="text" id="newShiftName" placeholder="班別" style="flex:2; padding:10px; box-sizing:border-box;"><input type="number" id="newShiftHours" placeholder="時數" style="flex:1; padding:10px; box-sizing:border-box;"><button onclick="addSysShift()" style="background:#34a853; color:white;">新增</button></div><button onclick="saveSysConfig()" style="width:100%; padding:18px; background:#3c4043; color:white; margin-top:30px; border-radius:10px; border:none; font-size:16px; cursor:pointer;">💾 儲存並套用</button><button onclick="closeModal('sysModal')" style="width:100%; border:none; background:none; margin-top:10px; color:#666; cursor:pointer;">取消</button></div></div>
 
   <div id="exportContainer">
@@ -174,7 +206,7 @@
 
   <script>
     let appConfig = { stores: [], shifts: ["排休", "指休"], shiftHours: {} };
-    let appData = { employees: [], records: [] };
+    let appData = { employees: [], records: [], allStoresRecords: [], allStoresEmployees: {} };
     let currentWeekDates = [], virtualRowNames = [], localActiveEmps = [], localDeletedNames = [];
     let undoStack = []; 
     let currentCell = null, isPaintMode = false, autoSaveTimer = null;
@@ -202,17 +234,7 @@
         let input = document.getElementById('weekSelector');
         if(!input.value) return;
         input.stepUp(offset); 
-        loadScheduleData();
-    }
-
-    function updateLocDropdowns() {
-        let currentStore = document.getElementById('storeSelector').value;
-        let opts = `<option value="本店">本店</option>`;
-        (appConfig.stores || []).forEach(s => {
-            if (s !== currentStore) opts += `<option value="${s}">${s}</option>`;
-        });
-        let mLoc = document.getElementById('modalLocation'); if(mLoc) mLoc.innerHTML = opts;
-        let pLoc = document.getElementById('paintLoc'); if(pLoc) pLoc.innerHTML = opts;
+        fetchAllStoreData();
     }
 
     function appendNote(text) {
@@ -227,9 +249,13 @@
         try {
             const snap = await window.db.collection('settings').doc('globalConfig').get();
             if (snap.exists) appConfig = snap.data();
-            refreshStoreList(); loadScheduleData();
+            
+            let sel = document.getElementById('storeSelector'); sel.innerHTML = ''; 
+            (appConfig.stores || []).forEach(s => sel.innerHTML += `<option value="${s}">${s}</option>`); 
+            sel.value = localStorage.getItem('lastStore') || appConfig.stores[0] || ""; 
+            
+            fetchAllStoreData();
         } catch (e) { alert("連線失敗：" + e.message); }
-        hideLoading();
     };
 
     function triggerAutoSave() {
@@ -246,7 +272,7 @@
         let week = document.getElementById('weekSelector').value;
         if(!store || !week) return;
         try {
-            let schedule = appData.records.filter(r => r.week === week);
+            let schedule = appData.records;
             await window.db.collection('stores').doc(store).collection('weeks').doc(week).set({ records: schedule });
             const s = document.getElementById('syncStatus');
             s.innerHTML = '<div class="dot"></div><span>✅ 所有變更已儲存 (' + new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) + ')</span>';
@@ -256,17 +282,398 @@
     }
 
     function pushToUndo(b) { 
-        undoStack.push({ btn:b, s:b.dataset.shift, h:b.dataset.hours, l:b.dataset.loc, n:b.dataset.note, ot:b.dataset.ot, warn:b.dataset.warn }); 
+        undoStack.push({ btn:b, s:b.dataset.shift, h:b.dataset.hours, l:b.dataset.loc, n:b.dataset.note, ot:b.dataset.ot, warn:b.dataset.warn, supp:b.dataset.support, app:b.dataset.approval }); 
         if(undoStack.length>30) undoStack.shift(); 
     }
     function undoLastAction() { 
         if(undoStack.length===0) return alert("沒動作可回上一步囉！"); 
         let l = undoStack.pop(); 
-        l.btn.dataset.shift=l.s; l.btn.dataset.hours=l.h; l.btn.dataset.loc=l.l; l.btn.dataset.note=l.n; l.btn.dataset.ot=l.ot;
+        l.btn.dataset.shift=l.s; l.btn.dataset.hours=l.h; l.btn.dataset.loc=l.l; l.btn.dataset.note=l.n; l.btn.dataset.ot=l.ot; l.btn.dataset.support=l.supp; l.btn.dataset.approval=l.app;
         syncUIToMemory(); renderTable(); triggerAutoSave(); 
     }
 
-    // 🌟 原生 Canvas 產圖 (隱藏勞資警告標籤)
+    // 🌟 核心：一次性抓取各店資料 (實現跨店連動)
+    async function fetchAllStoreData() {
+        let store = document.getElementById('storeSelector').value;
+        let week = document.getElementById('weekSelector').value;
+        if(!store || !week) return;
+        localStorage.setItem('lastStore', store);
+        showLoading("同步各門市最新資料...");
+
+        appData.allStoresRecords = [];
+        appData.allStoresEmployees = {};
+
+        try {
+            // 抓取所有門市的員工與排班
+            for (let s of appConfig.stores) {
+                let empSnap = await window.db.collection('stores').doc(s).collection('employees').get();
+                let emps = [];
+                empSnap.forEach(d => { if(d.data().status !== '離職') emps.push(d.id); });
+                appData.allStoresEmployees[s] = emps;
+
+                let weekSnap = await window.db.collection('stores').doc(s).collection('weeks').doc(week).get();
+                if(weekSnap.exists && weekSnap.data().records) {
+                    weekSnap.data().records.forEach(r => {
+                        appData.allStoresRecords.push({ ...r, _store: s });
+                    });
+                }
+            }
+
+            // 過濾出本店的排班紀錄
+            appData.records = appData.allStoresRecords.filter(r => r._store === store);
+
+            // 重建本店員工名單
+            const empSnap = await window.db.collection('stores').doc(store).collection('employees').get(); 
+            appData.employees = []; 
+            empSnap.forEach(d => { 
+                let e = d.data();
+                let scheduled = appData.records.some(r => r.name === d.id && (r.shift || r.note));
+                if(e.status !== '離職' || scheduled) {
+                    appData.employees.push({name: d.id, ...e});
+                }
+            }); 
+            appData.employees.sort((a,b) => (a.sortKey||0) - (b.sortKey||0)); 
+            
+            // 找出所有待補列
+            virtualRowNames = appData.records.map(r => r.name).filter(n => n && n.startsWith('🆘')).filter((v,i,a) => a.indexOf(v)===i); 
+
+            // 更新支援人員下拉選單選項
+            renderSupportDropdown();
+            renderTable(); 
+        } catch (e) {
+            console.error(e);
+            alert("讀取資料失敗，請檢查網路連線。");
+        }
+        hideLoading();
+    }
+
+    function renderSupportDropdown() {
+        let myStore = document.getElementById('storeSelector').value;
+        let html = `<option value="">-- 無 (單純空缺，顯示橘色警告) --</option>`;
+        for (let s in appData.allStoresEmployees) {
+            if (s !== myStore) {
+                html += `<optgroup label="[${s}]">`;
+                appData.allStoresEmployees[s].forEach(emp => {
+                    html += `<option value="${s}-${emp}">${emp}</option>`;
+                });
+                html += `</optgroup>`;
+            }
+        }
+        let mSupp = document.getElementById('modalSupportEmp');
+        if(mSupp) mSupp.innerHTML = html;
+        
+        let opts = `<option value="本店">本店</option>`;
+        (appConfig.stores || []).forEach(s => { if (s !== myStore) opts += `<option value="${s}">${s}</option>`; });
+        document.getElementById('modalLocation').innerHTML = opts;
+        document.getElementById('paintLoc').innerHTML = opts;
+    }
+
+    function toggleApprovalStatusVis() {
+        let val = document.getElementById('modalSupportEmp').value;
+        document.getElementById('modalApprovalStatus').style.display = val ? 'block' : 'none';
+    }
+
+    // 🌟 網頁表格渲染與勞資檢核計算
+    function renderTable() { 
+        let tbody = document.getElementById('tableBody'); tbody.innerHTML = ''; 
+        let weekStr = document.getElementById('weekSelector').value; currentWeekDates = getWeekDates(weekStr); 
+        let myStore = document.getElementById('storeSelector').value;
+        let hRow = document.getElementById('headerRow'); let hHtml = '<th>員工</th>'; 
+        dayNames.forEach((d, i) => { hHtml += `<th><span class="date-text">${currentWeekDates[i]}</span>${d}</th>`; }); 
+        hHtml += '<th>統計</th>'; hRow.innerHTML = hHtml; 
+        
+        let emps = [...appData.employees]; 
+        virtualRowNames.forEach(n => emps.push({name: n, role: '待補'})); 
+        
+        emps.forEach((emp, eIdx) => { 
+            let tr = document.createElement('tr'); 
+            let isVirtual = emp.name.startsWith('🆘待補');
+            let empNameDisplay = emp.name;
+            if(isVirtual) empNameDisplay += ` <span style="color:#d93025; font-size:12px; cursor:pointer;" onclick="deleteVirtualRow('${emp.name}')">✖</span>`;
+            let roleDisplay = emp.role;
+            if(emp.status === '離職') roleDisplay += ' <span style="color:#d93025; font-size:11px; font-weight:bold;">(已離職)</span>';
+
+            tr.innerHTML = `<td><strong>${empNameDisplay}</strong><br><small>${roleDisplay}</small></td>`; 
+            
+            let consecDays = 0;
+            let prevEndTime = null;
+
+            // 抓出這個人在所有門市（包含本店 + 去別店支援）的班表，用來計算勞資防呆
+            let myShiftsThisWeek = [];
+            if (!isVirtual && emp.role !== '店長') {
+                myShiftsThisWeek = appData.allStoresRecords.filter(r => 
+                    r.week === weekStr && 
+                    ((r._store === myStore && r.name === emp.name) || 
+                     (r.supportEmp === `${myStore}-${emp.name}` && r.approvalStatus === 'approved'))
+                );
+            }
+
+            dayNames.forEach(day => { 
+                // 找出這個人在本表格（本店）當天的格子資料
+                let rec = appData.records.find(r => r.name === emp.name && r.day === day && r.week === weekStr) || {shift:'', location:'本店', note:'', actualHours:'', isOT:false, supportEmp:'', approvalStatus:''}; 
+                let warnings = [];
+
+                // 🌟 勞資防呆計算
+                if (!isVirtual && emp.role !== '店長') {
+                    let globalRec = myShiftsThisWeek.find(r => r.day === day);
+                    if (globalRec && globalRec.shift && globalRec.shift !== '排休' && globalRec.shift !== '指休') {
+                        consecDays++;
+                        if (consecDays >= 7) warnings.push('連上7天');
+
+                        let m = globalRec.shift.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)/);
+                        if (m) {
+                            let sT = parseFloat(m[1]), eT = parseFloat(m[2]);
+                            if (eT <= sT) eT += 24;
+                            if (prevEndTime !== null && ((sT + 24) - prevEndTime < 11)) {
+                                if (sT <= 11) warnings.push('晚接早');
+                                else if (sT >= 20) warnings.push('早接夜');
+                                else warnings.push('夜接晚');
+                            }
+                            prevEndTime = eT;
+                        } else prevEndTime = null;
+                    } else {
+                        consecDays = 0; prevEndTime = null;
+                    }
+                }
+
+                // 🌟 跨店審核鈴鐺 (錦花店長看自己的員工時，檢查是否有別人借調)
+                let pendingBadges = '';
+                if (!isVirtual) {
+                    let pendingReqs = appData.allStoresRecords.filter(r => 
+                        r.supportEmp === `${myStore}-${emp.name}` && r.day === day && r.approvalStatus === 'pending' && r.week === weekStr
+                    );
+                    pendingReqs.forEach(req => {
+                        let reqData = encodeURIComponent(JSON.stringify(req));
+                        pendingBadges += `<div class="pending-badge" onclick="event.stopPropagation(); openApprovalModal('${reqData}')">🔔 ${req._store} ${req.shift} 申請支援<br>(點擊審核)</div>`;
+                    });
+                }
+
+                let td = document.createElement('td'); let btn = document.createElement('button'); btn.className = 'cell-btn'; 
+                btn.dataset.emp = emp.name; btn.dataset.day = day; btn.dataset.shift = rec.shift; btn.dataset.hours = rec.actualHours; btn.dataset.loc = rec.location; btn.dataset.note = rec.note; btn.dataset.ot = rec.isOT; btn.dataset.warn = warnings.join('|');
+                btn.dataset.support = rec.supportEmp || ''; btn.dataset.approval = rec.approvalStatus || '';
+                
+                updateCellUI(btn, pendingBadges); 
+                btn.onclick = (e) => handleCellClick(b, eIdx); td.appendChild(btn); tr.appendChild(td); 
+            }); 
+            let sumTd = document.createElement('td'); sumTd.id = `sum-${eIdx}`; sumTd.className = 'summary-box'; tr.appendChild(sumTd); tbody.appendChild(tr); 
+            updateSummary(eIdx, emp); 
+        }); 
+        
+        let nTr = document.createElement('tr'); nTr.innerHTML = `<td style="background:#fff3e0;"><strong>📝 備註</strong></td>`; 
+        dayNames.forEach(day => { 
+            let rec = appData.records.find(r => r.name === '門市備註' && r.day === day && r.week === weekStr); 
+            nTr.innerHTML += `<td style="padding:0; background:#fff8e1;"><input type="text" class="daily-note-input" data-day="${day}" oninput="triggerAutoSave()" value="${rec?rec.note:''}" style="width:100%; height:55px; border:none; background:transparent; text-align:center;"></td>`; 
+        }); 
+        tbody.appendChild(nTr); 
+        updateDailyTotals(); 
+    }
+    
+    function updateCellUI(b, extraHtml = '') { 
+        let s = b.dataset.shift, h = b.dataset.hours, l = b.dataset.loc, n = b.dataset.note, isOT = (b.dataset.ot === 'true'), w = b.dataset.warn; 
+        let isVirtual = b.dataset.emp.includes('待補');
+        let supportEmp = b.dataset.support;
+        let approvalStatus = b.dataset.approval;
+        let hVal = parseFloat(h) || 0;
+        let shiftHtml = s || '+'; 
+        
+        b.classList.remove('unfilled-shift', 'zhi-xiu', 'pai-xiu', 'shift-night', 'shift-morning');
+
+        // 🌟 待補空缺警告色
+        if (isVirtual && !supportEmp && s && s !== '排休' && s !== '指休') {
+            b.classList.add('unfilled-shift');
+        } else if (s === '排休' || s === '指休') {
+            shiftHtml = '休'; 
+            b.classList.add(s === '指休' ? 'zhi-xiu' : 'pai-xiu');
+        } else if (s) {
+            if (isOT) shiftHtml = `<span class="ot-text">${s}</span>`;
+            else if (hVal > 8 && s.includes('-')) {
+                let p = s.split('-'); if (p.length === 2) shiftHtml = `${p[0]}-<span class="ot-text">${p[1]}</span>`;
+            }
+            let start = parseInt(s); if(start>=15||start<6) b.classList.add('shift-night'); else b.classList.add('shift-morning');
+        }
+
+        let txt = shiftHtml;
+        if(h && h != appConfig.shiftHours[s] && s !== '排休' && s !== '指休') txt += `<br><small>(${Math.round(h)}h)</small>`; 
+
+        // 顯示支援人員狀態
+        if (isVirtual && supportEmp) {
+            let empNameOnly = supportEmp.split('-')[1] || supportEmp;
+            if (approvalStatus === 'pending') txt += `<br><small style="color:#d84315; font-weight:bold;">${empNameOnly}<br>(待審核)</small>`;
+            else if (approvalStatus === 'approved') txt += `<br><small style="color:#1a73e8; font-weight:900;">${empNameOnly}</small>`;
+        }
+
+        if (w) { let wArr = w.split('|'); wArr.forEach(warn => { if(warn) txt += `<br><span class="warn-tag">⚠️ ${warn}</span>`; }); }
+        if (l && l !== '本店' && !isVirtual) txt += `<br><small style="color:#d93025; font-weight:800;">📍${l}</small>`; 
+        if (n && !isVirtual) txt += `<br><small style="color:#1a73e8;">${n}</small>`; 
+        
+        b.innerHTML = txt + extraHtml; 
+    }
+    
+    // 🌟 跨店支援審核操作
+    function openApprovalModal(encodedReq) {
+        let req = JSON.parse(decodeURIComponent(encodedReq));
+        document.getElementById('approvalReqData').value = encodedReq;
+        document.getElementById('approvalDesc').innerHTML = `<strong>${req._store}</strong> 提出跨店支援請求：<br><br><span style="color:#1a73e8; font-size:24px; font-weight:900;">${req.supportEmp.split('-')[1]}</span><br>於 <strong>${req.day} ${req.shift}</strong> 前往支援`;
+        document.getElementById('approvalModal').style.display = 'flex';
+    }
+
+    async function handleApproval(isApproved) {
+        let req = JSON.parse(decodeURIComponent(document.getElementById('approvalReqData').value));
+        showLoading("處理中...");
+        try {
+            let requesterStore = req._store;
+            let week = req.week;
+            let docRef = window.db.collection('stores').doc(requesterStore).collection('weeks').doc(week);
+            let snap = await docRef.get();
+            if (snap.exists) {
+                let data = snap.data();
+                let records = data.records || [];
+                let idx = records.findIndex(r => r.name === req.name && r.day === req.day && r.shift === req.shift);
+                if (idx !== -1) {
+                    if (isApproved) {
+                        records[idx].approvalStatus = 'approved';
+                    } else {
+                        // 拒絕：清空對方格子裡的人員，讓它變橘色警告
+                        records[idx].supportEmp = '';
+                        records[idx].approvalStatus = '';
+                    }
+                    await docRef.update({ records: records });
+                    alert(isApproved ? "已同意支援！對方班表已生效。" : "已拒絕支援，對方格子已清空人員。");
+                    closeModal('approvalModal');
+                    fetchAllStoreData(); // 重新讀取全局資料
+                } else {
+                    alert("找不到該筆申請紀錄，可能已被對方刪除。"); closeModal('approvalModal'); hideLoading();
+                }
+            }
+        } catch (err) { alert("發生錯誤：" + err); hideLoading(); }
+    }
+
+    function addVirtualRow() { syncUIToMemory(); let n = 1; while(virtualRowNames.includes('🆘待補'+n)) n++; virtualRowNames.push('🆘待補'+n); renderTable(); triggerAutoSave(); }
+    function autoFillHours() { let s = document.getElementById('modalShift').value.trim(); let t = document.getElementById('modalHours'); if(appConfig.shiftHours && appConfig.shiftHours[s]) { t.value = appConfig.shiftHours[s]; } else { let m = s.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)/); if(m) { let sT = parseFloat(m[1]), eT = parseFloat(m[2]); if(eT <= sT) eT += 24; let h = eT - sT; t.value = h; } else if(s==='排休'||s==='指休') t.value=0; } }
+    
+    function syncUIToMemory() { 
+        let week = document.getElementById('weekSelector').value; 
+        document.querySelectorAll('.cell-btn').forEach(btn => { 
+            let idx = appData.records.findIndex(r => r.name===btn.dataset.emp && r.day===btn.dataset.day && r.week===week); 
+            let data = { 
+                week: week, day: btn.dataset.day, name: btn.dataset.emp, shift: btn.dataset.shift || '', 
+                location: btn.dataset.loc || '本店', note: btn.dataset.note || '', actualHours: parseFloat(btn.dataset.hours || 0), isOT: btn.dataset.ot === 'true',
+                supportEmp: btn.dataset.support || '', approvalStatus: btn.dataset.approval || ''
+            }; 
+            let hasData = btn.dataset.shift || btn.dataset.note || btn.dataset.ot === 'true' || btn.dataset.support;
+            if (hasData) { if (idx !== -1) appData.records[idx] = data; else appData.records.push(data); } 
+            else { if (idx !== -1) appData.records.splice(idx, 1); }
+        }); 
+        document.querySelectorAll('.daily-note-input').forEach(inp => {
+            let day = inp.dataset.day; let val = inp.value;
+            let idx = appData.records.findIndex(r => r.name==='門市備註' && r.day===day && r.week===week);
+            if (val) { if (idx !== -1) appData.records[idx].note = val; else appData.records.push({ week: week, day: day, name: '門市備註', shift: '', location: '', note: val, actualHours: 0, isOT: false }); }
+            else { if (idx !== -1) appData.records.splice(idx, 1); }
+        });
+    }
+    
+    function handleCellClick(b, eIdx) { 
+        let isVirtual = b.dataset.emp.includes('待補');
+        if(isPaintMode) { 
+            pushToUndo(b);
+            let s = document.getElementById('paintShift').value; b.dataset.shift = s; b.dataset.hours = document.getElementById('paintHours').value; 
+            b.dataset.loc = isVirtual ? '本店' : document.getElementById('paintLoc').value; b.dataset.note = document.getElementById('paintNote').value; b.dataset.ot = "false";
+            syncUIToMemory(); renderTable(); triggerAutoSave(); 
+        } else { 
+            currentCell = b; 
+            document.getElementById('modalTitle').innerText = b.dataset.emp; 
+            document.getElementById('modalShift').value = b.dataset.shift; 
+            document.getElementById('modalHours').value = b.dataset.hours; 
+            document.getElementById('modalOvertime').checked = (b.dataset.ot === 'true');
+            document.getElementById('modalLocation').value = isVirtual ? '本店' : (b.dataset.loc || '本店'); 
+            document.getElementById('modalNote').value = b.dataset.note; 
+
+            if(isVirtual) {
+                document.getElementById('modalLocGroup').style.display = 'none';
+                document.getElementById('modalSupportGroup').style.display = 'block';
+                document.getElementById('modalSupportEmp').value = b.dataset.support || '';
+                document.getElementById('modalApprovalStatus').value = b.dataset.approval || 'pending';
+                toggleApprovalStatusVis();
+            } else {
+                document.getElementById('modalLocGroup').style.display = 'block';
+                document.getElementById('modalSupportGroup').style.display = 'none';
+            }
+            renderQuickShifts(); document.getElementById('shiftModal').style.display = 'flex'; 
+        } 
+    }
+    
+    function renderQuickShifts() { 
+        let h = `<button class="cell-btn" style="padding:10px; font-weight:bold; cursor:pointer; background:#f1f3f4;" onclick="clearModalShift()">🗑️ 清空</button>`; 
+        (appConfig.shifts || []).forEach(s => { let isOff = (s==='排休'||s==='指休'); h += `<button class="cell-btn ${isOff?'zhi-xiu':''}" style="padding:10px; font-weight:bold; cursor:pointer;" onclick="setModalShift('${s}')">${s}</button>`; }); 
+        document.getElementById('quickShiftButtons').innerHTML = h; 
+    }
+    function setModalShift(s) { document.getElementById('modalShift').value = s; autoFillHours(); }
+    function clearModalShift() { document.getElementById('modalShift').value = ''; document.getElementById('modalHours').value = ''; document.getElementById('modalOvertime').checked = false; document.getElementById('modalLocation').value = '本店'; document.getElementById('modalNote').value = ''; document.getElementById('modalSupportEmp').value = ''; document.getElementById('modalApprovalStatus').value = 'pending'; toggleApprovalStatusVis(); }
+    
+    function applyShift() { 
+        pushToUndo(currentCell);
+        let isVirtual = currentCell.dataset.emp.includes('待補');
+        currentCell.dataset.shift = document.getElementById('modalShift').value; 
+        currentCell.dataset.hours = document.getElementById('modalHours').value; 
+        currentCell.dataset.ot = document.getElementById('modalOvertime').checked;
+        if (isVirtual) {
+            currentCell.dataset.loc = '本店';
+            currentCell.dataset.support = document.getElementById('modalSupportEmp').value;
+            currentCell.dataset.approval = document.getElementById('modalApprovalStatus').value;
+        } else {
+            currentCell.dataset.loc = document.getElementById('modalLocation').value; 
+            currentCell.dataset.note = document.getElementById('modalNote').value; 
+        }
+        syncUIToMemory(); renderTable(); closeModal('shiftModal'); triggerAutoSave(); 
+    }
+    
+    function updateDailyTotals() { let sums = [0,0,0,0,0,0,0]; document.querySelectorAll('.cell-btn').forEach(b => { let idx = dayNames.indexOf(b.dataset.day); if(b.dataset.loc === '本店') sums[idx] += parseFloat(b.dataset.hours || 0); }); sums.forEach((s, i) => document.getElementById(`dailyTotal-${i}`).innerText = Math.round(s)); document.getElementById('tableFoot').style.display = 'table-row-group'; }
+    
+    function updateSummary(idx, emp) { 
+        let t = document.getElementById(`sum-${idx}`); if(!t) return; 
+        if (emp.name.includes('待補')) { t.innerHTML = '-'; return; }
+        
+        let month = currentWeekDates[3].split('/')[0]; 
+        let weekStr = document.getElementById('weekSelector').value;
+        let myStore = document.getElementById('storeSelector').value;
+        let weekHours = 0, monthHours = 0, monthOT = 0, offD = 0, weekOffD = 0; 
+        
+        appData.allStoresRecords.forEach(r => { 
+            let isNative = (r._store === myStore && r.name === emp.name);
+            let isSupport = (r.supportEmp === `${myStore}-${emp.name}` && r.approvalStatus === 'approved');
+
+            if(isNative || isSupport) { 
+                let hr = parseFloat(r.actualHours || 0);
+                let ot = r.isOT ? hr : Math.max(0, hr - 8);
+                
+                let isCurrentWeek = (r.week === weekStr);
+                let isCurrentMonth = (getWeekDates(r.week)[3].split('/')[0] === month);
+
+                if (isCurrentWeek) {
+                    if (r.shift==='排休'||r.shift==='指休') weekOffD++;
+                    weekHours += hr;
+                }
+                if (isCurrentMonth) {
+                    if (r.shift==='排休'||r.shift==='指休') offD++;
+                    monthHours += hr;
+                    monthOT += ot;
+                }
+            } 
+        }); 
+        
+        let info = appData.employees.find(e => e.name === emp.name) || {role:'待補', wage:0}; 
+        
+        if(info.role === '店長') {
+            t.innerHTML = `<span style="color:#1a73e8;font-weight:bold; font-size:15px;">店長</span><br><span style="color:#999">-</span>`; 
+        } else if(info.role === '正職') {
+            let warn = weekOffD < 2 ? `<span style="color:#d93025;font-weight:bold;">(未達2天)</span>` : `<span style="color:#34a853;">(達標)</span>`;
+            t.innerHTML = `週休:${Math.round(weekOffD)}天 ${warn}<br>月加班:${Math.round(monthOT)}h`; 
+        } else {
+            t.innerHTML = `週時:${Math.round(weekHours)}h<br>月時:${Math.round(monthHours)}h<br>估:$${Math.round(monthHours * info.wage)}`; 
+        }
+    }
+
+    // 🌟 原生 Canvas 產圖 (乾淨版：無警告、無鈴鐺)
     function exportNativeImage() {
         syncUIToMemory();
         showLoading("📸 正在啟動高解析度原生繪圖引擎...");
@@ -327,11 +734,18 @@
 
                     for(let i = 0; i < 7; i++) {
                         let cx = startX + (i + 1) * colW + colW / 2;
-                        let rec = appData.records.find(r => r.name === emp.name && r.day === dayNames[i] && r.week === weekStr) || {shift:'', note:'', location:'', actualHours:0, isOT:false};
+                        let rec = appData.records.find(r => r.name === emp.name && r.day === dayNames[i] && r.week === weekStr) || {shift:'', note:'', location:'', actualHours:0, isOT:false, supportEmp:'', approvalStatus:''};
                         
-                        let hasSubtext = (rec.note || (rec.location && rec.location !== '本店'));
+                        let hasSubtext = (rec.note || (rec.location && rec.location !== '本店') || (rec.supportEmp && rec.approvalStatus === 'approved'));
                         let textY = hasSubtext ? cy - 14 : cy;
                         let hVal = parseFloat(rec.actualHours || 0);
+
+                        // 如果是待補列且沒有人接，只印時間
+                        if (emp.name.includes('待補') && !rec.supportEmp && rec.shift && rec.shift !== '排休' && rec.shift !== '指休') {
+                            ctx.fillStyle = "#000000"; ctx.font = "900 30px 'Arial', 'Microsoft JhengHei', sans-serif"; 
+                            ctx.fillText(rec.shift.replace('-', ' / '), cx, cy);
+                            continue;
+                        }
 
                         if (rec.shift === '指休') {
                             drawRoundRect(cx - 35, textY - 24, 70, 48, 10, '#d93025'); 
@@ -356,13 +770,18 @@
 
                         if (hasSubtext) {
                             let subtextY = cy + 20; 
-                            if (rec.location && rec.location !== '本店') {
-                                ctx.fillStyle = "#e67e22"; ctx.font = "bold 16px 'Microsoft JhengHei', sans-serif"; 
-                                ctx.fillText(rec.location, cx, subtextY); subtextY += 18; 
-                            }
-                            if (rec.note) {
-                                ctx.fillStyle = "#0088aa"; ctx.font = "bold 16px 'Microsoft JhengHei', sans-serif"; 
-                                ctx.fillText(rec.note, cx, subtextY);
+                            if (emp.name.includes('待補') && rec.supportEmp && rec.approvalStatus === 'approved') {
+                                ctx.fillStyle = "#1a73e8"; ctx.font = "900 18px 'Microsoft JhengHei', sans-serif"; 
+                                ctx.fillText(rec.supportEmp.split('-')[1] || rec.supportEmp, cx, subtextY);
+                            } else {
+                                if (rec.location && rec.location !== '本店') {
+                                    ctx.fillStyle = "#e67e22"; ctx.font = "bold 18px 'Microsoft JhengHei', sans-serif"; 
+                                    ctx.fillText(rec.location, cx, subtextY); subtextY += 22; 
+                                }
+                                if (rec.note) {
+                                    ctx.fillStyle = "#0088aa"; ctx.font = "bold 18px 'Microsoft JhengHei', sans-serif"; 
+                                    ctx.fillText(rec.note, cx, subtextY);
+                                }
                             }
                         }
                     }
@@ -390,249 +809,6 @@
             } catch (err) { alert("產圖發生錯誤：" + err); hideLoading(); }
         }, 100); 
     }
-
-    function deleteVirtualRow(name) {
-        if(!confirm(`確定要刪除 ${name} 嗎？`)) return;
-        let week = document.getElementById('weekSelector').value;
-        appData.records = appData.records.filter(r => !(r.name === name && r.week === week));
-        virtualRowNames = virtualRowNames.filter(n => n !== name);
-        renderTable();
-        triggerAutoSave();
-    }
-
-    async function loadScheduleData() { 
-        let store = document.getElementById('storeSelector').value; 
-        let week = document.getElementById('weekSelector').value; 
-        if(!store) return; 
-        localStorage.setItem('lastStore', store); 
-        showLoading("讀取資料..."); 
-        
-        const weekSnap = await window.db.collection('stores').doc(store).collection('weeks').get(); 
-        appData.records = []; 
-        weekSnap.forEach(d => { 
-            if(d.data().records) d.data().records.forEach(r => { r.week = d.id; appData.records.push(r); })
-        }); 
-
-        let currentWeekRecords = appData.records.filter(r => r.week === week);
-        let scheduledNames = currentWeekRecords.filter(r => (r.shift && r.shift.trim() !== '') || (r.note && r.note.trim() !== '')).map(r => r.name);
-
-        const empSnap = await window.db.collection('stores').doc(store).collection('employees').get(); 
-        appData.employees = []; 
-        empSnap.forEach(d => { 
-            let e = d.data();
-            if(e.status !== '離職' || scheduledNames.includes(d.id)) {
-                appData.employees.push({name: d.id, ...e});
-            }
-        }); 
-        appData.employees.sort((a,b) => (a.sortKey||0) - (b.sortKey||0)); 
-        
-        virtualRowNames = currentWeekRecords.map(r => r.name).filter(n => n && n.startsWith('🆘')).filter((v,i,a) => a.indexOf(v)===i); 
-        renderTable(); 
-        hideLoading(); 
-    }
-
-    function renderTable() { 
-        let tbody = document.getElementById('tableBody'); tbody.innerHTML = ''; 
-        let week = document.getElementById('weekSelector').value; currentWeekDates = getWeekDates(week); 
-        let hRow = document.getElementById('headerRow'); let hHtml = '<th>員工</th>'; 
-        dayNames.forEach((d, i) => { hHtml += `<th><span class="date-text">${currentWeekDates[i]}</span>${d}</th>`; }); 
-        hHtml += '<th>統計</th>'; hRow.innerHTML = hHtml; 
-        
-        let emps = [...appData.employees]; 
-        virtualRowNames.forEach(n => emps.push({name: n, role: '待補'})); 
-        
-        emps.forEach((emp, eIdx) => { 
-            let tr = document.createElement('tr'); 
-            let empNameDisplay = emp.name;
-            if(emp.name.startsWith('🆘待補')) empNameDisplay += ` <span style="color:#d93025; font-size:12px; cursor:pointer;" onclick="deleteVirtualRow('${emp.name}')">✖</span>`;
-            let roleDisplay = emp.role;
-            if(emp.status === '離職') roleDisplay += ' <span style="color:#d93025; font-size:11px; font-weight:bold;">(已離職)</span>';
-
-            tr.innerHTML = `<td><strong>${empNameDisplay}</strong><br><small>${roleDisplay}</small></td>`; 
-            
-            let consecDays = 0;
-            let prevEndTime = null;
-
-            dayNames.forEach(day => { 
-                let rec = appData.records.find(r => r.name === emp.name && r.day === day && r.week === week) || {shift:'', location:'本店', note:'', actualHours:'', isOT:false}; 
-                let warnings = [];
-
-                if (emp.role !== '店長' && !emp.name.includes('待補')) {
-                    if (rec.shift && rec.shift !== '排休' && rec.shift !== '指休') {
-                        consecDays++;
-                        if (consecDays >= 7) warnings.push('連上7天');
-
-                        let m = rec.shift.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)/);
-                        if (m) {
-                            let sT = parseFloat(m[1]), eT = parseFloat(m[2]);
-                            if (eT <= sT) eT += 24;
-                            if (prevEndTime !== null && ((sT + 24) - prevEndTime < 11)) {
-                                if (sT <= 11) warnings.push('晚接早');
-                                else if (sT >= 20) warnings.push('早接夜');
-                                else warnings.push('夜接晚');
-                            }
-                            prevEndTime = eT;
-                        } else prevEndTime = null;
-                    } else {
-                        consecDays = 0; prevEndTime = null;
-                    }
-                }
-
-                let td = document.createElement('td'); let btn = document.createElement('button'); btn.className = 'cell-btn'; 
-                btn.dataset.emp = emp.name; btn.dataset.day = day; btn.dataset.shift = rec.shift; btn.dataset.hours = rec.actualHours; btn.dataset.loc = rec.location; btn.dataset.note = rec.note; btn.dataset.ot = rec.isOT; btn.dataset.warn = warnings.join('|');
-                updateCellUI(btn); btn.onclick = () => handleCellClick(btn, eIdx); td.appendChild(btn); tr.appendChild(td); 
-            }); 
-            let sumTd = document.createElement('td'); sumTd.id = `sum-${eIdx}`; sumTd.className = 'summary-box'; tr.appendChild(sumTd); tbody.appendChild(tr); 
-            updateSummary(eIdx, emp); 
-        }); 
-        
-        let nTr = document.createElement('tr'); nTr.innerHTML = `<td style="background:#fff3e0;"><strong>📝 備註</strong></td>`; 
-        dayNames.forEach(day => { 
-            let rec = appData.records.find(r => r.name === '門市備註' && r.day === day && r.week === week); 
-            nTr.innerHTML += `<td style="padding:0; background:#fff8e1;"><input type="text" class="daily-note-input" data-day="${day}" oninput="triggerAutoSave()" value="${rec?rec.note:''}" style="width:100%; height:55px; border:none; background:transparent; text-align:center;"></td>`; 
-        }); 
-        tbody.appendChild(nTr); 
-        updateDailyTotals(); 
-    }
-    
-    function updateCellUI(b) { 
-        let s = b.dataset.shift, h = b.dataset.hours, l = b.dataset.loc, n = b.dataset.note, isOT = (b.dataset.ot === 'true'), w = b.dataset.warn; 
-        let hVal = parseFloat(h) || 0;
-        let shiftHtml = s || '+'; 
-        
-        if (s === '排休' || s === '指休') {
-            shiftHtml = '休'; 
-        } else if (isOT) {
-            shiftHtml = `<span class="ot-text">${s}</span>`;
-        } else if (hVal > 8 && s.includes('-')) {
-            let p = s.split('-');
-            if (p.length === 2) shiftHtml = `${p[0]}-<span class="ot-text">${p[1]}</span>`;
-        }
-
-        let txt = shiftHtml;
-        if(h && h != appConfig.shiftHours[s] && s !== '排休' && s !== '指休') txt += `<br><small>(${Math.round(h)}h)</small>`; 
-        if (w) { let wArr = w.split('|'); wArr.forEach(warn => { if(warn) txt += `<br><span class="warn-tag">⚠️ ${warn}</span>`; }); }
-        if(l && l !== '本店') txt += `<br><small style="color:#d93025; font-weight:800;">📍${l}</small>`; 
-        if(n) txt += `<br><small style="color:#1a73e8;">${n}</small>`; 
-        
-        b.innerHTML = txt; b.className = 'cell-btn'; 
-        if(s==='指休') b.classList.add('zhi-xiu'); else if(s==='排休') b.classList.add('pai-xiu'); 
-        else if(s) { let start=parseInt(s); if(start>=15||start<6) b.classList.add('shift-night'); else b.classList.add('shift-morning'); } 
-    }
-    
-    function addVirtualRow() { syncUIToMemory(); let n = 1; while(virtualRowNames.includes('🆘待補'+n)) n++; virtualRowNames.push('🆘待補'+n); renderTable(); triggerAutoSave(); }
-    function autoFillHours() { let s = document.getElementById('modalShift').value.trim(); let t = document.getElementById('modalHours'); if(appConfig.shiftHours && appConfig.shiftHours[s]) { t.value = appConfig.shiftHours[s]; } else { let m = s.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)/); if(m) { let sT = parseFloat(m[1]), eT = parseFloat(m[2]); if(eT <= sT) eT += 24; let h = eT - sT; t.value = h; } else if(s==='排休'||s==='指休') t.value=0; } }
-    
-    function syncUIToMemory() { 
-        let week = document.getElementById('weekSelector').value; 
-        document.querySelectorAll('.cell-btn').forEach(btn => { 
-            let idx = appData.records.findIndex(r => r.name===btn.dataset.emp && r.day===btn.dataset.day && r.week===week); 
-            let data = { week: week, day: btn.dataset.day, name: btn.dataset.emp, shift: btn.dataset.shift || '', location: btn.dataset.loc || '本店', note: btn.dataset.note || '', actualHours: parseFloat(btn.dataset.hours || 0), isOT: btn.dataset.ot === 'true' }; 
-            let hasData = btn.dataset.shift || btn.dataset.note || btn.dataset.ot === 'true';
-            if (hasData) { if (idx !== -1) appData.records[idx] = data; else appData.records.push(data); } 
-            else { if (idx !== -1) appData.records.splice(idx, 1); }
-        }); 
-        document.querySelectorAll('.daily-note-input').forEach(inp => {
-            let day = inp.dataset.day; let val = inp.value;
-            let idx = appData.records.findIndex(r => r.name==='門市備註' && r.day===day && r.week===week);
-            if (val) { if (idx !== -1) appData.records[idx].note = val; else appData.records.push({ week: week, day: day, name: '門市備註', shift: '', location: '', note: val, actualHours: 0, isOT: false }); }
-            else { if (idx !== -1) appData.records.splice(idx, 1); }
-        });
-    }
-    
-    function handleCellClick(b, eIdx) { 
-        let isVirtual = b.dataset.emp.includes('待補');
-        if(isPaintMode) { 
-            pushToUndo(b);
-            let s = document.getElementById('paintShift').value; b.dataset.shift = s; b.dataset.hours = document.getElementById('paintHours').value; b.dataset.loc = isVirtual ? '本店' : document.getElementById('paintLoc').value; b.dataset.note = document.getElementById('paintNote').value; b.dataset.ot = "false";
-            syncUIToMemory(); renderTable(); triggerAutoSave(); 
-        } else { 
-            currentCell = b; 
-            document.getElementById('modalTitle').innerText = b.dataset.emp; 
-            document.getElementById('modalShift').value = b.dataset.shift; 
-            document.getElementById('modalHours').value = b.dataset.hours; 
-            document.getElementById('modalOvertime').checked = (b.dataset.ot === 'true');
-            document.getElementById('modalLocation').value = isVirtual ? '本店' : (b.dataset.loc || '本店'); 
-            document.getElementById('modalNote').value = b.dataset.note; 
-
-            if(isVirtual) {
-                document.getElementById('modalLocGroup').style.display = 'none';
-                document.getElementById('modalNoteGroup').style.gridColumn = '1 / span 2';
-                document.getElementById('modalNoteLabel').innerHTML = '👤 支援人員 (填寫代班者)';
-            } else {
-                document.getElementById('modalLocGroup').style.display = 'block';
-                document.getElementById('modalNoteGroup').style.gridColumn = 'auto';
-                document.getElementById('modalNoteLabel').innerHTML = '💡 備註';
-            }
-            renderQuickShifts(); document.getElementById('shiftModal').style.display = 'flex'; 
-        } 
-    }
-    
-    function renderQuickShifts() { 
-        let h = `<button class="cell-btn" style="padding:10px; font-weight:bold; cursor:pointer; background:#f1f3f4;" onclick="clearModalShift()">🗑️ 清空</button>`; 
-        (appConfig.shifts || []).forEach(s => { let isOff = (s==='排休'||s==='指休'); h += `<button class="cell-btn ${isOff?'zhi-xiu':''}" style="padding:10px; font-weight:bold; cursor:pointer;" onclick="setModalShift('${s}')">${s}</button>`; }); 
-        document.getElementById('quickShiftButtons').innerHTML = h; 
-    }
-    function setModalShift(s) { document.getElementById('modalShift').value = s; autoFillHours(); }
-    function clearModalShift() { document.getElementById('modalShift').value = ''; document.getElementById('modalHours').value = ''; document.getElementById('modalOvertime').checked = false; document.getElementById('modalLocation').value = '本店'; document.getElementById('modalNote').value = ''; }
-    
-    function applyShift() { 
-        pushToUndo(currentCell);
-        currentCell.dataset.shift = document.getElementById('modalShift').value; 
-        currentCell.dataset.hours = document.getElementById('modalHours').value; 
-        currentCell.dataset.ot = document.getElementById('modalOvertime').checked;
-        currentCell.dataset.loc = document.getElementById('modalLocation').value; 
-        currentCell.dataset.note = document.getElementById('modalNote').value; 
-        syncUIToMemory(); renderTable(); closeModal('shiftModal'); triggerAutoSave(); 
-    }
-    
-    function updateDailyTotals() { let sums = [0,0,0,0,0,0,0]; document.querySelectorAll('.cell-btn').forEach(b => { let idx = dayNames.indexOf(b.dataset.day); if(b.dataset.loc === '本店') sums[idx] += parseFloat(b.dataset.hours || 0); }); sums.forEach((s, i) => document.getElementById(`dailyTotal-${i}`).innerText = Math.round(s)); document.getElementById('tableFoot').style.display = 'table-row-group'; }
-    
-    function updateSummary(idx, emp) { 
-        let t = document.getElementById(`sum-${idx}`); if(!t) return; 
-        let month = currentWeekDates[3].split('/')[0]; 
-        let weekStr = document.getElementById('weekSelector').value;
-        let weekHours = 0, monthHours = 0, monthOT = 0, offD = 0, weekOffD = 0; 
-        
-        appData.records.forEach(r => { 
-            if(r.name === emp.name) { 
-                let hr = parseFloat(r.actualHours || 0);
-                let ot = r.isOT ? hr : Math.max(0, hr - 8);
-                
-                let isCurrentWeek = (r.week === weekStr);
-                let isCurrentMonth = (getWeekDates(r.week)[3].split('/')[0] === month);
-
-                if (isCurrentWeek) {
-                    if (r.shift==='排休'||r.shift==='指休') weekOffD++;
-                    weekHours += hr;
-                }
-                if (isCurrentMonth) {
-                    if (r.shift==='排休'||r.shift==='指休') offD++;
-                    monthHours += hr;
-                    monthOT += ot;
-                }
-            } 
-        }); 
-        
-        let info = appData.employees.find(e => e.name === emp.name) || {role:'待補', wage:0}; 
-        
-        if(info.role === '店長') {
-            t.innerHTML = `<span style="color:#1a73e8;font-weight:bold; font-size:15px;">店長</span><br><span style="color:#999">-</span>`; 
-        } else if(info.role === '正職') {
-            let warn = weekOffD < 2 ? `<span style="color:#d93025;font-weight:bold;">(未達2天)</span>` : `<span style="color:#34a853;">(達標)</span>`;
-            t.innerHTML = `週休:${Math.round(weekOffD)}天 ${warn}<br>月加班:${Math.round(monthOT)}h`; 
-        } else {
-            t.innerHTML = `週時:${Math.round(weekHours)}h<br>月時:${Math.round(monthHours)}h<br>估:$${Math.round(monthHours * info.wage)}`; 
-        }
-    }
-    
-    function refreshStoreList() { let sel = document.getElementById('storeSelector'); sel.innerHTML = ''; (appConfig.stores || []).forEach(s => sel.innerHTML += `<option value="${s}">${s}</option>`); sel.value = localStorage.getItem('lastStore') || appConfig.stores[0] || ""; updateLocDropdowns(); }
-    function handleStoreChange() { updateLocDropdowns(); loadScheduleData(); }
-    function showLoading(t) { document.getElementById('loadingText').innerText = t; document.getElementById('loadingOverlay').style.display = 'flex'; }
-    function hideLoading() { document.getElementById('loadingOverlay').style.display = 'none'; }
-    function closeModal(id) { document.getElementById(id).style.display = 'none'; }
-    function togglePaintMode() { isPaintMode = !isPaintMode; document.getElementById('paintToggleBtn').className = isPaintMode ? 'btn-paint-toggle active' : 'btn-paint-toggle'; document.getElementById('paintToggleBtn').innerText = isPaintMode ? '🖌️ 刷子(開)' : '🖌️ 刷子(關)'; document.getElementById('paintToolbar').style.display = isPaintMode ? 'flex' : 'none'; if(isPaintMode) { let sel = document.getElementById('paintShift'); sel.innerHTML = ''; appConfig.shifts.forEach(s => sel.innerHTML += `<option value="${s}">${s}</option>`); autoFillPaintHours(); } }
-    function autoFillPaintHours() { document.getElementById('paintHours').value = appConfig.shiftHours[document.getElementById('paintShift').value] || 0; }
     
     function openEmpModal() { 
         syncUIToMemory(); localActiveEmps = JSON.parse(JSON.stringify(appData.employees.filter(e => e.status !== '離職'))); localDeletedNames = []; 
@@ -684,7 +860,7 @@
             await window.db.collection('stores').doc(s).collection('employees').doc(e.name).set({role:e.role,wage:newWage,status:'在職',sortKey:i}, {merge:true}); 
         } 
         for(let n of localDeletedNames) await window.db.collection('stores').doc(s).collection('employees').doc(n).set({status:'離職'}, {merge:true}); 
-        closeModal('empModal'); loadScheduleData(); 
+        closeModal('empModal'); fetchAllStoreData(); 
     }
 
     function openSysModal() { renderSysStoreItems(); renderSysShiftItems(); document.getElementById('sysModal').style.display = 'flex'; }
@@ -694,7 +870,7 @@
     function renderSysShiftItems() { let h = ''; (appConfig.shifts || []).forEach((s, i) => { let hr = appConfig.shiftHours[s] || 0; h += `<div style="display:flex; justify-content:space-between; padding:8px; border-bottom:1px solid #eee;"><span>⏰ ${s} (${hr}h)</span><button onclick="delSysShift(${i}, '${s}')" style="background:red; color:white; padding:4px 8px; border:none; border-radius:4px; cursor:pointer;">刪除</button></div>`; document.getElementById('sysShiftList').innerHTML = h; }); }
     function addSysShift() { let n = document.getElementById('newShiftName').value.trim(); let hr = parseFloat(document.getElementById('newShiftHours').value) || 0; if(n) { if(!appConfig.shifts) appConfig.shifts=[]; if(!appConfig.shifts.includes(n)) appConfig.shifts.push(n); appConfig.shiftHours[n] = hr; renderSysShiftItems(); } }
     function delSysShift(i, n) { appConfig.shifts.splice(i,1); delete appConfig.shiftHours[n]; renderSysShiftItems(); }
-    async function saveSysConfig() { showLoading("儲存系統設定..."); await window.db.collection('settings').doc('globalConfig').set(appConfig); refreshStoreList(); loadScheduleData(); closeModal('sysModal'); hideLoading(); }
+    async function saveSysConfig() { showLoading("儲存系統設定..."); await window.db.collection('settings').doc('globalConfig').set(appConfig); refreshStoreList(); fetchAllStoreData(); closeModal('sysModal'); hideLoading(); }
   </script>
 </body>
 </html>
