@@ -302,7 +302,6 @@
         syncUIToMemory(); renderTable(); triggerAutoSave(); 
     }
 
-    // 🌟 原生 Canvas 產圖 (乾淨無警告版)
     function exportNativeImage() {
         syncUIToMemory();
         showLoading("📸 正在啟動高解析度原生繪圖引擎...");
@@ -446,7 +445,6 @@
         triggerAutoSave();
     }
 
-    // 🌟 一次抓取所有門市資料 (解決跨店崩潰)
     async function fetchAllStoreData() {
         let store = document.getElementById('storeSelector').value;
         let weekStr = document.getElementById('weekSelector').value;
@@ -597,7 +595,10 @@
                 btn.dataset.emp = emp.name; btn.dataset.day = day; btn.dataset.shift = rec.shift; btn.dataset.hours = rec.actualHours; btn.dataset.loc = rec.location; btn.dataset.note = rec.note; btn.dataset.ot = rec.isOT; btn.dataset.warn = warnings.join('|');
                 btn.dataset.support = rec.supportEmp || ''; btn.dataset.approval = rec.approvalStatus || '';
                 updateCellUI(btn, pendingBadges); 
-                btn.onclick = (e) => handleCellClick(b, eIdx); td.appendChild(btn); tr.appendChild(td); 
+                
+                // 🛑 修復：正確傳遞 btn 變數，解決點擊無法彈出的問題
+                btn.onclick = () => handleCellClick(btn, eIdx); 
+                td.appendChild(btn); tr.appendChild(td); 
             }); 
             let sumTd = document.createElement('td'); sumTd.id = `sum-${eIdx}`; sumTd.className = 'summary-box'; tr.appendChild(sumTd); tbody.appendChild(tr); 
             updateSummary(eIdx, emp); 
@@ -612,27 +613,27 @@
         updateDailyTotals(); 
     }
     
-    function updateCellUI(b, extraHtml = '') { 
-        let s = b.dataset.shift, h = b.dataset.hours, l = b.dataset.loc, n = b.dataset.note, isOT = (b.dataset.ot === 'true'), w = b.dataset.warn; 
-        let isVirtual = b.dataset.emp.includes('待補');
-        let supportEmp = b.dataset.support;
-        let approvalStatus = b.dataset.approval;
+    function updateCellUI(btn, extraHtml = '') { 
+        let s = btn.dataset.shift, h = btn.dataset.hours, l = btn.dataset.loc, n = btn.dataset.note, isOT = (btn.dataset.ot === 'true'), w = btn.dataset.warn; 
+        let isVirtual = btn.dataset.emp.includes('待補');
+        let supportEmp = btn.dataset.support;
+        let approvalStatus = btn.dataset.approval;
         let hVal = parseFloat(h) || 0;
         let shiftHtml = s || '+'; 
         
-        b.classList.remove('unfilled-shift', 'zhi-xiu', 'pai-xiu', 'shift-night', 'shift-morning');
+        btn.classList.remove('unfilled-shift', 'zhi-xiu', 'pai-xiu', 'shift-night', 'shift-morning');
 
         if (isVirtual && !supportEmp && s && s !== '排休' && s !== '指休') {
-            b.classList.add('unfilled-shift');
+            btn.classList.add('unfilled-shift');
         } else if (s === '排休' || s === '指休') {
             shiftHtml = '休'; 
-            b.classList.add(s === '指休' ? 'zhi-xiu' : 'pai-xiu');
+            btn.classList.add(s === '指休' ? 'zhi-xiu' : 'pai-xiu');
         } else if (s) {
             if (isOT) shiftHtml = `<span class="ot-text">${s}</span>`;
             else if (hVal > 8 && s.includes('-')) {
                 let p = s.split('-'); if (p.length === 2) shiftHtml = `${p[0]}-<span class="ot-text">${p[1]}</span>`;
             }
-            let start = parseInt(s); if(start>=15||start<6) b.classList.add('shift-night'); else b.classList.add('shift-morning');
+            let start = parseInt(s); if(start>=15||start<6) btn.classList.add('shift-night'); else btn.classList.add('shift-morning');
         }
 
         let txt = shiftHtml;
@@ -648,7 +649,7 @@
         if (l && l !== '本店' && !isVirtual) txt += `<br><small style="color:#d93025; font-weight:800;">📍${l}</small>`; 
         if (n && !isVirtual) txt += `<br><small style="color:#1a73e8;">${n}</small>`; 
         
-        b.innerHTML = txt + extraHtml; 
+        btn.innerHTML = txt + extraHtml; 
     }
 
     function openApprovalModal(encodedReq) {
@@ -712,27 +713,27 @@
         });
     }
     
-    function handleCellClick(b, eIdx) { 
-        let isVirtual = b.dataset.emp.includes('待補');
+    function handleCellClick(btn, eIdx) { 
+        let isVirtual = btn.dataset.emp.includes('待補');
         if(isPaintMode) { 
-            pushToUndo(b);
-            let s = document.getElementById('paintShift').value; b.dataset.shift = s; b.dataset.hours = document.getElementById('paintHours').value; 
-            b.dataset.loc = isVirtual ? '本店' : document.getElementById('paintLoc').value; b.dataset.note = document.getElementById('paintNote').value; b.dataset.ot = "false";
+            pushToUndo(btn);
+            let s = document.getElementById('paintShift').value; btn.dataset.shift = s; btn.dataset.hours = document.getElementById('paintHours').value; 
+            btn.dataset.loc = isVirtual ? '本店' : document.getElementById('paintLoc').value; btn.dataset.note = document.getElementById('paintNote').value; btn.dataset.ot = "false";
             syncUIToMemory(); renderTable(); triggerAutoSave(); 
         } else { 
-            currentCell = b; 
-            document.getElementById('modalTitle').innerText = b.dataset.emp; 
-            document.getElementById('modalShift').value = b.dataset.shift; 
-            document.getElementById('modalHours').value = b.dataset.hours; 
-            document.getElementById('modalOvertime').checked = (b.dataset.ot === 'true');
-            document.getElementById('modalLocation').value = isVirtual ? '本店' : (b.dataset.loc || '本店'); 
-            document.getElementById('modalNote').value = b.dataset.note; 
+            currentCell = btn; 
+            document.getElementById('modalTitle').innerText = btn.dataset.emp; 
+            document.getElementById('modalShift').value = btn.dataset.shift; 
+            document.getElementById('modalHours').value = btn.dataset.hours; 
+            document.getElementById('modalOvertime').checked = (btn.dataset.ot === 'true');
+            document.getElementById('modalLocation').value = isVirtual ? '本店' : (btn.dataset.loc || '本店'); 
+            document.getElementById('modalNote').value = btn.dataset.note; 
 
             if(isVirtual) {
                 document.getElementById('modalLocGroup').style.display = 'none';
                 document.getElementById('modalSupportGroup').style.display = 'block';
-                document.getElementById('modalSupportEmp').value = b.dataset.support || '';
-                document.getElementById('modalApprovalStatus').value = b.dataset.approval || 'pending';
+                document.getElementById('modalSupportEmp').value = btn.dataset.support || '';
+                document.getElementById('modalApprovalStatus').value = btn.dataset.approval || 'pending';
                 toggleApprovalStatusVis();
             } else {
                 document.getElementById('modalLocGroup').style.display = 'block';
