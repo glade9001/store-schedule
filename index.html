@@ -219,7 +219,7 @@
     let currentWeekDates = [], virtualRowNames = [], localActiveEmps = [], localDeletedNames = [];
     let undoStack = []; 
     let currentCell = null, autoSaveTimer = null;
-    let isPaintMode = false; // 🌟 補上這一行，修正點擊報錯的問題
+    let isPaintMode = false; // 🌟 確保被宣告，修正點擊報錯的問題
     const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
 
     function getNextWeekString() {
@@ -854,14 +854,23 @@
     
     function updateDailyTotals() { let sums = [0,0,0,0,0,0,0]; document.querySelectorAll('.cell-btn').forEach(b => { let idx = dayNames.indexOf(b.dataset.day); if(b.dataset.loc === '本店') sums[idx] += parseFloat(b.dataset.hours || 0); }); sums.forEach((s, i) => document.getElementById(`dailyTotal-${i}`).innerText = Math.round(s)); document.getElementById('tableFoot').style.display = 'table-row-group'; }
     
+    // 🌟 全新的精準跨月統計邏輯 🌟
     function updateSummary(idx, emp) { 
         let t = document.getElementById(`sum-${idx}`); if(!t) return; 
         if (emp.name.includes('待補')) { t.innerHTML = '-'; return; }
         
-        let month = currentWeekDates[3].split('/')[0]; 
         let weekStr = document.getElementById('weekSelector').value;
         let myStore = document.getElementById('storeSelector').value;
-        let weekHours = 0, monthHours = 0, monthOT = 0, offD = 0, weekOffD = 0; 
+        
+        // 🌟 1. 抓出本週畫面上「實際包含的所有月份」(去重複)
+        // 例如 1/30 ~ 2/5，activeMonths 就會是 ['1', '2']
+        let activeMonths = [...new Set(currentWeekDates.map(d => d.split('/')[0]))];
+        
+        let weekHours = 0, weekOffD = 0; 
+        
+        // 🌟 2. 準備一個物件來動態存放各月份的統計資料
+        let monthStats = {};
+        activeMonths.forEach(m => monthStats[m] = { hours: 0, ot: 0, offD: 0 });
         
         if(appData.allStoresRecords) {
             appData.allStoresRecords.forEach(r => { 
@@ -878,16 +887,22 @@
                     let ot = r.isOT ? hr : Math.max(0, hr - 8);
                     
                     let isCurrentWeek = (r.week === weekStr);
-                    let isCurrentMonth = (getWeekDates(r.week)[3].split('/')[0] === month);
+                    
+                    // 🌟 3. 精準算出這筆歷史紀錄「實際上」是哪一個月
+                    let rWeekDates = getWeekDates(r.week);
+                    let dayIdx = dayNames.indexOf(r.day);
+                    let exactMonth = rWeekDates[dayIdx].split('/')[0];
 
                     if (isCurrentWeek) {
                         if (r.shift==='排休'||r.shift==='指休') weekOffD++;
                         weekHours += hr;
                     }
-                    if (isCurrentMonth) {
-                        if (r.shift==='排休'||r.shift==='指休') offD++;
-                        monthHours += hr;
-                        monthOT += ot;
+                    
+                    // 🌟 4. 如果這筆紀錄的月份，有在我們這週畫面的月份清單裡，就加進去
+                    if (activeMonths.includes(exactMonth)) {
+                        if (r.shift==='排休'||r.shift==='指休') monthStats[exactMonth].offD++;
+                        monthStats[exactMonth].hours += hr;
+                        monthStats[exactMonth].ot += ot;
                     }
                 } 
             }); 
@@ -895,13 +910,24 @@
         
         let info = appData.employees.find(e => e.name === emp.name) || {role:'待補', wage:0}; 
         
+        // 🌟 5. 動態組合畫面顯示文字 (跨月則會顯示多行)
         if(info.role === '店長') {
             t.innerHTML = `<span style="color:#1a73e8;font-weight:bold; font-size:15px;">店長</span><br><span style="color:#999">-</span>`; 
         } else if(info.role === '正職' || info.role === '副店長') {
             let warn = weekOffD < 2 ? `<span style="color:#d93025;font-weight:bold;">(未達2天)</span>` : `<span style="color:#34a853;">(達標)</span>`;
-            t.innerHTML = `週休:${Math.round(weekOffD)}天 ${warn}<br>月加班:${Math.round(monthOT)}h`; 
+            
+            // 組合跨月加班字串
+            let otStr = activeMonths.map(m => `<span style="color:#666;">${m}月加班:</span> <span style="color:#d93025; font-weight:bold;">${Math.round(monthStats[m].ot)}h</span>`).join('<br>');
+            t.innerHTML = `週休:${Math.round(weekOffD)}天 ${warn}<br>${otStr}`; 
         } else {
-            t.innerHTML = `週時:${Math.round(weekHours)}h<br>月時:${Math.round(monthHours)}h<br>估:$${Math.round(monthHours * info.wage)}`; 
+            // 組合跨月工時與估算薪資字串
+            let monthStr = activeMonths.map(m => {
+                let mHr = Math.round(monthStats[m].hours);
+                let mWage = Math.round(monthStats[m].hours * info.wage);
+                return `<span style="color:#666;">${m}月時:</span> <strong>${mHr}h</strong><br><span style="font-size:10px; color:#1a73e8;">(估:$${mWage})</span>`;
+            }).join('<div style="border-top:1px dashed #ccc; margin:3px 0;"></div>'); // 跨月中間加一條虛線區隔
+            
+            t.innerHTML = `週時:${Math.round(weekHours)}h<br>${monthStr}`; 
         }
     }
 
