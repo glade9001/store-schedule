@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>🙋‍♀️ 員工畫休系統</title>
+  
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyAmVwq-Wny1KMRGNSdOnBEJ_A-3HmTO-hM",
+      authDomain: "store-schedule-3b056.firebaseapp.com",
+      projectId: "store-schedule-3b056",
+      storageBucket: "store-schedule-3b056.firebasestorage.app",
+      messagingSenderId: "296522693619",
+      appId: "1:296522693619:web:f90ec5d666c7a4a5943086"
+    };
+    firebase.initializeApp(firebaseConfig);
+    window.db = firebase.firestore();
+  </script>
+
+  <style>
+    body { font-family: -apple-system, "Segoe UI", sans-serif; padding: 15px; background-color: #f8f9fa; margin: 0; color: #202124; }
+    h2 { text-align: center; margin-bottom: 5px; font-size: 22px; font-weight: 900; color: #34a853; }
+    .controls { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; margin-bottom: 15px; background: white; padding: 15px; border-radius: 10px; box-shadow: 0 1px 5px rgba(0,0,0,0.1); }
+    select, input, button { padding: 9px 12px; border-radius: 6px; border: 1px solid #dadce0; font-size: 14px; background: white; }
+    .btn-nav { background: #5f6368; color: white; border: none; font-weight: bold; cursor: pointer; }
+    
+    .table-responsive { width: 100%; height: 70vh; overflow: auto; background: white; border-radius: 8px; border: 1px solid #dadce0; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+    table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 900px; }
+    th, td { border-right: 1px solid #e8eaed; border-bottom: 1px solid #e8eaed; padding: 8px; text-align: center; vertical-align: middle; }
+    th { position: sticky; top: 0; z-index: 10; background-color: #34a853; color: white; font-size: 14px; }
+    td:first-child, th:first-child { position: sticky; left: 0; z-index: 11; background-color: #f8f9fa; border-right: 2px solid #dadce0; width: 80px; font-weight: bold;}
+    th:first-child { background-color: #248a3d; z-index: 12; }
+
+    .cell-btn { width: 100%; height: 100%; min-height: 55px; border: 1px solid #f1f3f4; background: #fff; cursor: pointer; border-radius: 4px; font-size: 15px; font-weight: 700; color: #3c4043; transition: 0.2s; }
+    .cell-btn:hover { background: #f1f3f4; }
+    .req-off { background: #e8f0fe !important; border: 2px solid #1a73e8 !important; }
+    
+    /* 員工端不用顯示太多顏色，保持乾淨 */
+    .zhi-xiu { color: #d93025 !important; }
+    .pai-xiu { color: #70757a !important; }
+
+    #loadingOverlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 9999; flex-direction: column; justify-content: center; align-items: center; color: white; font-weight: bold; }
+    .spinner { border: 4px solid rgba(255,255,255,0.2); border-top: 4px solid #fff; border-radius: 50%; width: 45px; height: 45px; animation: spin 1s linear infinite; margin-bottom: 20px; }
+    @keyframes spin { 100% { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+  <div id="loadingOverlay"><div class="spinner"></div><div>資料同步中...</div></div>
+
+  <h2>🙋‍♀️ 員工畫休系統</h2>
+  
+  <div class="controls">
+    <select id="storeSelector" onchange="fetchData()"></select>
+    <div style="width: 100%; height: 0;"></div> <strong>👤 您的姓名：</strong>
+    <select id="myEmpName" style="border: 2px solid #34a853; font-weight: bold;" onchange="renderTable()">
+        <option value="">-- 請選擇 --</option>
+    </select>
+    <div style="width: 100%; height: 0;"></div> <button class="btn-nav" onclick="changeWeek(-1)">◀ 上週</button>
+    <input type="week" id="weekSelector" onchange="fetchData()">
+    <button class="btn-nav" onclick="changeWeek(1)">下週 ▶</button>
+  </div>
+
+  <div class="table-responsive">
+    <table id="scheduleTable">
+      <thead><tr id="headerRow"><th>員工</th><th>週一</th><th>週二</th><th>週三</th><th>週四</th><th>週五</th><th>週六</th><th>週日</th></tr></thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </div>
+
+  <script>
+    let appConfig = { stores: [] };
+    let appData = { employees: [], records: [] };
+    const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
+    let currentWeekDates = [];
+
+    // --- 日期與封盤邏輯 ---
+    function getNextWeekString() {
+        let d = new Date(); d.setDate(d.getDate() + 7);
+        let yr = d.getFullYear(); let first = new Date(yr, 0, 1);
+        let w = Math.ceil((((d - first) / 86400000) + first.getDay() + 1) / 7);
+        return `${yr}-W${w < 10 ? '0'+w : w}`;
+    }
+    function getWeekDates(wStr) {
+        let p = wStr.split('-W'); let yr = parseInt(p[0]); let wk = parseInt(p[1]);
+        let d = new Date(yr, 0, 1); let day = d.getDay();
+        d.setDate(d.getDate() + (wk - 1) * 7);
+        let offset = day <= 4 ? 1 - day : 8 - day;
+        d.setDate(d.getDate() + offset);
+        let res = [];
+        for(let i=0; i<7; i++) { res.push((d.getMonth()+1)+'/'+d.getDate()); d.setDate(d.getDate()+1); }
+        return res;
+    }
+    
+    // 🌟 判斷是否已過「上週五 00:00」封盤時間
+    function isWeekLocked(wStr) {
+        let p = wStr.split('-W'); let yr = parseInt(p[0]); let wk = parseInt(p[1]);
+        let d = new Date(yr, 0, 1); let day = d.getDay();
+        d.setDate(d.getDate() + (wk - 1) * 7);
+        let offset = day <= 4 ? 1 - day : 8 - day;
+        let weekMonday = new Date(yr, d.getMonth(), d.getDate() + offset);
+        
+        let lockdownDate = new Date(weekMonday);
+        lockdownDate.setDate(weekMonday.getDate() - 3); // 往前推3天 = 禮拜五
+        lockdownDate.setHours(0,0,0,0);
+        return new Date() >= lockdownDate;
+    }
+
+    function changeWeek(offset) {
+        let input = document.getElementById('weekSelector');
+        if(!input.value) return;
+        input.stepUp(offset); 
+        fetchData();
+    }
+
+    window.onload = async () => {
+        document.getElementById('loadingOverlay').style.display = 'flex';
+        document.getElementById('weekSelector').value = getNextWeekString();
+        try {
+            const snap = await window.db.collection('settings').doc('globalConfig').get();
+            if (snap.exists) appConfig = snap.data();
+            let sel = document.getElementById('storeSelector'); 
+            (appConfig.stores || []).forEach(s => sel.innerHTML += `<option value="${s}">${s}</option>`);
+            sel.value = localStorage.getItem('lastStore') || appConfig.stores[0] || "";
+            await fetchData();
+        } catch (e) { alert("連線失敗：" + e.message); }
+        document.getElementById('loadingOverlay').style.display = 'none';
+    };
+
+    async function fetchData() {
+        let store = document.getElementById('storeSelector').value;
+        let weekStr = document.getElementById('weekSelector').value;
+        if(!store || !weekStr) return;
+        localStorage.setItem('lastStore', store);
+        document.getElementById('loadingOverlay').style.display = 'flex';
+
+        // 讀取員工名單
+        const empSnap = await window.db.collection('stores').doc(store).collection('employees').get();
+        appData.employees = [];
+        empSnap.forEach(d => { if(d.data().status !== '離職') appData.employees.push({name: d.id, ...d.data()}); });
+        appData.employees.sort((a,b) => (a.sortKey||0) - (b.sortKey||0));
+
+        // 更新下拉選單 (保留原本選中的人)
+        let myEmpSelect = document.getElementById('myEmpName');
+        let currentEmp = myEmpSelect.value;
+        myEmpSelect.innerHTML = '<option value="">-- 請選擇 --</option>';
+        appData.employees.forEach(e => {
+            myEmpSelect.innerHTML += `<option value="${e.name}">${e.name}</option>`;
+        });
+        if(currentEmp) myEmpSelect.value = currentEmp;
+
+        // 讀取本週排班與畫休資料
+        const weekSnap = await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get();
+        appData.records = (weekSnap.exists && weekSnap.data().records) ? weekSnap.data().records : [];
+        
+        renderTable();
+        document.getElementById('loadingOverlay').style.display = 'none';
+    }
+
+    function renderTable() { 
+        let tbody = document.getElementById('tableBody'); tbody.innerHTML = ''; 
+        let weekStr = document.getElementById('weekSelector').value; 
+        currentWeekDates = getWeekDates(weekStr); 
+        let myName = document.getElementById('myEmpName').value;
+        let isLocked = isWeekLocked(weekStr);
+
+        let hRow = document.getElementById('headerRow'); let hHtml = '<th>員工</th>'; 
+        dayNames.forEach((d, i) => { hHtml += `<th><span class="date-text">${currentWeekDates[i]}</span>${d}</th>`; }); 
+        hRow.innerHTML = hHtml; 
+        
+        appData.employees.forEach((emp) => { 
+            let tr = document.createElement('tr'); 
+            tr.innerHTML = `<td>${emp.name}</td>`; 
+            
+            dayNames.forEach(day => { 
+                let rec = appData.records.find(r => r.name === emp.name && r.day === day && r.week === weekStr) || {shift:'', location:'', note:'', requestOff:false}; 
+                let td = document.createElement('td'); 
+                let btn = document.createElement('button'); 
+                btn.className = 'cell-btn'; 
+                
+                // 視覺顯示邏輯
+                let txt = '';
+                if(rec.shift === '排休' || rec.shift === '指休') {
+                    txt = `<span class="pai-xiu">休</span>`;
+                } else if(rec.shift) {
+                    txt = `<strong>${rec.shift}</strong>`;
+                }
+
+                if (rec.location && rec.location !== '本店') txt += `<br><small style="color:#e67e22;">📍${rec.location}</small>`;
+                if (rec.note) txt += `<br><small style="color:#0088aa;">${rec.note}</small>`;
+
+                // 若提出畫休
+                if(rec.requestOff) {
+                    btn.classList.add('req-off');
+                    txt += `<br><span style="color:#1a73e8; font-weight:bold; font-size:12px;">🙋‍♀️ 畫休中</span>`;
+                }
+
+                btn.innerHTML = txt || '-'; 
+
+                // 🌟 點擊邏輯 (僅限本人)
+                btn.onclick = () => {
+                    if(!myName) return alert("⚠️ 請先在上方「您的姓名」選擇自己，才能畫休喔！");
+                    if(emp.name !== myName) return; // 點別人的格子無效
+                    if(isLocked) return alert("🔒 本週排班已於上週五封盤，無法再修改畫休。\n若有突發狀況請直接聯絡店長！");
+
+                    // 如果店長已經排班(或指休)，不可再畫休
+                    if(rec.shift && rec.shift !== '') return alert("⚠️ 店長已經排定此日班別，無法更改畫休。");
+
+                    toggleRequestOff(day, rec.requestOff);
+                };
+
+                td.appendChild(btn); tr.appendChild(td); 
+            }); 
+            tbody.appendChild(tr); 
+        }); 
+    }
+
+    async function toggleRequestOff(day, currentState) {
+        let store = document.getElementById('storeSelector').value;
+        let weekStr = document.getElementById('weekSelector').value;
+        let myName = document.getElementById('myEmpName').value;
+        let isNowOff = !currentState;
+
+        let msg = isNowOff ? `確定要申請 ${day} 排休嗎？` : `確定要取消 ${day} 的排休申請嗎？`;
+        if(!confirm(msg)) return;
+
+        document.getElementById('loadingOverlay').style.display = 'flex';
+
+        // 1. 更新本地資料
+        let recIdx = appData.records.findIndex(r => r.name === myName && r.day === day && r.week === weekStr);
+        if(recIdx !== -1) {
+            appData.records[recIdx].requestOff = isNowOff;
+        } else {
+            appData.records.push({ week: weekStr, day: day, name: myName, shift: '', location: '本店', note: '', requestOff: isNowOff });
+        }
+
+        // 2. 寫入歷史 Log
+        let now = new Date();
+        let timeStr = `${now.getMonth()+1}/${now.getDate()} ${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`;
+        let actionStr = isNowOff ? `提出申請` : `取消了申請`;
+        let logMsg = `[${timeStr}] ${myName} 對 ${day} ${actionStr}`;
+
+        // 3. 上傳雲端 (利用 arrayUnion 安全寫入陣列)
+        try {
+            await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).set({ 
+                records: appData.records,
+                logs: firebase.firestore.FieldValue.arrayUnion(logMsg)
+            }, {merge: true});
+            renderTable();
+        } catch(e) {
+            alert("寫入失敗：" + e.message);
+        }
+        document.getElementById('loadingOverlay').style.display = 'none';
+    }
+  </script>
+</body>
+</html>
