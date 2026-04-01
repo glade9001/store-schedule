@@ -77,11 +77,14 @@
     .footer-copyright { text-align: center; margin-top: 20px; font-size: 13px; color: #aaa; font-weight: bold; letter-spacing: 1px; }
     .ot-text { color: #d93025; font-weight: bold; }
     .warn-tag { display: inline-block; background: #fce8e6; color: #d93025; font-weight: bold; font-size: 11px; padding: 2px 4px; border-radius: 4px; margin-top: 3px; border: 1px solid #d93025; }
+    
+    /* 🌟 新增的衝突警報 CSS */
     .req-tag { display: inline-block; background: #e8f0fe; color: #1a73e8; font-weight: bold; font-size: 11px; padding: 2px 4px; border-radius: 4px; margin-top: 3px; border: 1px solid #1a73e8; }
+    .conflict-alert { border: 2px solid #d93025 !important; background-color: #fce8e6 !important; animation: blink-border 1.5s infinite; }
+    @keyframes blink-border { 0% { border-color: #d93025; } 50% { border-color: #ff9800; } 100% { border-color: #d93025; } }
 
     .unfilled-shift { background-color: #ffe0b2 !important; border: 2px dashed #f57c00 !important; color: #e65100 !important; }
     .pending-badge { display: block; background: #fef08a; border: 2px solid #fbc02d; color: #d84315; font-size: 12px; font-weight: bold; border-radius: 6px; padding: 6px; margin-top: 6px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.2); animation: pulse 1.5s infinite; line-height: 1.3; }
-    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
   </style>
 </head>
 <body>
@@ -131,6 +134,11 @@
   <div id="shiftModal" class="modal">
     <div class="modal-content">
       <h3 id="modalTitle">設定班別</h3>
+      
+      <div id="modalConflictWarning" style="display:none; background:#fce8e6; border:2px solid #d93025; color:#d93025; padding:10px; border-radius:6px; font-weight:bold; font-size:14px; margin-bottom:15px; text-align:center;">
+          ⚠️ 該員工已提出排休，但您已預排班別。<br>請決定是否保留班別並清除畫休，或改為排休。
+      </div>
+
       <div id="quickShiftButtons" class="quick-grid"></div>
       
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
@@ -211,6 +219,7 @@
     let currentWeekDates = [], virtualRowNames = [], localActiveEmps = [], localDeletedNames = [];
     let undoStack = []; 
     let currentCell = null, autoSaveTimer = null;
+    let isPaintMode = false; // 🌟 補上這一行，修正點擊報錯的問題
     const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
 
     function getNextWeekString() {
@@ -263,10 +272,7 @@
             (appConfig.stores || []).forEach(s => sel.innerHTML += `<option value="${s}">${s}</option>`);
             sel.value = localStorage.getItem('lastStore') || appConfig.stores[0] || "";
             fetchAllStoreData();
-        } catch (e) { 
-            alert("連線失敗：" + e.message); 
-            hideLoading();
-        }
+        } catch (e) { alert("連線失敗：" + e.message); hideLoading(); }
     };
 
     function triggerAutoSave() {
@@ -304,7 +310,6 @@
         syncUIToMemory(); renderTable(); triggerAutoSave(); 
     }
 
-    // 🌟 原生 Canvas 產圖 (乾淨過濾版)
     function exportNativeImage() {
         syncUIToMemory();
         showLoading("📸 正在啟動高解析度原生繪圖引擎...");
@@ -466,7 +471,6 @@
         triggerAutoSave();
     }
 
-    // 🌟 一次抓取所有門市資料 (修復：抓取整月資料以計算月工時)
     async function fetchAllStoreData() {
         let store = document.getElementById('storeSelector').value;
         let weekStr = document.getElementById('weekSelector').value;
@@ -492,7 +496,6 @@
                             appData.allStoresRecords.push({ ...r, _store: s, week: docSnap.id });
                         });
                     }
-                    // 抓取本週的畫休紀錄
                     if (s === store && docSnap.id === weekStr && docSnap.data().logs) {
                         appData.currentWeekLogs = docSnap.data().logs;
                     }
@@ -675,7 +678,10 @@
         let hVal = parseFloat(h) || 0;
         let shiftHtml = s || '+'; 
         
-        btn.classList.remove('unfilled-shift', 'zhi-xiu', 'pai-xiu', 'shift-night', 'shift-morning');
+        btn.classList.remove('unfilled-shift', 'zhi-xiu', 'pai-xiu', 'shift-night', 'shift-morning', 'conflict-alert');
+
+        // 🌟 判斷畫休衝突 (有排班 且 同時被畫休)
+        let hasConflict = (s && s !== '排休' && s !== '指休' && requestOff);
 
         if (isVirtual && !supportEmp && s && s !== '排休' && s !== '指休') {
             btn.classList.add('unfilled-shift');
@@ -703,8 +709,11 @@
         if (l && l !== '本店' && !isVirtual) txt += `<br><small style="color:#d93025; font-weight:800;">📍${l}</small>`; 
         if (n) txt += `<br><small style="color:#1a73e8;">${n}</small>`; 
         
-        // 🌟 顯示員工畫休標籤
-        if (requestOff) {
+        // 🌟 顯示畫休標籤或衝突警告
+        if (hasConflict) {
+            btn.classList.add('conflict-alert');
+            txt += `<br><span style="background:#d93025;color:white;padding:2px;border-radius:3px;font-size:11px;">⚠️ 畫休衝突</span>`;
+        } else if (requestOff) {
             txt += `<br><span class="req-tag">🙋‍♀️ 想排休</span>`;
         }
         
@@ -789,12 +798,16 @@
                 document.getElementById('modalSupportEmp').value = btn.dataset.support || '';
                 document.getElementById('modalApprovalStatus').value = btn.dataset.approval || 'pending';
                 document.getElementById('modalReqClearWrapper').style.display = 'none';
+                document.getElementById('modalConflictWarning').style.display = 'none';
                 toggleApprovalStatusVis();
             } else {
                 document.getElementById('modalLocGroup').style.display = 'block';
                 document.getElementById('modalSupportGroup').style.display = 'none';
                 
-                // 若有畫休標籤，顯示清除選項
+                // 🌟 顯示衝突警告
+                let hasConflict = (btn.dataset.shift && btn.dataset.shift !== '排休' && btn.dataset.shift !== '指休' && btn.dataset.reqoff === 'true');
+                document.getElementById('modalConflictWarning').style.display = hasConflict ? 'block' : 'none';
+
                 let clearWrapper = document.getElementById('modalReqClearWrapper');
                 let clearCheckbox = document.getElementById('modalClearReq');
                 if(btn.dataset.reqoff === 'true') {
@@ -831,7 +844,7 @@
             currentCell.dataset.approval = document.getElementById('modalApprovalStatus').value;
         } else {
             currentCell.dataset.loc = document.getElementById('modalLocation').value; 
-            // 檢查是否要清除畫休標籤
+            // 清除畫休標籤
             if(document.getElementById('modalReqClearWrapper').style.display !== 'none' && document.getElementById('modalClearReq').checked) {
                 currentCell.dataset.reqoff = 'false';
             }
@@ -892,14 +905,12 @@
         }
     }
 
-    // 🌟 畫休紀錄功能
     function openLogModal() {
         let contentDiv = document.getElementById('logContent');
         contentDiv.innerHTML = '';
         if(!appData.currentWeekLogs || appData.currentWeekLogs.length === 0) {
             contentDiv.innerHTML = '<div style="text-align:center; padding:20px; color:#777;">本週目前沒有任何畫休異動紀錄喔！</div>';
         } else {
-            // 反轉陣列讓最新紀錄排在最上面
             let sortedLogs = [...appData.currentWeekLogs].reverse();
             sortedLogs.forEach(log => {
                 contentDiv.innerHTML += `<div style="padding:8px 0; border-bottom:1px dashed #ddd;">${log}</div>`;
