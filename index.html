@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>📅門市排班神器🚀</title>
+  <title>📅 門市排班神器 🚀</title>
   
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
@@ -57,8 +57,6 @@
     .cell-btn { width: 100%; height: 100%; min-height: 55px; border: 1px solid #f1f3f4; background: #fff; cursor: pointer; border-radius: 4px; font-size: 15px; font-weight: 700; color: #3c4043; position: relative; }
     .zhi-xiu { color: #d93025 !important; border: 2px solid #d93025 !important; background: #fce8e6 !important; }
     .pai-xiu { color: #70757a !important; background: #f1f3f4 !important; border: 1px solid #dadce0 !important; }
-    .shift-morning { color: #1a73e8 !important; border-left: 5px solid #1a73e8 !important; }
-    .shift-night { color: #e67e22 !important; border-left: 5px solid #e67e22 !important; }
 
     .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(32,33,36,0.85); z-index: 9999; justify-content: center; align-items: center; }
     .modal-content { background: white; width: 90%; max-width: 500px; padding: 25px; border-radius: 15px; box-shadow: 0 15px 40px rgba(0,0,0,0.4); max-height: 90vh; overflow-y: auto;}
@@ -360,8 +358,6 @@
 
                     for(let i = 0; i < 7; i++) {
                         let cx = startX + (i + 1) * colW + colW / 2;
-                        
-                        // 🌟 跨店投影邏輯
                         let rec = appData.records.find(r => r.name === emp.name && r.day === dayNames[i] && r.week === weekStr);
                         let supportOutRec = null;
 
@@ -392,6 +388,11 @@
                         if (emp.name.includes('待補') && !rec.supportEmp && rec.shift && rec.shift !== '排休' && rec.shift !== '指休') {
                             ctx.fillStyle = "#000000"; ctx.font = "900 30px 'Arial', 'Microsoft JhengHei', sans-serif"; 
                             ctx.fillText(rec.shift.replace('-', ' / '), cx, cy);
+                            // 🌟 讓待補的備註也印出來
+                            if (rec.note) {
+                                ctx.fillStyle = "#0088aa"; ctx.font = "bold 18px 'Microsoft JhengHei', sans-serif"; 
+                                ctx.fillText(rec.note, cx, cy + 22);
+                            }
                             continue;
                         }
 
@@ -421,15 +422,17 @@
                             if (emp.name.includes('待補') && rec.supportEmp && rec.approvalStatus === 'approved') {
                                 ctx.fillStyle = "#1a73e8"; ctx.font = "900 18px 'Microsoft JhengHei', sans-serif"; 
                                 ctx.fillText(rec.supportEmp.split('-')[1] || rec.supportEmp, cx, subtextY);
+                                subtextY += 22;
                             } else {
                                 if (rec.location && rec.location !== '本店') {
                                     ctx.fillStyle = "#e67e22"; ctx.font = "bold 18px 'Microsoft JhengHei', sans-serif"; 
                                     ctx.fillText(rec.location, cx, subtextY); subtextY += 22; 
                                 }
-                                if (rec.note) {
-                                    ctx.fillStyle = "#0088aa"; ctx.font = "bold 18px 'Microsoft JhengHei', sans-serif"; 
-                                    ctx.fillText(rec.note, cx, subtextY);
-                                }
+                            }
+                            // 🌟 確保所有備註都會印出
+                            if (rec.note) {
+                                ctx.fillStyle = "#0088aa"; ctx.font = "bold 18px 'Microsoft JhengHei', sans-serif"; 
+                                ctx.fillText(rec.note, cx, subtextY);
                             }
                         }
                     }
@@ -581,7 +584,6 @@
                 let supportOutRec = null;
                 let isSupportOut = false;
 
-                // 🌟 跨店投影邏輯
                 if (!isVirtual && emp.role !== '店長') {
                     supportOutRec = appData.allStoresRecords.find(r =>
                         r.supportEmp === `${myStore}-${emp.name}` &&
@@ -646,7 +648,6 @@
                 btn.dataset.support = rec.supportEmp || ''; btn.dataset.approval = rec.approvalStatus || '';
                 updateCellUI(btn, pendingBadges); 
                 
-                // 🌟 防呆：原店禁止修改跨店支援班別
                 if (isSupportOut) {
                     btn.onclick = () => alert(`此班別為跨店支援 (前往 ${supportOutRec._store})。\n請由需求門市進行修改或取消！`);
                 } else {
@@ -702,7 +703,8 @@
 
         if (w) { let wArr = w.split('|'); wArr.forEach(warn => { if(warn) txt += `<br><span class="warn-tag">⚠️ ${warn}</span>`; }); }
         if (l && l !== '本店' && !isVirtual) txt += `<br><small style="color:#d93025; font-weight:800;">📍${l}</small>`; 
-        if (n && !isVirtual) txt += `<br><small style="color:#1a73e8;">${n}</small>`; 
+        // 🌟 確保備註在網頁上也會顯示（不管是正常員工還是待補）
+        if (n) txt += `<br><small style="color:#1a73e8;">${n}</small>`; 
         
         b.innerHTML = txt + extraHtml; 
     }
@@ -812,13 +814,15 @@
         currentCell.dataset.shift = document.getElementById('modalShift').value; 
         currentCell.dataset.hours = document.getElementById('modalHours').value; 
         currentCell.dataset.ot = document.getElementById('modalOvertime').checked;
+        // 🌟 修復：確保不管是不是待補，都會存入備註
+        currentCell.dataset.note = document.getElementById('modalNote').value; 
+        
         if (isVirtual) {
             currentCell.dataset.loc = '本店';
             currentCell.dataset.support = document.getElementById('modalSupportEmp').value;
             currentCell.dataset.approval = document.getElementById('modalApprovalStatus').value;
         } else {
             currentCell.dataset.loc = document.getElementById('modalLocation').value; 
-            currentCell.dataset.note = document.getElementById('modalNote').value; 
         }
         syncUIToMemory(); renderTable(); closeModal('shiftModal'); triggerAutoSave(); 
     }
@@ -839,7 +843,6 @@
                 let isNative = (r._store === myStore && r.name === emp.name);
                 let isSupport = (r.supportEmp === `${myStore}-${emp.name}` && r.approvalStatus === 'approved');
 
-                // 🌟 防雙重計算：如果同一天有本店排班，也有去別店支援的排班，以外店支援為主
                 if (isNative) {
                     let hasSupportThatDay = appData.allStoresRecords.some(sr => sr.supportEmp === `${myStore}-${emp.name}` && sr.approvalStatus === 'approved' && sr.day === r.day && sr.week === r.week);
                     if (hasSupportThatDay) return; 
