@@ -189,7 +189,7 @@
   </div>
   
   <div id="imagePreviewModal" class="modal"><div class="modal-content" style="max-width:800px;"><img id="previewImg" style="width:100%; border-radius:8px; border:1px solid #ddd;"><button id="downloadImgBtn" style="width:100%; padding:15px; background:#1a73e8; color:white; margin-top:15px; border-radius:10px; border:none; font-size:16px; cursor:pointer;">⬇️ 下載班表圖片</button><button onclick="closeModal('imagePreviewModal')" style="width:100%; border:none; background:none; margin-top:10px; color:#666; cursor:pointer;">關閉預覽</button></div></div>
-  <div id="empModal" class="modal"><div class="modal-content" style="max-width:650px;"><h3>👥 人員與調店管理系統</h3><div style="background:#e8f5e9; padding:15px; border-radius:10px; display:flex; gap:10px; margin-bottom:15px;"><input type="text" id="newEmpName" placeholder="員工姓名" style="width:35%; padding:10px; box-sizing:border-box;"><select id="newEmpRole" style="width:25%; padding:10px; box-sizing:border-box;"><option value="工讀">工讀</option><option value="正職">正職</option><option value="店長">店長</option></select><input type="number" id="newEmpWage" placeholder="薪資" style="width:30%; padding:10px; box-sizing:border-box;"><button onclick="localAddEmp()" style="background:#34a853; color:white; padding:10px 15px; border-radius:8px;">加入</button></div><div id="localEmpList" style="max-height:350px; overflow-y:auto; border:1px solid #eee; border-radius:8px;"></div><button onclick="batchSaveEmps()" style="width:100%; padding:18px; background:#9334e6; color:white; margin-top:20px; border-radius:10px; border:none; font-size:16px; cursor:pointer;">💾 儲存薪資與異動</button><button onclick="closeModal('empModal')" style="width:100%; border:none; background:none; margin-top:10px; color:#666; cursor:pointer;">取消</button></div></div>
+  <div id="empModal" class="modal"><div class="modal-content" style="max-width:650px;"><h3>👥 人員與調店管理系統</h3><div style="background:#e8f5e9; padding:15px; border-radius:10px; display:flex; gap:10px; margin-bottom:15px;"><input type="text" id="newEmpName" placeholder="員工姓名" style="width:35%; padding:10px; box-sizing:border-box;"><select id="newEmpRole" style="width:25%; padding:10px; box-sizing:border-box;"><option value="工讀">工讀</option><option value="正職">正職</option><option value="副店長">副店長</option><option value="店長">店長</option></select><input type="number" id="newEmpWage" placeholder="薪資" style="width:30%; padding:10px; box-sizing:border-box;"><button onclick="localAddEmp()" style="background:#34a853; color:white; padding:10px 15px; border-radius:8px;">加入</button></div><div id="localEmpList" style="max-height:350px; overflow-y:auto; border:1px solid #eee; border-radius:8px;"></div><button onclick="batchSaveEmps()" style="width:100%; padding:18px; background:#9334e6; color:white; margin-top:20px; border-radius:10px; border:none; font-size:16px; cursor:pointer;">💾 儲存薪資與異動</button><button onclick="closeModal('empModal')" style="width:100%; border:none; background:none; margin-top:10px; color:#666; cursor:pointer;">取消</button></div></div>
   <div id="transferModal" class="modal"><div class="modal-content" style="max-width:300px;"><h3>🏪 選擇調往門市</h3><input type="hidden" id="transferEmpIdx"><select id="transferStoreSelect" style="width:100%; padding:12px; margin-bottom:15px; border-radius:6px;"></select><button onclick="confirmTransfer()" style="width:100%; padding:15px; background:#e67e22; color:white; border-radius:8px; font-weight:bold; cursor:pointer;">確認調店</button><button onclick="closeModal('transferModal')" style="width:100%; background:none; border:none; color:#666; margin-top:10px; cursor:pointer;">取消</button></div></div>
   <div id="sysModal" class="modal"><div class="modal-content"><h3>🛠️ 系統基礎設定</h3><div id="sysStoreList"></div><div style="display:flex; gap:5px; margin-top:10px;"><input type="text" id="newStoreInput" placeholder="門市名稱" style="padding:10px; width:100%; box-sizing:border-box;"><button onclick="addSysStore()" style="background:#1a73e8; color:white;">新增門市</button></div><div id="sysShiftList" style="margin-top:20px; border-top:1px solid #eee; padding-top:15px;"></div><div style="display:flex; gap:5px; margin-top:10px;"><input type="text" id="newShiftName" placeholder="班別" style="flex:2; padding:10px; box-sizing:border-box;"><input type="number" id="newShiftHours" placeholder="時數" style="flex:1; padding:10px; box-sizing:border-box;"><button onclick="addSysShift()" style="background:#34a853; color:white;">新增</button></div><button onclick="saveSysConfig()" style="width:100%; padding:18px; background:#3c4043; color:white; margin-top:30px; border-radius:10px; border:none; font-size:16px; cursor:pointer;">💾 儲存並套用</button><button onclick="closeModal('sysModal')" style="width:100%; border:none; background:none; margin-top:10px; color:#666; cursor:pointer;">取消</button></div></div>
 
@@ -300,7 +300,6 @@
         syncUIToMemory(); renderTable(); triggerAutoSave(); 
     }
 
-    // 🌟 原生 Canvas 產圖
     function exportNativeImage() {
         syncUIToMemory();
         showLoading("📸 正在啟動高解析度原生繪圖引擎...");
@@ -470,7 +469,6 @@
         triggerAutoSave();
     }
 
-    // 🌟 一次抓取所有門市資料 (修復：抓取整月/所有週次以正確計算月工時)
     async function fetchAllStoreData() {
         let store = document.getElementById('storeSelector').value;
         let weekStr = document.getElementById('weekSelector').value;
@@ -488,7 +486,6 @@
                 empSnap.forEach(d => { if(d.data().status !== '離職') emps.push(d.id); });
                 appData.allStoresEmployees[s] = emps;
 
-                // 🔴 抓取該門市「所有週次」的紀錄
                 let weekSnap = await window.db.collection('stores').doc(s).collection('weeks').get();
                 weekSnap.forEach(docSnap => {
                     if(docSnap.exists && docSnap.data().records) {
@@ -503,7 +500,7 @@
 
             const empSnap = await window.db.collection('stores').doc(store).collection('employees').get();
             appData.employees = [];
-            // 🔴 離職人員過濾：只看「本週」有排班的
+            
             let currentWeekRecords = appData.records.filter(r => r.week === weekStr);
             let scheduledNames = currentWeekRecords.filter(r => (r.shift && r.shift.trim() !== '') || (r.note && r.note.trim() !== '')).map(r => r.name);
 
@@ -515,7 +512,6 @@
             });
             appData.employees.sort((a,b) => (a.sortKey||0) - (b.sortKey||0));
 
-            // 🔴 待補過濾：只看「本週」的待補列
             virtualRowNames = currentWeekRecords.map(r => r.name).filter(n => n && n.startsWith('🆘')).filter((v,i,a) => a.indexOf(v)===i);
 
             renderSupportDropdown();
@@ -877,7 +873,7 @@
         
         if(info.role === '店長') {
             t.innerHTML = `<span style="color:#1a73e8;font-weight:bold; font-size:15px;">店長</span><br><span style="color:#999">-</span>`; 
-        } else if(info.role === '正職') {
+        } else if(info.role === '正職' || info.role === '副店長') {
             let warn = weekOffD < 2 ? `<span style="color:#d93025;font-weight:bold;">(未達2天)</span>` : `<span style="color:#34a853;">(達標)</span>`;
             t.innerHTML = `週休:${Math.round(weekOffD)}天 ${warn}<br>月加班:${Math.round(monthOT)}h`; 
         } else {
@@ -903,8 +899,15 @@
             let r=document.createElement('div'); r.className='emp-row'; 
             r.innerHTML=`<div style="display:flex; flex-direction:column;"><button style="border:none; cursor:pointer;" onclick="localSwapEmp(${i},-1)" ${i===0?'disabled':''}>▲</button><button style="border:none; cursor:pointer;" onclick="localSwapEmp(${i},1)" ${i===localActiveEmps.length-1?'disabled':''}>▼</button></div>
             <div style="width:75px; margin-left:10px;"><strong>${e.name}</strong></div>
-            <div style="font-size:12px; width:40px;">${e.role}</div>
-            <input type="number" id="edit-wage-${i}" value="${e.wage}" style="width:60px; padding:6px; font-size:13px; border:1px solid #ccc; border-radius:4px;">
+            
+            <select id="edit-role-${i}" style="width:75px; padding:6px; font-size:12px; border:1px solid #ccc; border-radius:4px;">
+                <option value="工讀" ${e.role==='工讀'?'selected':''}>工讀</option>
+                <option value="正職" ${e.role==='正職'?'selected':''}>正職</option>
+                <option value="副店長" ${e.role==='副店長'?'selected':''}>副店長</option>
+                <option value="店長" ${e.role==='店長'?'selected':''}>店長</option>
+            </select>
+            <input type="number" id="edit-wage-${i}" value="${e.wage}" style="width:60px; padding:6px; font-size:13px; border:1px solid #ccc; border-radius:4px; margin-left:5px;">
+            
             <div style="margin-left:auto;">
                 <button onclick="openTransferModal(${i})" style="background:orange; color:white; border:none; border-radius:4px; padding:6px 10px; cursor:pointer;">調店</button>
                 <button onclick="localDelEmp(${i},'${e.name}')" style="background:red; color:white; border:none; border-radius:4px; padding:6px 10px; cursor:pointer;">刪除</button>
@@ -939,8 +942,10 @@
     async function batchSaveEmps(){ 
         let s=document.getElementById('storeSelector').value; showLoading("更新薪資與人事..."); 
         for(let i=0;i<localActiveEmps.length;i++){ 
-            let e=localActiveEmps[i]; let newWage = document.getElementById(`edit-wage-${i}`).value;
-            await window.db.collection('stores').doc(s).collection('employees').doc(e.name).set({role:e.role,wage:newWage,status:'在職',sortKey:i}, {merge:true}); 
+            let e=localActiveEmps[i]; 
+            let newWage = document.getElementById(`edit-wage-${i}`).value;
+            let newRole = document.getElementById(`edit-role-${i}`).value;
+            await window.db.collection('stores').doc(s).collection('employees').doc(e.name).set({role:newRole,wage:newWage,status:'在職',sortKey:i}, {merge:true}); 
         } 
         for(let n of localDeletedNames) await window.db.collection('stores').doc(s).collection('employees').doc(n).set({status:'離職'}, {merge:true}); 
         closeModal('empModal'); fetchAllStoreData(); 
