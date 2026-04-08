@@ -43,16 +43,21 @@
     .btn-manage { background: #9334e6; color: white; }
     .btn-virtual { background: #ff9800; color: white; }
     .btn-log { background: #00897b; color: white; }
+    
+    /* 🌟 新增：畫筆按鈕樣式 */
+    .btn-paint { background: #e91e63; color: white; }
+    .btn-paint.active { background: #c2185b; box-shadow: inset 0 3px 5px rgba(0,0,0,0.3); }
+    .paint-active-btn { background: #ffeb3b !important; border: 2px solid #000 !important; color: #000 !important; transform: scale(1.05); }
 
     .table-responsive { width: 100%; height: 65vh; overflow: auto; background: white; border-radius: 8px; border: 1px solid #dadce0; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
-    table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 1000px; }
+    table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 1000px; user-select: none; /* 防止拖曳時反白 */ }
     th, td { border-right: 1px solid #e8eaed; border-bottom: 1px solid #e8eaed; padding: 8px; text-align: center; vertical-align: middle; }
     th { position: sticky; top: 0; z-index: 10; background-color: #1a73e8; color: white; font-size: 14px; }
     .date-text { display: block; font-size: 10px; font-weight: normal; margin-bottom: 2px; color: #e8f0fe; }
     td:first-child, th:first-child { position: sticky; left: 0; z-index: 11; background-color: #f8f9fa; border-right: 2px solid #dadce0; width: 90px; }
     th:first-child { background-color: #185abc; z-index: 12; }
 
-    .cell-btn { width: 100%; height: 100%; min-height: 55px; border: 1px solid #f1f3f4; background: #fff; cursor: pointer; border-radius: 4px; font-size: 15px; font-weight: 700; color: #3c4043; position: relative; }
+    .cell-btn { width: 100%; height: 100%; min-height: 55px; border: 1px solid #f1f3f4; background: #fff; cursor: pointer; border-radius: 4px; font-size: 15px; font-weight: 700; color: #3c4043; position: relative; transition: 0.1s; }
     .zhi-xiu { color: #d93025 !important; border: 2px solid #d93025 !important; background: #fce8e6 !important; }
     .pai-xiu { color: #70757a !important; background: #f1f3f4 !important; border: 1px solid #dadce0 !important; }
     .shift-morning { color: #1a73e8 !important; border-left: 5px solid #1a73e8 !important; }
@@ -78,7 +83,6 @@
     .ot-text { color: #d93025; font-weight: bold; }
     .warn-tag { display: inline-block; background: #fce8e6; color: #d93025; font-weight: bold; font-size: 11px; padding: 2px 4px; border-radius: 4px; margin-top: 3px; border: 1px solid #d93025; }
     
-    /* 🌟 新增的衝突警報 CSS */
     .req-tag { display: inline-block; background: #e8f0fe; color: #1a73e8; font-weight: bold; font-size: 11px; padding: 2px 4px; border-radius: 4px; margin-top: 3px; border: 1px solid #1a73e8; }
     .conflict-alert { border: 2px solid #d93025 !important; background-color: #fce8e6 !important; animation: blink-border 1.5s infinite; }
     @keyframes blink-border { 0% { border-color: #d93025; } 50% { border-color: #ff9800; } 100% { border-color: #d93025; } }
@@ -100,12 +104,19 @@
     <input type="week" id="weekSelector" onchange="fetchAllStoreData()">
     <button class="btn-nav" onclick="changeWeek(1)">下週 ▶</button>
     
+    <button class="btn-paint" onclick="togglePaintMode()">🖌️ 畫筆模式</button>
+    
     <button class="btn-undo" onclick="undoLastAction()">↩️ 上一步</button>
     <button class="btn-save" onclick="saveScheduleData(true)">💾 強制儲存</button>
     <button class="btn-print" onclick="exportNativeImage()">📱 產圖 (A4)</button>
     <button class="btn-virtual" onclick="addVirtualRow()">➕ 待補</button>
     <button class="btn-manage" onclick="openEmpModal()">👥 人員管理</button>
     <button class="btn-log" onclick="openLogModal()">📜 畫休紀錄</button>
+  </div>
+
+  <div id="paintToolbar" style="display:none; background:#e8f0fe; border:2px solid #1a73e8; border-radius:8px; padding:10px; margin-bottom:15px; text-align:center;">
+       <span style="font-weight:bold; color:#1a73e8; margin-right:10px;">🖌️ 請選擇畫筆 (可點擊或拖曳連刷)：</span>
+       <span id="paintButtons"></span>
   </div>
 
   <div class="table-responsive">
@@ -219,7 +230,12 @@
     let currentWeekDates = [], virtualRowNames = [], localActiveEmps = [], localDeletedNames = [];
     let undoStack = []; 
     let currentCell = null, autoSaveTimer = null;
-    let isPaintMode = false; // 🌟 確保被宣告，修正點擊報錯的問題
+    
+    // 🌟 新增：畫筆模式的全域變數
+    let isPaintMode = false; 
+    let paintShift = ''; 
+    let isDragging = false;
+    
     const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
 
     function getNextWeekString() {
@@ -554,6 +570,26 @@
         if(el) el.style.display = val ? 'block' : 'none';
     }
 
+    // 🌟 畫筆模式與拖曳核心事件 🌟
+    document.addEventListener('mouseup', () => { isDragging = false; });
+    document.addEventListener('touchend', () => { isDragging = false; });
+    
+    // 手機版觸控滑動連刷
+    document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('scheduleTable').addEventListener('touchmove', (e) => {
+            if(isPaintMode && isDragging) {
+                e.preventDefault();
+                let touch = e.touches[0];
+                let el = document.elementFromPoint(touch.clientX, touch.clientY);
+                let btn = el ? el.closest('.cell-btn') : null;
+                if(btn) {
+                    let idx = parseInt(btn.dataset.eidx);
+                    applyPaintToCell(btn, idx);
+                }
+            }
+        }, {passive: false});
+    });
+
     function renderTable() { 
         let tbody = document.getElementById('tableBody'); tbody.innerHTML = ''; 
         let weekStr = document.getElementById('weekSelector').value; currentWeekDates = getWeekDates(weekStr); 
@@ -646,12 +682,20 @@
                 let td = document.createElement('td'); let btn = document.createElement('button'); btn.className = 'cell-btn'; 
                 btn.dataset.emp = emp.name; btn.dataset.day = day; btn.dataset.shift = rec.shift; btn.dataset.hours = rec.actualHours; btn.dataset.loc = rec.location; btn.dataset.note = rec.note; btn.dataset.ot = rec.isOT; btn.dataset.warn = warnings.join('|');
                 btn.dataset.support = rec.supportEmp || ''; btn.dataset.approval = rec.approvalStatus || ''; btn.dataset.reqoff = rec.requestOff || 'false';
+                btn.dataset.eidx = eIdx; // 供畫筆更新統計使用
+                btn.dataset.badges = pendingBadges; // 供畫筆更新介面使用
+                
                 updateCellUI(btn, pendingBadges); 
                 
                 if (isSupportOut) {
                     btn.onclick = () => alert(`此班別為跨店支援 (前往 ${supportOutRec._store})。\n請由需求門市進行修改或取消！`);
                 } else {
-                    btn.onclick = () => handleCellClick(btn, eIdx); 
+                    // 🌟 畫筆模式的點擊與拖曳綁定
+                    btn.onmousedown = (e) => { if(isPaintMode) { e.preventDefault(); isDragging = true; applyPaintToCell(btn, eIdx); } };
+                    btn.onmouseenter = () => { if(isPaintMode && isDragging) applyPaintToCell(btn, eIdx); };
+                    btn.ontouchstart = () => { if(isPaintMode) { isDragging = true; applyPaintToCell(btn, eIdx); } };
+                    
+                    btn.onclick = () => { if(!isPaintMode) handleCellClick(btn, eIdx); };
                 }
                 
                 td.appendChild(btn); tr.appendChild(td); 
@@ -680,7 +724,6 @@
         
         btn.classList.remove('unfilled-shift', 'zhi-xiu', 'pai-xiu', 'shift-night', 'shift-morning', 'conflict-alert');
 
-        // 🌟 判斷畫休衝突 (有排班 且 同時被畫休)
         let hasConflict = (s && s !== '排休' && s !== '指休' && requestOff);
 
         if (isVirtual && !supportEmp && s && s !== '排休' && s !== '指休') {
@@ -709,7 +752,6 @@
         if (l && l !== '本店' && !isVirtual) txt += `<br><small style="color:#d93025; font-weight:800;">📍${l}</small>`; 
         if (n) txt += `<br><small style="color:#1a73e8;">${n}</small>`; 
         
-        // 🌟 顯示畫休標籤或衝突警告
         if (hasConflict) {
             btn.classList.add('conflict-alert');
             txt += `<br><span style="background:#d93025;color:white;padding:2px;border-radius:3px;font-size:11px;">⚠️ 畫休衝突</span>`;
@@ -781,6 +823,88 @@
         });
     }
     
+    // 🌟 新增：畫筆模式功能函式 🌟
+    function togglePaintMode() {
+        isPaintMode = !isPaintMode;
+        let tb = document.getElementById('paintToolbar');
+        let btn = document.querySelector('.btn-paint');
+        if(isPaintMode) {
+            tb.style.display = 'block';
+            btn.classList.add('active');
+            btn.innerText = '🛑 關閉畫筆';
+            renderPaintButtons();
+        } else {
+            tb.style.display = 'none';
+            btn.classList.remove('active');
+            btn.innerText = '🖌️ 畫筆模式';
+            paintShift = '';
+        }
+    }
+
+    function renderPaintButtons() {
+        let h = `<button class="cell-btn ${paintShift==='清空'?'paint-active-btn':''}" style="width:auto; padding:8px 15px; min-height:35px; margin-right:8px; background:#f1f3f4;" onclick="setPaintShift('清空')">🗑️ 清空</button>`;
+        (appConfig.shifts || []).forEach(s => {
+            let isActive = (paintShift === s);
+            let isOff = (s==='排休'||s==='指休');
+            h += `<button class="cell-btn ${isOff?'zhi-xiu':''} ${isActive?'paint-active-btn':''}" style="width:auto; padding:8px 15px; min-height:35px; margin-right:8px;" onclick="setPaintShift('${s}')">${s}</button>`;
+        });
+        document.getElementById('paintButtons').innerHTML = h;
+    }
+
+    function setPaintShift(s) {
+        paintShift = s;
+        renderPaintButtons();
+    }
+
+    function applyPaintToCell(btn, eIdx) {
+        if(!paintShift) { if(!isDragging) alert('請先在上方選擇畫筆班別！'); return; }
+        if(btn.dataset.shift === (paintShift === '清空' ? '' : paintShift)) return; 
+
+        pushToUndo(btn);
+        let isVirtual = btn.dataset.emp.includes('待補');
+
+        if (paintShift === '清空') {
+            btn.dataset.shift = '';
+            btn.dataset.hours = 0;
+            btn.dataset.ot = 'false';
+            btn.dataset.note = '';
+            if(isVirtual) { btn.dataset.support=''; btn.dataset.approval=''; }
+            else { btn.dataset.reqoff='false'; }
+        } else {
+            btn.dataset.shift = paintShift;
+            let h = appConfig.shiftHours[paintShift] || 0;
+            if(!h && paintShift !== '排休' && paintShift !== '指休') {
+                let m = paintShift.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)/);
+                if(m) { let sT = parseFloat(m[1]), eT = parseFloat(m[2]); if(eT <= sT) eT += 24; h = eT - sT; }
+            }
+            btn.dataset.hours = h;
+            btn.dataset.ot = 'false';
+            if(!isVirtual) { btn.dataset.loc = '本店'; btn.dataset.reqoff = 'false'; } // 畫筆塗過自動清除畫休標籤
+        }
+
+        // 局部更新記憶體
+        let week = document.getElementById('weekSelector').value;
+        let idx = appData.records.findIndex(r => r.name===btn.dataset.emp && r.day===btn.dataset.day && r.week===week);
+        let data = {
+            week: week, day: btn.dataset.day, name: btn.dataset.emp, shift: btn.dataset.shift || '',
+            location: btn.dataset.loc || '本店', note: btn.dataset.note || '', actualHours: parseFloat(btn.dataset.hours || 0), isOT: btn.dataset.ot === 'true',
+            supportEmp: btn.dataset.support || '', approvalStatus: btn.dataset.approval || '', requestOff: btn.dataset.reqoff === 'true'
+        };
+        
+        let hasData = btn.dataset.shift || btn.dataset.note || btn.dataset.ot === 'true' || btn.dataset.support || btn.dataset.reqoff === 'true';
+        if (hasData) { if (idx !== -1) appData.records[idx] = data; else appData.records.push(data); }
+        else { if (idx !== -1) appData.records.splice(idx, 1); }
+
+        // 局部更新單個按鈕畫面與統計，避免整個表格重刷影響連刷體驗
+        updateCellUI(btn, btn.dataset.badges || '');
+        updateDailyTotals();
+
+        let empObj = appData.employees.find(e => e.name === btn.dataset.emp) || {name: btn.dataset.emp, role: '待補'};
+        updateSummary(eIdx, empObj);
+
+        triggerAutoSave();
+    }
+
     function handleCellClick(btn, eIdx) { 
         let isVirtual = btn.dataset.emp.includes('待補');
         if(!isPaintMode) { 
@@ -804,7 +928,6 @@
                 document.getElementById('modalLocGroup').style.display = 'block';
                 document.getElementById('modalSupportGroup').style.display = 'none';
                 
-                // 🌟 顯示衝突警告
                 let hasConflict = (btn.dataset.shift && btn.dataset.shift !== '排休' && btn.dataset.shift !== '指休' && btn.dataset.reqoff === 'true');
                 document.getElementById('modalConflictWarning').style.display = hasConflict ? 'block' : 'none';
 
@@ -812,7 +935,7 @@
                 let clearCheckbox = document.getElementById('modalClearReq');
                 if(btn.dataset.reqoff === 'true') {
                     clearWrapper.style.display = 'flex';
-                    clearCheckbox.checked = true; // 預設勾選清除
+                    clearCheckbox.checked = true;
                 } else {
                     clearWrapper.style.display = 'none';
                     clearCheckbox.checked = false;
@@ -844,7 +967,6 @@
             currentCell.dataset.approval = document.getElementById('modalApprovalStatus').value;
         } else {
             currentCell.dataset.loc = document.getElementById('modalLocation').value; 
-            // 清除畫休標籤
             if(document.getElementById('modalReqClearWrapper').style.display !== 'none' && document.getElementById('modalClearReq').checked) {
                 currentCell.dataset.reqoff = 'false';
             }
@@ -862,13 +984,9 @@
         let weekStr = document.getElementById('weekSelector').value;
         let myStore = document.getElementById('storeSelector').value;
         
-        // 🌟 1. 抓出本週畫面上「實際包含的所有月份」(去重複)
-        // 例如 1/30 ~ 2/5，activeMonths 就會是 ['1', '2']
         let activeMonths = [...new Set(currentWeekDates.map(d => d.split('/')[0]))];
-        
         let weekHours = 0, weekOffD = 0; 
         
-        // 🌟 2. 準備一個物件來動態存放各月份的統計資料
         let monthStats = {};
         activeMonths.forEach(m => monthStats[m] = { hours: 0, ot: 0, offD: 0 });
         
@@ -888,7 +1006,6 @@
                     
                     let isCurrentWeek = (r.week === weekStr);
                     
-                    // 🌟 3. 精準算出這筆歷史紀錄「實際上」是哪一個月
                     let rWeekDates = getWeekDates(r.week);
                     let dayIdx = dayNames.indexOf(r.day);
                     let exactMonth = rWeekDates[dayIdx].split('/')[0];
@@ -898,7 +1015,6 @@
                         weekHours += hr;
                     }
                     
-                    // 🌟 4. 如果這筆紀錄的月份，有在我們這週畫面的月份清單裡，就加進去
                     if (activeMonths.includes(exactMonth)) {
                         if (r.shift==='排休'||r.shift==='指休') monthStats[exactMonth].offD++;
                         monthStats[exactMonth].hours += hr;
@@ -910,23 +1026,18 @@
         
         let info = appData.employees.find(e => e.name === emp.name) || {role:'待補', wage:0}; 
         
-        // 🌟 5. 動態組合畫面顯示文字 (跨月則會顯示多行)
         if(info.role === '店長') {
             t.innerHTML = `<span style="color:#1a73e8;font-weight:bold; font-size:15px;">店長</span><br><span style="color:#999">-</span>`; 
         } else if(info.role === '正職' || info.role === '副店長') {
             let warn = weekOffD < 2 ? `<span style="color:#d93025;font-weight:bold;">(未達2天)</span>` : `<span style="color:#34a853;">(達標)</span>`;
-            
-            // 組合跨月加班字串
             let otStr = activeMonths.map(m => `<span style="color:#666;">${m}月加班:</span> <span style="color:#d93025; font-weight:bold;">${Math.round(monthStats[m].ot)}h</span>`).join('<br>');
             t.innerHTML = `週休:${Math.round(weekOffD)}天 ${warn}<br>${otStr}`; 
         } else {
-            // 組合跨月工時與估算薪資字串
             let monthStr = activeMonths.map(m => {
                 let mHr = Math.round(monthStats[m].hours);
                 let mWage = Math.round(monthStats[m].hours * info.wage);
                 return `<span style="color:#666;">${m}月時:</span> <strong>${mHr}h</strong><br><span style="font-size:10px; color:#1a73e8;">(估:$${mWage})</span>`;
-            }).join('<div style="border-top:1px dashed #ccc; margin:3px 0;"></div>'); // 跨月中間加一條虛線區隔
-            
+            }).join('<div style="border-top:1px dashed #ccc; margin:3px 0;"></div>'); 
             t.innerHTML = `週時:${Math.round(weekHours)}h<br>${monthStr}`; 
         }
     }
