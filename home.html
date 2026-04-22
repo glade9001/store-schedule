@@ -410,8 +410,12 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
   <div class="login-sub">員工專屬登入入口</div>
   <div class="login-card">
     <div class="login-field">
-      <label>帳號</label>
-      <input type="text" id="loginUsername" placeholder="請輸入帳號" autocomplete="username">
+      <label>帳號（身分證字母 + 後5碼）</label>
+      <input type="text" id="loginUsername" placeholder="例如：A56789" maxlength="6"
+        style="text-transform:uppercase; letter-spacing:3px; font-size:18px; font-weight:900; text-align:center;"
+        autocomplete="username"
+        oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'')">
+      <div style="font-size:11px; color:rgba(255,255,255,0.5); margin-top:6px;">格式：1個英文字母 + 5碼數字</div>
     </div>
     <div class="login-field">
       <label>密碼</label>
@@ -706,28 +710,65 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
     <div class="modal-handle"></div>
     <div class="modal-title">🔐 帳號設定</div>
     <div class="modal-sub" id="accountModalSub">設定員工的登入帳號與密碼</div>
-    <input type="hidden" id="accountEmpName">
     <input type="hidden" id="accountEmpStore">
+
+    <!-- 帳號（身分證字母+後5碼）-->
     <div class="form-field">
-      <label>帳號（建議使用姓名拼音）</label>
-      <input type="text" id="accountUsername" placeholder="例如：yuanyuan">
+      <label>帳號（身分證字母 + 後5碼）</label>
+      <input type="text" id="accountUsername" maxlength="6" placeholder="例如：A56789"
+        style="text-transform:uppercase; letter-spacing:3px; font-size:18px; font-weight:900; text-align:center;"
+        oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'')">
+      <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">格式：1個英文字母 + 5碼數字</div>
     </div>
+
+    <!-- 顯示姓名 -->
     <div class="form-field">
-      <label>新密碼</label>
-      <input type="password" id="accountPassword" placeholder="至少 4 位數字或英文">
+      <label>顯示姓名（APP 顯示用）</label>
+      <input type="text" id="accountDisplayName" placeholder="例如：王小明">
+    </div>
+
+    <!-- 連動排班系統 -->
+    <div class="form-field">
+      <label>連動排班系統</label>
+      <div style="display:flex; gap:10px; margin-bottom:8px;">
+        <label style="display:flex; align-items:center; gap:6px; font-size:14px; font-weight:600; cursor:pointer;">
+          <input type="radio" name="linkType" value="linked" id="linkTypeLinked" onchange="toggleLinkType()" checked> 連動現有員工
+        </label>
+        <label style="display:flex; align-items:center; gap:6px; font-size:14px; font-weight:600; cursor:pointer;">
+          <input type="radio" name="linkType" value="new" id="linkTypeNew" onchange="toggleLinkType()"> 全新員工
+        </label>
+      </div>
+      <!-- 連動：選擇排班系統員工 -->
+      <div id="linkEmpGroup">
+        <select id="accountEmpName" style="width:100%; padding:12px 14px; border:1.5px solid var(--border); border-radius:10px; font-size:14px; background:#f8fafc;">
+          <option value="">-- 選擇對應的排班系統員工 --</option>
+        </select>
+        <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">選擇後，班表資料將以此員工名稱查詢</div>
+      </div>
+      <!-- 新員工：輸入名稱 -->
+      <div id="newEmpGroup" style="display:none;">
+        <input type="text" id="accountNewEmpName" placeholder="排班系統中的員工名稱（之後新增）"
+          style="width:100%; padding:12px 14px; border:1.5px solid var(--border); border-radius:10px; font-size:14px; background:#f8fafc;">
+        <div style="font-size:11px; color:var(--warn); margin-top:4px;">⚠️ 請之後在排班系統中新增同名員工</div>
+      </div>
+    </div>
+
+    <!-- 密碼 -->
+    <div class="form-field">
+      <label>密碼 <span style="color:var(--text-muted); font-weight:400;">（留空則不修改）</span></label>
+      <input type="password" id="accountPassword" placeholder="預設建議：生日月日，例如 0101">
     </div>
     <div class="form-field">
       <label>確認密碼</label>
       <input type="password" id="accountPasswordConfirm" placeholder="再輸入一次密碼">
     </div>
+
+    <!-- 權限 -->
     <div class="form-field">
       <label>權限等級</label>
-      <select id="accountPermission">
-        <option value="employee">員工（僅可查閱自己）</option>
-        <option value="manager">店長（可管理本店）</option>
-        <option value="admin">管理者（可管理全部門市）</option>
-      </select>
+      <select id="accountPermission"></select>
     </div>
+
     <button class="save-btn" onclick="saveAccountSetting()">💾 儲存帳號設定</button>
     <button class="cancel-btn" onclick="closeModal('accountModal')">取消</button>
   </div>
@@ -886,29 +927,34 @@ window.onload = async () => {
 };
 
 async function doLogin() {
-  const username = document.getElementById('loginUsername').value.trim();
+  const username = document.getElementById('loginUsername').value.trim().toUpperCase();
   const password = document.getElementById('loginPassword').value;
   const errEl = document.getElementById('loginError');
   errEl.textContent = '';
 
-  if(!username || !password) { errEl.textContent = '請填寫帳號與密碼'; return; }
+  if(!username) { errEl.textContent = '⚠️ 請輸入帳號'; return; }
+  if(!/^[A-Z][0-9]{5}$/.test(username)) { errEl.textContent = '⚠️ 帳號格式錯誤（1個字母 + 5碼數字）'; return; }
+  if(!password) { errEl.textContent = '⚠️ 請輸入密碼'; return; }
 
   showLoading('驗證身分中...');
   try {
-    // 搜尋 accounts collection
-    const snap = await window.db.collection('accounts').doc(username).get();
-    if(!snap.exists) {
+    // 用 ID 欄位查詢（文件ID是遞增編碼，帳號存在 ID 欄位）
+    const snap = await window.db.collection('account').where('ID', '==', username).limit(1).get();
+    if(snap.empty) {
       hideLoading();
       errEl.textContent = '❌ 帳號不存在';
       return;
     }
-    const acc = snap.data();
+    const accDoc = snap.docs[0];
+    const acc = accDoc.data();
+    const docId = accDoc.id; // 例如 "0001"
+
     if(acc.password !== password) {
       hideLoading();
       errEl.textContent = '❌ 密碼錯誤';
       return;
     }
-    if(acc.disabled) {
+    if(acc.disabled === true) {
       hideLoading();
       errEl.textContent = '⛔ 此帳號已被停用，請聯絡管理者';
       return;
@@ -917,8 +963,11 @@ async function doLogin() {
     const perm = acc.permission || 'employee';
     const isGlobal = (perm === 'owner' || perm === 'admin');
     currentUser = {
-      username: username,
-      name: acc.empName,
+      docId: docId,                                               // 文件ID（0001...）
+      username: username,                                         // 登入帳號（B28213）
+      displayName: acc.displayName || acc.empName || username,    // APP 顯示用
+      empName: acc.empName || '',                                  // 排班系統對應名
+      linked: acc.linked === true,                                 // boolean 連動狀態
       store: isGlobal ? null : (acc.store || null),
       role: acc.role || '',
       permission: perm
@@ -947,24 +996,25 @@ function doLogout() {
 async function initApp() {
   showLoading('載入個人資料中...');
   const storeLabel = currentUser.store || '全門市';
+  const dName = currentUser.displayName || currentUser.empName || '使用者';
 
   // 更新 header
-  document.getElementById('headerName').textContent = currentUser.name;
+  document.getElementById('headerName').textContent = dName;
   document.getElementById('headerRole').textContent = (ROLE_LABELS[currentUser.role] || currentUser.role || '管理者') + ' · ' + (PERM_LABELS[currentUser.permission] || '');
   document.getElementById('headerStore').textContent = storeLabel;
-  document.getElementById('headerAvatar').textContent = currentUser.name ? currentUser.name[0] : '👤';
+  document.getElementById('headerAvatar').textContent = dName ? dName[0] : '👤';
 
   // Greeting
   const now = new Date();
   const { greet, icon } = getGreeting();
   document.getElementById('greetingTime').textContent = `${icon} ${now.getMonth()+1}月${now.getDate()}日 · ${['週日','週一','週二','週三','週四','週五','週六'][now.getDay()]}`;
-  document.getElementById('greetingName').textContent = `嗨，${currentUser.name}！`;
+  document.getElementById('greetingName').textContent = `嗨，${dName}！`;
   document.getElementById('greetingDesc').textContent = greet;
   document.getElementById('greetingBadge').textContent = currentUser.store ? `🏪 ${currentUser.store}` : `🏬 全門市管理`;
 
   // 個人頁面更新
-  document.getElementById('profileAvatar').textContent = currentUser.name ? currentUser.name[0] : '👤';
-  document.getElementById('profileName').textContent = currentUser.name;
+  document.getElementById('profileAvatar').textContent = dName ? dName[0] : '👤';
+  document.getElementById('profileName').textContent = dName;
   document.getElementById('profileRoleText').textContent = ROLE_LABELS[currentUser.role] || currentUser.role || '管理者';
   document.getElementById('profileStoreText').textContent = currentUser.store ? currentUser.store : '全門市';
 
@@ -1126,7 +1176,7 @@ async function loadStats() {
       // 1. 本店自己的班別
       const snap = await window.db.collection('stores').doc(currentUser.store).collection('weeks').doc(weekStr).get();
       const records = (snap.exists && snap.data().records) ? snap.data().records : [];
-      const myRecs = records.filter(r => r.name === currentUser.name);
+      const myRecs = records.filter(r => r.name === currentUser.empName);
 
       myRecs.forEach(r => {
         if(r.shift && r.shift !== '排休' && r.shift !== '指休') {
@@ -1142,7 +1192,7 @@ async function loadStats() {
         const crossSnap = await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get();
         const crossRecs = (crossSnap.exists && crossSnap.data().records) ? crossSnap.data().records : [];
         crossRecs.forEach(r => {
-          if(r.supportEmp === `${currentUser.store}-${currentUser.name}` && r.approvalStatus === 'approved') {
+          if(r.supportEmp === `${currentUser.store}-${currentUser.empName}` && r.approvalStatus === 'approved') {
             // 把本店同一天的工時扣掉，換成跨店工時
             const sameDay = myRecs.find(m => m.day === r.day);
             if(sameDay) totalHours = totalHours - (parseFloat(sameDay.actualHours)||0) + (parseFloat(r.actualHours)||0);
@@ -1273,9 +1323,9 @@ async function loadEmpAdminList(store) {
     emps.sort((a,b) => (a.sortKey||0) - (b.sortKey||0));
 
     // 同時查詢帳號資料
-    const accSnap = await window.db.collection('accounts').where('store','==',store).get();
+    const accSnap = await window.db.collection('account').where('store','==',store).get();
     const accounts = {};
-    accSnap.forEach(d => { accounts[d.data().empName] = { username: d.id, ...d.data() }; });
+    accSnap.forEach(d => { accounts[d.data().empName] = { username: d.data().ID, docId: d.id, ...d.data() }; });
 
     listEl.innerHTML = emps.map(emp => {
       const acc = accounts[emp.id];
@@ -1300,52 +1350,85 @@ async function loadEmpAdminList(store) {
 }
 
 function loadSelfView() {
-  document.getElementById('selfAvatar').textContent = currentUser.name ? currentUser.name[0] : '👤';
-  document.getElementById('selfName').textContent = currentUser.name;
+  const dName = currentUser.displayName || currentUser.empName || '使用者';
+  document.getElementById('selfAvatar').textContent = dName ? dName[0] : '👤';
+  document.getElementById('selfName').textContent = dName;
   document.getElementById('selfRole').textContent = ROLE_LABELS[currentUser.role] || currentUser.role || '管理者';
   document.getElementById('selfStore').textContent = currentUser.store || '全門市';
   document.getElementById('selfUsername').textContent = currentUser.username;
-  document.getElementById('selfNameInfo').textContent = currentUser.name;
+  document.getElementById('selfNameInfo').textContent = dName;
   document.getElementById('selfRoleInfo').textContent = ROLE_LABELS[currentUser.role] || currentUser.role || '管理者';
   document.getElementById('selfStoreInfo').textContent = currentUser.store || '全門市（無綁定）';
+  // 顯示連動狀態
+  const linkStatus = currentUser.linked
+    ? `🔗 已連動排班系統（${currentUser.empName}）`
+    : `⚠️ 未連動排班系統`;
+  document.getElementById('selfStoreInfo').insertAdjacentHTML('afterend',
+    `<div style="font-size:12px; color:${currentUser.linked?'var(--accent)':'var(--warn)'}; margin-top:6px; font-weight:600;">${linkStatus}</div>`
+  );
 }
 
 function loadProfilePage() {
-  document.getElementById('profileAvatar').textContent = currentUser.name ? currentUser.name[0] : '👤';
-  document.getElementById('profileName').textContent = currentUser.name;
+  const dName = currentUser.displayName || currentUser.empName || '使用者';
+  document.getElementById('profileAvatar').textContent = dName ? dName[0] : '👤';
+  document.getElementById('profileName').textContent = dName;
   document.getElementById('profileRoleText').textContent = (ROLE_LABELS[currentUser.role] || currentUser.role || '管理者') + ' · ' + (PERM_LABELS[currentUser.permission] || '');
   document.getElementById('profileStoreText').textContent = currentUser.store ? `🏪 ${currentUser.store}` : '🏬 全門市';
 }
 
 // ===== 帳號設定 MODAL =====
 async function openAccountModal(empName, store) {
-  document.getElementById('accountEmpName').value = empName;
   document.getElementById('accountEmpStore').value = store;
-  document.getElementById('accountModalSub').textContent = `設定 ${empName} 的登入帳號與密碼`;
+  document.getElementById('accountModalSub').textContent = `設定 ${empName} 的登入帳號`;
   document.getElementById('accountPassword').value = '';
   document.getElementById('accountPasswordConfirm').value = '';
+  document.getElementById('accountDisplayName').value = '';
+  document.getElementById('accountUsername').value = '';
 
-  // 依操作者權限決定可設定的 permission 選項
-  // 店長：只能設定 employee / manager（本店範圍）
-  // 加盟主：可設定 employee / manager / owner
-  // 系統管理者：可設定全部
+  // 載入該門市員工名單到連動下拉選單
+  try {
+    const empSnap = await window.db.collection('stores').doc(store).collection('employees').get();
+    let empOpts = '<option value="">-- 選擇排班系統員工 --</option>';
+    empSnap.forEach(d => {
+      if(d.data().status !== '離職') {
+        empOpts += `<option value="${d.id}" ${d.id === empName ? 'selected' : ''}>${d.id}（${d.data().role||''}）</option>`;
+      }
+    });
+    document.getElementById('accountEmpName').innerHTML = empOpts;
+    document.getElementById('accountEmpName').value = empName;
+  } catch(e) {}
+
+  // 權限選項（依操作者權限）
   const permSel = document.getElementById('accountPermission');
   const p = currentUser.permission;
-  let opts = `<option value="employee">👤 員工</option>
-              <option value="manager">🏪 店長</option>`;
+  let opts = `<option value="employee">👤 員工</option><option value="manager">🏪 店長</option>`;
   if(p === 'owner' || p === 'admin') opts += `<option value="owner">👑 加盟主</option>`;
   if(p === 'admin') opts += `<option value="admin">⚙️ 系統管理者</option>`;
   permSel.innerHTML = opts;
 
   // 嘗試讀取現有帳號
   try {
-    const snap = await window.db.collection('accounts').where('empName','==',empName).where('store','==',store).limit(1).get();
+    const snap = await window.db.collection('account').where('empName','==',empName).where('store','==',store).limit(1).get();
     if(!snap.empty) {
       const d = snap.docs[0];
-      document.getElementById('accountUsername').value = d.id;
-      permSel.value = d.data().permission || 'employee';
+      const accData = d.data();
+      const uid = accData.ID || ''; // 登入帳號（B28213）
+      document.getElementById('accountUsername').value = uid;
+      document.getElementById('accountDisplayName').value = accData.displayName || accData.empName || '';
+      permSel.value = accData.permission || 'employee';
+      // 連動狀態
+      if(accData.linked === false) {
+        document.getElementById('linkTypeNew').checked = true;
+        toggleLinkType();
+        document.getElementById('accountNewEmpName').value = accData.empName || '';
+      } else {
+        document.getElementById('linkTypeLinked').checked = true;
+        toggleLinkType();
+        document.getElementById('accountEmpName').value = accData.empName || empName;
+      }
     } else {
-      document.getElementById('accountUsername').value = '';
+      document.getElementById('linkTypeLinked').checked = true;
+      toggleLinkType();
       permSel.value = 'employee';
     }
   } catch(e) {}
@@ -1353,54 +1436,76 @@ async function openAccountModal(empName, store) {
   document.getElementById('accountModal').classList.add('active');
 }
 
+function toggleLinkType() {
+  const isLinked = document.getElementById('linkTypeLinked').checked;
+  document.getElementById('linkEmpGroup').style.display = isLinked ? 'block' : 'none';
+  document.getElementById('newEmpGroup').style.display = isLinked ? 'none' : 'block';
+}
+
 async function saveAccountSetting() {
-  const empName = document.getElementById('accountEmpName').value;
   const store = document.getElementById('accountEmpStore').value;
-  const username = document.getElementById('accountUsername').value.trim();
+  const username = document.getElementById('accountUsername').value.trim().toUpperCase();
+  const displayName = document.getElementById('accountDisplayName').value.trim();
   const pwd = document.getElementById('accountPassword').value;
   const pwdConfirm = document.getElementById('accountPasswordConfirm').value;
   const permission = document.getElementById('accountPermission').value;
+  const isLinked = document.getElementById('linkTypeLinked').checked;
+  const empName = isLinked
+    ? document.getElementById('accountEmpName').value
+    : document.getElementById('accountNewEmpName').value.trim();
 
-  if(!username) { showToast('⚠️ 請填寫帳號'); return; }
+  // 驗證
+  if(!/^[A-Z][0-9]{5}$/.test(username)) { showToast('⚠️ 帳號格式錯誤：需為1個字母+後5碼數字'); return; }
+  if(!displayName) { showToast('⚠️ 請填寫顯示姓名'); return; }
+  if(!empName) { showToast('⚠️ 請選擇或填寫排班系統員工名稱'); return; }
   if(pwd && pwd !== pwdConfirm) { showToast('⚠️ 兩次密碼不一致'); return; }
+  if(pwd && pwd.length < 4) { showToast('⚠️ 密碼至少 4 碼'); return; }
 
   showLoading('儲存帳號設定中...');
   try {
-    // 先查是否已有此員工的舊帳號（不同 username）
-    const oldSnap = await window.db.collection('accounts').where('empName','==',empName).where('store','==',store).limit(1).get();
+    // 檢查此 ID 帳號是否已被其他人用
+    const dupSnap = await window.db.collection('account').where('ID','==',username).limit(1).get();
+    if(!dupSnap.empty && dupSnap.docs[0].data().empName !== empName) {
+      hideLoading();
+      showToast('❌ 此帳號已被其他人使用');
+      return;
+    }
+
+    // 讀員工的 role
+    let role = '';
+    if(isLinked) {
+      const empSnap = await window.db.collection('stores').doc(store).collection('employees').doc(empName).get();
+      if(empSnap.exists) role = empSnap.data().role || '';
+    }
+
+    // 查是否已有此員工的帳號文件
+    const oldSnap = await window.db.collection('account').where('empName','==',empName).where('store','==',store).limit(1).get();
 
     let updateData = {
+      ID: username,           // 登入帳號（身分證字母+後5碼）
+      displayName: displayName,
       empName: empName,
       store: store,
       permission: permission,
-      role: '', // 會從員工資料抓，這裡先留空
+      role: role,
+      linked: isLinked,
+      disabled: false
     };
-
-    // 讀員工資料的 role
-    const empSnap = await window.db.collection('stores').doc(store).collection('employees').doc(empName).get();
-    if(empSnap.exists) updateData.role = empSnap.data().role || '';
-
     if(pwd) updateData.password = pwd;
 
-    if(!oldSnap.empty && oldSnap.docs[0].id !== username) {
-      // 帳號名稱改了，先刪舊的
-      await window.db.collection('accounts').doc(oldSnap.docs[0].id).delete();
+    if(!oldSnap.empty) {
+      // 已有文件 → 更新（保留原本的遞增文件ID）
+      await window.db.collection('account').doc(oldSnap.docs[0].id).set(updateData, { merge: true });
+    } else {
+      // 新帳號 → 自動產生遞增文件ID（0001, 0002...）
+      const allSnap = await window.db.collection('account').get();
+      const nextNum = String(allSnap.size + 1).padStart(4, '0');
+      await window.db.collection('account').doc(nextNum).set(updateData);
     }
 
-    if(oldSnap.empty || pwd) {
-      // 新帳號 or 需要更新密碼
-      const existing = await window.db.collection('accounts').doc(username).get();
-      if(existing.exists && existing.data().empName !== empName) {
-        hideLoading();
-        showToast('❌ 此帳號名稱已被其他人使用');
-        return;
-      }
-    }
-
-    await window.db.collection('accounts').doc(username).set(updateData, { merge: true });
     closeModal('accountModal');
     hideLoading();
-    showToast(`✅ ${empName} 的帳號設定已儲存`);
+    showToast(`✅ ${displayName} 的帳號（${username}）已儲存`);
     await loadEmpAdminList(store);
   } catch(e) {
     hideLoading();
@@ -1427,13 +1532,14 @@ async function doChangePwd() {
 
   showLoading('驗證中...');
   try {
-    const snap = await window.db.collection('accounts').doc(currentUser.username).get();
+    // 用 docId 直接存取文件
+    const snap = await window.db.collection('account').doc(currentUser.docId).get();
     if(!snap.exists || snap.data().password !== oldPwd) {
       hideLoading();
       showToast('❌ 舊密碼錯誤');
       return;
     }
-    await window.db.collection('accounts').doc(currentUser.username).update({ password: newPwd });
+    await window.db.collection('account').doc(currentUser.docId).update({ password: newPwd });
     closeModal('changePwdModal');
     hideLoading();
     showToast('✅ 密碼修改成功');
