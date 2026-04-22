@@ -606,17 +606,13 @@ window.onload = async () => {
 
   // 驗證登入狀態
   const saved = sessionStorage.getItem('currentUser');
-  console.log('sessionStorage currentUser:', saved ? '有資料' : '無資料');
   if(!saved) {
-    alert('sessionStorage 無登入資料，請從首頁登入');
     window.location.replace('home.html');
     return;
   }
   try {
     currentUser = JSON.parse(saved);
-    console.log('登入用戶:', currentUser.displayName, '權限:', currentUser.permission);
   } catch(e) {
-    alert('登入資料解析失敗：' + e.message);
     sessionStorage.removeItem('currentUser');
     window.location.replace('home.html');
     return;
@@ -1213,10 +1209,7 @@ function toggleApprovalVis() {
 
 function onApprovalChange(sel) {
   if(sel.value === 'approved') {
-    if(!confirm('⚠️ 請確認已跟對方店長溝通！
-
-按下確認視同審核通過。')) {
-      // 取消 → 改回待審核
+    if(!confirm('⚠️ 請確認已跟對方店長溝通！\n\n按下確認視同審核通過。')) {
       sel.value = 'pending';
     }
   }
