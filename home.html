@@ -449,7 +449,10 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
         <div class="greeting-time" id="greetingTime"></div>
         <div class="greeting-name" id="greetingName">歡迎回來！</div>
         <div class="greeting-desc" id="greetingDesc">今天也辛苦了</div>
-        <span class="greeting-badge" id="greetingBadge">🏪 載入中...</span>
+        <div style="display:flex; align-items:center; gap:8px; margin-top:10px; flex-wrap:wrap;">
+          <span class="greeting-badge" id="greetingBadge">🏪 載入中...</span>
+          <span id="todayShiftBadge" style="display:none; background:rgba(255,255,255,0.25); border-radius:20px; padding:4px 12px; font-size:12px; font-weight:700;"></span>
+        </div>
       </div>
 
       <!-- 統計卡片 -->
@@ -484,20 +487,19 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
         <div class="quick-grid" id="quickGrid"></div>
       </div>
 
-      <!-- 本週+下週班表 -->
+      <!-- 我的班表 -->
       <div class="card">
         <div class="section-header">
           <div class="section-title">📅 我的班表</div>
           <div class="section-more" onclick="window.location.href='schedule-V2.html'">查看完整 →</div>
         </div>
-        <!-- 本週 -->
-        <div style="font-size:12px; font-weight:800; color:var(--primary); margin-bottom:8px;" id="thisWeekLabel"></div>
-        <div id="thisWeekShifts" style="margin-bottom:14px;">
-          <div style="text-align:center; color:var(--text-muted); font-size:13px; padding:10px 0;">載入中...</div>
+        <!-- 週次切換 -->
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+          <button onclick="homeChangeWeek(-1)" style="background:#f1f3f4; border:none; border-radius:8px; padding:6px 12px; font-size:13px; font-weight:700; cursor:pointer;">‹</button>
+          <div style="flex:1; text-align:center; font-size:13px; font-weight:800; color:var(--primary);" id="homeWeekLabel">--</div>
+          <button onclick="homeChangeWeek(1)" style="background:#f1f3f4; border:none; border-radius:8px; padding:6px 12px; font-size:13px; font-weight:700; cursor:pointer;">›</button>
         </div>
-        <!-- 下週 -->
-        <div style="font-size:12px; font-weight:800; color:var(--accent); margin-bottom:8px;" id="nextWeekLabel"></div>
-        <div id="nextWeekShifts">
+        <div id="homeWeekShifts">
           <div style="text-align:center; color:var(--text-muted); font-size:13px; padding:10px 0;">載入中...</div>
         </div>
       </div>
@@ -630,11 +632,19 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
           <div class="menu-item-arrow">›</div>
         </div>
         <!-- 系統管理者專屬 -->
-        <div class="menu-item" id="menuSysConfig" style="display:none;" onclick="showWip('系統基礎設定')">
+        <div class="menu-item" id="menuSysConfig" style="display:none;" onclick="openSysConfigModal()">
           <div class="menu-item-icon" style="background:#fce8e6;">⚙️</div>
           <div class="menu-item-text">
             <div class="menu-item-title" style="color:var(--danger);">系統基礎設定</div>
             <div class="menu-item-sub">門市管理、班別設定</div>
+          </div>
+          <div class="menu-item-arrow">›</div>
+        </div>
+        <div class="menu-item" id="menuStoreConfig" style="display:none;" onclick="openStoreConfigModal()">
+          <div class="menu-item-icon" style="background:#e8f0fe;">🔧</div>
+          <div class="menu-item-text">
+            <div class="menu-item-title" style="color:var(--primary);">門市班別設定</div>
+            <div class="menu-item-sub">班別快捷、備註快捷按鈕</div>
           </div>
           <div class="menu-item-arrow">›</div>
         </div>
@@ -812,6 +822,17 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       <input type="password" id="accountPasswordConfirm" placeholder="再輸入一次密碼">
     </div>
 
+    <!-- 職稱 -->
+    <div class="form-field">
+      <label>職稱</label>
+      <select id="accountRole">
+        <option value="工讀">工讀</option>
+        <option value="正職">正職</option>
+        <option value="店長">店長</option>
+        <option value="加盟主">加盟主</option>
+      </select>
+    </div>
+
     <!-- 權限 -->
     <div class="form-field">
       <label>權限等級</label>
@@ -843,6 +864,54 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
     </div>
     <button class="save-btn green" onclick="doChangePwd()">✅ 確認修改</button>
     <button class="cancel-btn" onclick="closeModal('changePwdModal')">取消</button>
+  </div>
+</div>
+
+
+<!-- ===== 系統基礎設定 MODAL（管理者）===== -->
+<div class="modal-overlay" id="sysConfigModal" onclick="closeWip(event)">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-title">⚙️ 系統基礎設定</div>
+    <div class="card-title">🏪 門市管理</div>
+    <div id="sysStoreList" style="margin-bottom:10px;"></div>
+    <div style="display:flex; gap:8px; margin-bottom:20px;">
+      <input type="text" id="sysNewStore" placeholder="新增門市名稱" style="flex:1; padding:10px; border:1.5px solid var(--border); border-radius:10px; font-size:14px;">
+      <button onclick="addSysStore()" style="background:var(--accent); color:white; border:none; border-radius:10px; padding:10px 16px; font-weight:700; cursor:pointer;">新增</button>
+    </div>
+    <button class="save-btn" onclick="saveSysConfig()">💾 儲存系統設定</button>
+    <button class="cancel-btn" onclick="closeModal('sysConfigModal')">取消</button>
+  </div>
+</div>
+
+<!-- ===== 門市班別設定 MODAL（店長以上）===== -->
+<div class="modal-overlay" id="storeConfigModal" onclick="closeWip(event)">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-title">🔧 門市班別設定</div>
+    <div class="modal-sub" id="storeConfigSub">設定門市的班別快捷按鈕</div>
+    <input type="hidden" id="storeConfigStore">
+
+    <!-- 班別快捷 -->
+    <div class="card-title" style="margin-top:8px;">📋 班別快捷按鈕</div>
+    <div style="font-size:11px; color:var(--text-muted); margin-bottom:8px;">預設班別（7-15、15-23、23-07、18-23、清空、指休、排休）不可刪除</div>
+    <div id="shiftBtnList" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;"></div>
+    <div style="display:flex; gap:8px; margin-bottom:16px;">
+      <input type="text" id="newShiftBtn" placeholder="班別名稱（如：8-16）" style="flex:2; padding:10px; border:1.5px solid var(--border); border-radius:10px; font-size:14px;">
+      <input type="number" id="newShiftHours" placeholder="時數" style="flex:1; padding:10px; border:1.5px solid var(--border); border-radius:10px; font-size:14px;">
+      <button onclick="addShiftBtn()" style="background:var(--primary); color:white; border:none; border-radius:10px; padding:10px 14px; font-weight:700; cursor:pointer;">加入</button>
+    </div>
+
+    <!-- 備註快捷 -->
+    <div class="card-title">💬 備註快捷按鈕</div>
+    <div id="noteBtnList" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;"></div>
+    <div style="display:flex; gap:8px; margin-bottom:16px;">
+      <input type="text" id="newNoteBtn" placeholder="備註文字（如：訂鮮食）" style="flex:1; padding:10px; border:1.5px solid var(--border); border-radius:10px; font-size:14px;">
+      <button onclick="addNoteBtn()" style="background:var(--accent); color:white; border:none; border-radius:10px; padding:10px 14px; font-weight:700; cursor:pointer;">加入</button>
+    </div>
+
+    <button class="save-btn" onclick="saveStoreConfig()">💾 儲存班別設定</button>
+    <button class="cancel-btn" onclick="closeModal('storeConfigModal')">取消</button>
   </div>
 </div>
 
@@ -1010,14 +1079,13 @@ async function doLogin() {
     }
 
     const perm = acc.permission || 'employee';
-    const isGlobal = (perm === 'owner' || perm === 'admin');
     currentUser = {
-      docId: docId,                                               // 文件ID（0001...）
-      username: username,                                         // 登入帳號（B28213）
-      displayName: acc.displayName || acc.empName || username,    // APP 顯示用
-      empName: acc.empName || '',                                  // 排班系統對應名
-      linked: acc.linked === true,                                 // boolean 連動狀態
-      store: isGlobal ? null : (acc.store || null),
+      docId: docId,
+      username: username,
+      displayName: acc.displayName || acc.empName || username,
+      empName: acc.empName || '',
+      linked: acc.linked === true,
+      store: acc.store || null,   // 所有權限都從 Firebase 讀取，沒填才是 null
       role: acc.role || '',
       permission: perm
     };
@@ -1091,6 +1159,9 @@ async function initApp() {
   // 個人頁面：系統管理者顯示系統設定入口
   const sysMenuItem = document.getElementById('menuSysConfig');
   if(sysMenuItem) sysMenuItem.style.display = canSysConfig() ? 'flex' : 'none';
+  // 店長以上顯示門市班別設定
+  const storeConfigItem = document.getElementById('menuStoreConfig');
+  if(storeConfigItem) storeConfigItem.style.display = canSchedule() ? 'flex' : 'none';
 
   // 載入本週班表
   await loadTodayShifts();
@@ -1519,6 +1590,7 @@ async function openAccountModal(empName, store) {
       const uid = accData.ID || ''; // 登入帳號（B28213）
       document.getElementById('accountUsername').value = uid;
       document.getElementById('accountDisplayName').value = accData.displayName || accData.empName || '';
+      document.getElementById('accountRole').value = accData.role || 'employee';
       permSel.value = accData.permission || 'employee';
       // 連動狀態
       if(accData.linked === false) {
@@ -1534,6 +1606,13 @@ async function openAccountModal(empName, store) {
       document.getElementById('linkTypeLinked').checked = true;
       toggleLinkType();
       permSel.value = 'employee';
+      // 從 employees 讀取現有 role
+      try {
+        const empDocSnap = await window.db.collection('stores').doc(store).collection('employees').doc(empName).get();
+        if(empDocSnap.exists) {
+          document.getElementById('accountRole').value = empDocSnap.data().role || '工讀';
+        }
+      } catch(e) {}
     }
   } catch(e) {}
 
@@ -1575,23 +1654,25 @@ async function saveAccountSetting() {
       return;
     }
 
-    // 讀員工的 role
-    let role = '';
-    if(isLinked) {
-      const empSnap = await window.db.collection('stores').doc(store).collection('employees').doc(empName).get();
-      if(empSnap.exists) role = empSnap.data().role || '';
+    // 取得並更新員工的 role
+    const newRole = document.getElementById('accountRole').value;
+    if(isLinked && empName) {
+      // 同步更新 employees 的 role
+      await window.db.collection('stores').doc(store).collection('employees').doc(empName).set(
+        { role: newRole }, { merge: true }
+      );
     }
 
     // 查是否已有此員工的帳號文件
     const oldSnap = await window.db.collection('account').where('empName','==',empName).where('store','==',store).limit(1).get();
 
     let updateData = {
-      ID: username,           // 登入帳號（身分證字母+後5碼）
+      ID: username,
       displayName: displayName,
       empName: empName,
       store: store,
       permission: permission,
-      role: role,
+      role: newRole,
       linked: isLinked,
       disabled: false
     };
@@ -1812,6 +1893,156 @@ async function confirmTransfer() {
   } catch(e) {
     hideLoading();
     showToast('❌ 調店失敗：' + e.message);
+  }
+}
+
+
+// ===== 預設不可刪除的班別 =====
+const DEFAULT_SHIFTS = ['7-15','15-23','23-07','18-23','清空','指休','排休'];
+const DEFAULT_SHIFT_HOURS = { '7-15':8, '15-23':8, '23-07':8, '18-23':5 };
+
+// 各店設定（從 Firebase 讀取）
+let storeConfig = { shifts: [...DEFAULT_SHIFTS], shiftHours: {...DEFAULT_SHIFT_HOURS}, quickNotes: ['作帳','訂鮮食','訂捷盟','訂乳品18度C'] };
+
+// ===== 系統基礎設定（管理者）=====
+async function openSysConfigModal() {
+  const listEl = document.getElementById('sysStoreList');
+  listEl.innerHTML = '';
+  (appConfig.stores || []).forEach(s => {
+    listEl.innerHTML += `<div style="display:flex; align-items:center; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border);">
+      <span style="font-size:14px; font-weight:700;">${s}</span>
+      <button onclick="removeSysStore('${s}')" style="background:none; border:1px solid var(--danger); color:var(--danger); border-radius:6px; padding:4px 10px; font-size:11px; font-weight:700; cursor:pointer;">刪除</button>
+    </div>`;
+  });
+  document.getElementById('sysNewStore').value = '';
+  openModal('sysConfigModal');
+}
+
+function addSysStore() {
+  const name = document.getElementById('sysNewStore').value.trim();
+  if(!name) { showToast('⚠️ 請輸入門市名稱'); return; }
+  if(appConfig.stores.includes(name)) { showToast('⚠️ 此門市名稱已存在'); return; }
+  appConfig.stores.push(name);
+  openSysConfigModal();
+}
+
+function removeSysStore(name) {
+  if(DEFAULT_SHIFTS.length === 0) return; // 防呆
+  if(!confirm(`確定刪除「${name}」門市？此操作不可逆。`)) return;
+  appConfig.stores = appConfig.stores.filter(s => s !== name);
+  openSysConfigModal();
+}
+
+async function saveSysConfig() {
+  showLoading('儲存系統設定中...');
+  try {
+    await window.db.collection('settings').doc('globalConfig').set(appConfig, { merge: true });
+    closeModal('sysConfigModal');
+    hideLoading();
+    showToast('✅ 系統設定已儲存');
+  } catch(e) {
+    hideLoading();
+    showToast('❌ 儲存失敗：' + e.message);
+  }
+}
+
+// ===== 門市班別設定（店長以上）=====
+async function openStoreConfigModal() {
+  const store = currentUser.store || (appConfig.stores && appConfig.stores[0]);
+  document.getElementById('storeConfigStore').value = store;
+  document.getElementById('storeConfigSub').textContent = `「${store}」班別快捷設定`;
+
+  // 讀取各店設定
+  showLoading('讀取門市設定...');
+  try {
+    const snap = await window.db.collection('stores').doc(store).collection('config').doc('shifts').get();
+    if(snap.exists) {
+      storeConfig = {
+        shifts: snap.data().shifts || [...DEFAULT_SHIFTS],
+        shiftHours: snap.data().shiftHours || {...DEFAULT_SHIFT_HOURS},
+        quickNotes: snap.data().quickNotes || ['作帳','訂鮮食','訂捷盟','訂乳品18度C']
+      };
+    } else {
+      storeConfig = { shifts: [...DEFAULT_SHIFTS], shiftHours: {...DEFAULT_SHIFT_HOURS}, quickNotes: ['作帳','訂鮮食','訂捷盟','訂乳品18度C'] };
+    }
+  } catch(e) {}
+  hideLoading();
+
+  renderShiftBtnList();
+  renderNoteBtnList();
+  document.getElementById('newShiftBtn').value = '';
+  document.getElementById('newShiftHours').value = '';
+  document.getElementById('newNoteBtn').value = '';
+  openModal('storeConfigModal');
+}
+
+function renderShiftBtnList() {
+  const el = document.getElementById('shiftBtnList');
+  el.innerHTML = storeConfig.shifts.map(s => {
+    const isDefault = DEFAULT_SHIFTS.includes(s);
+    const h = storeConfig.shiftHours[s] || '';
+    return `<div style="display:inline-flex; align-items:center; background:${isDefault?'#f1f3f4':'#e8f0fe'}; border-radius:8px; padding:6px 10px; gap:6px; font-size:13px; font-weight:700;">
+      ${s}${h ? ` <span style="color:var(--text-muted);font-size:11px;">(${h}h)</span>` : ''}
+      ${isDefault ? '<span style="color:var(--text-muted);font-size:10px;">預設</span>' :
+        `<span onclick="removeShiftBtn('${s}')" style="cursor:pointer;color:var(--danger);font-size:14px;font-weight:900;">✕</span>`}
+    </div>`;
+  }).join('');
+}
+
+function renderNoteBtnList() {
+  const el = document.getElementById('noteBtnList');
+  el.innerHTML = storeConfig.quickNotes.map(n =>
+    `<div style="display:inline-flex; align-items:center; background:#e8f0fe; border-radius:8px; padding:6px 10px; gap:6px; font-size:13px; font-weight:700;">
+      ${n}
+      <span onclick="removeNoteBtn('${n}')" style="cursor:pointer;color:var(--danger);font-size:14px;font-weight:900;">✕</span>
+    </div>`
+  ).join('');
+}
+
+function addShiftBtn() {
+  const name = document.getElementById('newShiftBtn').value.trim();
+  const hours = parseFloat(document.getElementById('newShiftHours').value) || 0;
+  if(!name) { showToast('⚠️ 請輸入班別名稱'); return; }
+  if(storeConfig.shifts.includes(name)) { showToast('⚠️ 此班別已存在'); return; }
+  storeConfig.shifts.push(name);
+  if(hours) storeConfig.shiftHours[name] = hours;
+  document.getElementById('newShiftBtn').value = '';
+  document.getElementById('newShiftHours').value = '';
+  renderShiftBtnList();
+}
+
+function removeShiftBtn(name) {
+  if(DEFAULT_SHIFTS.includes(name)) { showToast('⚠️ 預設班別不可刪除'); return; }
+  storeConfig.shifts = storeConfig.shifts.filter(s => s !== name);
+  delete storeConfig.shiftHours[name];
+  renderShiftBtnList();
+}
+
+function addNoteBtn() {
+  const name = document.getElementById('newNoteBtn').value.trim();
+  if(!name) { showToast('⚠️ 請輸入備註文字'); return; }
+  if(storeConfig.quickNotes.includes(name)) { showToast('⚠️ 此備註已存在'); return; }
+  storeConfig.quickNotes.push(name);
+  document.getElementById('newNoteBtn').value = '';
+  renderNoteBtnList();
+}
+
+function removeNoteBtn(name) {
+  storeConfig.quickNotes = storeConfig.quickNotes.filter(n => n !== name);
+  renderNoteBtnList();
+}
+
+async function saveStoreConfig() {
+  const store = document.getElementById('storeConfigStore').value;
+  showLoading('儲存班別設定中...');
+  try {
+    await window.db.collection('stores').doc(store).collection('config').doc('shifts').set(storeConfig);
+    closeModal('storeConfigModal');
+    hideLoading();
+    showToast('✅ 班別設定已儲存');
+  } catch(e) {
+    hideLoading();
+    showToast('❌ 儲存失敗：' + e.message);
   }
 }
 
