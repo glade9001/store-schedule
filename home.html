@@ -1,0 +1,1349 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>美德門市管理系統</title>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyAmVwq-Wny1KMRGNSdOnBEJ_A-3HmTO-hM",
+    authDomain: "store-schedule-3b056.firebaseapp.com",
+    projectId: "store-schedule-3b056",
+    storageBucket: "store-schedule-3b056.firebasestorage.app",
+    messagingSenderId: "296522693619",
+    appId: "1:296522693619:web:f90ec5d666c7a4a5943086"
+  };
+  firebase.initializeApp(firebaseConfig);
+  window.db = firebase.firestore();
+  window.db.settings({ experimentalForceLongPolling: true });
+</script>
+<style>
+/* ===== RESET & BASE ===== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --primary: #1a73e8;
+  --primary-dark: #1557b0;
+  --accent: #34a853;
+  --danger: #d93025;
+  --warn: #f9ab00;
+  --bg: #f0f4ff;
+  --card: #ffffff;
+  --text: #1e293b;
+  --text-muted: #64748b;
+  --border: #e2e8f0;
+  --nav-h: 68px;
+  --header-h: 60px;
+  --radius: 16px;
+  --shadow: 0 4px 24px rgba(26,115,232,0.10);
+}
+html, body { height: 100%; overflow: hidden; background: var(--bg); font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif; color: var(--text); }
+
+/* ===== LOADING OVERLAY ===== */
+#loadingOverlay {
+  display: flex; position: fixed; inset: 0; background: linear-gradient(135deg,#1a73e8,#0d47a1);
+  z-index: 99999; flex-direction: column; justify-content: center; align-items: center; color: white;
+  transition: opacity 0.4s;
+}
+#loadingOverlay.hidden { opacity: 0; pointer-events: none; }
+.spinner { width: 46px; height: 46px; border: 4px solid rgba(255,255,255,0.25); border-top-color: #fff; border-radius: 50%; animation: spin 0.9s linear infinite; margin-bottom: 18px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-title { font-size: 22px; font-weight: 900; letter-spacing: 2px; }
+.loading-sub { font-size: 13px; opacity: 0.7; margin-top: 6px; }
+
+/* ===== LOGIN SCREEN ===== */
+#loginScreen {
+  display: none; position: fixed; inset: 0; background: linear-gradient(160deg, #1a73e8 0%, #0d47a1 40%, #1e293b 100%);
+  z-index: 9999; justify-content: center; align-items: center; flex-direction: column;
+  padding: 30px;
+}
+#loginScreen.active { display: flex; }
+.login-logo {
+  width: 80px; height: 80px; background: rgba(255,255,255,0.15); border-radius: 24px;
+  display: flex; align-items: center; justify-content: center; font-size: 40px; margin-bottom: 18px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.2); backdrop-filter: blur(10px);
+}
+.login-title { color: white; font-size: 26px; font-weight: 900; letter-spacing: 2px; margin-bottom: 4px; }
+.login-sub { color: rgba(255,255,255,0.65); font-size: 13px; margin-bottom: 36px; }
+.login-card {
+  background: rgba(255,255,255,0.10); backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.20); border-radius: 24px;
+  padding: 30px; width: 100%; max-width: 380px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+.login-field { margin-bottom: 16px; }
+.login-field label { display: block; color: rgba(255,255,255,0.8); font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+.login-field input {
+  width: 100%; padding: 14px 16px; border-radius: 12px; border: 1.5px solid rgba(255,255,255,0.25);
+  background: rgba(255,255,255,0.12); color: white; font-size: 15px; outline: none;
+  transition: border-color 0.2s;
+}
+.login-field input::placeholder { color: rgba(255,255,255,0.4); }
+.login-field input:focus { border-color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.18); }
+.login-btn {
+  width: 100%; padding: 15px; background: white; color: #1a73e8; border: none; border-radius: 12px;
+  font-size: 16px; font-weight: 900; cursor: pointer; margin-top: 8px; letter-spacing: 1px;
+  transition: transform 0.15s, box-shadow 0.15s;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+}
+.login-btn:active { transform: scale(0.98); }
+.login-error { color: #ff6b6b; font-size: 13px; text-align: center; margin-top: 12px; min-height: 20px; font-weight: 600; }
+
+/* ===== APP SHELL ===== */
+#appShell { display: none; height: 100vh; flex-direction: column; }
+#appShell.active { display: flex; }
+
+/* ===== TOP HEADER ===== */
+.top-header {
+  height: var(--header-h); background: var(--primary); color: white;
+  display: flex; align-items: center; padding: 0 18px; gap: 12px;
+  box-shadow: 0 2px 12px rgba(26,115,232,0.3); flex-shrink: 0; position: relative; z-index: 100;
+}
+.header-avatar {
+  width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,0.25);
+  display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;
+}
+.header-info { flex: 1; }
+.header-name { font-size: 15px; font-weight: 800; }
+.header-role { font-size: 11px; opacity: 0.75; }
+.header-store { background: rgba(255,255,255,0.2); border-radius: 8px; padding: 4px 10px; font-size: 12px; font-weight: 700; }
+.header-logout { background: none; border: 1px solid rgba(255,255,255,0.4); color: white; border-radius: 8px; padding: 6px 12px; font-size: 12px; cursor: pointer; font-weight: 600; }
+
+/* ===== PAGE CONTAINER ===== */
+.page-container {
+  flex: 1; overflow-y: auto; padding: 16px 16px calc(var(--nav-h) + 16px);
+  scroll-behavior: smooth;
+}
+
+/* ===== PAGES ===== */
+.page { display: none; animation: fadeIn 0.25s ease; }
+.page.active { display: block; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ===== CARDS ===== */
+.card {
+  background: var(--card); border-radius: var(--radius); padding: 18px;
+  box-shadow: var(--shadow); margin-bottom: 14px; border: 1px solid var(--border);
+}
+.card-title { font-size: 13px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
+
+/* ===== GREETING BANNER ===== */
+.greeting-banner {
+  background: linear-gradient(135deg, #1a73e8, #0d47a1);
+  border-radius: var(--radius); padding: 22px 20px; margin-bottom: 14px; color: white;
+  position: relative; overflow: hidden;
+}
+.greeting-banner::before {
+  content: ''; position: absolute; right: -20px; top: -20px;
+  width: 120px; height: 120px; border-radius: 50%; background: rgba(255,255,255,0.08);
+}
+.greeting-banner::after {
+  content: ''; position: absolute; right: 30px; bottom: -30px;
+  width: 80px; height: 80px; border-radius: 50%; background: rgba(255,255,255,0.06);
+}
+.greeting-time { font-size: 12px; opacity: 0.75; margin-bottom: 4px; }
+.greeting-name { font-size: 22px; font-weight: 900; margin-bottom: 2px; }
+.greeting-desc { font-size: 13px; opacity: 0.8; }
+.greeting-badge {
+  display: inline-block; background: rgba(255,255,255,0.2); border-radius: 20px;
+  padding: 4px 12px; font-size: 12px; font-weight: 700; margin-top: 10px;
+}
+
+/* ===== STATS ROW ===== */
+.stats-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+.stat-card {
+  background: var(--card); border-radius: 14px; padding: 16px; text-align: center;
+  box-shadow: var(--shadow); border: 1px solid var(--border); cursor: pointer; transition: transform 0.15s;
+}
+.stat-card:active { transform: scale(0.97); }
+.stat-icon { font-size: 26px; margin-bottom: 6px; }
+.stat-val { font-size: 26px; font-weight: 900; color: var(--primary); line-height: 1; }
+.stat-label { font-size: 11px; color: var(--text-muted); margin-top: 4px; font-weight: 600; }
+
+/* ===== QUICK ACTIONS ===== */
+.quick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.quick-btn {
+  background: var(--card); border-radius: 14px; padding: 18px 14px; text-align: center;
+  border: 1.5px solid var(--border); cursor: pointer; transition: all 0.15s;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+}
+.quick-btn:active { transform: scale(0.96); box-shadow: none; }
+.quick-btn .q-icon { font-size: 28px; margin-bottom: 8px; }
+.quick-btn .q-label { font-size: 13px; font-weight: 700; color: var(--text); }
+.quick-btn .q-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.quick-btn.primary { background: linear-gradient(135deg,#1a73e8,#1557b0); border-color: transparent; }
+.quick-btn.primary .q-label, .quick-btn.primary .q-sub { color: white; }
+.quick-btn.green { background: linear-gradient(135deg,#34a853,#1e7e34); border-color: transparent; }
+.quick-btn.green .q-label, .quick-btn.green .q-sub { color: white; }
+
+/* ===== TODAY SCHEDULE ===== */
+.shift-item {
+  display: flex; align-items: center; gap: 12px; padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.shift-item:last-child { border-bottom: none; }
+.shift-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.shift-dot.morning { background: #1a73e8; }
+.shift-dot.night { background: #e67e22; }
+.shift-dot.off { background: #ccc; }
+.shift-emp { font-weight: 700; font-size: 14px; flex: 1; }
+.shift-time { font-size: 13px; color: var(--text-muted); }
+.shift-badge {
+  padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;
+}
+.shift-badge.work { background: #e8f0fe; color: #1a73e8; }
+.shift-badge.off { background: #f1f3f4; color: #888; }
+
+/* ===== NOTICE / PENDING ===== */
+.notice-item {
+  display: flex; align-items: flex-start; gap: 10px; padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.notice-item:last-child { border-bottom: none; }
+.notice-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); flex-shrink: 0; margin-top: 5px; animation: pulse 1.5s infinite; }
+@keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+.notice-text { font-size: 13px; line-height: 1.5; }
+.notice-time { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+/* ===== BOTTOM NAV ===== */
+.bottom-nav {
+  position: fixed; bottom: 0; left: 0; right: 0; height: var(--nav-h);
+  background: white; border-top: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-around;
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.08); z-index: 1000;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.nav-item {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 3px; cursor: pointer; padding: 6px 0; border: none; background: none;
+  transition: transform 0.15s;
+}
+.nav-item:active { transform: scale(0.9); }
+.nav-icon { font-size: 22px; transition: transform 0.2s; }
+.nav-label { font-size: 10px; font-weight: 700; color: var(--text-muted); transition: color 0.2s; }
+.nav-item.active .nav-icon { transform: scale(1.15); }
+.nav-item.active .nav-label { color: var(--primary); }
+.nav-badge {
+  position: relative; display: inline-block;
+}
+.nav-badge::after {
+  content: attr(data-count); position: absolute; top: -4px; right: -8px;
+  background: var(--danger); color: white; font-size: 9px; font-weight: 900;
+  width: 16px; height: 16px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+}
+.nav-badge[data-count="0"]::after { display: none; }
+
+/* ===== MODAL (共用) ===== */
+.modal-overlay {
+  display: none; position: fixed; inset: 0; background: rgba(30,41,59,0.7);
+  z-index: 5000; justify-content: center; align-items: flex-end;
+  backdrop-filter: blur(4px);
+}
+.modal-overlay.active { display: flex; }
+.modal-box {
+  background: white; border-radius: 24px 24px 0 0; width: 100%; max-width: 480px;
+  padding: 24px 24px 36px; animation: slideUp 0.3s cubic-bezier(0.34,1.56,0.64,1);
+  max-height: 90vh; overflow-y: auto;
+}
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.modal-handle { width: 40px; height: 4px; background: #ddd; border-radius: 2px; margin: 0 auto 18px; }
+.modal-title { font-size: 18px; font-weight: 900; margin-bottom: 6px; text-align: center; }
+.modal-sub { font-size: 13px; color: var(--text-muted); text-align: center; margin-bottom: 20px; }
+
+/* "新增中" modal */
+.wip-icon { font-size: 56px; text-align: center; margin-bottom: 12px; }
+.wip-title { font-size: 22px; font-weight: 900; text-align: center; color: var(--primary); margin-bottom: 8px; }
+.wip-desc { font-size: 14px; color: var(--text-muted); text-align: center; line-height: 1.6; }
+.wip-badge {
+  display: inline-block; background: #fff3e0; color: #e65100; border: 1.5px solid #ffcc80;
+  border-radius: 20px; padding: 6px 16px; font-size: 12px; font-weight: 800;
+  margin: 16px auto; display: block; width: fit-content;
+  animation: wip-blink 2s infinite;
+}
+@keyframes wip-blink { 0%,100%{opacity:1;} 50%{opacity:0.6;} }
+.close-btn {
+  width: 100%; padding: 14px; background: var(--primary); color: white; border: none;
+  border-radius: 12px; font-size: 15px; font-weight: 700; cursor: pointer; margin-top: 16px;
+}
+
+/* ===== EMPLOYEE PAGE (帳號密碼設定) ===== */
+.emp-list { }
+.emp-row {
+  background: var(--card); border-radius: 14px; padding: 14px 16px; margin-bottom: 10px;
+  border: 1.5px solid var(--border); display: flex; align-items: center; gap: 12px;
+}
+.emp-avatar {
+  width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(135deg,#1a73e8,#0d47a1);
+  display: flex; align-items: center; justify-content: center; color: white; font-size: 18px; font-weight: 900;
+  flex-shrink: 0;
+}
+.emp-info { flex: 1; }
+.emp-name { font-size: 15px; font-weight: 800; }
+.emp-role { font-size: 12px; color: var(--text-muted); }
+.emp-account { font-size: 11px; color: var(--accent); font-weight: 600; margin-top: 2px; }
+.emp-action-btn {
+  padding: 8px 14px; border-radius: 10px; border: 1.5px solid var(--primary); background: white;
+  color: var(--primary); font-size: 12px; font-weight: 700; cursor: pointer;
+}
+
+/* 帳號設定 modal */
+.form-field { margin-bottom: 14px; }
+.form-field label { display: block; font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 6px; }
+.form-field input, .form-field select {
+  width: 100%; padding: 12px 14px; border: 1.5px solid var(--border); border-radius: 10px;
+  font-size: 14px; outline: none; background: #f8fafc; transition: border-color 0.2s;
+}
+.form-field input:focus, .form-field select:focus { border-color: var(--primary); background: white; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.save-btn {
+  width: 100%; padding: 14px; background: var(--primary); color: white; border: none;
+  border-radius: 12px; font-size: 15px; font-weight: 700; cursor: pointer; margin-top: 8px;
+}
+.save-btn.green { background: var(--accent); }
+.cancel-btn {
+  width: 100%; padding: 12px; background: none; color: var(--text-muted); border: none;
+  font-size: 14px; cursor: pointer; margin-top: 6px;
+}
+
+/* ===== SECTION HEADER ===== */
+.section-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 12px;
+}
+.section-title { font-size: 15px; font-weight: 800; }
+.section-more { font-size: 12px; color: var(--primary); font-weight: 700; cursor: pointer; }
+
+/* ===== SCHEDULE PAGE ===== */
+.week-nav {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--card); border-radius: 14px; padding: 12px 16px;
+  margin-bottom: 14px; border: 1px solid var(--border);
+}
+.week-label { font-size: 14px; font-weight: 800; }
+.week-btn { background: none; border: 1.5px solid var(--border); border-radius: 8px; padding: 6px 14px; font-size: 13px; cursor: pointer; font-weight: 700; }
+
+/* ===== ROLES & COLORS ===== */
+.role-badge {
+  display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 10px; font-weight: 800;
+}
+.role-manager { background: #fce8e6; color: #c5221f; }
+.role-sub { background: #e8f0fe; color: #1a73e8; }
+.role-full { background: #e6f4ea; color: #137333; }
+.role-part { background: #fef7e0; color: #b45309; }
+
+/* ===== STORE SELECTOR (管理者) ===== */
+.store-tabs {
+  display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 14px;
+  scrollbar-width: none;
+}
+.store-tabs::-webkit-scrollbar { display: none; }
+.store-tab {
+  flex-shrink: 0; padding: 8px 18px; border-radius: 20px; font-size: 13px; font-weight: 700;
+  border: 1.5px solid var(--border); background: white; cursor: pointer; color: var(--text-muted);
+  transition: all 0.15s;
+}
+.store-tab.active { background: var(--primary); color: white; border-color: var(--primary); }
+
+/* ===== SKELETON / PLACEHOLDER ===== */
+.skeleton {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 8px;
+}
+@keyframes shimmer { 0%{background-position:200% 0;} 100%{background-position:-200% 0;} }
+
+/* ===== PROFILE PAGE ===== */
+.profile-header {
+  background: linear-gradient(135deg,#1a73e8,#0d47a1);
+  border-radius: var(--radius); padding: 24px; text-align: center; margin-bottom: 14px; color: white;
+}
+.profile-avatar {
+  width: 72px; height: 72px; border-radius: 50%; background: rgba(255,255,255,0.25);
+  display: flex; align-items: center; justify-content: center; font-size: 32px;
+  margin: 0 auto 12px; border: 3px solid rgba(255,255,255,0.5);
+}
+.profile-name { font-size: 20px; font-weight: 900; }
+.profile-role { font-size: 13px; opacity: 0.8; margin-top: 4px; }
+.profile-store { font-size: 12px; opacity: 0.7; margin-top: 2px; }
+
+.menu-list { background: var(--card); border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); }
+.menu-item {
+  display: flex; align-items: center; gap: 14px; padding: 16px 18px;
+  border-bottom: 1px solid var(--border); cursor: pointer;
+}
+.menu-item:last-child { border-bottom: none; }
+.menu-item-icon { font-size: 20px; width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.menu-item-text { flex: 1; }
+.menu-item-title { font-size: 14px; font-weight: 700; }
+.menu-item-sub { font-size: 12px; color: var(--text-muted); }
+.menu-item-arrow { color: #ccc; font-size: 16px; }
+
+/* ===== TOAST ===== */
+.toast {
+  position: fixed; bottom: calc(var(--nav-h) + 16px); left: 50%; transform: translateX(-50%) translateY(20px);
+  background: #1e293b; color: white; padding: 10px 20px; border-radius: 20px; font-size: 13px; font-weight: 600;
+  z-index: 9000; opacity: 0; transition: all 0.3s; pointer-events: none; white-space: nowrap;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ===== SCROLLBAR ===== */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #ddd; border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div id="loadingOverlay">
+  <div class="spinner"></div>
+  <div class="loading-title">美德管理系統</div>
+  <div class="loading-sub">連線雲端資料庫中...</div>
+</div>
+
+<!-- LOGIN SCREEN -->
+<div id="loginScreen">
+  <div class="login-logo">🏪</div>
+  <div class="login-title">美德管理系統</div>
+  <div class="login-sub">員工專屬登入入口</div>
+  <div class="login-card">
+    <div class="login-field">
+      <label>帳號</label>
+      <input type="text" id="loginUsername" placeholder="請輸入帳號" autocomplete="username">
+    </div>
+    <div class="login-field">
+      <label>密碼</label>
+      <input type="password" id="loginPassword" placeholder="請輸入密碼" autocomplete="current-password">
+    </div>
+    <button class="login-btn" onclick="doLogin()">登入</button>
+    <div class="login-error" id="loginError"></div>
+  </div>
+</div>
+
+<!-- APP SHELL -->
+<div id="appShell">
+
+  <!-- TOP HEADER -->
+  <div class="top-header">
+    <div class="header-avatar" id="headerAvatar">👤</div>
+    <div class="header-info">
+      <div class="header-name" id="headerName">載入中</div>
+      <div class="header-role" id="headerRole">--</div>
+    </div>
+    <div class="header-store" id="headerStore">--</div>
+    <button class="header-logout" onclick="doLogout()">登出</button>
+  </div>
+
+  <!-- PAGE CONTAINER -->
+  <div class="page-container">
+
+    <!-- ===== 首頁 PAGE ===== -->
+    <div class="page active" id="page-home">
+      <div class="greeting-banner">
+        <div class="greeting-time" id="greetingTime"></div>
+        <div class="greeting-name" id="greetingName">歡迎回來！</div>
+        <div class="greeting-desc" id="greetingDesc">今天也辛苦了</div>
+        <span class="greeting-badge" id="greetingBadge">🏪 載入中...</span>
+      </div>
+
+      <!-- 統計卡片 -->
+      <div class="stats-row">
+        <div class="stat-card" onclick="showWip('班表功能')">
+          <div class="stat-icon">📅</div>
+          <div class="stat-val" id="statThisWeek">--</div>
+          <div class="stat-label">本週排班天數</div>
+        </div>
+        <div class="stat-card" onclick="showWip('薪資功能')">
+          <div class="stat-icon">💰</div>
+          <div class="stat-val" id="statHours">--</div>
+          <div class="stat-label">本週工時 (h)</div>
+        </div>
+      </div>
+      <div class="stats-row">
+        <div class="stat-card" onclick="showWip('特休管理')">
+          <div class="stat-icon">🏖️</div>
+          <div class="stat-val" id="statLeave">--</div>
+          <div class="stat-label">剩餘特休 (天)</div>
+        </div>
+        <div class="stat-card" onclick="showWip('補休管理')">
+          <div class="stat-icon">🔄</div>
+          <div class="stat-val" id="statComp">--</div>
+          <div class="stat-label">補休餘額 (h)</div>
+        </div>
+      </div>
+
+      <!-- 快速功能 -->
+      <div class="card">
+        <div class="card-title">⚡ 快速功能</div>
+        <div class="quick-grid">
+          <div class="quick-btn primary" id="quickScheduleBtn" onclick="goToSchedule()">
+            <div class="q-icon">📋</div>
+            <div class="q-label">查閱班表</div>
+            <div class="q-sub">本週排班</div>
+          </div>
+          <div class="quick-btn green" onclick="goToEmployee()">
+            <div class="q-icon">👥</div>
+            <div class="q-label">人員管理</div>
+            <div class="q-sub" id="qSubEmployee">管理員工</div>
+          </div>
+          <div class="quick-btn" onclick="showWip('特休 / 補休申請')">
+            <div class="q-icon">📝</div>
+            <div class="q-label">申請假期</div>
+            <div class="q-sub">特休 / 補休</div>
+          </div>
+          <div class="quick-btn" id="quickSalaryBtn" onclick="showWip('薪資計算')">
+            <div class="q-icon">💵</div>
+            <div class="q-label">薪資試算</div>
+            <div class="q-sub">查看明細</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 今日班表 -->
+      <div class="card">
+        <div class="section-header">
+          <div class="section-title">📅 今日班表</div>
+          <div class="section-more" onclick="goToSchedule()">查看完整 →</div>
+        </div>
+        <div id="todayShiftList">
+          <div style="text-align:center; color:var(--text-muted); font-size:13px; padding:20px 0;">載入中...</div>
+        </div>
+      </div>
+
+      <!-- 待處理事項 (管理者才顯示) -->
+      <div class="card" id="pendingCard" style="display:none;">
+        <div class="section-header">
+          <div class="section-title">🔔 待處理事項</div>
+          <div class="section-more" id="pendingCount">0 件</div>
+        </div>
+        <div id="pendingList">
+          <div style="text-align:center; color:var(--text-muted); font-size:13px; padding:20px 0;">暫無待處理</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 班表 PAGE ===== -->
+    <div class="page" id="page-schedule">
+      <div class="card" style="text-align:center; padding:30px;">
+        <div style="font-size:48px; margin-bottom:12px;">🚧</div>
+        <div style="font-size:18px; font-weight:900; margin-bottom:8px;">班表管理</div>
+        <div style="font-size:13px; color:var(--text-muted); margin-bottom:20px;">請使用現有的排班系統</div>
+        <button onclick="window.open('index.html','_self')" style="background:var(--primary); color:white; border:none; border-radius:12px; padding:14px 32px; font-size:15px; font-weight:700; cursor:pointer; width:100%;">
+          🗓️ 前往排班系統
+        </button>
+        <button onclick="window.open('employee.html','_self')" style="background:var(--accent); color:white; border:none; border-radius:12px; padding:14px 32px; font-size:15px; font-weight:700; cursor:pointer; width:100%; margin-top:10px;">
+          🙋‍♀️ 員工畫休系統
+        </button>
+      </div>
+    </div>
+
+    <!-- ===== 申請 PAGE ===== -->
+    <div class="page" id="page-apply">
+      <div class="card" style="text-align:center; padding:40px 20px;">
+        <div class="wip-icon">🏗️</div>
+        <div class="wip-title">假期申請</div>
+        <div class="wip-desc">特休、補休、調班申請功能開發中，敬請期待！</div>
+        <div class="wip-badge">🔨 新增中</div>
+        <button class="close-btn" onclick="switchPage('home')">返回首頁</button>
+      </div>
+    </div>
+
+    <!-- ===== 薪資 PAGE ===== -->
+    <div class="page" id="page-salary">
+      <div class="card" style="text-align:center; padding:40px 20px;">
+        <div class="wip-icon">💹</div>
+        <div class="wip-title">薪資計算</div>
+        <div class="wip-desc">薪資結構試算、月結明細、加班費計算功能開發中，敬請期待！</div>
+        <div class="wip-badge">🔨 新增中</div>
+        <button class="close-btn" onclick="switchPage('home')">返回首頁</button>
+      </div>
+    </div>
+
+    <!-- ===== 人員 PAGE ===== -->
+    <div class="page" id="page-employee">
+      <!-- 管理者視圖 -->
+      <div id="empAdminView" style="display:none;">
+        <div class="store-tabs" id="empStoreTabs"></div>
+        <div class="section-header">
+          <div class="section-title">👥 員工帳號管理</div>
+          <button onclick="showWip('新增員工')" style="background:var(--primary); color:white; border:none; border-radius:10px; padding:8px 14px; font-size:12px; font-weight:700; cursor:pointer;">＋ 新增</button>
+        </div>
+        <div id="empAdminList" class="emp-list"></div>
+      </div>
+
+      <!-- 員工視圖 -->
+      <div id="empSelfView" style="display:none;">
+        <div class="profile-header">
+          <div class="profile-avatar" id="selfAvatar">👤</div>
+          <div class="profile-name" id="selfName">--</div>
+          <div class="profile-role" id="selfRole">--</div>
+          <div class="profile-store" id="selfStore">--</div>
+        </div>
+        <div class="card">
+          <div class="card-title">🔐 帳號資訊</div>
+          <div style="font-size:14px; margin-bottom:8px;"><span style="color:var(--text-muted);">帳號：</span><strong id="selfUsername">--</strong></div>
+          <div style="font-size:14px;"><span style="color:var(--text-muted);">密碼：</span><strong>••••••</strong></div>
+          <button onclick="openChangePwd()" style="width:100%; margin-top:14px; padding:12px; background:none; border:1.5px solid var(--primary); color:var(--primary); border-radius:10px; font-size:14px; font-weight:700; cursor:pointer;">🔑 修改密碼</button>
+        </div>
+        <div class="card">
+          <div class="card-title">📋 基本資料</div>
+          <div style="font-size:14px; margin-bottom:8px;"><span style="color:var(--text-muted);">姓名：</span><strong id="selfNameInfo">--</strong></div>
+          <div style="font-size:14px; margin-bottom:8px;"><span style="color:var(--text-muted);">職位：</span><strong id="selfRoleInfo">--</strong></div>
+          <div style="font-size:14px;"><span style="color:var(--text-muted);">所屬門市：</span><strong id="selfStoreInfo">--</strong></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 個人 PAGE ===== -->
+    <div class="page" id="page-profile">
+      <div class="profile-header">
+        <div class="profile-avatar" id="profileAvatar">👤</div>
+        <div class="profile-name" id="profileName">--</div>
+        <div class="profile-role" id="profileRoleText">--</div>
+        <div class="profile-store" id="profileStoreText">--</div>
+      </div>
+
+      <div class="menu-list">
+        <div class="menu-item" onclick="switchPage('employee')">
+          <div class="menu-item-icon" style="background:#e8f0fe;">👤</div>
+          <div class="menu-item-text">
+            <div class="menu-item-title">帳號管理</div>
+            <div class="menu-item-sub" id="menuAccountSub">帳號資訊</div>
+          </div>
+          <div class="menu-item-arrow">›</div>
+        </div>
+        <div class="menu-item" onclick="showWip('特休管理')">
+          <div class="menu-item-icon" style="background:#e6f4ea;">🏖️</div>
+          <div class="menu-item-text">
+            <div class="menu-item-title">特休紀錄</div>
+            <div class="menu-item-sub">查看特休餘額與使用紀錄</div>
+          </div>
+          <div class="menu-item-arrow">›</div>
+        </div>
+        <div class="menu-item" onclick="showWip('補休管理')">
+          <div class="menu-item-icon" style="background:#fef7e0;">🔄</div>
+          <div class="menu-item-text">
+            <div class="menu-item-title">補休管理</div>
+            <div class="menu-item-sub">補休時數查詢與申請</div>
+          </div>
+          <div class="menu-item-arrow">›</div>
+        </div>
+        <div class="menu-item" onclick="showWip('劃休紀錄')">
+          <div class="menu-item-icon" style="background:#fce8e6;">📜</div>
+          <div class="menu-item-text">
+            <div class="menu-item-title">劃休紀錄</div>
+            <div class="menu-item-sub">畫休異動歷史紀錄</div>
+          </div>
+          <div class="menu-item-arrow">›</div>
+        </div>
+        <div class="menu-item" onclick="doLogout()">
+          <div class="menu-item-icon" style="background:#f1f3f4;">🚪</div>
+          <div class="menu-item-text">
+            <div class="menu-item-title" style="color:var(--danger);">登出</div>
+            <div class="menu-item-sub">退出目前帳號</div>
+          </div>
+          <div class="menu-item-arrow">›</div>
+        </div>
+        <!-- 系統管理者專屬 -->
+        <div class="menu-item" id="menuSysConfig" style="display:none;" onclick="showWip('系統基礎設定')">
+          <div class="menu-item-icon" style="background:#fce8e6;">⚙️</div>
+          <div class="menu-item-text">
+            <div class="menu-item-title" style="color:var(--danger);">系統基礎設定</div>
+            <div class="menu-item-sub">門市管理、班別設定</div>
+          </div>
+          <div class="menu-item-arrow">›</div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- end page-container -->
+
+  <!-- BOTTOM NAV -->
+  <nav class="bottom-nav">
+    <button class="nav-item active" data-page="home" onclick="switchPage('home')">
+      <span class="nav-icon">🏠</span>
+      <span class="nav-label">首頁</span>
+    </button>
+    <button class="nav-item" data-page="schedule" onclick="switchPage('schedule')">
+      <span class="nav-icon">📅</span>
+      <span class="nav-label">班表</span>
+    </button>
+    <button class="nav-item" data-page="apply" onclick="switchPage('apply')">
+      <div class="nav-badge" data-count="0" id="applyBadge">
+        <span class="nav-icon">📝</span>
+      </div>
+      <span class="nav-label">申請</span>
+    </button>
+    <button class="nav-item" data-page="salary" onclick="switchPage('salary')">
+      <span class="nav-icon">💰</span>
+      <span class="nav-label">薪資</span>
+    </button>
+    <button class="nav-item" data-page="profile" onclick="switchPage('profile')">
+      <span class="nav-icon">👤</span>
+      <span class="nav-label">個人</span>
+    </button>
+  </nav>
+
+</div><!-- end appShell -->
+
+<!-- ===== WIP MODAL ===== -->
+<div class="modal-overlay" id="wipModal" onclick="closeWip(event)">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="wip-icon">🚧</div>
+    <div class="wip-title" id="wipTitle">功能開發中</div>
+    <div class="wip-desc" id="wipDesc">此功能正在積極建置中，預計近期上線！</div>
+    <div class="wip-badge">🔨 新增中</div>
+    <button class="close-btn" onclick="closeModal('wipModal')">我知道了</button>
+  </div>
+</div>
+
+<!-- ===== 帳號設定 MODAL ===== -->
+<div class="modal-overlay" id="accountModal" onclick="closeWip(event)">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-title">🔐 帳號設定</div>
+    <div class="modal-sub" id="accountModalSub">設定員工的登入帳號與密碼</div>
+    <input type="hidden" id="accountEmpName">
+    <input type="hidden" id="accountEmpStore">
+    <div class="form-field">
+      <label>帳號（建議使用姓名拼音）</label>
+      <input type="text" id="accountUsername" placeholder="例如：yuanyuan">
+    </div>
+    <div class="form-field">
+      <label>新密碼</label>
+      <input type="password" id="accountPassword" placeholder="至少 4 位數字或英文">
+    </div>
+    <div class="form-field">
+      <label>確認密碼</label>
+      <input type="password" id="accountPasswordConfirm" placeholder="再輸入一次密碼">
+    </div>
+    <div class="form-field">
+      <label>權限等級</label>
+      <select id="accountPermission">
+        <option value="employee">員工（僅可查閱自己）</option>
+        <option value="manager">店長（可管理本店）</option>
+        <option value="admin">管理者（可管理全部門市）</option>
+      </select>
+    </div>
+    <button class="save-btn" onclick="saveAccountSetting()">💾 儲存帳號設定</button>
+    <button class="cancel-btn" onclick="closeModal('accountModal')">取消</button>
+  </div>
+</div>
+
+<!-- ===== 修改密碼 MODAL ===== -->
+<div class="modal-overlay" id="changePwdModal" onclick="closeWip(event)">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-title">🔑 修改密碼</div>
+    <div class="modal-sub">修改自己的登入密碼</div>
+    <div class="form-field">
+      <label>舊密碼</label>
+      <input type="password" id="oldPassword" placeholder="請輸入舊密碼">
+    </div>
+    <div class="form-field">
+      <label>新密碼</label>
+      <input type="password" id="newPassword" placeholder="至少 4 位數字或英文">
+    </div>
+    <div class="form-field">
+      <label>確認新密碼</label>
+      <input type="password" id="newPasswordConfirm" placeholder="再輸入一次新密碼">
+    </div>
+    <button class="save-btn green" onclick="doChangePwd()">✅ 確認修改</button>
+    <button class="cancel-btn" onclick="closeModal('changePwdModal')">取消</button>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ===== 全域狀態 =====
+let currentUser = null;  // { name, store, role, permission, username }
+let appConfig = { stores: [], shifts: [], shiftHours: {} };
+let empListCache = {};
+let weekRecordsCache = {};
+let currentEmpAdminStore = '';
+
+const ROLE_LABELS = { 工讀: '工讀生', 正職: '正職員工', 副店長: '副店長', 店長: '店長' };
+const PERM_LABELS = { employee: '👤 員工', manager: '🏪 店長', owner: '👑 加盟主', admin: '⚙️ 系統管理者' };
+
+// ===== 權限判斷核心 =====
+// 可看全部門市班表：店長、加盟主、系統管理者
+const canViewAllStores = () => ['manager','owner','admin'].includes(currentUser?.permission);
+// 可排班：店長(本店)、加盟主、系統管理者
+const canSchedule = () => ['manager','owner','admin'].includes(currentUser?.permission);
+// 可管理員工(新增/編輯)：店長(本店)、加盟主、系統管理者
+const canManageEmployee = () => ['manager','owner','admin'].includes(currentUser?.permission);
+// 可設定帳號密碼：店長(本店)、加盟主、系統管理者
+const canManageAccounts = () => ['manager','owner','admin'].includes(currentUser?.permission);
+// 可看全部門市薪資：加盟主、系統管理者
+const canViewAllSalary = () => ['owner','admin'].includes(currentUser?.permission);
+// 可看薪資結構設定：加盟主、系統管理者
+const canViewSalaryConfig = () => ['owner','admin'].includes(currentUser?.permission);
+// 可看跨店報表：加盟主、系統管理者
+const canViewReport = () => ['owner','admin'].includes(currentUser?.permission);
+// 可審核假期/跨店：店長(本店)、加盟主、系統管理者
+const canApprove = () => ['manager','owner','admin'].includes(currentUser?.permission);
+// 系統基礎設定 / 新增門市：只有系統管理者
+const canSysConfig = () => currentUser?.permission === 'admin';
+// 是否只能看本店（店長限制）
+const isManagerOnly = () => currentUser?.permission === 'manager';
+
+// ===== 工具函式 =====
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+function showLoading(txt) {
+  const ov = document.getElementById('loadingOverlay');
+  ov.querySelector('.loading-sub').textContent = txt || '載入中...';
+  ov.classList.remove('hidden');
+  ov.style.display = 'flex';
+}
+function hideLoading() {
+  const ov = document.getElementById('loadingOverlay');
+  ov.classList.add('hidden');
+  setTimeout(() => { ov.style.display = 'none'; }, 400);
+}
+
+function showWip(name) {
+  document.getElementById('wipTitle').textContent = name + ' 開發中';
+  document.getElementById('wipDesc').textContent = `「${name}」功能正在積極建置中，預計近期上線！敬請期待。`;
+  document.getElementById('wipModal').classList.add('active');
+}
+function closeWip(e) {
+  if(e.target.classList.contains('modal-overlay')) closeModal(e.target.id);
+}
+function closeModal(id) {
+  document.getElementById(id).classList.remove('active');
+}
+
+function getGreeting() {
+  const h = new Date().getHours();
+  if(h < 6) return { greet: '深夜辛苦了', icon: '🌙' };
+  if(h < 12) return { greet: '早安，今天也加油！', icon: '🌅' };
+  if(h < 18) return { greet: '午安，保持精神！', icon: '☀️' };
+  return { greet: '晚上好，辛苦了！', icon: '🌆' };
+}
+
+function getWeekDates(wStr) {
+  let p = wStr.split('-W'); let yr = parseInt(p[0]); let wk = parseInt(p[1]);
+  let d = new Date(yr, 0, 1); let day = d.getDay();
+  d.setDate(d.getDate() + (wk - 1) * 7);
+  let offset = day <= 4 ? 1 - day : 8 - day;
+  d.setDate(d.getDate() + offset);
+  let res = [];
+  for(let i=0; i<7; i++) { res.push(new Date(d)); d.setDate(d.getDate()+1); }
+  return res;
+}
+function getNextWeekString() {
+  let d = new Date(); d.setDate(d.getDate() + 7);
+  let yr = d.getFullYear(); let first = new Date(yr, 0, 1);
+  let w = Math.ceil((((d - first) / 86400000) + first.getDay() + 1) / 7);
+  return `${yr}-W${w < 10 ? '0'+w : w}`;
+}
+function getCurrentWeekString() {
+  let d = new Date();
+  let yr = d.getFullYear(); let first = new Date(yr, 0, 1);
+  let w = Math.ceil((((d - first) / 86400000) + first.getDay() + 1) / 7);
+  return `${yr}-W${w < 10 ? '0'+w : w}`;
+}
+const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
+function getTodayDayName() {
+  const jsDay = new Date().getDay(); // 0=Sun
+  const map = [null,'週一','週二','週三','週四','週五','週六','週日'];
+  return map[jsDay] || '週一';
+}
+
+// ===== 登入系統 =====
+window.onload = async () => {
+  showLoading('連線雲端資料庫中...');
+  try {
+    // 讀全域設定
+    const snap = await window.db.collection('settings').doc('globalConfig').get();
+    if(snap.exists) appConfig = snap.data();
+
+    // 嘗試讀取已登入 session
+    const savedUser = sessionStorage.getItem('currentUser');
+    if(savedUser) {
+      currentUser = JSON.parse(savedUser);
+      await initApp();
+    } else {
+      hideLoading();
+      document.getElementById('loginScreen').classList.add('active');
+    }
+  } catch(e) {
+    hideLoading();
+    document.getElementById('loginScreen').classList.add('active');
+    document.getElementById('loginError').textContent = '⚠️ 連線失敗：' + e.message;
+  }
+};
+
+async function doLogin() {
+  const username = document.getElementById('loginUsername').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const errEl = document.getElementById('loginError');
+  errEl.textContent = '';
+
+  if(!username || !password) { errEl.textContent = '請填寫帳號與密碼'; return; }
+
+  showLoading('驗證身分中...');
+  try {
+    // 搜尋 accounts collection
+    const snap = await window.db.collection('accounts').doc(username).get();
+    if(!snap.exists) {
+      hideLoading();
+      errEl.textContent = '❌ 帳號不存在';
+      return;
+    }
+    const acc = snap.data();
+    if(acc.password !== password) {
+      hideLoading();
+      errEl.textContent = '❌ 密碼錯誤';
+      return;
+    }
+    if(acc.disabled) {
+      hideLoading();
+      errEl.textContent = '⛔ 此帳號已被停用，請聯絡管理者';
+      return;
+    }
+
+    currentUser = {
+      username: username,
+      name: acc.empName,
+      store: acc.store,
+      role: acc.role,
+      permission: acc.permission || 'employee'
+    };
+    sessionStorage.setItem('currentUser', JSON.stringify(currentUser));
+    document.getElementById('loginScreen').classList.remove('active');
+    await initApp();
+  } catch(e) {
+    hideLoading();
+    errEl.textContent = '❌ 登入失敗：' + e.message;
+  }
+}
+
+function doLogout() {
+  if(!confirm('確定要登出嗎？')) return;
+  sessionStorage.removeItem('currentUser');
+  currentUser = null;
+  document.getElementById('appShell').classList.remove('active');
+  document.getElementById('loginScreen').classList.add('active');
+  document.getElementById('loginUsername').value = '';
+  document.getElementById('loginPassword').value = '';
+  document.getElementById('loginError').textContent = '';
+}
+
+// ===== 初始化 APP =====
+async function initApp() {
+  showLoading('載入個人資料中...');
+  // 更新 header
+  document.getElementById('headerName').textContent = currentUser.name;
+  document.getElementById('headerRole').textContent = (ROLE_LABELS[currentUser.role] || currentUser.role) + ' · ' + (PERM_LABELS[currentUser.permission] || '');
+  document.getElementById('headerStore').textContent = currentUser.store;
+  document.getElementById('headerAvatar').textContent = currentUser.name ? currentUser.name[0] : '👤';
+
+  // Greeting
+  const now = new Date();
+  const { greet, icon } = getGreeting();
+  document.getElementById('greetingTime').textContent = `${icon} ${now.getMonth()+1}月${now.getDate()}日 · ${['週日','週一','週二','週三','週四','週五','週六'][now.getDay()]}`;
+  document.getElementById('greetingName').textContent = `嗨，${currentUser.name}！`;
+  document.getElementById('greetingDesc').textContent = greet;
+  document.getElementById('greetingBadge').textContent = `🏪 ${currentUser.store}`;
+
+  // 個人頁面更新
+  document.getElementById('profileAvatar').textContent = currentUser.name ? currentUser.name[0] : '👤';
+  document.getElementById('profileName').textContent = currentUser.name;
+  document.getElementById('profileRoleText').textContent = ROLE_LABELS[currentUser.role] || currentUser.role;
+  document.getElementById('profileStoreText').textContent = currentUser.store;
+
+  // ===== 根據權限調整 UI =====
+
+  // 待處理事項（店長以上才顯示）
+  if(canApprove()) {
+    document.getElementById('pendingCard').style.display = 'block';
+  }
+
+  // 人員管理按鈕文字
+  if(canManageEmployee()) {
+    document.getElementById('qSubEmployee').textContent = canViewAllStores() ? '全門市帳號管理' : '本店帳號管理';
+    document.getElementById('menuAccountSub').textContent = '管理員工帳號密碼';
+  } else {
+    document.getElementById('qSubEmployee').textContent = '查看個人資料';
+    document.getElementById('menuAccountSub').textContent = '查看帳號 / 修改密碼';
+  }
+
+  // 班表按鈕文字
+  const scheduleBtn = document.getElementById('quickScheduleBtn');
+  if(scheduleBtn) {
+    if(canSchedule()) {
+      scheduleBtn.querySelector('.q-label').textContent = '排班管理';
+      scheduleBtn.querySelector('.q-sub').textContent = canViewAllStores() ? '全門市排班' : '本店排班';
+    } else {
+      scheduleBtn.querySelector('.q-label').textContent = '查閱班表';
+      scheduleBtn.querySelector('.q-sub').textContent = '本店本週';
+    }
+  }
+
+  // 薪資按鈕文字
+  const salaryBtn = document.getElementById('quickSalaryBtn');
+  if(salaryBtn) {
+    if(canViewAllSalary()) {
+      salaryBtn.querySelector('.q-sub').textContent = '全門市薪資';
+    } else if(canSchedule()) {
+      salaryBtn.querySelector('.q-sub').textContent = '本店薪資';
+    } else {
+      salaryBtn.querySelector('.q-sub').textContent = '我的薪資';
+    }
+  }
+
+  // Header 權限標籤顏色
+  const permColors = { employee: '#34a853', manager: '#1a73e8', owner: '#9334e6', admin: '#d93025' };
+  document.getElementById('headerStore').style.background = (permColors[currentUser.permission] || '#5f6368') + '55';
+
+  // 個人頁面：系統管理者顯示系統設定入口
+  const sysMenuItem = document.getElementById('menuSysConfig');
+  if(sysMenuItem) sysMenuItem.style.display = canSysConfig() ? 'flex' : 'none';
+
+  // 載入本週班表
+  await loadTodayShifts();
+  // 載入統計
+  loadStats();
+  // 若店長以上，載入待處理
+  if(canApprove()) loadPendingItems();
+
+  document.getElementById('appShell').classList.add('active');
+  hideLoading();
+}
+
+// ===== 今日班表 =====
+async function loadTodayShifts() {
+  const weekStr = getCurrentWeekString();
+  const today = getTodayDayName();
+  const store = currentUser.store;
+
+  try {
+    const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get();
+    const records = (snap.exists && snap.data().records) ? snap.data().records : [];
+
+    const todayRecs = records.filter(r => r.day === today && r.name !== '門市備註');
+    const el = document.getElementById('todayShiftList');
+
+    if(todayRecs.length === 0) {
+      el.innerHTML = `<div style="text-align:center; color:var(--text-muted); font-size:13px; padding:20px 0;">今日尚未排班</div>`;
+      return;
+    }
+
+    // 員工：看全店（自己那間）；店長以上：看全店（同左，但首頁只顯示本店）
+    // 全員都可以看本店今日班表，員工不只看自己
+    const display = todayRecs;
+
+    el.innerHTML = display.map(r => {
+      const isOff = (r.shift === '排休' || r.shift === '指休');
+      const dotClass = isOff ? 'off' : (parseInt(r.shift) >= 15 ? 'night' : 'morning');
+      return `<div class="shift-item">
+        <div class="shift-dot ${dotClass}"></div>
+        <div class="shift-emp">${r.name}</div>
+        <div class="shift-time">${isOff ? '休假' : (r.shift||'-')}</div>
+        <div class="shift-badge ${isOff?'off':'work'}">${isOff?'休':'上班'}</div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    document.getElementById('todayShiftList').innerHTML = `<div style="text-align:center; color:var(--text-muted); font-size:13px; padding:20px 0;">載入失敗</div>`;
+  }
+}
+
+// ===== 統計 =====
+async function loadStats() {
+  const weekStr = getCurrentWeekString();
+  const store = currentUser.store;
+  try {
+    const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get();
+    const records = (snap.exists && snap.data().records) ? snap.data().records : [];
+    const myRecs = records.filter(r => r.name === currentUser.name);
+    const workDays = myRecs.filter(r => r.shift && r.shift !== '排休' && r.shift !== '指休').length;
+    const totalHours = myRecs.reduce((s, r) => s + (parseFloat(r.actualHours)||0), 0);
+    document.getElementById('statThisWeek').textContent = workDays;
+    document.getElementById('statHours').textContent = Math.round(totalHours * 10) / 10;
+    document.getElementById('statLeave').textContent = '--';
+    document.getElementById('statComp').textContent = '--';
+  } catch(e) {}
+}
+
+// ===== 待處理事項（管理者）=====
+async function loadPendingItems() {
+  const weekStr = getCurrentWeekString();
+  const nextWeek = getNextWeekString();
+  const store = currentUser.store;
+  let pending = [];
+
+  try {
+    for(const wk of [weekStr, nextWeek]) {
+      const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(wk).get();
+      if(snap.exists && snap.data().records) {
+        snap.data().records.forEach(r => {
+          if(r.approvalStatus === 'pending' && r.supportEmp) {
+            pending.push({ type: '跨店支援待審', desc: `${r.name} 申請 ${r.day} ${r.shift} 支援` });
+          }
+          if(r.requestOff && r.shift && r.shift !== '排休' && r.shift !== '指休') {
+            pending.push({ type: '畫休衝突', desc: `${r.name} 在 ${r.day} 有畫休衝突` });
+          }
+        });
+      }
+    }
+  } catch(e) {}
+
+  document.getElementById('pendingCount').textContent = pending.length + ' 件';
+  const el = document.getElementById('pendingList');
+  if(pending.length === 0) {
+    el.innerHTML = `<div style="text-align:center; color:var(--text-muted); font-size:13px; padding:16px 0;">✅ 暫無待處理事項</div>`;
+  } else {
+    el.innerHTML = pending.map(p => `
+      <div class="notice-item">
+        <div class="notice-dot"></div>
+        <div>
+          <div class="notice-text"><strong>${p.type}</strong>：${p.desc}</div>
+        </div>
+      </div>`).join('');
+  }
+}
+
+// ===== 頁面切換 =====
+function switchPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById(`page-${name}`).classList.add('active');
+  document.querySelector(`[data-page="${name}"]`)?.classList.add('active');
+
+  if(name === 'employee') loadEmployeePage();
+  if(name === 'profile') loadProfilePage();
+}
+
+function goToSchedule() { switchPage('schedule'); }
+function goToEmployee() { switchPage('employee'); }
+
+// ===== 人員 / 帳號設定頁 =====
+async function loadEmployeePage() {
+  if(canManageEmployee()) {
+    document.getElementById('empAdminView').style.display = 'block';
+    document.getElementById('empSelfView').style.display = 'none';
+    // 店長只能看本店；加盟主/系統管理者可看全部
+    await loadEmpAdminList(currentUser.store);
+  } else {
+    document.getElementById('empAdminView').style.display = 'none';
+    document.getElementById('empSelfView').style.display = 'block';
+    loadSelfView();
+  }
+}
+
+async function loadEmpAdminList(store) {
+  currentEmpAdminStore = store;
+
+  // 門市 tabs：店長只顯示本店；加盟主/系統管理者顯示全部
+  const tabsEl = document.getElementById('empStoreTabs');
+  if(isManagerOnly()) {
+    tabsEl.innerHTML = `<div class="store-tab active">${store}</div>`;
+  } else {
+    tabsEl.innerHTML = (appConfig.stores || []).map(s =>
+      `<div class="store-tab ${s===store?'active':''}" onclick="loadEmpAdminList('${s}')">${s}</div>`
+    ).join('');
+  }
+
+  // 帳號設定權限：加盟主以上才能設定（店長也可以，依上面 canManageAccounts）
+  const showAccountBtn = canManageAccounts();
+
+  const listEl = document.getElementById('empAdminList');
+  listEl.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-muted);">載入中...</div>';
+
+  try {
+    const snap = await window.db.collection('stores').doc(store).collection('employees').get();
+    let emps = [];
+    snap.forEach(d => emps.push({id: d.id, ...d.data()}));
+    emps.sort((a,b) => (a.sortKey||0) - (b.sortKey||0));
+
+    // 同時查詢帳號資料
+    const accSnap = await window.db.collection('accounts').where('store','==',store).get();
+    const accounts = {};
+    accSnap.forEach(d => { accounts[d.data().empName] = { username: d.id, ...d.data() }; });
+
+    listEl.innerHTML = emps.map(emp => {
+      const acc = accounts[emp.id];
+      const roleClass = emp.role === '店長' ? 'role-manager' : emp.role === '副店長' ? 'role-sub' : emp.role === '正職' ? 'role-full' : 'role-part';
+      const initial = emp.id ? emp.id[0] : '?';
+      const actionBtn = showAccountBtn
+        ? `<button class="emp-action-btn" onclick="openAccountModal('${emp.id}','${store}')">${acc ? '編輯帳號' : '設定帳號'}</button>`
+        : `<span style="font-size:11px; color:var(--text-muted);">${acc ? '已設定' : '未設定'}</span>`;
+      return `<div class="emp-row">
+        <div class="emp-avatar">${initial}</div>
+        <div class="emp-info">
+          <div class="emp-name">${emp.id} <span class="role-badge ${roleClass}">${emp.role||''}</span></div>
+          <div class="emp-role">${emp.status === '離職' ? '⛔ 已離職' : '在職'}</div>
+          <div class="emp-account">${acc ? '🔐 帳號：' + acc.username + '　權限：' + (PERM_LABELS[acc.permission]||'👤 員工') : '⚠️ 尚未設定帳號'}</div>
+        </div>
+        ${actionBtn}
+      </div>`;
+    }).join('');
+  } catch(e) {
+    listEl.innerHTML = '<div style="text-align:center; padding:20px; color:var(--danger);">載入失敗：' + e.message + '</div>';
+  }
+}
+
+function loadSelfView() {
+  document.getElementById('selfAvatar').textContent = currentUser.name ? currentUser.name[0] : '👤';
+  document.getElementById('selfName').textContent = currentUser.name;
+  document.getElementById('selfRole').textContent = ROLE_LABELS[currentUser.role] || currentUser.role;
+  document.getElementById('selfStore').textContent = currentUser.store;
+  document.getElementById('selfUsername').textContent = currentUser.username;
+  document.getElementById('selfNameInfo').textContent = currentUser.name;
+  document.getElementById('selfRoleInfo').textContent = ROLE_LABELS[currentUser.role] || currentUser.role;
+  document.getElementById('selfStoreInfo').textContent = currentUser.store;
+}
+
+function loadProfilePage() {
+  document.getElementById('profileAvatar').textContent = currentUser.name ? currentUser.name[0] : '👤';
+  document.getElementById('profileName').textContent = currentUser.name;
+  document.getElementById('profileRoleText').textContent = (ROLE_LABELS[currentUser.role]||currentUser.role) + ' · ' + (PERM_LABELS[currentUser.permission]||'');
+  document.getElementById('profileStoreText').textContent = '🏪 ' + currentUser.store;
+}
+
+// ===== 帳號設定 MODAL =====
+async function openAccountModal(empName, store) {
+  document.getElementById('accountEmpName').value = empName;
+  document.getElementById('accountEmpStore').value = store;
+  document.getElementById('accountModalSub').textContent = `設定 ${empName} 的登入帳號與密碼`;
+  document.getElementById('accountPassword').value = '';
+  document.getElementById('accountPasswordConfirm').value = '';
+
+  // 依操作者權限決定可設定的 permission 選項
+  // 店長：只能設定 employee / manager（本店範圍）
+  // 加盟主：可設定 employee / manager / owner
+  // 系統管理者：可設定全部
+  const permSel = document.getElementById('accountPermission');
+  const p = currentUser.permission;
+  let opts = `<option value="employee">👤 員工</option>
+              <option value="manager">🏪 店長</option>`;
+  if(p === 'owner' || p === 'admin') opts += `<option value="owner">👑 加盟主</option>`;
+  if(p === 'admin') opts += `<option value="admin">⚙️ 系統管理者</option>`;
+  permSel.innerHTML = opts;
+
+  // 嘗試讀取現有帳號
+  try {
+    const snap = await window.db.collection('accounts').where('empName','==',empName).where('store','==',store).limit(1).get();
+    if(!snap.empty) {
+      const d = snap.docs[0];
+      document.getElementById('accountUsername').value = d.id;
+      permSel.value = d.data().permission || 'employee';
+    } else {
+      document.getElementById('accountUsername').value = '';
+      permSel.value = 'employee';
+    }
+  } catch(e) {}
+
+  document.getElementById('accountModal').classList.add('active');
+}
+
+async function saveAccountSetting() {
+  const empName = document.getElementById('accountEmpName').value;
+  const store = document.getElementById('accountEmpStore').value;
+  const username = document.getElementById('accountUsername').value.trim();
+  const pwd = document.getElementById('accountPassword').value;
+  const pwdConfirm = document.getElementById('accountPasswordConfirm').value;
+  const permission = document.getElementById('accountPermission').value;
+
+  if(!username) { showToast('⚠️ 請填寫帳號'); return; }
+  if(pwd && pwd !== pwdConfirm) { showToast('⚠️ 兩次密碼不一致'); return; }
+
+  showLoading('儲存帳號設定中...');
+  try {
+    // 先查是否已有此員工的舊帳號（不同 username）
+    const oldSnap = await window.db.collection('accounts').where('empName','==',empName).where('store','==',store).limit(1).get();
+
+    let updateData = {
+      empName: empName,
+      store: store,
+      permission: permission,
+      role: '', // 會從員工資料抓，這裡先留空
+    };
+
+    // 讀員工資料的 role
+    const empSnap = await window.db.collection('stores').doc(store).collection('employees').doc(empName).get();
+    if(empSnap.exists) updateData.role = empSnap.data().role || '';
+
+    if(pwd) updateData.password = pwd;
+
+    if(!oldSnap.empty && oldSnap.docs[0].id !== username) {
+      // 帳號名稱改了，先刪舊的
+      await window.db.collection('accounts').doc(oldSnap.docs[0].id).delete();
+    }
+
+    if(oldSnap.empty || pwd) {
+      // 新帳號 or 需要更新密碼
+      const existing = await window.db.collection('accounts').doc(username).get();
+      if(existing.exists && existing.data().empName !== empName) {
+        hideLoading();
+        showToast('❌ 此帳號名稱已被其他人使用');
+        return;
+      }
+    }
+
+    await window.db.collection('accounts').doc(username).set(updateData, { merge: true });
+    closeModal('accountModal');
+    hideLoading();
+    showToast(`✅ ${empName} 的帳號設定已儲存`);
+    await loadEmpAdminList(store);
+  } catch(e) {
+    hideLoading();
+    showToast('❌ 儲存失敗：' + e.message);
+  }
+}
+
+// ===== 修改密碼 =====
+function openChangePwd() {
+  document.getElementById('oldPassword').value = '';
+  document.getElementById('newPassword').value = '';
+  document.getElementById('newPasswordConfirm').value = '';
+  document.getElementById('changePwdModal').classList.add('active');
+}
+
+async function doChangePwd() {
+  const oldPwd = document.getElementById('oldPassword').value;
+  const newPwd = document.getElementById('newPassword').value;
+  const newPwdConfirm = document.getElementById('newPasswordConfirm').value;
+
+  if(!oldPwd || !newPwd) { showToast('⚠️ 請填寫所有欄位'); return; }
+  if(newPwd !== newPwdConfirm) { showToast('⚠️ 兩次新密碼不一致'); return; }
+  if(newPwd.length < 4) { showToast('⚠️ 密碼至少需要 4 個字元'); return; }
+
+  showLoading('驗證中...');
+  try {
+    const snap = await window.db.collection('accounts').doc(currentUser.username).get();
+    if(!snap.exists || snap.data().password !== oldPwd) {
+      hideLoading();
+      showToast('❌ 舊密碼錯誤');
+      return;
+    }
+    await window.db.collection('accounts').doc(currentUser.username).update({ password: newPwd });
+    closeModal('changePwdModal');
+    hideLoading();
+    showToast('✅ 密碼修改成功');
+  } catch(e) {
+    hideLoading();
+    showToast('❌ 修改失敗：' + e.message);
+  }
+}
+
+// ===== Enter 鍵登入 =====
+document.getElementById('loginPassword').addEventListener('keydown', (e) => {
+  if(e.key === 'Enter') doLogin();
+});
+document.getElementById('loginUsername').addEventListener('keydown', (e) => {
+  if(e.key === 'Enter') document.getElementById('loginPassword').focus();
+});
+</script>
+</body>
+</html>
