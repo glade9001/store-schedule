@@ -17,7 +17,6 @@
   };
   firebase.initializeApp(firebaseConfig);
   window.db = firebase.firestore();
-  window.db.settings({ experimentalForceLongPolling: true });
 </script>
 <style>
 /* ===== RESET & BASE ===== */
@@ -1024,9 +1023,24 @@ function getTodayDayName() {
 window.onload = async () => {
   showLoading('連線雲端資料庫中...');
   try {
-    // 讀全域設定
-    const snap = await window.db.collection('settings').doc('globalConfig').get();
-    if(snap.exists) appConfig = snap.data();
+    // 先讀 localStorage 快取
+    const cachedConfig = localStorage.getItem('appConfig');
+    if(cachedConfig) {
+      try { appConfig = JSON.parse(cachedConfig); } catch(e) {}
+    }
+    // 讀全域設定（加 timeout）
+    try {
+      const snap = await Promise.race([
+        window.db.collection('settings').doc('globalConfig').get(),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000))
+      ]);
+      if(snap.exists) {
+        appConfig = snap.data();
+        localStorage.setItem('appConfig', JSON.stringify(appConfig));
+      }
+    } catch(e) {
+      console.warn('設定讀取失敗，使用快取');
+    }
 
     // 嘗試讀取已登入 session
     const savedUser = sessionStorage.getItem('currentUser');
