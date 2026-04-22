@@ -1581,106 +1581,206 @@ async function openLogModal() {
   } catch(e) { el.innerHTML='讀取失敗'; }
 }
 
-// ===== 產圖 =====
+
+// ===== 共用產圖核心（黑白版）=====
+function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates) {
+  const ctx = canvas.getContext('2d');
+  const font = '"Microsoft JhengHei", "PingFang TC", sans-serif';
+  const W = 1400;
+  const nameColW = 160;
+  const dataColW = (W - nameColW) / 7;
+  const rowH = 100;
+  const headerH = 100;
+  const titleH = 200;
+  const numDataRows = emps.length + 1; // +備註列
+  const emptyRows = 5;
+  const H = titleH + headerH + (numDataRows + emptyRows) * rowH + 60;
+
+  canvas.width = W;
+  canvas.height = H;
+
+  // 白底
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, W, H);
+
+  // ===== 標題 =====
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#000';
+  ctx.font = `900 54px ${font}`;
+  ctx.fillText(`${store} 職員輪班表`, W / 2, 70);
+
+  ctx.font = `bold 26px ${font}`;
+  ctx.fillStyle = '#333';
+  const d0 = weekDates[0].split('/'), d6 = weekDates[6].split('/');
+  ctx.fillText(`${d0[0]} 月 ${d0[1]} 日  至  ${d6[0]} 月 ${d6[1]} 日`, W / 2, 140);
+
+  // ===== 表格外框 =====
+  const tableTop = titleH;
+  const tableH = headerH + (numDataRows + emptyRows) * rowH;
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(0, tableTop, W, tableH);
+
+  // 欄線
+  ctx.lineWidth = 2;
+  let x = nameColW;
+  ctx.beginPath(); ctx.moveTo(x, tableTop); ctx.lineTo(x, tableTop + tableH); ctx.stroke();
+  for (let i = 1; i < 7; i++) {
+    x = nameColW + i * dataColW;
+    ctx.beginPath(); ctx.moveTo(x, tableTop); ctx.lineTo(x, tableTop + tableH); ctx.stroke();
+  }
+
+  // 列線
+  let lineY = tableTop + headerH;
+  while (lineY < tableTop + tableH) {
+    ctx.beginPath(); ctx.moveTo(0, lineY); ctx.lineTo(W, lineY); ctx.stroke();
+    lineY += rowH;
+  }
+
+  // ===== 表頭 =====
+  // 左上角斜線格（月/日 ╲ 姓名）
+  ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(0, tableTop);
+  ctx.lineTo(nameColW, tableTop + headerH);
+  ctx.stroke();
+
+  ctx.fillStyle = '#000';
+  ctx.font = `bold 20px ${font}`;
+  ctx.textAlign = 'right';
+  ctx.fillText('月/日', nameColW - 10, tableTop + 28);
+  ctx.textAlign = 'left';
+  ctx.fillText('姓名', 10, tableTop + headerH - 22);
+
+  // 日期表頭
+  ctx.textAlign = 'center';
+  const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
+  for (let i = 0; i < 7; i++) {
+    const cx = nameColW + i * dataColW + dataColW / 2;
+    const cy = tableTop + headerH / 2;
+    ctx.fillStyle = '#000';
+    ctx.font = `900 24px ${font}`;
+    ctx.fillText(weekDates[i], cx, cy - 14);
+    ctx.font = `normal 20px ${font}`;
+    ctx.fillText(dayNames[i], cx, cy + 18);
+  }
+
+  // ===== 員工列 =====
+  let rowY = tableTop + headerH;
+  emps.forEach(emp => {
+    const midY = rowY + rowH / 2;
+    // 姓名
+    ctx.fillStyle = '#000';
+    ctx.font = `900 28px ${font}`;
+    ctx.textAlign = 'center';
+    if (!emp.name.startsWith('🆘')) {
+      ctx.fillText(emp.name, nameColW / 2, midY);
+    }
+
+    dayNames.forEach((day, i) => {
+      const cx = nameColW + i * dataColW + dataColW / 2;
+      let rec = records.find(r => r.name === emp.name && r.day === day) || {};
+      const shift = rec.shift || '';
+      const note = rec.note || '';
+      const loc = (rec.location && rec.location !== '本店') ? rec.location : '';
+      const hasSub = note || loc;
+      const textY = hasSub ? midY - 14 : midY;
+
+      if (shift === '指休') {
+        // 紅框「休」
+        ctx.strokeStyle = '#d93025'; ctx.lineWidth = 2.5;
+        const bw = 52, bh = 44;
+        const bx = cx - bw/2, by = textY - bh/2 - 4;
+        ctx.strokeRect(bx, by, bw, bh);
+        ctx.fillStyle = '#d93025';
+        ctx.font = `900 30px ${font}`;
+        ctx.fillText('休', cx, textY);
+      } else if (shift === '排休') {
+        // 普通「休」（黑色無框）
+        ctx.fillStyle = '#000';
+        ctx.font = `900 30px ${font}`;
+        ctx.fillText('休', cx, textY);
+      } else if (shift) {
+        ctx.fillStyle = '#000';
+        ctx.font = `900 28px ${font}`;
+        ctx.fillText(shift.replace('-', ' / '), cx, textY);
+      }
+
+      // 備註 or 地點
+      if (hasSub) {
+        if (loc) {
+          ctx.fillStyle = '#c0392b';
+          ctx.font = `bold 18px ${font}`;
+          ctx.fillText(loc, cx, midY + 20);
+        } else if (note) {
+          ctx.fillStyle = '#0077aa';
+          ctx.font = `bold 18px ${font}`;
+          ctx.fillText(note, cx, midY + 20);
+        }
+      }
+    });
+    rowY += rowH;
+  });
+
+  // ===== 備註列 =====
+  const noteY = rowY + rowH / 2;
+  ctx.fillStyle = '#000';
+  ctx.font = `900 24px ${font}`;
+  ctx.textAlign = 'center';
+  ctx.fillText('門市備註', nameColW / 2, noteY);
+  dayNames.forEach((day, i) => {
+    const rec = records.find(r => r.name === '門市備註' && r.day === day);
+    if (rec?.note) {
+      ctx.fillStyle = '#0077aa';
+      ctx.font = `bold 20px ${font}`;
+      ctx.fillText(rec.note, nameColW + i * dataColW + dataColW / 2, noteY);
+    }
+  });
+
+  // ===== 備注文字 =====
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#333';
+  ctx.font = `bold 19px ${font}`;
+  ctx.fillText('※每周五、六公佈下週排班表，若有變動者，請事先向店長反映，勿私自調動！', 10, H - 18);
+}
+
+// ===== 產圖（管理者用）=====
 function exportImage() {
   syncUIToMemory();
   showLoading('產生圖片中...');
-  setTimeout(()=>{
+  setTimeout(() => {
     try {
-      const store=document.getElementById('storeSelector').value;
-      const weekStr=document.getElementById('weekSelector').value;
-      const emps=[...appData.employees];
-      virtualRowNames.forEach(n=>emps.push({name:n,role:'待補'}));
+      const store = document.getElementById('storeSelector').value;
+      const weekStr = document.getElementById('weekSelector').value;
+      const emps = [...appData.employees];
+      virtualRowNames.forEach(n => emps.push({ name: n, role: '待補' }));
 
-      const canvas=document.createElement('canvas');
-      const ctx=canvas.getContext('2d');
-      const W=1400,colW=W/8,rowH=95,headerH=95;
-      const numRows=emps.length+1;
-      const startY=240;
-      const H=startY+headerH+numRows*rowH+5*rowH+80;
-      canvas.width=W; canvas.height=H;
-
-      ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H);
-      ctx.textAlign='center';
-
-      // 標題
-      ctx.font='900 52px "Microsoft JhengHei",sans-serif';
-      ctx.fillStyle='#1a73e8';
-      ctx.fillText(`${store} 職員輪班表`,W/2,90);
-      const d0=currentWeekDates[0].split('/'),d6=currentWeekDates[6].split('/');
-      ctx.font='bold 26px "Microsoft JhengHei",sans-serif';
-      ctx.fillStyle='#333';
-      ctx.fillText(`${d0[0]}月${d0[1]}日 至 ${d6[0]}月${d6[1]}日`,W/2,150);
-
-      // 框線
-      ctx.strokeStyle='#000'; ctx.lineWidth=2;
-      const tableW=W,tableH=headerH+(numRows+5)*rowH;
-      ctx.strokeRect(0,startY,tableW,tableH);
-      for(let i=1;i<8;i++){ctx.beginPath();ctx.moveTo(i*colW,startY);ctx.lineTo(i*colW,startY+tableH);ctx.stroke();}
-      let cy=startY+headerH;
-      while(cy<startY+tableH){ctx.beginPath();ctx.moveTo(0,cy);ctx.lineTo(tableW,cy);ctx.stroke();cy+=rowH;}
-
-      // 表頭
-      ctx.fillStyle='#1a73e8'; ctx.fillRect(0,startY,tableW,headerH);
-      ctx.fillStyle='white'; ctx.font='900 26px "Microsoft JhengHei",sans-serif';
-      ctx.fillText('姓名',colW/2,startY+headerH/2);
-      for(let i=0;i<7;i++){
-        const cx=(i+1)*colW+colW/2;
-        ctx.fillText(currentWeekDates[i],cx,startY+headerH/2-12);
-        ctx.font='normal 20px "Microsoft JhengHei",sans-serif';
-        ctx.fillText(dayNames[i],cx,startY+headerH/2+18);
-        ctx.font='900 26px "Microsoft JhengHei",sans-serif';
-      }
-
-      // 員工列
-      let rowY=startY+headerH;
-      emps.forEach(emp=>{
-        const midY=rowY+rowH/2;
-        ctx.fillStyle='#1e293b'; ctx.font='900 28px "Microsoft JhengHei",sans-serif';
-        if(!emp.name.startsWith('🆘')) ctx.fillText(emp.name,colW/2,midY);
-        dayNames.forEach((day,i)=>{
-          const cx=(i+1)*colW+colW/2;
-          let rec=appData.records.find(r=>r.name===emp.name&&r.day===day&&r.week===weekStr);
-          const supportOut=appData.allStoresRecords.find(r=>r.supportEmp===`${store}-${emp.name}`&&r.day===day&&r.week===weekStr&&r.approvalStatus==='approved');
-          if(supportOut) rec={shift:supportOut.shift,location:`支援${supportOut._store}`,note:supportOut.note,actualHours:supportOut.actualHours,isOT:supportOut.isOT};
-          if(!rec) rec={shift:'',location:'本店',note:'',actualHours:0};
-          const hasNote=rec.note||(rec.location&&rec.location!=='本店');
-          const textY=hasNote?midY-12:midY;
-          if(rec.shift==='指休'){ctx.fillStyle='#d93025';ctx.font='900 30px "Microsoft JhengHei",sans-serif';ctx.fillText('休',cx,textY);}
-          else if(rec.shift==='排休'){ctx.fillStyle='#64748b';ctx.font='900 30px "Microsoft JhengHei",sans-serif';ctx.fillText('休',cx,textY);}
-          else if(rec.shift){
-            ctx.fillStyle='#1e293b';ctx.font='900 30px "Microsoft JhengHei",sans-serif';
-            ctx.fillText(rec.shift.replace('-',' / '),cx,textY);
-          }
-          if(hasNote){
-            if(rec.location&&rec.location!=='本店'){ctx.fillStyle='#e67e22';ctx.font='bold 18px "Microsoft JhengHei",sans-serif';ctx.fillText(rec.location,cx,midY+16);}
-            else if(rec.note){ctx.fillStyle='#0088aa';ctx.font='bold 18px "Microsoft JhengHei",sans-serif';ctx.fillText(rec.note,cx,midY+16);}
-          }
-        });
-        rowY+=rowH;
+      // 跨店支援：把支援出去的班別替換
+      const processedRecords = appData.records.map(r => {
+        const supportOut = appData.allStoresRecords.find(sr =>
+          sr.supportEmp === `${store}-${r.name}` && sr.day === r.day &&
+          sr.week === weekStr && sr.approvalStatus === 'approved'
+        );
+        if (supportOut) return { ...r, shift: supportOut.shift, location: `支援${supportOut._store}`, note: supportOut.note };
+        return r;
       });
 
-      // 備註列
-      ctx.fillStyle='#1e293b';ctx.font='900 24px "Microsoft JhengHei",sans-serif';
-      ctx.fillText('門市備註',colW/2,rowY+rowH/2);
-      dayNames.forEach((day,i)=>{
-        const rec=appData.records.find(r=>r.name==='門市備註'&&r.day===day&&r.week===weekStr);
-        if(rec?.note){ctx.fillStyle='#0088aa';ctx.font='bold 20px "Microsoft JhengHei",sans-serif';ctx.fillText(rec.note,(i+1)*colW+colW/2,rowY+rowH/2);}
-      });
+      const canvas = document.createElement('canvas');
+      drawScheduleCanvas(canvas, store, weekStr, processedRecords, emps, currentWeekDates);
 
-      // 備注
-      ctx.textAlign='left';ctx.fillStyle='#333';ctx.font='bold 20px "Microsoft JhengHei",sans-serif';
-      ctx.fillText('※每周五、六公佈下週排班表，若有變動者，請事先向店長反映，勿私自調動！',10,H-20);
-
-      const img=document.getElementById('previewImg');
-      img.src=canvas.toDataURL('image/jpeg',0.95);
-      document.getElementById('downloadBtn').onclick=()=>{
-        const a=document.createElement('a');a.href=img.src;a.download=`${store}_班表_${weekStr}.jpg`;a.click();
+      const img = document.getElementById('previewImg');
+      img.src = canvas.toDataURL('image/jpeg', 0.95);
+      document.getElementById('downloadBtn').onclick = () => {
+        const a = document.createElement('a');
+        a.href = img.src;
+        a.download = `${store}_班表_${weekStr}.jpg`;
+        a.click();
       };
       openModal('imgModal');
       hideLoading();
-    } catch(e){ alert('產圖失敗：'+e); hideLoading(); }
-  },100);
+    } catch(e) { alert('產圖失敗：' + e); hideLoading(); }
+  }, 100);
 }
 </script>
 </body>
