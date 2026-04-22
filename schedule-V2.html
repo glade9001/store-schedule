@@ -17,7 +17,6 @@
   };
   firebase.initializeApp(firebaseConfig);
   window.db = firebase.firestore();
-  window.db.settings({ experimentalForceLongPolling: true });
 </script>
 <style>
 /* ===== RESET & BASE ===== */
@@ -615,8 +614,29 @@ window.onload = async () => {
 
   showLoading('載入系統設定...');
   try {
-    const snap = await window.db.collection('settings').doc('globalConfig').get();
-    if(snap.exists) appConfig = snap.data();
+    // 先用 localStorage 快取快速顯示，同時背景讀 Firebase
+    const cachedConfig = localStorage.getItem('appConfig');
+    if(cachedConfig) {
+      try { appConfig = JSON.parse(cachedConfig); } catch(e) {}
+    }
+
+    // 讀取設定（加 timeout 保護）
+    try {
+      const snap = await Promise.race([
+        window.db.collection('settings').doc('globalConfig').get(),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000))
+      ]);
+      if(snap.exists) {
+        appConfig = snap.data();
+        localStorage.setItem('appConfig', JSON.stringify(appConfig));
+      }
+    } catch(e) {
+      console.warn('設定讀取失敗，使用快取：', e.message);
+      // 若有快取就繼續，否則用預設
+      if(!appConfig.stores || appConfig.stores.length === 0) {
+        appConfig = { stores: [currentUser.store || '門市'], shifts: ['7-15','15-23','23-07','18-23','指休','排休'], shiftHours: {'7-15':8,'15-23':8,'23-07':8,'18-23':5} };
+      }
+    }
 
     // Header
     document.getElementById('headerStoreBadge').textContent = currentUser.store || '全門市';
@@ -808,114 +828,132 @@ async function fetchAllStoreData() {
 
   showLoading('讀取班表資料...');
   try {
-    // 只讀相關週次（本週±4週），避免讀取過多舊資料
-    const baseWeekNum = parseInt(weekStr.split('-W')[1]);
-    const baseYear = parseInt(weekStr.split('-W')[0]);
-    const relevantWeeks = new Set();
-    for(let i = -4; i <= 4; i++) {
-      let w = baseWeekNum + i, y = baseYear;
-      if(w < 1) { y--; w += 52; }
-      if(w > 52) { y++; w -= 52; }
-      relevantWeeks.add(`${y}-W${w < 10 ? '0'+w : w}`);
+    // 計算當月週次範圍（統計用）
+    const yr = parseInt(weekStr.split('-W')[0]);
+    const wk = parseInt(weekStr.split('-W')[1]);
+    const weekDatesArr = getWeekDates(weekStr);
+    const months = [...new Set(weekDatesArr.map(d => {
+      const p = d.split('/');
+      return `${yr}-${p[0].padStart(2,'0')}`;
+    }))];
+
+    // 收集當月所有週次
+    const monthWeeks = new Set([weekStr]);
+    // 往前掃最多8週找同月的
+    for(let i = 1; i <= 8; i++) {
+      let w2 = wk - i, y2 = yr;
+      if(w2 < 1) { y2--; w2 += 52; }
+      const ws = `${y2}-W${w2 < 10 ? '0'+w2 : w2}`;
+      const wDates = getWeekDates(ws);
+      const wMonths = [...new Set(wDates.map(d => { const p=d.split('/'); return `${y2}-${p[0].padStart(2,'0')}`; }))];
+      if(wMonths.some(m => months.includes(m))) monthWeeks.add(ws);
+      else break;
+    }
+    for(let i = 1; i <= 4; i++) {
+      let w2 = wk + i, y2 = yr;
+      if(w2 > 52) { y2++; w2 -= 52; }
+      const ws = `${y2}-W${w2 < 10 ? '0'+w2 : w2}`;
+      const wDates = getWeekDates(ws);
+      const wMonths = [...new Set(wDates.map(d => { const p=d.split('/'); return `${y2}-${p[0].padStart(2,'0')}`; }))];
+      if(wMonths.some(m => months.includes(m))) monthWeeks.add(ws);
     }
 
-    // 平行讀取全部門市
-    await Promise.all((appConfig.stores || []).map(async s => {
-      // 員工名單
-      const empSnap = await window.db.collection('stores').doc(s).collection('employees').get();
-      let emps = [];
-      empSnap.forEach(d => { if(d.data().status !== '離職') emps.push(d.id); });
-      appData.allStoresEmployees[s] = emps;
+    // 平行讀取：本店員工 + 本週班表 + 跨店支援（其他店本週）+ displayName + 班別設定
+    const [mainEmpSnap, mainWeekSnap, cfgSnap, accSnap] = await Promise.all([
+      window.db.collection('stores').doc(store).collection('employees').get(),
+      window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get(),
+      window.db.collection('stores').doc(store).collection('config').doc('shifts').get().catch(()=>null),
+      window.db.collection('account').where('store','==',store).get().catch(()=>null)
+    ]);
 
-      // 只讀相關週次的班表
-      await Promise.all([...relevantWeeks].map(async wk => {
-        try {
-          const docSnap = await window.db.collection('stores').doc(s).collection('weeks').doc(wk).get();
-          if(docSnap.exists && docSnap.data().records) {
-            docSnap.data().records.forEach(r => {
-              appData.allStoresRecords.push({ ...r, _store: s, week: wk });
-            });
-          }
-        } catch(e) {}
-      }));
-    }));
-
-    // 本店員工（含離職但本週有排班者）
-    const empSnap = await window.db.collection('stores').doc(store).collection('employees').get();
+    // 員工名單
     appData.employees = [];
-    const weekRecs = appData.allStoresRecords.filter(r => r._store === store && r.week === weekStr);
-    const scheduledNames = weekRecs.filter(r => r.shift || r.note || r.requestOff).map(r => r.name);
-    empSnap.forEach(d => {
-      if(d.data().status !== '離職' || scheduledNames.includes(d.id)) {
+    const mainWeekRecs = (mainWeekSnap.exists && mainWeekSnap.data().records) ? mainWeekSnap.data().records : [];
+    const scheduledNames = mainWeekRecs.filter(r => r.shift||r.note||r.requestOff).map(r=>r.name);
+    mainEmpSnap.forEach(d => {
+      if(d.data().status !== '離職' || scheduledNames.includes(d.id))
         appData.employees.push({ name: d.id, ...d.data() });
-      }
     });
-    appData.employees.sort((a,b) => (a.sortKey||0) - (b.sortKey||0));
+    appData.employees.sort((a,b) => (a.sortKey||0)-(b.sortKey||0));
 
-    // 建立 empName → displayName 對應表（從 account collection）
+    // displayName 對應表
     appData.displayNameMap = {};
-    try {
-      const accSnap = await window.db.collection('account').where('store','==',store).get();
-      accSnap.forEach(d => {
-        const acc = d.data();
-        if(acc.empName && acc.displayName) {
-          appData.displayNameMap[acc.empName] = acc.displayName;
-        }
-      });
-    } catch(e) { console.log('displayName 讀取失敗:', e); }
+    if(accSnap) accSnap.forEach(d => {
+      const acc = d.data();
+      if(acc.empName && acc.displayName) appData.displayNameMap[acc.empName] = acc.displayName;
+    });
 
+    // 班別設定
+    if(cfgSnap && cfgSnap.exists) {
+      const cfg = cfgSnap.data();
+      appConfig.shifts = cfg.shifts || appConfig.shifts;
+      appConfig.shiftHours = cfg.shiftHours || appConfig.shiftHours;
+      appConfig.quickNotes = cfg.quickNotes || appConfig.quickNotes;
+    }
+
+    // 讀取本店當月所有週次 + 其他店本週（跨店支援用）
+    appData.allStoresRecords = [];
+    const otherStores = (appConfig.stores||[]).filter(s => s !== store);
+
+    const allFetches = [];
+    // 本店當月週次
+    [...monthWeeks].forEach(wk => {
+      allFetches.push(
+        window.db.collection('stores').doc(store).collection('weeks').doc(wk).get()
+          .then(snap => { if(snap.exists && snap.data().records) snap.data().records.forEach(r => appData.allStoresRecords.push({...r,_store:store,week:wk})); })
+          .catch(()=>{})
+      );
+    });
+    // 其他店員工名單 + 本週班表（跨店支援用）
+    otherStores.forEach(s => {
+      allFetches.push(
+        window.db.collection('stores').doc(s).collection('employees').get()
+          .then(snap => { const emps=[]; snap.forEach(d=>{if(d.data().status!=='離職')emps.push(d.id);}); appData.allStoresEmployees[s]=emps; })
+          .catch(()=>{})
+      );
+      allFetches.push(
+        window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get()
+          .then(snap => { if(snap.exists && snap.data().records) snap.data().records.forEach(r => appData.allStoresRecords.push({...r,_store:s,week:weekStr})); })
+          .catch(()=>{})
+      );
+    });
+
+    await Promise.all(allFetches);
+
+    appData.allStoresEmployees[store] = appData.employees.map(e=>e.name);
     appData.records = appData.allStoresRecords.filter(r => r._store === store);
-    virtualRowNames = [...new Set(weekRecs.map(r=>r.name).filter(n => n && n.startsWith('🆘')))];
-
-    // 讀取門市班別設定
-    try {
-      const cfgSnap = await window.db.collection('stores').doc(store).collection('config').doc('shifts').get();
-      if(cfgSnap.exists) {
-        const cfg = cfgSnap.data();
-        appConfig.shifts = cfg.shifts || appConfig.shifts;
-        appConfig.shiftHours = cfg.shiftHours || appConfig.shiftHours;
-        appConfig.quickNotes = cfg.quickNotes || ['作帳','訂鮮食','訂捷盟','訂乳品18度C'];
-      }
-    } catch(e) {}
+    virtualRowNames = [...new Set(mainWeekRecs.map(r=>r.name).filter(n=>n&&n.startsWith('🆘')))];
 
     // 發布狀態
     await fetchPublishStatus(store, weekStr);
 
-    // 店長：更新發布按鈕可見性（只有本店可發布）
-    const pubBtn = document.getElementById('publishBtn');
-    if(pubBtn && currentUser.permission === 'manager') {
-      pubBtn.style.display = (store === currentUser.store) ? 'flex' : 'none';
-    }
-
-    renderSupportDropdown();
-    renderTable();
-    setSyncStatus('ok', '已同步');
-
-    // 店長看別家店時：隱藏發布按鈕、顯示唯讀提示
+    // 唯讀提示
     const curStore = document.getElementById('storeSelector').value;
     const isReadonlyStore = (currentUser.permission === 'manager' && curStore !== currentUser.store);
     const pubBtn = document.getElementById('publishBtn');
     if(pubBtn) pubBtn.style.display = isReadonlyStore ? 'none' : 'flex';
 
-    // 顯示唯讀提示
     let roBar = document.getElementById('readonlyBar');
     if(isReadonlyStore) {
       if(!roBar) {
         roBar = document.createElement('div');
         roBar.id = 'readonlyBar';
-        roBar.style.cssText = 'background:#fff3e0; color:#e65100; font-size:12px; font-weight:700; text-align:center; padding:6px; border-bottom:1px solid #ffcc80;';
-        roBar.textContent = `👁️ 目前查看 ${curStore}（唯讀，無法編輯）`;
+        roBar.style.cssText = 'background:#fff3e0;color:#e65100;font-size:12px;font-weight:700;text-align:center;padding:6px;border-bottom:1px solid #ffcc80;';
         document.getElementById('adminView').insertBefore(roBar, document.querySelector('.week-bar'));
-      } else {
-        roBar.textContent = `👁️ 目前查看 ${curStore}（唯讀，無法編輯）`;
-        roBar.style.display = 'block';
       }
+      roBar.textContent = `👁️ 目前查看 ${curStore}（唯讀，無法編輯）`;
+      roBar.style.display = 'block';
     } else {
       if(roBar) roBar.style.display = 'none';
     }
+
+    renderSupportDropdown();
+    renderTable();
+    setSyncStatus('ok', '已同步');
   } catch(e) {
     setSyncStatus('err', '同步失敗');
     showToast('❌ 讀取失敗：' + e.message);
+    console.error(e);
   }
   hideLoading();
 }
