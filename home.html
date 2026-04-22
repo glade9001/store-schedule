@@ -509,7 +509,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       <div class="card">
         <div class="section-header">
           <div class="section-title">📅 今日班表</div>
-          <div class="section-more" onclick="goToSchedule()">查看完整 →</div>
+          <div class="section-more" onclick="window.location.href='schedule2.0.html'">查看完整 →</div>
         </div>
         <div id="todayShiftList">
           <div style="text-align:center; color:var(--text-muted); font-size:13px; padding:20px 0;">載入中...</div>
@@ -530,16 +530,9 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 
     <!-- ===== 班表 PAGE ===== -->
     <div class="page" id="page-schedule">
-      <div class="card" style="text-align:center; padding:30px;">
-        <div style="font-size:48px; margin-bottom:12px;">🚧</div>
-        <div style="font-size:18px; font-weight:900; margin-bottom:8px;">班表管理</div>
-        <div style="font-size:13px; color:var(--text-muted); margin-bottom:20px;">請使用現有的排班系統</div>
-        <button onclick="window.open('index.html','_self')" style="background:var(--primary); color:white; border:none; border-radius:12px; padding:14px 32px; font-size:15px; font-weight:700; cursor:pointer; width:100%;">
-          🗓️ 前往排班系統
-        </button>
-        <button onclick="window.open('employee.html','_self')" style="background:var(--accent); color:white; border:none; border-radius:12px; padding:14px 32px; font-size:15px; font-weight:700; cursor:pointer; width:100%; margin-top:10px;">
-          🙋‍♀️ 員工畫休系統
-        </button>
+      <div style="text-align:center; padding:40px 20px;">
+        <div style="font-size:40px; margin-bottom:12px;">📅</div>
+        <div style="font-size:16px; font-weight:900; margin-bottom:8px;">正在跳轉到班表...</div>
       </div>
     </div>
 
@@ -670,7 +663,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       <span class="nav-icon">🏠</span>
       <span class="nav-label">首頁</span>
     </button>
-    <button class="nav-item" data-page="schedule" onclick="switchPage('schedule')">
+    <button class="nav-item" data-page="schedule" onclick="window.location.href='schedule2.0.html'">
       <span class="nav-icon">📅</span>
       <span class="nav-label">班表</span>
     </button>
@@ -1279,7 +1272,7 @@ function switchPage(name) {
   if(name === 'profile') loadProfilePage();
 }
 
-function goToSchedule() { switchPage('schedule'); }
+function goToSchedule() { window.location.href = 'schedule2.0.html'; }
 function goToEmployee() { switchPage('employee'); }
 
 // ===== 人員 / 帳號設定頁 =====
