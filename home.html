@@ -551,7 +551,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
         <div class="store-tabs" id="empStoreTabs"></div>
         <div class="section-header">
           <div class="section-title">👥 員工帳號管理</div>
-          <button onclick="showWip('新增員工')" style="background:var(--primary); color:white; border:none; border-radius:10px; padding:8px 14px; font-size:12px; font-weight:700; cursor:pointer;">＋ 新增</button>
+          <button onclick="openAddEmpModal()" style="background:var(--primary); color:white; border:none; border-radius:10px; padding:8px 14px; font-size:12px; font-weight:700; cursor:pointer;">＋ 新增員工</button>
         </div>
         <div id="empAdminList" class="emp-list"></div>
       </div>
@@ -684,6 +684,76 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 </div>
 
 <!-- ===== 帳號設定 MODAL ===== -->
+<!-- ===== 新增員工 MODAL ===== -->
+<div class="modal-overlay" id="addEmpModal" onclick="closeWip(event)">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-title">👤 新增員工</div>
+    <div class="modal-sub" id="addEmpStoreSub">新增員工並同時建立帳號</div>
+    <input type="hidden" id="addEmpStore">
+    <div class="form-field">
+      <label>排班系統名稱（顯示在班表上）</label>
+      <input type="text" id="addEmpSysName" placeholder="例如：楷岳">
+    </div>
+    <div class="form-field">
+      <label>顯示姓名（APP 顯示用）</label>
+      <input type="text" id="addEmpDisplayName" placeholder="例如：賴楷岳">
+    </div>
+    <div class="form-field">
+      <label>職稱</label>
+      <select id="addEmpRole">
+        <option value="工讀">工讀</option>
+        <option value="正職">正職</option>
+        <option value="店長">店長</option>
+        <option value="加盟主">加盟主</option>
+      </select>
+    </div>
+    <div class="form-field">
+      <label>時薪 / 月薪</label>
+      <input type="number" id="addEmpWage" placeholder="例如：183">
+    </div>
+    <div class="form-field">
+      <label>帳號（身分證字母 + 後5碼）</label>
+      <input type="text" id="addEmpUsername" maxlength="6" placeholder="例如：A56789"
+        style="text-transform:uppercase; letter-spacing:3px; font-size:16px; font-weight:900; text-align:center;"
+        oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'')">
+      <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">格式：1個英文字母 + 5碼數字</div>
+    </div>
+    <div class="form-field">
+      <label>密碼（建議用生日月日，例如 0101）</label>
+      <input type="password" id="addEmpPassword" placeholder="至少4碼">
+    </div>
+    <div class="form-field">
+      <label>權限等級</label>
+      <select id="addEmpPermission">
+        <option value="employee">👤 員工</option>
+        <option value="manager">🏪 店長</option>
+        <option value="owner">👑 加盟主</option>
+        <option value="admin">⚙️ 系統管理者</option>
+      </select>
+    </div>
+    <button class="save-btn" onclick="saveNewEmployee()">✅ 新增員工</button>
+    <button class="cancel-btn" onclick="closeModal('addEmpModal')">取消</button>
+  </div>
+</div>
+
+<!-- ===== 調店 MODAL ===== -->
+<div class="modal-overlay" id="transferModal" onclick="closeWip(event)">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-title">🏪 調店</div>
+    <div class="modal-sub" id="transferSub">選擇調往的門市</div>
+    <input type="hidden" id="transferEmpId">
+    <input type="hidden" id="transferFromStore">
+    <div class="form-field">
+      <label>調往門市</label>
+      <select id="transferToStore" style="width:100%; padding:12px; border:1.5px solid var(--border); border-radius:10px; font-size:14px;"></select>
+    </div>
+    <button class="save-btn" onclick="confirmTransfer()" style="background:var(--warn); color:white;">🏪 確認調店</button>
+    <button class="cancel-btn" onclick="closeModal('transferModal')">取消</button>
+  </div>
+</div>
+
 <div class="modal-overlay" id="accountModal" onclick="closeWip(event)">
   <div class="modal-box">
     <div class="modal-handle"></div>
@@ -1039,9 +1109,25 @@ async function loadTodayShifts() {
 }
 
 async function loadMySchedule() {
-  const store = currentUser.store;
   const empName = currentUser.empName;
-  if(!store || !empName) return;
+  // admin/owner: store=null，但仍有 empName → 從 account 讀取所屬門市
+  let store = currentUser.store;
+  if(!store && empName) {
+    // 嘗試從 account 找到對應的 store
+    try {
+      const accSnap = await window.db.collection('account')
+        .where('empName','==',empName).limit(1).get();
+      if(!accSnap.empty) store = accSnap.docs[0].data().store || null;
+    } catch(e) {}
+    // 仍找不到 → 用第一間門市
+    if(!store) store = appConfig.stores && appConfig.stores[0];
+  }
+  if(!store || !empName) {
+    document.getElementById('thisWeekShifts').innerHTML =
+      `<div style="text-align:center;color:var(--text-muted);font-size:13px;padding:10px 0;">管理帳號無排班資料</div>`;
+    document.getElementById('nextWeekShifts').innerHTML = '';
+    return;
+  }
 
   const thisWeek = getCurrentWeekString();
   const nextWeek = getNextWeekString();
@@ -1327,17 +1413,37 @@ async function loadEmpAdminList(store) {
 
     listEl.innerHTML = emps.map(emp => {
       const acc = accounts[emp.id];
-      const roleClass = emp.role === '店長' ? 'role-manager' : emp.role === '副店長' ? 'role-sub' : emp.role === '正職' ? 'role-full' : 'role-part';
-      const initial = emp.id ? emp.id[0] : '?';
+      const dispName = acc?.displayName || emp.id;
+      const roleClass = emp.role === '店長' ? 'role-manager' : emp.role === '正職' ? 'role-full' : 'role-part';
+      const initial = dispName ? dispName[0] : '?';
+      const isRetired = emp.status === '離職';
       const actionBtn = showAccountBtn
-        ? `<button class="emp-action-btn" onclick="openAccountModal('${emp.id}','${store}')">${acc ? '編輯帳號' : '設定帳號'}</button>`
+        ? `<button class="emp-action-btn" onclick="openAccountModal('${emp.id}','${store}')">${acc ? '編輯' : '設定帳號'}</button>`
         : `<span style="font-size:11px; color:var(--text-muted);">${acc ? '已設定' : '未設定'}</span>`;
-      return `<div class="emp-row">
-        <div class="emp-avatar">${initial}</div>
-        <div class="emp-info">
-          <div class="emp-name">${emp.id} <span class="role-badge ${roleClass}">${emp.role||''}</span></div>
-          <div class="emp-role">${emp.status === '離職' ? '⛔ 已離職' : '在職'}</div>
-          <div class="emp-account">${acc ? '🔐 帳號：' + acc.username + '　權限：' + (PERM_LABELS[acc.permission]||'👤 員工') : '⚠️ 尚未設定帳號'}</div>
+      const moreBtn = showAccountBtn ? `
+        <div style="display:flex; gap:6px; margin-top:6px;">
+          <button onclick="toggleRetire('${emp.id}','${store}',${isRetired},'${dispName}')"
+            style="padding:4px 10px; border-radius:6px; border:1px solid ${isRetired?'var(--accent)':'var(--danger)'}; background:white; color:${isRetired?'var(--accent)':'var(--danger)'}; font-size:11px; font-weight:700; cursor:pointer;">
+            ${isRetired ? '✅ 復職' : '⛔ 離職'}
+          </button>
+          <button onclick="openTransferModal('${emp.id}','${store}','${dispName}')"
+            style="padding:4px 10px; border-radius:6px; border:1px solid var(--primary); background:white; color:var(--primary); font-size:11px; font-weight:700; cursor:pointer;">
+            🏪 調店
+          </button>
+        </div>` : '';
+      return `<div class="emp-row" style="${isRetired?'opacity:0.6;':''}">
+        <div class="emp-avatar" style="background:linear-gradient(135deg,${isRetired?'#999,#666':'#1a73e8,#0d47a1'});">${initial}</div>
+        <div class="emp-info" style="flex:1;">
+          <div class="emp-name">
+            ${dispName}
+            ${dispName !== emp.id ? `<span style="font-size:11px;color:var(--text-muted);">(${emp.id})</span>` : ''}
+            <span class="role-badge ${roleClass}">${emp.role||''}</span>
+            ${isRetired ? '<span style="color:var(--danger);font-size:10px;font-weight:700;"> 已離職</span>' : ''}
+          </div>
+          <div class="emp-account" style="font-size:11px; color:var(--text-muted);">
+            ${acc ? `🔐 ${acc.username} · ${PERM_LABELS[acc.permission]||'👤 員工'}` : '⚠️ 尚未設定帳號'}
+          </div>
+          ${moreBtn}
         </div>
         ${actionBtn}
       </div>`;
@@ -1544,6 +1650,168 @@ async function doChangePwd() {
   } catch(e) {
     hideLoading();
     showToast('❌ 修改失敗：' + e.message);
+  }
+}
+
+// ===== 新增員工 =====
+function openAddEmpModal() {
+  const store = currentEmpAdminStore || currentUser.store || (appConfig.stores && appConfig.stores[0]);
+  document.getElementById('addEmpStore').value = store;
+  document.getElementById('addEmpStoreSub').textContent = `新增員工到「${store}」並建立帳號`;
+  document.getElementById('addEmpSysName').value = '';
+  document.getElementById('addEmpDisplayName').value = '';
+  document.getElementById('addEmpRole').value = '工讀';
+  document.getElementById('addEmpWage').value = '';
+  document.getElementById('addEmpUsername').value = '';
+  document.getElementById('addEmpPassword').value = '';
+  document.getElementById('addEmpPermission').value = 'employee';
+  // 依操作者權限過濾可設定的 permission
+  const p = currentUser.permission;
+  const permSel = document.getElementById('addEmpPermission');
+  let opts = `<option value="employee">👤 員工</option><option value="manager">🏪 店長</option>`;
+  if(p === 'owner' || p === 'admin') opts += `<option value="owner">👑 加盟主</option>`;
+  if(p === 'admin') opts += `<option value="admin">⚙️ 系統管理者</option>`;
+  permSel.innerHTML = opts;
+  document.getElementById('addEmpModal').classList.add('active');
+}
+
+async function saveNewEmployee() {
+  const store = document.getElementById('addEmpStore').value;
+  const sysName = document.getElementById('addEmpSysName').value.trim();
+  const displayName = document.getElementById('addEmpDisplayName').value.trim();
+  const role = document.getElementById('addEmpRole').value;
+  const wage = document.getElementById('addEmpWage').value;
+  const username = document.getElementById('addEmpUsername').value.trim().toUpperCase();
+  const password = document.getElementById('addEmpPassword').value;
+  const permission = document.getElementById('addEmpPermission').value;
+
+  if(!sysName) { showToast('⚠️ 請填寫排班系統名稱'); return; }
+  if(!displayName) { showToast('⚠️ 請填寫顯示姓名'); return; }
+  if(username && !/^[A-Z][0-9]{5}$/.test(username)) { showToast('⚠️ 帳號格式錯誤'); return; }
+  if(username && password.length < 4) { showToast('⚠️ 密碼至少4碼'); return; }
+
+  showLoading('新增員工中...');
+  try {
+    // 1. 取得現有員工數量作為 sortKey
+    const empSnap = await window.db.collection('stores').doc(store).collection('employees').get();
+    const sortKey = empSnap.size + 1;
+
+    // 2. 建立 employees 文件
+    await window.db.collection('stores').doc(store).collection('employees').doc(sysName).set({
+      role: role,
+      wage: parseFloat(wage) || 0,
+      status: '在職',
+      sortKey: sortKey
+    });
+
+    // 3. 若有填帳號，建立 account 文件
+    if(username && password) {
+      // 檢查帳號是否重複
+      const dupSnap = await window.db.collection('account').where('ID','==',username).limit(1).get();
+      if(!dupSnap.empty) {
+        hideLoading();
+        showToast('❌ 此帳號已被使用，員工已建立但帳號未建立');
+        closeModal('addEmpModal');
+        await loadEmpAdminList(store);
+        return;
+      }
+      const allAccSnap = await window.db.collection('account').get();
+      const nextNum = String(allAccSnap.size + 1).padStart(4, '0');
+      await window.db.collection('account').doc(nextNum).set({
+        ID: username,
+        displayName: displayName,
+        empName: sysName,
+        store: store,
+        role: role,
+        permission: permission,
+        password: password,
+        linked: true,
+        disabled: false
+      });
+    }
+
+    closeModal('addEmpModal');
+    hideLoading();
+    showToast(`✅ ${displayName} 已新增${username ? '，帳號已建立' : '，請之後設定帳號'}`);
+    await loadEmpAdminList(store);
+  } catch(e) {
+    hideLoading();
+    showToast('❌ 新增失敗：' + e.message);
+  }
+}
+
+// ===== 離職 / 復職 =====
+async function toggleRetire(empId, store, isRetired, dispName) {
+  const name = dispName || empId;
+  const action = isRetired ? '復職' : '離職';
+  if(!confirm(`確定將「${name}」標記為${action}？`)) return;
+  showLoading(`處理中...`);
+  try {
+    await window.db.collection('stores').doc(store).collection('employees').doc(empId).update({
+      status: isRetired ? '在職' : '離職'
+    });
+    showToast(`✅ ${name} 已標記${action}`);
+    await loadEmpAdminList(store);
+  } catch(e) {
+    showToast('❌ 失敗：' + e.message);
+  }
+  hideLoading();
+}
+
+// ===== 調店 =====
+function openTransferModal(empId, fromStore, dispName) {
+  document.getElementById('transferEmpId').value = empId;
+  document.getElementById('transferFromStore').value = fromStore;
+  const name = dispName || empId;
+  document.getElementById('transferSub').textContent = `將「${name}」從「${fromStore}」調往`;
+  const sel = document.getElementById('transferToStore');
+  sel.innerHTML = (appConfig.stores || [])
+    .filter(s => s !== fromStore)
+    .map(s => `<option value="${s}">${s}</option>`).join('');
+  document.getElementById('transferModal').classList.add('active');
+}
+
+async function confirmTransfer() {
+  const empId = document.getElementById('transferEmpId').value;
+  const fromStore = document.getElementById('transferFromStore').value;
+  const toStore = document.getElementById('transferToStore').value;
+  if(!toStore) { showToast('⚠️ 請選擇目標門市'); return; }
+  const sub = document.getElementById('transferSub').textContent;
+  const nameMatch = sub.match(/將「(.+)」從/);
+  const displayedName = nameMatch ? nameMatch[1] : empId;
+  if(!confirm(`確定將「${displayedName}」從「${fromStore}」調往「${toStore}」？
+原門市將標記為離職，新門市會建立員工資料。`)) return;
+
+  showLoading('調店處理中...');
+  try {
+    // 1. 讀取原員工資料
+    const empSnap = await window.db.collection('stores').doc(fromStore).collection('employees').doc(empId).get();
+    const empData = empSnap.data() || {};
+
+    // 2. 原門市標記離職
+    await window.db.collection('stores').doc(fromStore).collection('employees').doc(empId).update({ status: '離職' });
+
+    // 3. 新門市建立員工
+    const newEmpSnap = await window.db.collection('stores').doc(toStore).collection('employees').get();
+    await window.db.collection('stores').doc(toStore).collection('employees').doc(empId).set({
+      ...empData,
+      status: '在職',
+      sortKey: newEmpSnap.size + 1
+    });
+
+    // 4. 更新 account 的 store
+    const accSnap = await window.db.collection('account').where('empName','==',empId).where('store','==',fromStore).limit(1).get();
+    if(!accSnap.empty) {
+      await window.db.collection('account').doc(accSnap.docs[0].id).update({ store: toStore });
+    }
+
+    closeModal('transferModal');
+    hideLoading();
+    showToast(`✅ ${displayedName} 已調往 ${toStore}`);
+    await loadEmpAdminList(fromStore);
+  } catch(e) {
+    hideLoading();
+    showToast('❌ 調店失敗：' + e.message);
   }
 }
 
