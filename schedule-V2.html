@@ -605,7 +605,7 @@ window.onload = async () => {
   showLoading('驗證登入狀態...');
 
   // 從 localStorage 讀取登入資訊
-  const saved = localStorage.getItem('currentUser');
+  const saved = sessionStorage.getItem('currentUser');
   if(!saved) {
     window.location.href = 'home.html';
     return;
@@ -1011,16 +1011,23 @@ function empChangeWeek(offset) {
   if(wk > 52) { yr++; wk = 1; }
   const newWeekStr = `${yr}-W${wk < 10 ? '0'+wk : wk}`;
 
-  // 員工/店長：最多只能往前到上個月第一週
+  // 員工/店長：最多查到上個月（含跨月週）
   const perm = currentUser?.permission || 'employee';
   if(!['owner','admin'].includes(perm)) {
     const now = new Date();
-    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const limitYr = lastMonth.getFullYear();
-    const limitWk = getWeekNumber(lastMonth);
-    const newWkNum = yr * 100 + wk;
-    const limitNum = limitYr * 100 + limitWk;
-    if(newWkNum < limitNum) {
+    const limitMonth = now.getMonth() === 0
+      ? `${now.getFullYear()-1}-12`
+      : `${now.getFullYear()}-${String(now.getMonth()).padStart(2,'0')}`;
+
+    // 檢查該週是否有任何一天在上個月或更新
+    const newDates = getWeekDates(newWeekStr);
+    const newYr = newWeekStr.split('-W')[0];
+    const weekMonths = newDates.map(d => {
+      const mo = d.split('/')[0].padStart(2,'0');
+      return `${newYr}-${mo}`;
+    });
+    const hasValidMonth = weekMonths.some(m => m >= limitMonth);
+    if(!hasValidMonth) {
       showToast('⚠️ 最多只能查閱上個月的班表');
       return;
     }
