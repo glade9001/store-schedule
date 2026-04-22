@@ -98,11 +98,13 @@
   <h2>📅 門市排班神器 🚀</h2>
   <div id="syncStatus"><div class="dot"></div><span>✅ 所有變更已儲存</span></div>
   
-  <div class="controls">
+ <div class="controls">
     <select id="storeSelector" onchange="fetchAllStoreData()"></select>
     <button class="btn-nav" onclick="changeWeek(-1)">◀ 上週</button>
     <input type="week" id="weekSelector" onchange="fetchAllStoreData()">
     <button class="btn-nav" onclick="changeWeek(1)">下週 ▶</button>
+    
+    <button style="background: #17a2b8; color: white;" onclick="window.location.reload()">🔄 重新整理</button>
     
     <button class="btn-paint" onclick="togglePaintMode()">🖌️ 畫筆模式</button>
     
@@ -111,7 +113,8 @@
     <button class="btn-print" onclick="exportNativeImage()">📱 產圖 (A4)</button>
     <button class="btn-virtual" onclick="addVirtualRow()">➕ 待補</button>
     <button class="btn-manage" onclick="openEmpModal()">👥 人員管理</button>
-    <button class="btn-log" onclick="openLogModal()">📜 畫休紀錄</button>
+    
+    <button class="btn-log" onclick="openLogModal()" style="display: none;">📜 畫休紀錄</button>
   </div>
 
   <div id="paintToolbar" style="display:none; background:#e8f0fe; border:2px solid #1a73e8; border-radius:8px; padding:10px; margin-bottom:15px; text-align:center;">
