@@ -1,0 +1,1687 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>📅 班表管理</title>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyAmVwq-Wny1KMRGNSdOnBEJ_A-3HmTO-hM",
+    authDomain: "store-schedule-3b056.firebaseapp.com",
+    projectId: "store-schedule-3b056",
+    storageBucket: "store-schedule-3b056.firebasestorage.app",
+    messagingSenderId: "296522693619",
+    appId: "1:296522693619:web:f90ec5d666c7a4a5943086"
+  };
+  firebase.initializeApp(firebaseConfig);
+  window.db = firebase.firestore();
+  window.db.settings({ experimentalForceLongPolling: true });
+</script>
+<style>
+/* ===== RESET & BASE ===== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --primary: #1a73e8;
+  --primary-dark: #1557b0;
+  --accent: #34a853;
+  --danger: #d93025;
+  --warn: #f9ab00;
+  --night: #e67e22;
+  --purple: #9334e6;
+  --bg: #f0f4ff;
+  --card: #ffffff;
+  --text: #1e293b;
+  --text-muted: #64748b;
+  --border: #e2e8f0;
+  --nav-h: 68px;
+  --header-h: 56px;
+  --radius: 14px;
+  --shadow: 0 2px 16px rgba(26,115,232,0.10);
+}
+html, body { height: 100%; overflow: hidden; background: var(--bg); font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif; color: var(--text); }
+
+/* ===== LOADING ===== */
+#loadingOverlay {
+  display: flex; position: fixed; inset: 0; background: linear-gradient(135deg,#1a73e8,#0d47a1);
+  z-index: 99999; flex-direction: column; justify-content: center; align-items: center; color: white;
+  transition: opacity 0.4s;
+}
+#loadingOverlay.hidden { opacity: 0; pointer-events: none; }
+.spinner { width: 42px; height: 42px; border: 4px solid rgba(255,255,255,0.25); border-top-color: #fff; border-radius: 50%; animation: spin 0.9s linear infinite; margin-bottom: 14px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-title { font-size: 18px; font-weight: 900; }
+.loading-sub { font-size: 12px; opacity: 0.7; margin-top: 4px; }
+
+/* ===== TOP HEADER ===== */
+.top-header {
+  height: var(--header-h); background: var(--primary); color: white;
+  display: flex; align-items: center; padding: 0 14px; gap: 10px;
+  box-shadow: 0 2px 12px rgba(26,115,232,0.3); flex-shrink: 0; position: relative; z-index: 100;
+}
+.header-back { background: none; border: none; color: white; font-size: 20px; cursor: pointer; padding: 4px 8px; }
+.header-title { font-size: 16px; font-weight: 900; flex: 1; }
+.header-store-badge { background: rgba(255,255,255,0.2); border-radius: 8px; padding: 4px 10px; font-size: 12px; font-weight: 700; }
+.publish-btn {
+  background: var(--accent); color: white; border: none; border-radius: 8px;
+  padding: 6px 12px; font-size: 12px; font-weight: 800; cursor: pointer;
+  display: flex; align-items: center; gap: 4px;
+}
+.publish-btn.published { background: rgba(255,255,255,0.2); }
+
+/* ===== APP SHELL ===== */
+#appShell { display: none; height: 100vh; flex-direction: column; }
+#appShell.active { display: flex; }
+
+/* ===== MAIN CONTENT ===== */
+.main-content { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+
+/* ===== WEEK NAV BAR ===== */
+.week-bar {
+  background: white; border-bottom: 1px solid var(--border);
+  padding: 8px 12px; display: flex; align-items: center; gap: 8px;
+  flex-shrink: 0; flex-wrap: wrap;
+}
+.week-nav-btns { display: flex; align-items: center; gap: 6px; }
+.week-btn { background: #f1f3f4; border: none; border-radius: 8px; padding: 7px 12px; font-size: 13px; font-weight: 700; cursor: pointer; color: var(--text); }
+.week-btn:active { background: var(--border); }
+.week-input { border: 1.5px solid var(--border); border-radius: 8px; padding: 6px 10px; font-size: 13px; font-weight: 700; outline: none; background: #f8fafc; }
+.week-input:focus { border-color: var(--primary); }
+.store-select { border: 1.5px solid var(--border); border-radius: 8px; padding: 6px 10px; font-size: 13px; font-weight: 700; outline: none; background: #f8fafc; }
+.sync-status { font-size: 11px; font-weight: 600; color: var(--accent); margin-left: auto; display: flex; align-items: center; gap: 4px; }
+.sync-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.sync-status.syncing { color: var(--danger); }
+.sync-status.syncing .sync-dot { background: var(--danger); animation: blink 0.8s infinite; }
+@keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
+
+/* ===== TOOL BAR (管理者) ===== */
+.tool-bar {
+  background: white; border-bottom: 1px solid var(--border);
+  padding: 6px 12px; display: flex; align-items: center; gap: 6px;
+  flex-shrink: 0; flex-wrap: wrap;
+}
+.tool-btn { border: none; border-radius: 8px; padding: 7px 12px; font-size: 12px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+.tool-btn.paint { background: #fce4ec; color: #c2185b; }
+.tool-btn.paint.active { background: #c2185b; color: white; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2); }
+.tool-btn.undo { background: #f1f3f4; color: var(--text); }
+.tool-btn.save { background: var(--primary); color: white; }
+.tool-btn.img { background: var(--night); color: white; }
+.tool-btn.add { background: #fff3e0; color: #e65100; }
+.tool-btn.emp { background: #ede7f6; color: var(--purple); }
+.tool-btn.log { background: #e0f2f1; color: #00695c; }
+
+/* ===== PAINT TOOLBAR ===== */
+.paint-bar {
+  background: #e8f0fe; border-bottom: 2px solid var(--primary);
+  padding: 8px 12px; display: none; align-items: center; gap: 8px; flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.paint-bar.active { display: flex; }
+.paint-bar-label { font-size: 12px; font-weight: 800; color: var(--primary); }
+.paint-shift-btn {
+  padding: 6px 12px; border-radius: 8px; border: 1.5px solid var(--border);
+  background: white; font-size: 12px; font-weight: 700; cursor: pointer;
+  transition: all 0.15s;
+}
+.paint-shift-btn.active-paint { background: #ffd54f; border-color: #f9ab00; color: #5d4037; transform: scale(1.05); }
+.paint-shift-btn.off-shift { color: var(--danger); border-color: var(--danger); background: #fce8e6; }
+
+/* ===== SCHEDULE TABLE ===== */
+.table-wrap { flex: 1; overflow: auto; }
+table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 800px; user-select: none; }
+th, td { border-right: 1px solid #e8eaed; border-bottom: 1px solid #e8eaed; padding: 6px 4px; text-align: center; vertical-align: middle; }
+th { position: sticky; top: 0; z-index: 10; background: var(--primary); color: white; font-size: 13px; font-weight: 800; }
+.date-sub { display: block; font-size: 10px; font-weight: 400; opacity: 0.8; }
+td:first-child, th:first-child { position: sticky; left: 0; z-index: 11; background: #f8f9fa; border-right: 2px solid #dadce0; min-width: 80px; max-width: 90px; }
+th:first-child { background: #1557b0; z-index: 12; }
+.emp-cell { font-size: 13px; font-weight: 800; }
+.role-tag { display: block; font-size: 10px; font-weight: 600; color: var(--text-muted); }
+
+/* ===== CELL BUTTON ===== */
+.cell-btn {
+  width: 100%; min-height: 52px; border: 1px solid #f1f3f4; background: #fff;
+  border-radius: 6px; font-size: 14px; font-weight: 700; color: var(--text);
+  cursor: pointer; position: relative; transition: background 0.1s; line-height: 1.3; padding: 4px 2px;
+}
+.cell-btn:hover { background: #f8f9fa; }
+.cell-btn.readonly { cursor: default; }
+.cell-btn.readonly:hover { background: #fff; }
+.cell-btn.shift-morning { border-left: 4px solid var(--primary) !important; }
+.cell-btn.shift-night { border-left: 4px solid var(--night) !important; }
+.cell-btn.zhi-xiu { color: var(--danger) !important; border: 2px solid var(--danger) !important; background: #fce8e6 !important; }
+.cell-btn.pai-xiu { color: var(--text-muted) !important; background: #f1f3f4 !important; }
+.cell-btn.unfilled { background: #fff8e1 !important; border: 2px dashed var(--warn) !important; color: #e65100 !important; }
+.cell-btn.conflict { border: 2px solid var(--danger) !important; animation: conflict-blink 1.5s infinite; }
+.cell-btn.req-off-pending { box-shadow: inset 0 0 0 2px var(--primary); }
+@keyframes conflict-blink { 0%,100%{border-color:var(--danger);} 50%{border-color:var(--warn);} }
+.ot-text { color: var(--danger); font-weight: 900; }
+.warn-tag { display: inline-block; background: #fce8e6; color: var(--danger); font-size: 10px; padding: 1px 4px; border-radius: 4px; margin-top: 2px; border: 1px solid var(--danger); }
+.req-tag { display: inline-block; background: #e8f0fe; color: var(--primary); font-size: 10px; padding: 1px 4px; border-radius: 4px; margin-top: 2px; border: 1px solid var(--primary); }
+.support-pending { display: block; background: #fffde7; border: 2px solid var(--warn); color: #e65100; font-size: 11px; font-weight: 700; border-radius: 6px; padding: 4px; margin-top: 4px; cursor: pointer; animation: pulse 1.5s infinite; }
+@keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.6;} }
+
+/* ===== TOTAL ROW ===== */
+.total-row { background: #e8f5e9; }
+.total-row td { font-size: 13px; font-weight: 800; color: #2e7d32; }
+.note-input { width: 100%; border: none; background: transparent; text-align: center; font-size: 12px; padding: 4px; min-height: 52px; }
+
+/* ===== MODAL ===== */
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(30,41,59,0.7); z-index: 5000; justify-content: center; align-items: flex-end; backdrop-filter: blur(3px); }
+.modal-overlay.active { display: flex; }
+.modal-box { background: white; border-radius: 22px 22px 0 0; width: 100%; max-width: 480px; padding: 20px 20px 32px; animation: slideUp 0.3s cubic-bezier(0.34,1.56,0.64,1); max-height: 88vh; overflow-y: auto; }
+@keyframes slideUp { from{transform:translateY(100%);} to{transform:translateY(0);} }
+.modal-handle { width: 38px; height: 4px; background: #ddd; border-radius: 2px; margin: 0 auto 16px; }
+.modal-title { font-size: 17px; font-weight: 900; margin-bottom: 14px; }
+.quick-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; margin-bottom: 14px; }
+.quick-shift-btn { padding: 10px 4px; border-radius: 8px; border: 1.5px solid var(--border); background: white; font-size: 13px; font-weight: 700; cursor: pointer; }
+.quick-shift-btn.off { color: var(--danger); border-color: var(--danger); background: #fce8e6; }
+.quick-shift-btn.clear { color: var(--text-muted); background: #f1f3f4; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+.form-field { margin-bottom: 12px; }
+.form-field label { display: block; font-size: 11px; font-weight: 700; color: var(--text-muted); margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.3px; }
+.form-field input, .form-field select { width: 100%; padding: 10px 12px; border: 1.5px solid var(--border); border-radius: 10px; font-size: 14px; outline: none; background: #f8fafc; }
+.form-field input:focus, .form-field select:focus { border-color: var(--primary); background: white; }
+.quick-note-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.qnote-btn { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--primary); background: #e8f0fe; color: var(--primary); font-size: 11px; font-weight: 700; cursor: pointer; }
+.modal-action { width: 100%; padding: 14px; background: var(--primary); color: white; border: none; border-radius: 12px; font-size: 15px; font-weight: 800; cursor: pointer; margin-top: 10px; }
+.modal-cancel { width: 100%; padding: 10px; background: none; border: none; color: var(--text-muted); font-size: 14px; cursor: pointer; margin-top: 6px; }
+.conflict-warn { background: #fce8e6; border: 1.5px solid var(--danger); color: var(--danger); border-radius: 8px; padding: 10px; font-size: 13px; font-weight: 700; margin-bottom: 12px; display: none; }
+
+/* ===== EMPLOYEE VIEW ===== */
+.emp-view { flex: 1; overflow-y: auto; padding: 14px 14px calc(var(--nav-h) + 14px); }
+.publish-info-card {
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  border-radius: var(--radius); padding: 14px 16px; margin-bottom: 14px; color: white;
+}
+.publish-info-title { font-size: 14px; font-weight: 800; margin-bottom: 2px; }
+.publish-info-time { font-size: 12px; opacity: 0.8; }
+.not-published-card {
+  background: white; border-radius: var(--radius); padding: 40px 20px; text-align: center;
+  border: 1px solid var(--border); margin-bottom: 14px;
+}
+.schedule-img-wrap { background: white; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); margin-bottom: 14px; }
+.schedule-img-wrap img { width: 100%; display: block; }
+.req-off-card { background: white; border-radius: var(--radius); padding: 16px; border: 1px solid var(--border); }
+.req-off-title { font-size: 14px; font-weight: 800; margin-bottom: 12px; }
+.req-day-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.req-day-row:last-child { border-bottom: none; }
+.req-day-name { font-size: 14px; font-weight: 700; flex: 1; }
+.req-day-shift { font-size: 12px; color: var(--text-muted); }
+.req-toggle { padding: 6px 14px; border-radius: 8px; border: 1.5px solid var(--border); background: white; font-size: 12px; font-weight: 700; cursor: pointer; }
+.req-toggle.active { background: var(--primary); color: white; border-color: var(--primary); }
+.locked-msg { font-size: 12px; color: var(--danger); font-weight: 600; text-align: center; padding: 8px; }
+
+/* ===== BOTTOM NAV ===== */
+.bottom-nav {
+  position: fixed; bottom: 0; left: 0; right: 0; height: var(--nav-h);
+  background: white; border-top: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-around;
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.08); z-index: 1000;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.nav-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; cursor: pointer; padding: 6px 0; border: none; background: none; transition: transform 0.15s; }
+.nav-item:active { transform: scale(0.9); }
+.nav-icon { font-size: 22px; }
+.nav-label { font-size: 10px; font-weight: 700; color: var(--text-muted); }
+.nav-item.active .nav-label { color: var(--primary); }
+
+/* ===== LOG MODAL ===== */
+.log-item { padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; line-height: 1.5; }
+.log-item:last-child { border-bottom: none; }
+
+/* ===== APPROVAL MODAL ===== */
+.approval-btns { display: flex; gap: 10px; margin-top: 16px; }
+.approve-yes { flex: 1; padding: 14px; background: var(--accent); color: white; border: none; border-radius: 10px; font-size: 15px; font-weight: 800; cursor: pointer; }
+.approve-no { flex: 1; padding: 14px; background: var(--danger); color: white; border: none; border-radius: 10px; font-size: 15px; font-weight: 800; cursor: pointer; }
+
+/* ===== TOAST ===== */
+.toast { position: fixed; bottom: calc(var(--nav-h) + 14px); left: 50%; transform: translateX(-50%) translateY(20px); background: #1e293b; color: white; padding: 10px 20px; border-radius: 20px; font-size: 13px; font-weight: 600; z-index: 9000; opacity: 0; transition: all 0.3s; pointer-events: none; white-space: nowrap; }
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ===== EXPORT CONTAINER ===== */
+#exportContainer { display: none; position: absolute; top: 0; left: 0; z-index: -10; width: 1400px; background: #fff; padding: 40px 60px; font-family: "Microsoft JhengHei", sans-serif; }
+#exportContainer table { width: 100%; border-collapse: collapse; border: 3px solid #000; table-layout: fixed; }
+#exportContainer th, #exportContainer td { border: 2px solid #000 !important; background: #fff !important; color: #000 !important; text-align: center; vertical-align: middle; }
+
+/* ===== RESPONSIVE ===== */
+::-webkit-scrollbar { width: 3px; height: 3px; }
+::-webkit-scrollbar-thumb { background: #ddd; border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div id="loadingOverlay">
+  <div class="spinner"></div>
+  <div class="loading-title">載入班表中...</div>
+  <div class="loading-sub" id="loadingSub">驗證登入狀態...</div>
+</div>
+
+<!-- APP SHELL -->
+<div id="appShell">
+
+  <!-- TOP HEADER -->
+  <div class="top-header">
+    <button class="header-back" onclick="window.location.href='home.html'">←</button>
+    <div class="header-title">📅 班表管理</div>
+    <div class="header-store-badge" id="headerStoreBadge">--</div>
+    <!-- 管理者/店長才顯示發布按鈕 -->
+    <button class="publish-btn" id="publishBtn" style="display:none;" onclick="togglePublish()">
+      <span id="publishBtnIcon">🚀</span>
+      <span id="publishBtnText">發布</span>
+    </button>
+  </div>
+
+  <!-- MAIN CONTENT -->
+  <div class="main-content" id="mainContent">
+
+    <!-- ===== 管理者/店長 視角 ===== -->
+    <div id="adminView" style="display:none; flex-direction:column; height:100%;">
+
+      <!-- 週次 + 門市選擇 -->
+      <div class="week-bar">
+        <div class="week-nav-btns">
+          <button class="week-btn" onclick="changeWeek(-1)">‹ 上週</button>
+          <input type="week" id="weekSelector" class="week-input" onchange="fetchAllStoreData()">
+          <button class="week-btn" onclick="changeWeek(1)">下週 ›</button>
+        </div>
+        <select id="storeSelector" class="store-select" onchange="fetchAllStoreData()"></select>
+        <div class="sync-status" id="syncStatus">
+          <div class="sync-dot"></div>
+          <span>已同步</span>
+        </div>
+      </div>
+
+      <!-- 工具列 -->
+      <div class="tool-bar">
+        <button class="tool-btn paint" id="paintModeBtn" onclick="togglePaintMode()">🖌️ 畫筆</button>
+        <button class="tool-btn undo" onclick="undoLastAction()">↩️ 上一步</button>
+        <button class="tool-btn save" onclick="saveScheduleData(true)">💾 儲存</button>
+        <button class="tool-btn img" onclick="exportImage()">📸 產圖</button>
+        <button class="tool-btn add" onclick="addVirtualRow()">➕ 待補</button>
+        <button class="tool-btn log" onclick="openLogModal()">📜 畫休紀錄</button>
+      </div>
+
+      <!-- 畫筆選色列 -->
+      <div class="paint-bar" id="paintBar">
+        <span class="paint-bar-label">🖌️ 選擇班別：</span>
+        <div id="paintBtns"></div>
+      </div>
+
+      <!-- 班表 -->
+      <div class="table-wrap">
+        <table id="scheduleTable">
+          <thead><tr id="headerRow">
+            <th>員工</th>
+            <th>週一</th><th>週二</th><th>週三</th><th>週四</th><th>週五</th><th>週六</th><th>週日</th>
+            <th>統計</th>
+          </tr></thead>
+          <tbody id="tableBody"></tbody>
+          <tfoot id="tableFoot" style="display:none;">
+            <tr class="total-row">
+              <td style="text-align:right; font-size:12px;">每日工時</td>
+              <td id="dt-0">0</td><td id="dt-1">0</td><td id="dt-2">0</td><td id="dt-3">0</td>
+              <td id="dt-4">0</td><td id="dt-5">0</td><td id="dt-6">0</td><td>-</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+
+    <!-- ===== 員工視角 ===== -->
+    <div id="empView" style="display:none;">
+      <div class="emp-view">
+
+        <!-- 發布狀態 -->
+        <div class="publish-info-card" id="publishInfoCard" style="display:none;">
+          <div class="publish-info-title" id="publishInfoTitle">📅 本週班表</div>
+          <div class="publish-info-time" id="publishInfoTime"></div>
+        </div>
+
+        <!-- 未發布提示 -->
+        <div class="not-published-card" id="notPublishedCard" style="display:none;">
+          <div style="font-size:40px; margin-bottom:10px;">🔒</div>
+          <div style="font-size:16px; font-weight:900; margin-bottom:6px;">班表尚未發布</div>
+          <div style="font-size:13px; color:var(--text-muted);">每週五 00:00 自動發布下週班表<br>或由店長手動發布</div>
+        </div>
+
+        <!-- 週次切換（員工版） -->
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+          <button class="week-btn" onclick="empChangeWeek(-1)" style="background:white; border:1.5px solid var(--border);">‹</button>
+          <div style="flex:1; text-align:center; font-size:14px; font-weight:800;" id="empWeekLabel">--</div>
+          <button class="week-btn" onclick="empChangeWeek(1)" style="background:white; border:1.5px solid var(--border);">›</button>
+        </div>
+
+        <!-- 班表圖片 -->
+        <div class="schedule-img-wrap" id="scheduleImgWrap" style="display:none;">
+          <canvas id="scheduleCanvas" style="width:100%; display:block;"></canvas>
+        </div>
+
+        <!-- 畫休申請 -->
+        <div class="req-off-card" id="reqOffCard" style="display:none;">
+          <div class="req-off-title">🙋 申請排休</div>
+          <div id="lockedMsg" class="locked-msg" style="display:none;">🔒 已過截止時間，無法修改</div>
+          <div id="reqDayList"></div>
+        </div>
+
+      </div>
+    </div>
+
+  </div><!-- end main-content -->
+
+  <!-- BOTTOM NAV -->
+  <nav class="bottom-nav">
+    <button class="nav-item" onclick="window.location.href='home.html'">
+      <span class="nav-icon">🏠</span>
+      <span class="nav-label">首頁</span>
+    </button>
+    <button class="nav-item active">
+      <span class="nav-icon">📅</span>
+      <span class="nav-label">班表</span>
+    </button>
+    <button class="nav-item" onclick="window.location.href='home.html#apply'">
+      <span class="nav-icon">📝</span>
+      <span class="nav-label">申請</span>
+    </button>
+    <button class="nav-item" onclick="window.location.href='home.html#salary'">
+      <span class="nav-icon">💰</span>
+      <span class="nav-label">薪資</span>
+    </button>
+    <button class="nav-item" onclick="window.location.href='home.html#profile'">
+      <span class="nav-icon">👤</span>
+      <span class="nav-label">個人</span>
+    </button>
+  </nav>
+
+</div><!-- end appShell -->
+
+<!-- ===== 班別設定 MODAL ===== -->
+<div class="modal-overlay" id="shiftModal">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="shiftModalTitle">設定班別</div>
+    <div class="conflict-warn" id="conflictWarn">⚠️ 員工已提出排休，確定要覆蓋嗎？</div>
+    <div class="quick-grid" id="quickShiftBtns"></div>
+    <div class="form-row">
+      <div class="form-field">
+        <label>班別名稱</label>
+        <input type="text" id="modalShift" oninput="autoFillHours()">
+      </div>
+      <div class="form-field">
+        <label>工時（自動）</label>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <input type="number" id="modalHours" step="0.5" style="flex:1;">
+          <label style="display:flex; align-items:center; gap:4px; font-size:13px; font-weight:700; color:var(--danger); cursor:pointer; white-space:nowrap;">
+            <input type="checkbox" id="modalOT" style="width:15px; height:15px;"> 加班
+          </label>
+        </div>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-field" id="modalLocGroup">
+        <label>工作地點</label>
+        <select id="modalLocation"></select>
+      </div>
+      <div class="form-field" id="modalSupportGroup" style="display:none; grid-column:1/span 2;">
+        <label>指派支援人員</label>
+        <div style="display:flex; gap:6px;">
+          <select id="modalSupportEmp" style="flex:1;" onchange="toggleApprovalVis()"></select>
+          <select id="modalApproval" style="display:none; width:110px;">
+            <option value="pending">⏳ 待審核</option>
+            <option value="approved">✅ 直接核准</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="form-field">
+      <label>備註</label>
+      <input type="text" id="modalNote">
+      <div class="quick-note-row">
+        <button class="qnote-btn" onclick="appendNote('作帳')">作帳</button>
+        <button class="qnote-btn" onclick="appendNote('訂鮮食')">訂鮮食</button>
+        <button class="qnote-btn" onclick="appendNote('訂捷盟')">訂捷盟</button>
+        <button class="qnote-btn" onclick="appendNote('訂乳品18度C')">訂乳品18度C</button>
+      </div>
+    </div>
+    <label id="clearReqWrap" style="display:none; align-items:center; gap:8px; background:#e8f0fe; padding:10px; border-radius:8px; cursor:pointer; margin-bottom:8px;">
+      <input type="checkbox" id="clearReqCheck" style="width:16px; height:16px;" checked>
+      <span style="font-size:13px; font-weight:700; color:var(--primary);">✅ 標記畫休已處理</span>
+    </label>
+    <button class="modal-action" onclick="applyShift()">確認套用</button>
+    <button class="modal-cancel" onclick="closeModal('shiftModal')">取消</button>
+  </div>
+</div>
+
+<!-- ===== 跨店支援審核 MODAL ===== -->
+<div class="modal-overlay" id="approvalModal">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-title">🔔 跨店支援審核</div>
+    <p id="approvalDesc" style="font-size:15px; line-height:1.7; margin-bottom:8px;"></p>
+    <input type="hidden" id="approvalData">
+    <div class="approval-btns">
+      <button class="approve-yes" onclick="handleApproval(true)">✅ 同意</button>
+      <button class="approve-no" onclick="handleApproval(false)">❌ 拒絕</button>
+    </div>
+    <button class="modal-cancel" onclick="closeModal('approvalModal')">取消</button>
+  </div>
+</div>
+
+<!-- ===== 畫休紀錄 MODAL ===== -->
+<div class="modal-overlay" id="logModal">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-title">📜 畫休異動紀錄</div>
+    <div id="logContent" style="max-height:360px; overflow-y:auto; background:#f8fafc; border-radius:8px; padding:12px;"></div>
+    <button class="modal-cancel" onclick="closeModal('logModal')">關閉</button>
+  </div>
+</div>
+
+<!-- ===== 圖片預覽 MODAL ===== -->
+<div class="modal-overlay" id="imgModal">
+  <div class="modal-box" style="padding-bottom:20px;">
+    <div class="modal-handle"></div>
+    <img id="previewImg" style="width:100%; border-radius:10px; margin-bottom:12px;">
+    <button class="modal-action" id="downloadBtn">⬇️ 下載班表圖片</button>
+    <button class="modal-cancel" onclick="closeModal('imgModal')">關閉</button>
+  </div>
+</div>
+
+<!-- EXPORT CONTAINER -->
+<div id="exportContainer">
+  <h1 id="exportTitle" style="text-align:center; font-size:44px; font-weight:900; margin-bottom:8px; letter-spacing:3px;"></h1>
+  <p id="exportDates" style="text-align:center; font-size:22px; color:#333; margin-bottom:20px; font-weight:bold;"></p>
+  <table id="exportTable"><thead id="exportHeader"></thead><tbody id="exportBody"></tbody></table>
+  <p style="text-align:left; font-size:18px; font-weight:bold; margin-top:12px;">※每周五、六公佈下週排班表，若有變動者，請事先向店長反映，勿私自調動！</p>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ===== 全域狀態 =====
+let currentUser = null;
+let appConfig = { stores: [], shifts: [], shiftHours: {} };
+let appData = { employees: [], records: [], allStoresRecords: [], allStoresEmployees: {} };
+let currentWeekDates = [];
+let virtualRowNames = [];
+let undoStack = [];
+let currentCell = null;
+let autoSaveTimer = null;
+let isPaintMode = false;
+let paintShift = '';
+let isDragging = false;
+// 員工視角週次
+let empWeekStr = '';
+
+const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
+
+// ===== 權限判斷 =====
+const canSchedule = () => ['manager','owner','admin'].includes(currentUser?.permission);
+const canScheduleStore = (store) => {
+  if(['owner','admin'].includes(currentUser?.permission)) return true;
+  if(currentUser?.permission === 'manager') return store === currentUser?.store;
+  return false;
+};
+const canViewAllStores = () => ['manager','owner','admin'].includes(currentUser?.permission);
+const canApprove = () => ['manager','owner','admin'].includes(currentUser?.permission);
+
+// ===== 工具函式 =====
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+function showLoading(txt) {
+  document.getElementById('loadingSub').textContent = txt || '載入中...';
+  const ov = document.getElementById('loadingOverlay');
+  ov.classList.remove('hidden');
+  ov.style.display = 'flex';
+}
+function hideLoading() {
+  const ov = document.getElementById('loadingOverlay');
+  ov.classList.add('hidden');
+  setTimeout(() => { ov.style.display = 'none'; }, 400);
+}
+function closeModal(id) {
+  document.getElementById(id).classList.remove('active');
+}
+function openModal(id) {
+  document.getElementById(id).classList.add('active');
+}
+
+function getWeekDates(wStr) {
+  let p = wStr.split('-W'); let yr = parseInt(p[0]); let wk = parseInt(p[1]);
+  let d = new Date(yr, 0, 1); let day = d.getDay();
+  d.setDate(d.getDate() + (wk - 1) * 7);
+  let offset = day <= 4 ? 1 - day : 8 - day;
+  d.setDate(d.getDate() + offset);
+  let res = [];
+  for(let i=0; i<7; i++) { res.push((d.getMonth()+1)+'/'+d.getDate()); d.setDate(d.getDate()+1); }
+  return res;
+}
+function getNextWeekString() {
+  let d = new Date(); d.setDate(d.getDate() + 7);
+  let yr = d.getFullYear(); let first = new Date(yr, 0, 1);
+  let w = Math.ceil((((d - first) / 86400000) + first.getDay() + 1) / 7);
+  return `${yr}-W${w < 10 ? '0'+w : w}`;
+}
+function getCurrentWeekString() {
+  let d = new Date();
+  let yr = d.getFullYear(); let first = new Date(yr, 0, 1);
+  let w = Math.ceil((((d - first) / 86400000) + first.getDay() + 1) / 7);
+  return `${yr}-W${w < 10 ? '0'+w : w}`;
+}
+function weekStringToDate(wStr) {
+  let p = wStr.split('-W'); let yr = parseInt(p[0]); let wk = parseInt(p[1]);
+  let d = new Date(yr, 0, 1); let day = d.getDay();
+  d.setDate(d.getDate() + (wk - 1) * 7);
+  let offset = day <= 4 ? 1 - day : 8 - day;
+  d.setDate(d.getDate() + offset);
+  return d;
+}
+function weekLabelFromStr(wStr) {
+  const dates = getWeekDates(wStr);
+  return `${dates[0]} ～ ${dates[6]}`;
+}
+
+// 判斷是否已過週五 00:00（自動發布）
+function isAutoPublished(weekStr) {
+  const weekMon = weekStringToDate(weekStr);
+  const weekFri = new Date(weekMon);
+  weekFri.setDate(weekMon.getDate() + 4); // 週一+4=週五
+  weekFri.setHours(0, 0, 0, 0);
+  return new Date() >= weekFri;
+}
+
+// 判斷畫休是否已鎖定（週五前三天=週二？依原程式：往前3天=週四）
+function isWeekLocked(weekStr) {
+  const weekMon = weekStringToDate(weekStr);
+  const lockDate = new Date(weekMon);
+  lockDate.setDate(weekMon.getDate() - 3); // 前一週週五
+  lockDate.setHours(0, 0, 0, 0);
+  return new Date() >= lockDate;
+}
+
+// ===== 初始化 =====
+window.onload = async () => {
+  showLoading('驗證登入狀態...');
+
+  // 從 sessionStorage 讀取登入資訊
+  const saved = sessionStorage.getItem('currentUser');
+  if(!saved) {
+    window.location.href = 'home.html';
+    return;
+  }
+  currentUser = JSON.parse(saved);
+
+  showLoading('載入系統設定...');
+  try {
+    const snap = await window.db.collection('settings').doc('globalConfig').get();
+    if(snap.exists) appConfig = snap.data();
+
+    // Header
+    document.getElementById('headerStoreBadge').textContent = currentUser.store || '全門市';
+
+    // 門市選擇器
+    const sel = document.getElementById('storeSelector');
+    (appConfig.stores || []).forEach(s => sel.innerHTML += `<option value="${s}">${s}</option>`);
+    const lastStore = localStorage.getItem('lastStore') || currentUser.store || appConfig.stores[0] || '';
+    sel.value = lastStore;
+
+    // 週次預設下週
+    document.getElementById('weekSelector').value = getNextWeekString();
+    empWeekStr = getNextWeekString();
+
+    // 依權限顯示介面
+    if(canSchedule()) {
+      document.getElementById('adminView').style.display = 'flex';
+      document.getElementById('empView').style.display = 'none';
+      // 非本店時鎖定門市選擇器為僅限本店
+      if(currentUser.permission === 'manager') {
+        sel.value = currentUser.store;
+        // 讓店長只能選自己的店
+        Array.from(sel.options).forEach(o => {
+          if(o.value !== currentUser.store) o.disabled = true;
+        });
+      }
+      document.getElementById('publishBtn').style.display = 'flex';
+      await fetchAllStoreData();
+    } else {
+      document.getElementById('adminView').style.display = 'none';
+      document.getElementById('empView').style.display = 'block';
+      updateEmpWeekLabel();
+      await loadEmpView();
+    }
+
+    document.getElementById('appShell').classList.add('active');
+    hideLoading();
+  } catch(e) {
+    hideLoading();
+    alert('載入失敗：' + e.message);
+  }
+};
+
+// ===== 發布功能 =====
+let weekPublishData = {}; // weekStr -> { published, publishedAt, publishedBy }
+
+async function fetchPublishStatus(store, weekStr) {
+  try {
+    const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get();
+    if(snap.exists) {
+      const d = snap.data();
+      weekPublishData[weekStr] = {
+        published: d.published || false,
+        publishedAt: d.publishedAt || null,
+        publishedBy: d.publishedBy || ''
+      };
+    } else {
+      weekPublishData[weekStr] = { published: false, publishedAt: null, publishedBy: '' };
+    }
+    updatePublishBtn(store, weekStr);
+  } catch(e) {}
+}
+
+function updatePublishBtn(store, weekStr) {
+  const btn = document.getElementById('publishBtn');
+  const pd = weekPublishData[weekStr] || {};
+  const isPublished = pd.published || isAutoPublished(weekStr);
+  if(isPublished) {
+    btn.classList.add('published');
+    document.getElementById('publishBtnIcon').textContent = '✅';
+    document.getElementById('publishBtnText').textContent = '已發布';
+  } else {
+    btn.classList.remove('published');
+    document.getElementById('publishBtnIcon').textContent = '🚀';
+    document.getElementById('publishBtnText').textContent = '發布';
+  }
+}
+
+async function togglePublish() {
+  const store = document.getElementById('storeSelector').value;
+  const weekStr = document.getElementById('weekSelector').value;
+  if(!canScheduleStore(store)) { showToast('❌ 您無權限發布此門市班表'); return; }
+
+  const pd = weekPublishData[weekStr] || {};
+  const isPublished = pd.published || isAutoPublished(weekStr);
+
+  if(isPublished && pd.published) {
+    if(!confirm('確定要取消發布嗎？員工將看不到班表。')) return;
+  } else if(!isPublished) {
+    if(!confirm('確定要發布本週班表嗎？員工將可以看到。')) return;
+  } else {
+    showToast('本週已自動發布（週五後無法取消）');
+    return;
+  }
+
+  showLoading('更新發布狀態...');
+  try {
+    const newPublished = !pd.published;
+    const now = new Date();
+    await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).set({
+      published: newPublished,
+      publishedAt: newPublished ? now.toISOString() : null,
+      publishedBy: newPublished ? (currentUser.displayName || currentUser.empName) : ''
+    }, { merge: true });
+
+    weekPublishData[weekStr] = {
+      published: newPublished,
+      publishedAt: newPublished ? now.toISOString() : null,
+      publishedBy: newPublished ? (currentUser.displayName || currentUser.empName) : ''
+    };
+    updatePublishBtn(store, weekStr);
+    hideLoading();
+    showToast(newPublished ? '✅ 班表已發布！員工現在可以查看' : '班表已取消發布');
+  } catch(e) {
+    hideLoading();
+    showToast('❌ 操作失敗：' + e.message);
+  }
+}
+
+// ===== 週次切換 =====
+function changeWeek(offset) {
+  const input = document.getElementById('weekSelector');
+  if(!input.value) return;
+  input.stepUp(offset);
+  fetchAllStoreData();
+}
+
+// ===== 資料載入 =====
+async function fetchAllStoreData() {
+  const store = document.getElementById('storeSelector').value;
+  const weekStr = document.getElementById('weekSelector').value;
+  if(!store || !weekStr) return;
+
+  localStorage.setItem('lastStore', store);
+  document.getElementById('headerStoreBadge').textContent = store;
+  setSyncStatus('syncing', '同步中...');
+
+  appData.allStoresRecords = [];
+  appData.allStoresEmployees = {};
+
+  showLoading('讀取班表資料...');
+  try {
+    for(const s of (appConfig.stores || [])) {
+      // 員工名單
+      const empSnap = await window.db.collection('stores').doc(s).collection('employees').get();
+      let emps = [];
+      empSnap.forEach(d => { if(d.data().status !== '離職') emps.push(d.id); });
+      appData.allStoresEmployees[s] = emps;
+
+      // 所有週的班表
+      const weekSnap = await window.db.collection('stores').doc(s).collection('weeks').get();
+      weekSnap.forEach(docSnap => {
+        if(docSnap.exists && docSnap.data().records) {
+          docSnap.data().records.forEach(r => {
+            appData.allStoresRecords.push({ ...r, _store: s, week: docSnap.id });
+          });
+        }
+      });
+    }
+
+    // 本店員工（含離職但本週有排班者）
+    const empSnap = await window.db.collection('stores').doc(store).collection('employees').get();
+    appData.employees = [];
+    const weekRecs = appData.allStoresRecords.filter(r => r._store === store && r.week === weekStr);
+    const scheduledNames = weekRecs.filter(r => r.shift || r.note || r.requestOff).map(r => r.name);
+    empSnap.forEach(d => {
+      if(d.data().status !== '離職' || scheduledNames.includes(d.id)) {
+        appData.employees.push({ name: d.id, ...d.data() });
+      }
+    });
+    appData.employees.sort((a,b) => (a.sortKey||0) - (b.sortKey||0));
+
+    appData.records = appData.allStoresRecords.filter(r => r._store === store);
+    virtualRowNames = [...new Set(weekRecs.map(r=>r.name).filter(n => n && n.startsWith('🆘')))];
+
+    // 發布狀態
+    await fetchPublishStatus(store, weekStr);
+
+    renderSupportDropdown();
+    renderTable();
+    setSyncStatus('ok', '已同步');
+  } catch(e) {
+    setSyncStatus('err', '同步失敗');
+    showToast('❌ 讀取失敗：' + e.message);
+  }
+  hideLoading();
+}
+
+function setSyncStatus(type, msg) {
+  const el = document.getElementById('syncStatus');
+  el.className = 'sync-status' + (type === 'syncing' ? ' syncing' : '');
+  el.innerHTML = `<div class="sync-dot"></div><span>${msg}</span>`;
+}
+
+function triggerAutoSave() {
+  setSyncStatus('syncing', '儲存中...');
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(() => saveScheduleData(false), 1500);
+}
+
+async function saveScheduleData(isManual) {
+  syncUIToMemory();
+  const store = document.getElementById('storeSelector').value;
+  const weekStr = document.getElementById('weekSelector').value;
+  if(!store || !weekStr) return;
+
+  try {
+    const schedule = appData.records.filter(r => r.week === weekStr);
+    const pd = weekPublishData[weekStr] || {};
+
+    // 若已發布，每次儲存更新 publishedAt
+    let extra = {};
+    if(pd.published || isAutoPublished(weekStr)) {
+      extra = {
+        publishedAt: new Date().toISOString(),
+        publishedBy: currentUser.displayName || currentUser.empName
+      };
+      weekPublishData[weekStr] = { ...weekPublishData[weekStr], ...extra };
+      updatePublishBtn(store, weekStr);
+    }
+
+    await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).set(
+      { records: schedule, ...extra }, { merge: true }
+    );
+    setSyncStatus('ok', `已儲存 ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`);
+    if(isManual) showToast('💾 儲存成功！');
+  } catch(e) {
+    setSyncStatus('err', '儲存失敗');
+    showToast('❌ 儲存失敗：' + e.message);
+  }
+}
+
+// ===== 員工視角 =====
+function empChangeWeek(offset) {
+  const p = empWeekStr.split('-W');
+  let yr = parseInt(p[0]), wk = parseInt(p[1]);
+  wk += offset;
+  if(wk < 1) { yr--; wk = 52; }
+  if(wk > 52) { yr++; wk = 1; }
+  empWeekStr = `${yr}-W${wk < 10 ? '0'+wk : wk}`;
+  updateEmpWeekLabel();
+  loadEmpView();
+}
+
+function updateEmpWeekLabel() {
+  document.getElementById('empWeekLabel').textContent = weekLabelFromStr(empWeekStr);
+}
+
+async function loadEmpView() {
+  const store = currentUser.store;
+  if(!store) return;
+
+  showLoading('載入班表...');
+  try {
+    const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(empWeekStr).get();
+    const data = snap.exists ? snap.data() : {};
+    const records = data.records || [];
+    const published = data.published || false;
+    const publishedAt = data.publishedAt || null;
+    const autoPublish = isAutoPublished(empWeekStr);
+    const isVisible = published || autoPublish;
+
+    // 發布資訊
+    const infoCard = document.getElementById('publishInfoCard');
+    const notPubCard = document.getElementById('notPublishedCard');
+    const imgWrap = document.getElementById('scheduleImgWrap');
+    const reqCard = document.getElementById('reqOffCard');
+
+    if(isVisible) {
+      infoCard.style.display = 'block';
+      notPubCard.style.display = 'none';
+      imgWrap.style.display = 'block';
+      reqCard.style.display = 'block';
+
+      document.getElementById('publishInfoTitle').textContent = `📅 ${weekLabelFromStr(empWeekStr)} 班表`;
+      if(publishedAt) {
+        const d = new Date(publishedAt);
+        document.getElementById('publishInfoTime').textContent =
+          `最後更新：${d.getMonth()+1}/${d.getDate()} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')} · ${data.publishedBy || ''}`;
+      } else if(autoPublish) {
+        document.getElementById('publishInfoTime').textContent = '已自動發布（週五後自動公開）';
+      }
+
+      // 員工名單
+      const empSnap = await window.db.collection('stores').doc(store).collection('employees').get();
+      let emps = [];
+      empSnap.forEach(d => { if(d.data().status !== '離職') emps.push({ name: d.id, ...d.data() }); });
+      emps.sort((a,b) => (a.sortKey||0) - (b.sortKey||0));
+
+      renderEmpCanvas(store, empWeekStr, records, emps);
+      renderReqOffSection(records);
+    } else {
+      infoCard.style.display = 'none';
+      notPubCard.style.display = 'block';
+      imgWrap.style.display = 'none';
+      reqCard.style.display = 'none';
+    }
+  } catch(e) {
+    showToast('載入失敗：' + e.message);
+  }
+  hideLoading();
+}
+
+function renderEmpCanvas(store, weekStr, records, emps) {
+  const canvas = document.getElementById('scheduleCanvas');
+  const ctx = canvas.getContext('2d');
+  const dates = getWeekDates(weekStr);
+
+  const W = 1400, colW = W / 8, rowH = 90, headerH = 90;
+  const startX = 0, startY = 180;
+  const numRows = emps.length + 2; // +備註 +總工時
+  const H = startY + headerH + numRows * rowH + 80;
+
+  canvas.width = W;
+  canvas.height = H;
+  canvas.style.width = '100%';
+
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, W, H);
+
+  // 標題
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#1a73e8';
+  ctx.font = '900 52px "Microsoft JhengHei", sans-serif';
+  ctx.fillText(`${store} 職員輪班表`, W/2, 80);
+
+  const d0 = dates[0].split('/'), d6 = dates[6].split('/');
+  ctx.font = 'bold 24px "Microsoft JhengHei", sans-serif';
+  ctx.fillStyle = '#333';
+  ctx.fillText(`${d0[0]}月${d0[1]}日 至 ${d6[0]}月${d6[1]}日`, W/2, 130);
+
+  // 表格框線
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 2;
+
+  const tableW = W, tableH = headerH + numRows * rowH;
+  ctx.strokeRect(startX, startY, tableW, tableH);
+
+  // 欄線
+  for(let i=1; i<8; i++) {
+    ctx.beginPath();
+    ctx.moveTo(startX + i*colW, startY);
+    ctx.lineTo(startX + i*colW, startY + tableH);
+    ctx.stroke();
+  }
+  // 列線
+  let cy = startY + headerH;
+  while(cy < startY + tableH) {
+    ctx.beginPath(); ctx.moveTo(startX, cy); ctx.lineTo(startX+tableW, cy); ctx.stroke();
+    cy += rowH;
+  }
+
+  // 表頭
+  ctx.fillStyle = '#1a73e8';
+  ctx.fillRect(startX, startY, tableW, headerH);
+  ctx.fillStyle = 'white';
+  ctx.font = '900 22px "Microsoft JhengHei", sans-serif';
+  ctx.fillText('姓名', startX + colW/2, startY + headerH/2);
+  for(let i=0; i<7; i++) {
+    const cx = startX + (i+1)*colW + colW/2;
+    ctx.font = '900 22px "Microsoft JhengHei", sans-serif';
+    ctx.fillText(dates[i], cx, startY + headerH/2 - 10);
+    ctx.font = 'normal 18px "Microsoft JhengHei", sans-serif';
+    ctx.fillText(dayNames[i], cx, startY + headerH/2 + 16);
+  }
+
+  // 員工列
+  let rowY = startY + headerH;
+  emps.forEach(emp => {
+    const midY = rowY + rowH/2;
+    ctx.fillStyle = '#1e293b';
+    ctx.font = '900 24px "Microsoft JhengHei", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(emp.name, startX + colW/2, midY);
+
+    dayNames.forEach((day, i) => {
+      const cx = startX + (i+1)*colW + colW/2;
+      const rec = records.find(r => r.name === emp.name && r.day === day) || {};
+      const shift = rec.shift || '';
+      const note = rec.note || '';
+      const loc = rec.location && rec.location !== '本店' ? rec.location : '';
+
+      if(shift === '指休') {
+        ctx.fillStyle = '#d93025';
+        ctx.font = '900 28px "Microsoft JhengHei", sans-serif';
+        ctx.fillText('休', cx, midY);
+      } else if(shift === '排休') {
+        ctx.fillStyle = '#64748b';
+        ctx.font = '900 28px "Microsoft JhengHei", sans-serif';
+        ctx.fillText('休', cx, midY);
+      } else if(shift) {
+        ctx.fillStyle = '#1e293b';
+        ctx.font = '900 26px "Microsoft JhengHei", sans-serif';
+        ctx.fillText(shift.replace('-',' / '), cx, note||loc ? midY-10 : midY);
+        if(loc) {
+          ctx.fillStyle = '#e67e22';
+          ctx.font = 'bold 16px "Microsoft JhengHei", sans-serif';
+          ctx.fillText(loc, cx, midY+14);
+        } else if(note) {
+          ctx.fillStyle = '#0088aa';
+          ctx.font = 'bold 16px "Microsoft JhengHei", sans-serif';
+          ctx.fillText(note, cx, midY+14);
+        }
+      }
+    });
+    rowY += rowH;
+  });
+
+  // 備註列
+  const noteY = rowY + rowH/2;
+  ctx.fillStyle = '#1e293b';
+  ctx.font = '900 22px "Microsoft JhengHei", sans-serif';
+  ctx.fillText('門市備註', startX + colW/2, noteY);
+  dayNames.forEach((day, i) => {
+    const cx = startX + (i+1)*colW + colW/2;
+    const rec = records.find(r => r.name === '門市備註' && r.day === day);
+    if(rec?.note) {
+      ctx.fillStyle = '#0088aa';
+      ctx.font = 'bold 18px "Microsoft JhengHei", sans-serif';
+      ctx.fillText(rec.note, cx, noteY);
+    }
+  });
+
+  // 備注文字
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#333';
+  ctx.font = 'bold 18px "Microsoft JhengHei", sans-serif';
+  ctx.fillText('※每周五、六公佈下週排班表，若有變動者，請事先向店長反映，勿私自調動！', startX+10, H-20);
+}
+
+function renderReqOffSection(records) {
+  const el = document.getElementById('reqDayList');
+  const locked = isWeekLocked(empWeekStr);
+  document.getElementById('lockedMsg').style.display = locked ? 'block' : 'none';
+
+  el.innerHTML = dayNames.map(day => {
+    const rec = records.find(r => r.name === currentUser.empName && r.day === day) || {};
+    const shift = rec.shift || '';
+    const hasShift = shift && shift !== '';
+    const isOff = shift === '排休' || shift === '指休';
+    const reqOff = rec.requestOff || false;
+    const canToggle = !locked && !hasShift;
+
+    return `<div class="req-day-row">
+      <div class="req-day-name">${day}</div>
+      <div class="req-day-shift">${isOff ? '休假' : (shift || '未排班')}</div>
+      ${canToggle
+        ? `<button class="req-toggle ${reqOff?'active':''}" onclick="toggleReqOff('${day}', ${reqOff})">${reqOff?'✅ 已申請':'申請排休'}</button>`
+        : `<span style="font-size:12px; color:var(--text-muted);">${hasShift ? '已排班' : (locked ? '已鎖定' : '')}</span>`
+      }
+    </div>`;
+  }).join('');
+}
+
+async function toggleReqOff(day, current) {
+  const store = currentUser.store;
+  const weekStr = empWeekStr;
+  const empName = currentUser.empName;
+  if(!confirm(current ? `取消 ${day} 的排休申請？` : `申請 ${day} 排休？`)) return;
+
+  showLoading('更新中...');
+  try {
+    const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get();
+    let records = (snap.exists && snap.data().records) ? snap.data().records : [];
+    const idx = records.findIndex(r => r.name === empName && r.day === day && r.week === weekStr);
+    const newVal = !current;
+    if(idx !== -1) records[idx].requestOff = newVal;
+    else records.push({ week: weekStr, day, name: empName, shift: '', location: '本店', note: '', requestOff: newVal });
+
+    const now = new Date();
+    const timeStr = `${now.getMonth()+1}/${now.getDate()} ${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`;
+    const logMsg = `[${timeStr}] ${currentUser.displayName} 對 ${day} ${newVal?'提出申請':'取消申請'}`;
+
+    await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).set({
+      records,
+      logs: firebase.firestore.FieldValue.arrayUnion(logMsg)
+    }, { merge: true });
+
+    showToast(newVal ? `✅ 已申請 ${day} 排休` : `已取消 ${day} 排休申請`);
+    await loadEmpView();
+  } catch(e) {
+    showToast('❌ 失敗：' + e.message);
+  }
+  hideLoading();
+}
+
+// ===== 渲染班表（管理者）=====
+function renderSupportDropdown() {
+  const myStore = document.getElementById('storeSelector').value;
+  let html = `<option value="">-- 無（顯示橘色待補）--</option>`;
+  for(const s in appData.allStoresEmployees) {
+    if(s !== myStore) {
+      html += `<optgroup label="[${s}]">`;
+      appData.allStoresEmployees[s].forEach(emp => html += `<option value="${s}-${emp}">${emp}</option>`);
+      html += `</optgroup>`;
+    }
+  }
+  const sel = document.getElementById('modalSupportEmp');
+  if(sel) sel.innerHTML = html;
+
+  let locOpts = `<option value="本店">本店</option>`;
+  (appConfig.stores||[]).forEach(s => { if(s!==myStore) locOpts += `<option value="${s}">${s}</option>`; });
+  document.getElementById('modalLocation').innerHTML = locOpts;
+}
+
+function toggleApprovalVis() {
+  const val = document.getElementById('modalSupportEmp').value;
+  document.getElementById('modalApproval').style.display = val ? 'block' : 'none';
+}
+
+function renderTable() {
+  const tbody = document.getElementById('tableBody');
+  tbody.innerHTML = '';
+  const weekStr = document.getElementById('weekSelector').value;
+  const store = document.getElementById('storeSelector').value;
+  const isReadonly = !canScheduleStore(store);
+  currentWeekDates = getWeekDates(weekStr);
+
+  // 更新表頭
+  const hRow = document.getElementById('headerRow');
+  hRow.innerHTML = '<th>員工</th>';
+  dayNames.forEach((d,i) => hRow.innerHTML += `<th><span class="date-sub">${currentWeekDates[i]}</span>${d}</th>`);
+  hRow.innerHTML += '<th>統計</th>';
+
+  const emps = [...appData.employees];
+  virtualRowNames.forEach(n => emps.push({ name: n, role: '待補' }));
+
+  emps.forEach((emp, eIdx) => {
+    const tr = document.createElement('tr');
+    const isVirtual = emp.name.startsWith('🆘');
+
+    // 員工名稱欄
+    let nameHtml = `<strong class="emp-cell">${emp.name}</strong><span class="role-tag">${emp.role||''}</span>`;
+    if(isVirtual) nameHtml += ` <span style="color:var(--danger); font-size:11px; cursor:pointer;" onclick="deleteVirtualRow('${emp.name}')">✖</span>`;
+    if(emp.status==='離職') nameHtml += ` <span style="color:var(--danger); font-size:10px;">(離職)</span>`;
+    tr.innerHTML = `<td>${nameHtml}</td>`;
+
+    dayNames.forEach(day => {
+      let rec = appData.records.find(r => r.name===emp.name && r.day===day && r.week===weekStr);
+      let supportOutRec = null;
+      if(!isVirtual) {
+        supportOutRec = appData.allStoresRecords.find(r =>
+          r.supportEmp === `${store}-${emp.name}` && r.day===day && r.week===weekStr && r.approvalStatus==='approved'
+        );
+      }
+      if(supportOutRec) {
+        rec = { shift: supportOutRec.shift, location: `支援${supportOutRec._store}`, note: supportOutRec.note, actualHours: supportOutRec.actualHours, isOT: supportOutRec.isOT, supportEmp:'', approvalStatus:'', requestOff:false };
+      } else if(!rec) {
+        rec = { shift:'', location:'本店', note:'', actualHours:0, isOT:false, supportEmp:'', approvalStatus:'', requestOff:false };
+      }
+
+      const td = document.createElement('td');
+      const btn = document.createElement('button');
+      btn.className = 'cell-btn' + (isReadonly ? ' readonly' : '');
+      btn.dataset.emp = emp.name;
+      btn.dataset.day = day;
+      btn.dataset.shift = rec.shift || '';
+      btn.dataset.hours = rec.actualHours || 0;
+      btn.dataset.loc = rec.location || '本店';
+      btn.dataset.note = rec.note || '';
+      btn.dataset.ot = rec.isOT || false;
+      btn.dataset.support = rec.supportEmp || '';
+      btn.dataset.approval = rec.approvalStatus || '';
+      btn.dataset.reqoff = rec.requestOff || false;
+      btn.dataset.eidx = eIdx;
+
+      // 待審核徽章
+      let pendingBadges = '';
+      if(!isVirtual) {
+        const pendingReqs = appData.allStoresRecords.filter(r =>
+          r.supportEmp === `${store}-${emp.name}` && r.day===day && r.approvalStatus==='pending' && r.week===weekStr
+        );
+        pendingReqs.forEach(req => {
+          const rd = encodeURIComponent(JSON.stringify(req));
+          pendingBadges += `<div class="support-pending" onclick="event.stopPropagation(); openApprovalModal('${rd}')">🔔 ${req._store} ${req.shift} 申請支援</div>`;
+        });
+      }
+      btn.dataset.badges = pendingBadges;
+
+      updateCellUI(btn, pendingBadges);
+
+      if(supportOutRec) {
+        btn.onclick = () => alert(`此班別為跨店支援（前往 ${supportOutRec._store}）\n請由需求門市修改或取消！`);
+      } else if(!isReadonly) {
+        btn.onmousedown = (e) => { if(isPaintMode) { e.preventDefault(); isDragging=true; applyPaintToCell(btn,eIdx); } };
+        btn.onmouseenter = () => { if(isPaintMode && isDragging) applyPaintToCell(btn,eIdx); };
+        btn.ontouchstart = () => { if(isPaintMode) { isDragging=true; applyPaintToCell(btn,eIdx); } };
+        btn.onclick = () => { if(!isPaintMode) handleCellClick(btn, eIdx, isVirtual); };
+      }
+
+      td.appendChild(btn);
+      tr.appendChild(td);
+    });
+
+    const sumTd = document.createElement('td');
+    sumTd.id = `sum-${eIdx}`;
+    sumTd.style.cssText = 'font-size:11px; text-align:left; background:#f8f9fa; padding:5px; font-weight:600;';
+    tr.appendChild(sumTd);
+    tbody.appendChild(tr);
+    updateSummary(eIdx, emp);
+  });
+
+  // 備註列
+  const nTr = document.createElement('tr');
+  nTr.innerHTML = `<td style="background:#fff8e1;"><strong>📝 備註</strong></td>`;
+  dayNames.forEach(day => {
+    const rec = appData.records.find(r => r.name==='門市備註' && r.day===day && r.week===weekStr);
+    nTr.innerHTML += `<td style="padding:0; background:#fffde7;"><input class="note-input" data-day="${day}" oninput="triggerAutoSave()" value="${rec?.note||''}"></td>`;
+  });
+  nTr.innerHTML += '<td></td>';
+  tbody.appendChild(nTr);
+
+  updateDailyTotals();
+  document.getElementById('tableFoot').style.display = 'table-row-group';
+}
+
+function updateCellUI(btn, extraHtml='') {
+  const s=btn.dataset.shift, h=btn.dataset.hours, l=btn.dataset.loc, n=btn.dataset.note;
+  const isOT=(btn.dataset.ot==='true'), w=btn.dataset.warn||'';
+  const supportEmp=btn.dataset.support, approvalStatus=btn.dataset.approval;
+  const requestOff=(btn.dataset.reqoff==='true');
+  const isVirtual=btn.dataset.emp.startsWith('🆘');
+  const hVal=parseFloat(h)||0;
+
+  btn.classList.remove('unfilled','zhi-xiu','pai-xiu','shift-night','shift-morning','conflict');
+
+  let txt='';
+  if(isVirtual && !supportEmp && s && s!=='排休' && s!=='指休') {
+    btn.classList.add('unfilled');
+    txt=`<span class="ot-text">${s}</span>`;
+    if(n) txt+=`<br><small style="color:#0088aa;">${n}</small>`;
+    btn.innerHTML=txt+extraHtml; return;
+  }
+
+  if(s==='指休') { txt='休'; btn.classList.add('zhi-xiu'); }
+  else if(s==='排休') { txt='休'; btn.classList.add('pai-xiu'); }
+  else if(s) {
+    if(isOT) txt=`<span class="ot-text">${s}</span>`;
+    else if(hVal>8 && s.includes('-')) {
+      const p=s.split('-');
+      txt=p.length===2 ? `${p[0]}-<span class="ot-text">${p[1]}</span>` : s;
+    } else txt=s;
+    const start=parseInt(s);
+    if(start>=15||start<6) btn.classList.add('shift-night');
+    else btn.classList.add('shift-morning');
+  } else { txt='+'; }
+
+  if(h && parseFloat(h)!==(appConfig.shiftHours||{})[s] && s!=='排休' && s!=='指休' && s)
+    txt+=`<br><small>(${Math.round(parseFloat(h))}h)</small>`;
+
+  if(isVirtual && supportEmp) {
+    const empOnly=supportEmp.split('-')[1]||supportEmp;
+    txt+=approvalStatus==='pending'
+      ? `<br><small style="color:#e65100;font-weight:700;">${empOnly}<br>(待審)</small>`
+      : `<br><small style="color:var(--primary);font-weight:900;">${empOnly}</small>`;
+  }
+  if(l && l!=='本店' && !isVirtual) txt+=`<br><small style="color:var(--danger);font-weight:800;">📍${l}</small>`;
+  if(n) txt+=`<br><small style="color:#0088aa;">${n}</small>`;
+
+  const hasConflict=(s && s!=='排休' && s!=='指休' && requestOff);
+  if(hasConflict) { btn.classList.add('conflict'); txt+=`<br><span style="background:var(--danger);color:white;padding:1px 3px;border-radius:3px;font-size:10px;">⚠️ 衝突</span>`; }
+  else if(requestOff) txt+=`<br><span class="req-tag">🙋‍♀️ 排休</span>`;
+
+  btn.innerHTML=txt+extraHtml;
+}
+
+// ===== 班別 Modal =====
+function handleCellClick(btn, eIdx, isVirtual) {
+  currentCell = btn;
+  document.getElementById('shiftModalTitle').textContent = `${btn.dataset.emp} — ${btn.dataset.day}`;
+  document.getElementById('modalShift').value = btn.dataset.shift;
+  document.getElementById('modalHours').value = btn.dataset.hours;
+  document.getElementById('modalOT').checked = btn.dataset.ot==='true';
+  document.getElementById('modalNote').value = btn.dataset.note;
+  document.getElementById('conflictWarn').style.display = btn.dataset.reqoff==='true' && btn.dataset.shift ? 'block' : 'none';
+
+  if(isVirtual) {
+    document.getElementById('modalLocGroup').style.display = 'none';
+    document.getElementById('modalSupportGroup').style.display = 'block';
+    document.getElementById('modalSupportEmp').value = btn.dataset.support||'';
+    document.getElementById('modalApproval').value = btn.dataset.approval||'pending';
+    document.getElementById('clearReqWrap').style.display = 'none';
+    toggleApprovalVis();
+  } else {
+    document.getElementById('modalLocGroup').style.display = 'block';
+    document.getElementById('modalSupportGroup').style.display = 'none';
+    document.getElementById('modalLocation').value = btn.dataset.loc||'本店';
+    const clearWrap = document.getElementById('clearReqWrap');
+    if(btn.dataset.reqoff==='true') {
+      clearWrap.style.display = 'flex';
+      document.getElementById('clearReqCheck').checked = true;
+    } else {
+      clearWrap.style.display = 'none';
+    }
+  }
+  renderQuickShiftBtns();
+  openModal('shiftModal');
+}
+
+function renderQuickShiftBtns() {
+  let h=`<button class="quick-shift-btn clear" onclick="clearModalShift()">🗑️ 清空</button>`;
+  (appConfig.shifts||[]).forEach(s => {
+    const isOff=(s==='排休'||s==='指休');
+    h+=`<button class="quick-shift-btn ${isOff?'off':''}" onclick="setModalShift('${s}')">${s}</button>`;
+  });
+  document.getElementById('quickShiftBtns').innerHTML=h;
+}
+function setModalShift(s) { document.getElementById('modalShift').value=s; autoFillHours(); }
+function clearModalShift() {
+  document.getElementById('modalShift').value='';
+  document.getElementById('modalHours').value='';
+  document.getElementById('modalOT').checked=false;
+  document.getElementById('modalNote').value='';
+  document.getElementById('modalSupportEmp').value='';
+  toggleApprovalVis();
+}
+function appendNote(t) {
+  const el=document.getElementById('modalNote');
+  el.value=el.value.trim() ? el.value+' '+t : t;
+}
+function autoFillHours() {
+  const s=document.getElementById('modalShift').value.trim();
+  const t=document.getElementById('modalHours');
+  if((appConfig.shiftHours||{})[s]) { t.value=(appConfig.shiftHours||{})[s]; return; }
+  const m=s.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)/);
+  if(m) { let sT=parseFloat(m[1]),eT=parseFloat(m[2]); if(eT<=sT) eT+=24; t.value=eT-sT; }
+  else if(s==='排休'||s==='指休') t.value=0;
+}
+
+function applyShift() {
+  pushToUndo(currentCell);
+  const isVirtual=currentCell.dataset.emp.startsWith('🆘');
+  currentCell.dataset.shift=document.getElementById('modalShift').value;
+  currentCell.dataset.hours=document.getElementById('modalHours').value;
+  currentCell.dataset.ot=document.getElementById('modalOT').checked;
+  currentCell.dataset.note=document.getElementById('modalNote').value;
+  if(isVirtual) {
+    currentCell.dataset.loc='本店';
+    currentCell.dataset.support=document.getElementById('modalSupportEmp').value;
+    currentCell.dataset.approval=document.getElementById('modalApproval').value;
+  } else {
+    currentCell.dataset.loc=document.getElementById('modalLocation').value;
+    if(document.getElementById('clearReqWrap').style.display!=='none' && document.getElementById('clearReqCheck').checked) {
+      currentCell.dataset.reqoff='false';
+    }
+  }
+  syncUIToMemory();
+  renderTable();
+  closeModal('shiftModal');
+  triggerAutoSave();
+}
+
+// ===== 畫筆模式 =====
+document.addEventListener('mouseup', ()=>{ isDragging=false; });
+document.addEventListener('touchend', ()=>{ isDragging=false; });
+document.addEventListener('DOMContentLoaded', ()=>{
+  const tbl = document.getElementById('scheduleTable');
+  if(tbl) tbl.addEventListener('touchmove', (e)=>{
+    if(isPaintMode && isDragging) {
+      e.preventDefault();
+      const touch=e.touches[0];
+      const el=document.elementFromPoint(touch.clientX, touch.clientY);
+      const btn=el?.closest('.cell-btn');
+      if(btn) applyPaintToCell(btn, parseInt(btn.dataset.eidx));
+    }
+  }, { passive:false });
+});
+
+function togglePaintMode() {
+  isPaintMode=!isPaintMode;
+  const btn=document.getElementById('paintModeBtn');
+  const bar=document.getElementById('paintBar');
+  if(isPaintMode) {
+    btn.classList.add('active');
+    btn.textContent='🛑 關閉畫筆';
+    bar.classList.add('active');
+    renderPaintBtns();
+  } else {
+    btn.classList.remove('active');
+    btn.textContent='🖌️ 畫筆';
+    bar.classList.remove('active');
+    paintShift='';
+  }
+}
+function renderPaintBtns() {
+  let h=`<button class="paint-shift-btn ${paintShift==='清空'?'active-paint':''}" onclick="setPaintShift('清空')">🗑️ 清空</button>`;
+  (appConfig.shifts||[]).forEach(s=>{
+    const isOff=(s==='排休'||s==='指休');
+    h+=`<button class="paint-shift-btn ${isOff?'off-shift':''} ${paintShift===s?'active-paint':''}" onclick="setPaintShift('${s}')">${s}</button>`;
+  });
+  document.getElementById('paintBtns').innerHTML=h;
+}
+function setPaintShift(s) { paintShift=s; renderPaintBtns(); }
+function applyPaintToCell(btn, eIdx) {
+  if(!paintShift) { if(!isDragging) alert('請先選擇畫筆班別！'); return; }
+  const target=paintShift==='清空' ? '' : paintShift;
+  if(btn.dataset.shift===target) return;
+  pushToUndo(btn);
+  const isVirtual=btn.dataset.emp.startsWith('🆘');
+  if(paintShift==='清空') {
+    btn.dataset.shift=''; btn.dataset.hours=0; btn.dataset.ot='false'; btn.dataset.note='';
+    if(isVirtual) { btn.dataset.support=''; btn.dataset.approval=''; }
+    else btn.dataset.reqoff='false';
+  } else {
+    btn.dataset.shift=paintShift;
+    let h=(appConfig.shiftHours||{})[paintShift]||0;
+    if(!h && paintShift!=='排休' && paintShift!=='指休') {
+      const m=paintShift.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)/);
+      if(m) { let sT=parseFloat(m[1]),eT=parseFloat(m[2]); if(eT<=sT) eT+=24; h=eT-sT; }
+    }
+    btn.dataset.hours=h; btn.dataset.ot='false';
+    if(!isVirtual) { btn.dataset.loc='本店'; btn.dataset.reqoff='false'; }
+  }
+  // 局部更新記憶體
+  const week=document.getElementById('weekSelector').value;
+  const idx=appData.records.findIndex(r=>r.name===btn.dataset.emp&&r.day===btn.dataset.day&&r.week===week);
+  const data={ week, day:btn.dataset.day, name:btn.dataset.emp, shift:btn.dataset.shift||'', location:btn.dataset.loc||'本店', note:btn.dataset.note||'', actualHours:parseFloat(btn.dataset.hours||0), isOT:btn.dataset.ot==='true', supportEmp:btn.dataset.support||'', approvalStatus:btn.dataset.approval||'', requestOff:btn.dataset.reqoff==='true' };
+  const hasData=btn.dataset.shift||btn.dataset.note||btn.dataset.ot==='true'||btn.dataset.support||btn.dataset.reqoff==='true';
+  if(hasData) { if(idx!==-1) appData.records[idx]=data; else appData.records.push(data); }
+  else { if(idx!==-1) appData.records.splice(idx,1); }
+  updateCellUI(btn, btn.dataset.badges||'');
+  updateDailyTotals();
+  const empObj=appData.employees.find(e=>e.name===btn.dataset.emp)||{name:btn.dataset.emp,role:'待補'};
+  updateSummary(eIdx,empObj);
+  triggerAutoSave();
+}
+
+// ===== 統計 =====
+function updateDailyTotals() {
+  const sums=[0,0,0,0,0,0,0];
+  document.querySelectorAll('.cell-btn').forEach(b=>{
+    const idx=dayNames.indexOf(b.dataset.day);
+    if(idx>=0 && b.dataset.loc==='本店') sums[idx]+=parseFloat(b.dataset.hours||0);
+  });
+  sums.forEach((s,i)=>{ const el=document.getElementById(`dt-${i}`); if(el) el.textContent=Math.round(s); });
+}
+
+function updateSummary(idx, emp) {
+  const t=document.getElementById(`sum-${idx}`);
+  if(!t || emp.name.startsWith('🆘')) { if(t) t.textContent='-'; return; }
+  const weekStr=document.getElementById('weekSelector').value;
+  const store=document.getElementById('storeSelector').value;
+  let wH=0, wD=0, wOT=0;
+  const activeMonths=[...new Set(currentWeekDates.map(d=>d.split('/')[0]))];
+  const monthStats={};
+  activeMonths.forEach(m=>monthStats[m]={hours:0,ot:0,days:0});
+
+  (appData.allStoresRecords||[]).forEach(r=>{
+    const isNative=(r._store===store && r.name===emp.name);
+    const isSupport=(r.supportEmp===`${store}-${emp.name}` && r.approvalStatus==='approved');
+    if(!isNative && !isSupport) return;
+    if(isNative) {
+      const hasSupportThat=appData.allStoresRecords.some(sr=>sr.supportEmp===`${store}-${emp.name}`&&sr.approvalStatus==='approved'&&sr.day===r.day&&sr.week===r.week);
+      if(hasSupportThat) return;
+    }
+    if(r.week!==weekStr) return;
+    const h=parseFloat(r.actualHours||0);
+    const isOff=(r.shift==='排休'||r.shift==='指休');
+    if(!isOff && r.shift) { wH+=h; wD++; if(r.isOT||h>8) wOT+=Math.max(0,h-8); }
+  });
+
+  t.innerHTML=`本週：${wD}天/${Math.round(wH*10)/10}h${wOT>0?`<br><span style="color:var(--danger);">加班：${Math.round(wOT*10)/10}h</span>`:''}`;
+}
+
+// ===== 記憶體同步 =====
+function syncUIToMemory() {
+  const week=document.getElementById('weekSelector').value;
+  document.querySelectorAll('.cell-btn').forEach(btn=>{
+    const idx=appData.records.findIndex(r=>r.name===btn.dataset.emp&&r.day===btn.dataset.day&&r.week===week);
+    const data={ week, day:btn.dataset.day, name:btn.dataset.emp, shift:btn.dataset.shift||'', location:btn.dataset.loc||'本店', note:btn.dataset.note||'', actualHours:parseFloat(btn.dataset.hours||0), isOT:btn.dataset.ot==='true', supportEmp:btn.dataset.support||'', approvalStatus:btn.dataset.approval||'', requestOff:btn.dataset.reqoff==='true' };
+    const hasData=btn.dataset.shift||btn.dataset.note||btn.dataset.ot==='true'||btn.dataset.support||btn.dataset.reqoff==='true';
+    if(hasData) { if(idx!==-1) appData.records[idx]=data; else appData.records.push(data); }
+    else { if(idx!==-1) appData.records.splice(idx,1); }
+  });
+  document.querySelectorAll('.note-input').forEach(inp=>{
+    const day=inp.dataset.day, val=inp.value;
+    const idx=appData.records.findIndex(r=>r.name==='門市備註'&&r.day===day&&r.week===week);
+    if(val) { if(idx!==-1) appData.records[idx].note=val; else appData.records.push({week,day,name:'門市備註',shift:'',location:'',note:val,actualHours:0,isOT:false}); }
+    else { if(idx!==-1) appData.records.splice(idx,1); }
+  });
+}
+
+// ===== Undo =====
+function pushToUndo(btn) {
+  undoStack.push({ btn, s:btn.dataset.shift, h:btn.dataset.hours, l:btn.dataset.loc, n:btn.dataset.note, ot:btn.dataset.ot, supp:btn.dataset.support, app:btn.dataset.approval, reqOff:btn.dataset.reqoff });
+  if(undoStack.length>30) undoStack.shift();
+}
+function undoLastAction() {
+  if(!undoStack.length) { showToast('沒有可回復的動作'); return; }
+  const l=undoStack.pop();
+  l.btn.dataset.shift=l.s; l.btn.dataset.hours=l.h; l.btn.dataset.loc=l.l; l.btn.dataset.note=l.n;
+  l.btn.dataset.ot=l.ot; l.btn.dataset.support=l.supp; l.btn.dataset.approval=l.app; l.btn.dataset.reqoff=l.reqOff;
+  syncUIToMemory(); renderTable(); triggerAutoSave();
+}
+
+// ===== 待補欄位 =====
+function addVirtualRow() {
+  syncUIToMemory();
+  let n=1;
+  while(virtualRowNames.includes('🆘待補'+n)) n++;
+  virtualRowNames.push('🆘待補'+n);
+  renderTable();
+  triggerAutoSave();
+}
+function deleteVirtualRow(name) {
+  if(!confirm(`確定刪除 ${name}？`)) return;
+  const week=document.getElementById('weekSelector').value;
+  appData.records=appData.records.filter(r=>!(r.name===name&&r.week===week));
+  virtualRowNames=virtualRowNames.filter(n=>n!==name);
+  renderTable();
+  triggerAutoSave();
+}
+
+// ===== 跨店支援審核 =====
+function openApprovalModal(encodedReq) {
+  const req=JSON.parse(decodeURIComponent(encodedReq));
+  document.getElementById('approvalData').value=encodedReq;
+  document.getElementById('approvalDesc').innerHTML=
+    `<strong>${req._store}</strong> 提出跨店支援請求：<br><br>
+    <span style="font-size:22px; font-weight:900; color:var(--primary);">${req.supportEmp?.split('-')[1]}</span><br>
+    於 <strong>${req.day} ${req.shift}</strong> 前往支援`;
+  openModal('approvalModal');
+}
+async function handleApproval(isApproved) {
+  const req=JSON.parse(decodeURIComponent(document.getElementById('approvalData').value));
+  showLoading('處理中...');
+  try {
+    const docRef=window.db.collection('stores').doc(req._store).collection('weeks').doc(req.week);
+    const snap=await docRef.get();
+    if(snap.exists) {
+      const records=snap.data().records||[];
+      const idx=records.findIndex(r=>r.name===req.name&&r.day===req.day&&r.shift===req.shift);
+      if(idx!==-1) {
+        if(isApproved) records[idx].approvalStatus='approved';
+        else { records[idx].supportEmp=''; records[idx].approvalStatus=''; }
+        await docRef.update({ records });
+        showToast(isApproved?'✅ 已同意支援':'已拒絕支援');
+        closeModal('approvalModal');
+        await fetchAllStoreData();
+      }
+    }
+  } catch(e) { showToast('❌ 失敗：'+e.message); }
+  hideLoading();
+}
+
+// ===== 畫休紀錄 =====
+async function openLogModal() {
+  const store=document.getElementById('storeSelector').value;
+  const weekStr=document.getElementById('weekSelector').value;
+  const el=document.getElementById('logContent');
+  el.innerHTML='<div style="text-align:center; color:var(--text-muted);">讀取中...</div>';
+  openModal('logModal');
+  try {
+    const snap=await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get();
+    const logs=(snap.exists&&snap.data().logs)||[];
+    if(!logs.length) { el.innerHTML='<div style="text-align:center; color:var(--text-muted);">本週尚無紀錄</div>'; return; }
+    el.innerHTML=[...logs].reverse().map(l=>`<div class="log-item">${l}</div>`).join('');
+  } catch(e) { el.innerHTML='讀取失敗'; }
+}
+
+// ===== 產圖 =====
+function exportImage() {
+  syncUIToMemory();
+  showLoading('產生圖片中...');
+  setTimeout(()=>{
+    try {
+      const store=document.getElementById('storeSelector').value;
+      const weekStr=document.getElementById('weekSelector').value;
+      const emps=[...appData.employees];
+      virtualRowNames.forEach(n=>emps.push({name:n,role:'待補'}));
+
+      const canvas=document.createElement('canvas');
+      const ctx=canvas.getContext('2d');
+      const W=1400,colW=W/8,rowH=95,headerH=95;
+      const numRows=emps.length+1;
+      const startY=240;
+      const H=startY+headerH+numRows*rowH+5*rowH+80;
+      canvas.width=W; canvas.height=H;
+
+      ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H);
+      ctx.textAlign='center';
+
+      // 標題
+      ctx.font='900 52px "Microsoft JhengHei",sans-serif';
+      ctx.fillStyle='#1a73e8';
+      ctx.fillText(`${store} 職員輪班表`,W/2,90);
+      const d0=currentWeekDates[0].split('/'),d6=currentWeekDates[6].split('/');
+      ctx.font='bold 26px "Microsoft JhengHei",sans-serif';
+      ctx.fillStyle='#333';
+      ctx.fillText(`${d0[0]}月${d0[1]}日 至 ${d6[0]}月${d6[1]}日`,W/2,150);
+
+      // 框線
+      ctx.strokeStyle='#000'; ctx.lineWidth=2;
+      const tableW=W,tableH=headerH+(numRows+5)*rowH;
+      ctx.strokeRect(0,startY,tableW,tableH);
+      for(let i=1;i<8;i++){ctx.beginPath();ctx.moveTo(i*colW,startY);ctx.lineTo(i*colW,startY+tableH);ctx.stroke();}
+      let cy=startY+headerH;
+      while(cy<startY+tableH){ctx.beginPath();ctx.moveTo(0,cy);ctx.lineTo(tableW,cy);ctx.stroke();cy+=rowH;}
+
+      // 表頭
+      ctx.fillStyle='#1a73e8'; ctx.fillRect(0,startY,tableW,headerH);
+      ctx.fillStyle='white'; ctx.font='900 26px "Microsoft JhengHei",sans-serif';
+      ctx.fillText('姓名',colW/2,startY+headerH/2);
+      for(let i=0;i<7;i++){
+        const cx=(i+1)*colW+colW/2;
+        ctx.fillText(currentWeekDates[i],cx,startY+headerH/2-12);
+        ctx.font='normal 20px "Microsoft JhengHei",sans-serif';
+        ctx.fillText(dayNames[i],cx,startY+headerH/2+18);
+        ctx.font='900 26px "Microsoft JhengHei",sans-serif';
+      }
+
+      // 員工列
+      let rowY=startY+headerH;
+      emps.forEach(emp=>{
+        const midY=rowY+rowH/2;
+        ctx.fillStyle='#1e293b'; ctx.font='900 28px "Microsoft JhengHei",sans-serif';
+        if(!emp.name.startsWith('🆘')) ctx.fillText(emp.name,colW/2,midY);
+        dayNames.forEach((day,i)=>{
+          const cx=(i+1)*colW+colW/2;
+          let rec=appData.records.find(r=>r.name===emp.name&&r.day===day&&r.week===weekStr);
+          const supportOut=appData.allStoresRecords.find(r=>r.supportEmp===`${store}-${emp.name}`&&r.day===day&&r.week===weekStr&&r.approvalStatus==='approved');
+          if(supportOut) rec={shift:supportOut.shift,location:`支援${supportOut._store}`,note:supportOut.note,actualHours:supportOut.actualHours,isOT:supportOut.isOT};
+          if(!rec) rec={shift:'',location:'本店',note:'',actualHours:0};
+          const hasNote=rec.note||(rec.location&&rec.location!=='本店');
+          const textY=hasNote?midY-12:midY;
+          if(rec.shift==='指休'){ctx.fillStyle='#d93025';ctx.font='900 30px "Microsoft JhengHei",sans-serif';ctx.fillText('休',cx,textY);}
+          else if(rec.shift==='排休'){ctx.fillStyle='#64748b';ctx.font='900 30px "Microsoft JhengHei",sans-serif';ctx.fillText('休',cx,textY);}
+          else if(rec.shift){
+            ctx.fillStyle='#1e293b';ctx.font='900 30px "Microsoft JhengHei",sans-serif';
+            ctx.fillText(rec.shift.replace('-',' / '),cx,textY);
+          }
+          if(hasNote){
+            if(rec.location&&rec.location!=='本店'){ctx.fillStyle='#e67e22';ctx.font='bold 18px "Microsoft JhengHei",sans-serif';ctx.fillText(rec.location,cx,midY+16);}
+            else if(rec.note){ctx.fillStyle='#0088aa';ctx.font='bold 18px "Microsoft JhengHei",sans-serif';ctx.fillText(rec.note,cx,midY+16);}
+          }
+        });
+        rowY+=rowH;
+      });
+
+      // 備註列
+      ctx.fillStyle='#1e293b';ctx.font='900 24px "Microsoft JhengHei",sans-serif';
+      ctx.fillText('門市備註',colW/2,rowY+rowH/2);
+      dayNames.forEach((day,i)=>{
+        const rec=appData.records.find(r=>r.name==='門市備註'&&r.day===day&&r.week===weekStr);
+        if(rec?.note){ctx.fillStyle='#0088aa';ctx.font='bold 20px "Microsoft JhengHei",sans-serif';ctx.fillText(rec.note,(i+1)*colW+colW/2,rowY+rowH/2);}
+      });
+
+      // 備注
+      ctx.textAlign='left';ctx.fillStyle='#333';ctx.font='bold 20px "Microsoft JhengHei",sans-serif';
+      ctx.fillText('※每周五、六公佈下週排班表，若有變動者，請事先向店長反映，勿私自調動！',10,H-20);
+
+      const img=document.getElementById('previewImg');
+      img.src=canvas.toDataURL('image/jpeg',0.95);
+      document.getElementById('downloadBtn').onclick=()=>{
+        const a=document.createElement('a');a.href=img.src;a.download=`${store}_班表_${weekStr}.jpg`;a.click();
+      };
+      openModal('imgModal');
+      hideLoading();
+    } catch(e){ alert('產圖失敗：'+e); hideLoading(); }
+  },100);
+}
+</script>
+</body>
+</html>
