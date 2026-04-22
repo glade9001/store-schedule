@@ -1189,82 +1189,96 @@ async function initApp() {
 }
 
 // ===== 我的班表（本週+下週）=====
+// ===== 我的班表（週次切換）=====
+let homeCurrentWeek = '';
+
 async function loadTodayShifts() {
+  homeCurrentWeek = getNextWeekString(); // 預設下週
   await loadMySchedule();
+}
+
+function homeChangeWeek(offset) {
+  const p = homeCurrentWeek.split('-W');
+  let yr = parseInt(p[0]), wk = parseInt(p[1]);
+  wk += offset;
+  if(wk < 1) { yr--; wk = 52; }
+  if(wk > 52) { yr++; wk = 1; }
+  homeCurrentWeek = `${yr}-W${wk < 10 ? '0'+wk : wk}`;
+  loadMySchedule();
 }
 
 async function loadMySchedule() {
   const empName = currentUser.empName;
-  // admin/owner: store=null，但仍有 empName → 從 account 讀取所屬門市
-  let store = currentUser.store;
-  if(!store && empName) {
-    // 嘗試從 account 找到對應的 store
-    try {
-      const accSnap = await window.db.collection('account')
-        .where('empName','==',empName).limit(1).get();
-      if(!accSnap.empty) store = accSnap.docs[0].data().store || null;
-    } catch(e) {}
-    // 仍找不到 → 用第一間門市
-    if(!store) store = appConfig.stores && appConfig.stores[0];
-  }
+  const store = currentUser.store;
+  const weekStr = homeCurrentWeek;
+  const el = document.getElementById('homeWeekShifts');
+  const labelEl = document.getElementById('homeWeekLabel');
+
+  if(!el) return;
+
   if(!store || !empName) {
-    document.getElementById('thisWeekShifts').innerHTML =
-      `<div style="text-align:center;color:var(--text-muted);font-size:13px;padding:10px 0;">管理帳號無排班資料</div>`;
-    document.getElementById('nextWeekShifts').innerHTML = '';
+    if(labelEl) labelEl.textContent = '無個人班表';
+    el.innerHTML = `<div style="text-align:center;color:var(--text-muted);font-size:13px;padding:10px 0;">管理帳號未綁定門市</div>`;
     return;
   }
 
-  const thisWeek = getCurrentWeekString();
-  const nextWeek = getNextWeekString();
+  // 週次標籤（1/1格式）
+  const dates = getWeekDates(weekStr);
+  const thisWeekStr = getCurrentWeekString();
+  const nextWeekStr = getNextWeekString();
+  let tag = weekStr === thisWeekStr ? '（本週）' : weekStr === nextWeekStr ? '（下週）' : '';
+  if(labelEl) labelEl.textContent = `${dates[0]} ～ ${dates[6]}${tag}`;
 
-  // 週次標籤
-  const tw = getWeekDates(thisWeek);
-  const nw = getWeekDates(nextWeek);
-  const thisLabel = document.getElementById('thisWeekLabel');
-  const nextLabel = document.getElementById('nextWeekLabel');
-  if(thisLabel) thisLabel.textContent = `📅 本週（${tw[0]} ～ ${tw[6]}）`;
-  if(nextLabel) nextLabel.textContent = `📅 下週（${nw[0]} ～ ${nw[6]}）`;
+  el.innerHTML = `<div style="text-align:center;color:var(--text-muted);font-size:12px;padding:8px 0;">載入中...</div>`;
 
   try {
-    for(const [weekStr, elId] of [[thisWeek,'thisWeekShifts'],[nextWeek,'nextWeekShifts']]) {
-      const el = document.getElementById(elId);
-      if(!el) continue;
+    const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get();
+    const records = (snap.exists && snap.data().records) ? snap.data().records : [];
+    const myRecs = records.filter(r => r.name === empName);
+    const dNames = ['週一','週二','週三','週四','週五','週六','週日'];
+    const now = new Date();
+    const todayStr = `${now.getMonth()+1}/${now.getDate()}`;
 
-      const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get();
-      const records = (snap.exists && snap.data().records) ? snap.data().records : [];
-      const myRecs = records.filter(r => r.name === empName);
+    el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;">` +
+      dNames.map((day, i) => {
+        const rec = myRecs.find(r => r.day === day) || {};
+        const shift = rec.shift || '';
+        const isOff = shift === '排休' || shift === '指休';
+        const isEmpty = !shift;
+        const isToday = dates[i] === todayStr;
+        const bg = isOff ? '#fce8e6' : isEmpty ? '#f8fafc' : '#e8f0fe';
+        const clr = isOff ? '#d93025' : isEmpty ? '#bbb' : '#1a73e8';
+        return `<div style="text-align:center;background:${bg};border-radius:8px;padding:6px 2px;${isToday?'box-shadow:0 0 0 2px var(--primary);':''}">
+          <div style="font-size:10px;color:${isToday?'var(--primary)':'var(--text-muted)'};font-weight:${isToday?700:400};">${dates[i]}</div>
+          <div style="font-size:10px;color:var(--text-muted);">${day}</div>
+          <div style="font-size:13px;color:${clr};font-weight:${isEmpty?400:800};margin-top:2px;">${isOff?'休':shift||'-'}</div>
+          ${rec.note?`<div style="font-size:9px;color:#0088aa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${rec.note}</div>`:''}
+        </div>`;
+      }).join('') + `</div>`;
 
-      if(myRecs.length === 0) {
-        el.innerHTML = `<div style="text-align:center;color:var(--text-muted);font-size:13px;padding:8px 0;">尚未排班</div>`;
-        continue;
-      }
-
-      const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
-      const dates = getWeekDates(weekStr);
-
-      el.innerHTML = `<div style="display:grid; grid-template-columns:repeat(7,1fr); gap:4px;">` +
-        dayNames.map((day, i) => {
-          const rec = myRecs.find(r => r.day === day) || {};
-          const shift = rec.shift || '';
-          const isOff = shift === '排休' || shift === '指休';
-          const isEmpty = !shift;
-          const bgColor = isOff ? '#fce8e6' : (isEmpty ? '#f8fafc' : '#e8f0fe');
-          const textColor = isOff ? '#d93025' : (isEmpty ? '#ccc' : '#1a73e8');
-          const fontWeight = isEmpty ? '400' : '800';
-          return `<div style="text-align:center; background:${bgColor}; border-radius:8px; padding:6px 2px;">
-            <div style="font-size:10px; color:var(--text-muted); margin-bottom:2px;">${dates[i]}</div>
-            <div style="font-size:10px; color:var(--text-muted);">${day}</div>
-            <div style="font-size:13px; color:${textColor}; font-weight:${fontWeight}; margin-top:3px;">
-              ${isOff ? '休' : (shift || '-')}
-            </div>
-            ${rec.note ? `<div style="font-size:9px;color:#0088aa;">${rec.note}</div>` : ''}
-          </div>`;
-        }).join('') +
-      `</div>`;
-    }
+    // 更新 Banner 今日班別
+    updateTodayShiftBadge(myRecs, weekStr, dates, dNames);
   } catch(e) {
-    document.getElementById('thisWeekShifts').innerHTML = `<div style="color:var(--danger);font-size:12px;">載入失敗</div>`;
+    el.innerHTML = `<div style="color:var(--danger);font-size:12px;text-align:center;">載入失敗</div>`;
   }
+}
+
+function updateTodayShiftBadge(myRecs, weekStr, dates, dNames) {
+  const badge = document.getElementById('todayShiftBadge');
+  if(!badge || weekStr !== getCurrentWeekString()) { if(badge) badge.style.display='none'; return; }
+  const now = new Date();
+  const todayStr = `${now.getMonth()+1}/${now.getDate()}`;
+  const todayIdx = dates.findIndex(d => d === todayStr);
+  if(todayIdx < 0) { badge.style.display='none'; return; }
+  const rec = myRecs.find(r => r.day === dNames[todayIdx]) || {};
+  const shift = rec.shift || '';
+  if(!shift) { badge.style.display='none'; return; }
+  const isOff = shift === '排休' || shift === '指休';
+  let text = isOff ? '今日休假' : `⏰ 今日：${shift}`;
+  if(rec.note) text += `　${rec.note}`;
+  badge.textContent = text;
+  badge.style.display = 'inline-block';
+  badge.style.background = isOff ? 'rgba(217,48,37,0.3)' : 'rgba(255,255,255,0.25)';
 }
 
 // ===== 統計 =====
