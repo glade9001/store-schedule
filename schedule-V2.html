@@ -808,23 +808,37 @@ async function fetchAllStoreData() {
 
   showLoading('讀取班表資料...');
   try {
-    for(const s of (appConfig.stores || [])) {
+    // 只讀相關週次（本週±4週），避免讀取過多舊資料
+    const baseWeekNum = parseInt(weekStr.split('-W')[1]);
+    const baseYear = parseInt(weekStr.split('-W')[0]);
+    const relevantWeeks = new Set();
+    for(let i = -4; i <= 4; i++) {
+      let w = baseWeekNum + i, y = baseYear;
+      if(w < 1) { y--; w += 52; }
+      if(w > 52) { y++; w -= 52; }
+      relevantWeeks.add(`${y}-W${w < 10 ? '0'+w : w}`);
+    }
+
+    // 平行讀取全部門市
+    await Promise.all((appConfig.stores || []).map(async s => {
       // 員工名單
       const empSnap = await window.db.collection('stores').doc(s).collection('employees').get();
       let emps = [];
       empSnap.forEach(d => { if(d.data().status !== '離職') emps.push(d.id); });
       appData.allStoresEmployees[s] = emps;
 
-      // 所有週的班表
-      const weekSnap = await window.db.collection('stores').doc(s).collection('weeks').get();
-      weekSnap.forEach(docSnap => {
-        if(docSnap.exists && docSnap.data().records) {
-          docSnap.data().records.forEach(r => {
-            appData.allStoresRecords.push({ ...r, _store: s, week: docSnap.id });
-          });
-        }
-      });
-    }
+      // 只讀相關週次的班表
+      await Promise.all([...relevantWeeks].map(async wk => {
+        try {
+          const docSnap = await window.db.collection('stores').doc(s).collection('weeks').doc(wk).get();
+          if(docSnap.exists && docSnap.data().records) {
+            docSnap.data().records.forEach(r => {
+              appData.allStoresRecords.push({ ...r, _store: s, week: wk });
+            });
+          }
+        } catch(e) {}
+      }));
+    }));
 
     // 本店員工（含離職但本週有排班者）
     const empSnap = await window.db.collection('stores').doc(store).collection('employees').get();
@@ -990,26 +1004,29 @@ function updateEmpWeekLabel() {
 }
 
 async function loadEmpView() {
-  // 查閱模式：用門市選擇器的值（店長以上可切換）
   const selEl = document.getElementById('storeSelector');
   const store = (selEl && selEl.value) ? selEl.value : currentUser.store;
   if(!store) return;
 
   showLoading('載入班表...');
+
+  const infoCard = document.getElementById('publishInfoCard');
+  const notPubCard = document.getElementById('notPublishedCard');
+  const imgWrap = document.getElementById('scheduleImgWrap');
+  const reqCard = document.getElementById('reqOffCard');
+
   try {
-    const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(empWeekStr).get();
-    const data = snap.exists ? snap.data() : {};
+    // 平行讀取：班表 + 員工名單（不撈全部門市）
+    const [weekSnap, empSnap] = await Promise.all([
+      window.db.collection('stores').doc(store).collection('weeks').doc(empWeekStr).get(),
+      window.db.collection('stores').doc(store).collection('employees').get()
+    ]);
+
+    const data = weekSnap.exists ? weekSnap.data() : {};
     const records = data.records || [];
     const published = data.published || false;
     const publishedAt = data.publishedAt || null;
-    const autoPublish = isAutoPublished(empWeekStr);
-    const isVisible = published || autoPublish;
-
-    // 發布資訊
-    const infoCard = document.getElementById('publishInfoCard');
-    const notPubCard = document.getElementById('notPublishedCard');
-    const imgWrap = document.getElementById('scheduleImgWrap');
-    const reqCard = document.getElementById('reqOffCard');
+    const isVisible = published || isAutoPublished(empWeekStr);
 
     if(isVisible) {
       infoCard.style.display = 'block';
@@ -1022,16 +1039,15 @@ async function loadEmpView() {
         const d = new Date(publishedAt);
         document.getElementById('publishInfoTime').textContent =
           `最後更新：${d.getMonth()+1}/${d.getDate()} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')} · ${data.publishedBy || ''}`;
-      } else if(autoPublish) {
+      } else {
         document.getElementById('publishInfoTime').textContent = '已自動發布（週五後自動公開）';
       }
 
-      // 員工名單
-      const empSnap = await window.db.collection('stores').doc(store).collection('employees').get();
       let emps = [];
       empSnap.forEach(d => { if(d.data().status !== '離職') emps.push({ name: d.id, ...d.data() }); });
       emps.sort((a,b) => (a.sortKey||0) - (b.sortKey||0));
 
+      // 查閱模式不需要 allStoresRecords，傳空陣列
       renderEmpCanvas(store, empWeekStr, records, emps);
       renderReqOffSection(records);
     } else {
@@ -1042,136 +1058,23 @@ async function loadEmpView() {
     }
   } catch(e) {
     showToast('載入失敗：' + e.message);
+    infoCard.style.display = 'none';
+    notPubCard.style.display = 'block';
+    imgWrap.style.display = 'none';
+    reqCard.style.display = 'none';
   }
   hideLoading();
 }
 
 function renderEmpCanvas(store, weekStr, records, emps) {
   const canvas = document.getElementById('scheduleCanvas');
-  const ctx = canvas.getContext('2d');
   const dates = getWeekDates(weekStr);
-
-  const W = 1400, colW = W / 8, rowH = 90, headerH = 90;
-  const startX = 0, startY = 180;
-  const numRows = emps.length + 2; // +備註 +總工時
-  const H = startY + headerH + numRows * rowH + 80;
-
-  canvas.width = W;
-  canvas.height = H;
+  // 查閱模式不需要 allStoresRecords，傳空陣列
+  drawScheduleCanvas(canvas, store, weekStr, records, emps, dates, []);
   canvas.style.width = '100%';
-
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(0, 0, W, H);
-
-  // 標題
-  ctx.textAlign = 'center';
-  ctx.fillStyle = '#1a73e8';
-  ctx.font = '900 52px "Microsoft JhengHei", sans-serif';
-  ctx.fillText(`${store} 職員輪班表`, W/2, 80);
-
-  const d0 = dates[0].split('/'), d6 = dates[6].split('/');
-  ctx.font = 'bold 24px "Microsoft JhengHei", sans-serif';
-  ctx.fillStyle = '#333';
-  ctx.fillText(`${d0[0]}月${d0[1]}日 至 ${d6[0]}月${d6[1]}日`, W/2, 130);
-
-  // 表格框線
-  ctx.strokeStyle = '#000';
-  ctx.lineWidth = 2;
-
-  const tableW = W, tableH = headerH + numRows * rowH;
-  ctx.strokeRect(startX, startY, tableW, tableH);
-
-  // 欄線
-  for(let i=1; i<8; i++) {
-    ctx.beginPath();
-    ctx.moveTo(startX + i*colW, startY);
-    ctx.lineTo(startX + i*colW, startY + tableH);
-    ctx.stroke();
-  }
-  // 列線
-  let cy = startY + headerH;
-  while(cy < startY + tableH) {
-    ctx.beginPath(); ctx.moveTo(startX, cy); ctx.lineTo(startX+tableW, cy); ctx.stroke();
-    cy += rowH;
-  }
-
-  // 表頭
-  ctx.fillStyle = '#1a73e8';
-  ctx.fillRect(startX, startY, tableW, headerH);
-  ctx.fillStyle = 'white';
-  ctx.font = '900 22px "Microsoft JhengHei", sans-serif';
-  ctx.fillText('姓名', startX + colW/2, startY + headerH/2);
-  for(let i=0; i<7; i++) {
-    const cx = startX + (i+1)*colW + colW/2;
-    ctx.font = '900 22px "Microsoft JhengHei", sans-serif';
-    ctx.fillText(dates[i], cx, startY + headerH/2 - 10);
-    ctx.font = 'normal 18px "Microsoft JhengHei", sans-serif';
-    ctx.fillText(dayNames[i], cx, startY + headerH/2 + 16);
-  }
-
-  // 員工列
-  let rowY = startY + headerH;
-  emps.forEach(emp => {
-    const midY = rowY + rowH/2;
-    ctx.fillStyle = '#1e293b';
-    ctx.font = '900 24px "Microsoft JhengHei", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(emp.name, startX + colW/2, midY);
-
-    dayNames.forEach((day, i) => {
-      const cx = startX + (i+1)*colW + colW/2;
-      const rec = records.find(r => r.name === emp.name && r.day === day) || {};
-      const shift = rec.shift || '';
-      const note = rec.note || '';
-      const loc = rec.location && rec.location !== '本店' ? rec.location : '';
-
-      if(shift === '指休') {
-        ctx.fillStyle = '#d93025';
-        ctx.font = '900 28px "Microsoft JhengHei", sans-serif';
-        ctx.fillText('休', cx, midY);
-      } else if(shift === '排休') {
-        ctx.fillStyle = '#64748b';
-        ctx.font = '900 28px "Microsoft JhengHei", sans-serif';
-        ctx.fillText('休', cx, midY);
-      } else if(shift) {
-        ctx.fillStyle = '#1e293b';
-        ctx.font = '900 26px "Microsoft JhengHei", sans-serif';
-        ctx.fillText(shift.replace('-',' / '), cx, note||loc ? midY-10 : midY);
-        if(loc) {
-          ctx.fillStyle = '#e67e22';
-          ctx.font = 'bold 16px "Microsoft JhengHei", sans-serif';
-          ctx.fillText(loc, cx, midY+14);
-        } else if(note) {
-          ctx.fillStyle = '#0088aa';
-          ctx.font = 'bold 16px "Microsoft JhengHei", sans-serif';
-          ctx.fillText(note, cx, midY+14);
-        }
-      }
-    });
-    rowY += rowH;
-  });
-
-  // 備註列
-  const noteY = rowY + rowH/2;
-  ctx.fillStyle = '#1e293b';
-  ctx.font = '900 22px "Microsoft JhengHei", sans-serif';
-  ctx.fillText('門市備註', startX + colW/2, noteY);
-  dayNames.forEach((day, i) => {
-    const cx = startX + (i+1)*colW + colW/2;
-    const rec = records.find(r => r.name === '門市備註' && r.day === day);
-    if(rec?.note) {
-      ctx.fillStyle = '#0088aa';
-      ctx.font = 'bold 18px "Microsoft JhengHei", sans-serif';
-      ctx.fillText(rec.note, cx, noteY);
-    }
-  });
-
-  // 備注文字
-  ctx.textAlign = 'left';
-  ctx.fillStyle = '#333';
-  ctx.font = 'bold 18px "Microsoft JhengHei", sans-serif';
-  ctx.fillText('※每周五、六公佈下週排班表，若有變動者，請事先向店長反映，勿私自調動！', startX+10, H-20);
 }
+
+
 
 function renderReqOffSection(records) {
   const el = document.getElementById('reqDayList');
