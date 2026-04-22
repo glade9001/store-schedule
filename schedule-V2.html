@@ -42,6 +42,7 @@
 }
 html, body { height: 100%; overflow: hidden; background: var(--bg); font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif; color: var(--text); }
 
+
 /* ===== LOADING ===== */
 #loadingOverlay {
   display: flex; position: fixed; inset: 0; background: linear-gradient(135deg,#1a73e8,#0d47a1);
@@ -128,7 +129,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 .paint-shift-btn.off-shift { color: var(--danger); border-color: var(--danger); background: #fce8e6; }
 
 /* ===== SCHEDULE TABLE ===== */
-.table-wrap { flex: 1; overflow: auto; -webkit-overflow-scrolling: touch; padding-bottom: 20px; }
+.table-wrap { flex: 1; overflow: auto; -webkit-overflow-scrolling: touch; padding-bottom: calc(env(safe-area-inset-bottom) + 120px); }
 table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 820px; user-select: none; }
 th, td { border-right: 1px solid #e8eaed; border-bottom: 1px solid #e8eaed; padding: 6px 4px; text-align: center; vertical-align: middle; }
 th { position: sticky; top: 0; z-index: 10; background: var(--primary); color: white; font-size: 13px; font-weight: 800; }
@@ -288,15 +289,20 @@ th:first-child { background: #1557b0; z-index: 12; }
           <button class="week-btn" onclick="goToThisWeek()" style="background:#e8f0fe; color:#1a73e8; font-weight:800;">本週</button>
           <button class="week-btn" onclick="fetchAllStoreData()" style="font-size:16px; padding:7px 10px;">🔄</button>
         </div>
-        <select id="storeSelector" class="store-select" onchange="fetchAllStoreData()"></select>
+        <select id="storeSelector" class="store-select" onchange="onStoreChange()"></select>
         <div class="sync-status" id="syncStatus">
           <div class="sync-dot"></div>
           <span>已同步</span>
         </div>
       </div>
 
+      <!-- 唯讀提示（店長看其他門市時顯示）-->
+      <div id="readonlyBanner" style="display:none; background:#fff3e0; border-bottom:2px solid var(--warn); padding:8px 14px; align-items:center; gap:8px; font-size:13px; font-weight:700; color:#e65100; flex-shrink:0;">
+        👁️ 目前為查閱模式，僅本店班表可編輯
+      </div>
+
       <!-- 工具列 -->
-      <div class="tool-bar">
+      <div class="tool-bar" id="adminToolBar">
         <button class="tool-btn paint" id="paintModeBtn" onclick="togglePaintMode()">🖌️ 畫筆</button>
         <button class="tool-btn undo" onclick="undoLastAction()">↩️ 上一步</button>
         <button class="tool-btn save" onclick="saveScheduleData(true)">💾 儲存</button>
@@ -324,8 +330,9 @@ th:first-child { background: #1557b0; z-index: 12; }
             <tr class="total-row">
               <td style="text-align:right; font-size:12px;">每日工時</td>
               <td id="dt-0">0</td><td id="dt-1">0</td><td id="dt-2">0</td><td id="dt-3">0</td>
-              <td id="dt-4">0</td><td id="dt-5">0</td><td id="dt-6">0</td><td>-</td>
+              <td id="dt-4">0</td><td id="dt-5">0</td><td id="dt-6">0</td><td>本週總計</td>
             </tr>
+            <tr style="height:80px;"><td colspan="9"></td></tr>
           </tfoot>
         </table>
       </div>
@@ -507,7 +514,10 @@ function getDisplayName(empName) {
 const canSchedule = () => ['manager','owner','admin'].includes(currentUser?.permission);
 const canScheduleStore = (store) => {
   if(['owner','admin'].includes(currentUser?.permission)) return true;
-  if(currentUser?.permission === 'manager') return store === currentUser?.store;
+  if(currentUser?.permission === 'manager') {
+    // 店長只能編輯本店，其他門市唯讀
+    return store === currentUser?.store;
+  }
   return false;
 };
 const canViewAllStores = () => ['manager','owner','admin'].includes(currentUser?.permission);
@@ -630,12 +640,10 @@ window.onload = async () => {
       document.getElementById('adminView').style.display = 'flex';
       document.getElementById('empView').style.display = 'none';
       document.getElementById('appTitle').textContent = '📋 排班管理';
-      // 店長只能選本店
+      // 店長：可切換所有門市查看，但只有本店可以編輯/發布
       if(currentUser.permission === 'manager') {
-        sel.value = currentUser.store;
-        Array.from(sel.options).forEach(o => {
-          if(o.value !== currentUser.store) o.disabled = true;
-        });
+        sel.value = currentUser.store; // 預設本店
+        // 不 disabled，讓店長可以切換看其他門市
       }
       document.getElementById('publishBtn').style.display = 'flex';
       await fetchAllStoreData();
@@ -644,12 +652,16 @@ window.onload = async () => {
       document.getElementById('adminView').style.display = 'none';
       document.getElementById('empView').style.display = 'block';
       document.getElementById('appTitle').textContent = '📅 查看班表';
-      // 店長以上可切換門市，員工鎖定本店
+      // 員工鎖定本店；店長以上可切換門市（含 admin/owner 用第一間預設）
       if(!canSchedule()) {
-        sel.value = currentUser.store || appConfig.stores[0];
+        const myStore = currentUser.store || appConfig.stores[0];
+        sel.value = myStore;
         Array.from(sel.options).forEach(o => {
-          if(o.value !== (currentUser.store || appConfig.stores[0])) o.disabled = true;
+          if(o.value !== myStore) o.disabled = true;
         });
+      } else {
+        // 店長以上：預設本店或第一間
+        sel.value = currentUser.store || appConfig.stores[0];
       }
       updateEmpWeekLabel();
       await loadEmpView();
@@ -687,6 +699,12 @@ function updatePublishBtn(store, weekStr) {
   const btn = document.getElementById('publishBtn');
   const pd = weekPublishData[weekStr] || {};
   const isPublished = pd.published || isAutoPublished(weekStr);
+  // 店長只能發布本店
+  if(!canScheduleStore(store)) {
+    btn.style.display = 'none';
+    return;
+  }
+  btn.style.display = 'flex';
   if(isPublished) {
     btn.classList.add('published');
     document.getElementById('publishBtnIcon').textContent = '✅';
@@ -745,6 +763,19 @@ function goToThisWeek() {
   fetchAllStoreData();
 }
 
+function onStoreChange() {
+  // 依目前模式決定行為
+  const urlParams = new URLSearchParams(window.location.search);
+  const isAdminMode = (urlParams.get('mode') === 'admin') && canSchedule();
+  if(isAdminMode) {
+    fetchAllStoreData();
+  } else {
+    // 查閱模式：重新載入員工視角
+    updateEmpWeekLabel();
+    loadEmpView();
+  }
+}
+
 function changeWeek(offset) {
   const input = document.getElementById('weekSelector');
   if(!input.value) return;
@@ -761,6 +792,16 @@ async function fetchAllStoreData() {
   localStorage.setItem('lastStore', store);
   document.getElementById('headerStoreBadge').textContent = store;
   setSyncStatus('syncing', '同步中...');
+
+  // 店長切換到非本店時，工具列改為唯讀提示
+  const isMyStore = canScheduleStore(store);
+  const toolBar = document.getElementById('adminToolBar');
+  if(toolBar) {
+    toolBar.style.opacity = isMyStore ? '1' : '0.4';
+    toolBar.style.pointerEvents = isMyStore ? 'auto' : 'none';
+  }
+  const readonlyBanner = document.getElementById('readonlyBanner');
+  if(readonlyBanner) readonlyBanner.style.display = isMyStore ? 'none' : 'flex';
 
   appData.allStoresRecords = [];
   appData.allStoresEmployees = {};
@@ -815,9 +856,38 @@ async function fetchAllStoreData() {
     // 發布狀態
     await fetchPublishStatus(store, weekStr);
 
+    // 店長：更新發布按鈕可見性（只有本店可發布）
+    const pubBtn = document.getElementById('publishBtn');
+    if(pubBtn && currentUser.permission === 'manager') {
+      pubBtn.style.display = (store === currentUser.store) ? 'flex' : 'none';
+    }
+
     renderSupportDropdown();
     renderTable();
     setSyncStatus('ok', '已同步');
+
+    // 店長看別家店時：隱藏發布按鈕、顯示唯讀提示
+    const curStore = document.getElementById('storeSelector').value;
+    const isReadonlyStore = (currentUser.permission === 'manager' && curStore !== currentUser.store);
+    const pubBtn = document.getElementById('publishBtn');
+    if(pubBtn) pubBtn.style.display = isReadonlyStore ? 'none' : 'flex';
+
+    // 顯示唯讀提示
+    let roBar = document.getElementById('readonlyBar');
+    if(isReadonlyStore) {
+      if(!roBar) {
+        roBar = document.createElement('div');
+        roBar.id = 'readonlyBar';
+        roBar.style.cssText = 'background:#fff3e0; color:#e65100; font-size:12px; font-weight:700; text-align:center; padding:6px; border-bottom:1px solid #ffcc80;';
+        roBar.textContent = `👁️ 目前查看 ${curStore}（唯讀，無法編輯）`;
+        document.getElementById('adminView').insertBefore(roBar, document.querySelector('.week-bar'));
+      } else {
+        roBar.textContent = `👁️ 目前查看 ${curStore}（唯讀，無法編輯）`;
+        roBar.style.display = 'block';
+      }
+    } else {
+      if(roBar) roBar.style.display = 'none';
+    }
   } catch(e) {
     setSyncStatus('err', '同步失敗');
     showToast('❌ 讀取失敗：' + e.message);
@@ -909,7 +979,9 @@ function updateEmpWeekLabel() {
 }
 
 async function loadEmpView() {
-  const store = currentUser.store;
+  // 查閱模式：用門市選擇器的值（店長以上可切換）
+  const selEl = document.getElementById('storeSelector');
+  const store = (selEl && selEl.value) ? selEl.value : currentUser.store;
   if(!store) return;
 
   showLoading('載入班表...');
