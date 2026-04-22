@@ -497,6 +497,12 @@ let empWeekStr = '';
 
 const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
 
+// 取得顯示名字（有 displayName 用新名，否則用原名）
+function getDisplayName(empName) {
+  if(!empName) return empName;
+  return (appData.displayNameMap && appData.displayNameMap[empName]) || empName;
+}
+
 // ===== 權限判斷 =====
 const canSchedule = () => ['manager','owner','admin'].includes(currentUser?.permission);
 const canScheduleStore = (store) => {
@@ -790,6 +796,18 @@ async function fetchAllStoreData() {
       }
     });
     appData.employees.sort((a,b) => (a.sortKey||0) - (b.sortKey||0));
+
+    // 建立 empName → displayName 對應表（從 account collection）
+    appData.displayNameMap = {};
+    try {
+      const accSnap = await window.db.collection('account').where('store','==',store).get();
+      accSnap.forEach(d => {
+        const acc = d.data();
+        if(acc.empName && acc.displayName) {
+          appData.displayNameMap[acc.empName] = acc.displayName;
+        }
+      });
+    } catch(e) { console.log('displayName 讀取失敗:', e); }
 
     appData.records = appData.allStoresRecords.filter(r => r._store === store);
     virtualRowNames = [...new Set(weekRecs.map(r=>r.name).filter(n => n && n.startsWith('🆘')))];
@@ -1174,7 +1192,8 @@ function renderTable() {
     const isVirtual = emp.name.startsWith('🆘');
 
     // 員工名稱欄
-    let nameHtml = `<strong class="emp-cell">${emp.name}</strong><span class="role-tag">${emp.role||''}</span>`;
+    const dispName = isVirtual ? emp.name : getDisplayName(emp.name);
+    let nameHtml = `<strong class="emp-cell">${dispName}</strong><span class="role-tag">${emp.role||''}</span>`;
     if(isVirtual) nameHtml += ` <span style="color:var(--danger); font-size:11px; cursor:pointer;" onclick="deleteVirtualRow('${emp.name}')">✖</span>`;
     if(emp.status==='離職') nameHtml += ` <span style="color:var(--danger); font-size:10px;">(離職)</span>`;
     tr.innerHTML = `<td>${nameHtml}</td>`;
@@ -1556,25 +1575,21 @@ async function updateSummary(idx, emp) {
   // ===== 渲染統計 =====
   let html = '';
   if(isPartTime) {
-    // 工讀：本週時數、當月時數、當月薪資
-    const wage = parseFloat(emp.wage || 0);
-    const monthlySalary = Math.round(mH * wage);
-    const salaryColor = monthlySalary >= 18000 ? 'color:#d93025;font-weight:900;' : 'color:#34a853;font-weight:800;';
-    html = `<span style="font-size:11px;line-height:1.8;">
-      本週：${wD}天 / ${Math.round(wH*10)/10}h<br>
-      當月：${mD}天 / ${Math.round(mH*10)/10}h<br>
-      <span style="${salaryColor}">月薪：$${monthlySalary.toLocaleString()}</span>
+    // 工讀：本週工時、本月工時
+    html = `<span style="font-size:11px;line-height:1.9;">
+      本週：${Math.round(wH*10)/10}h<br>
+      本月：${Math.round(mH*10)/10}h
     </span>`;
   } else if(isFullTime) {
-    // 正職/店長：當週休假檢核、本月已休、當月加班
-    const offColor = wOff < 2 ? 'color:#d93025;font-weight:900;' : 'color:#34a853;font-weight:800;';
-    html = `<span style="font-size:11px;line-height:1.8;">
-      <span style="${offColor}">本週休：${wOff}天${wOff < 2 ? '⚠️' : '✅'}</span><br>
-      月已休：${mOff}天<br>
-      月加班：${Math.round(mOT*10)/10}h
+    // 正職/店長：加班時數、剩餘特休、剩餘補休
+    const otColor = wOT > 0 ? 'color:#d93025;font-weight:900;' : 'color:#64748b;';
+    html = `<span style="font-size:11px;line-height:1.9;">
+      <span style="${otColor}">加班：${Math.round(wOT*10)/10}h</span><br>
+      特休剩：--<br>
+      補休剩：--
     </span>`;
   } else {
-    html = `<span style="font-size:11px;">本週：${wD}天/${Math.round(wH*10)/10}h</span>`;
+    html = `<span style="font-size:11px;">本週：${Math.round(wH*10)/10}h</span>`;
   }
   t.innerHTML = html;
 }
@@ -1632,9 +1647,10 @@ function deleteVirtualRow(name) {
 function openApprovalModal(encodedReq) {
   const req=JSON.parse(decodeURIComponent(encodedReq));
   document.getElementById('approvalData').value=encodedReq;
+  const supportEmpName = req.supportEmp?.split('-')[1] || '';
   document.getElementById('approvalDesc').innerHTML=
     `<strong>${req._store}</strong> 提出跨店支援請求：<br><br>
-    <span style="font-size:22px; font-weight:900; color:var(--primary);">${req.supportEmp?.split('-')[1]}</span><br>
+    <span style="font-size:22px; font-weight:900; color:var(--primary);">${getDisplayName(supportEmpName)}</span><br>
     於 <strong>${req.day} ${req.shift}</strong> 前往支援`;
   openModal('approvalModal');
 }
@@ -1750,6 +1766,12 @@ function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates) {
   // 日期表頭
   ctx.textAlign = 'center';
   const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
+
+// 取得顯示名字（有 displayName 用新名，否則用原名）
+function getDisplayName(empName) {
+  if(!empName) return empName;
+  return (appData.displayNameMap && appData.displayNameMap[empName]) || empName;
+}
   for (let i = 0; i < 7; i++) {
     const cx = nameColW + i * dataColW + dataColW / 2;
     const cy = tableTop + headerH / 2;
@@ -1769,7 +1791,7 @@ function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates) {
     ctx.font = `900 28px ${font}`;
     ctx.textAlign = 'center';
     if (!emp.name.startsWith('🆘')) {
-      ctx.fillText(emp.name, nameColW / 2, midY);
+      ctx.fillText(getDisplayName(emp.name), nameColW / 2, midY);
     }
 
     dayNames.forEach((day, i) => {
