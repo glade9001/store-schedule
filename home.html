@@ -1043,7 +1043,7 @@ window.onload = async () => {
     }
 
     // 嘗試讀取已登入 session
-    const savedUser = sessionStorage.getItem('currentUser');
+    const savedUser = localStorage.getItem('currentUser');
     if(savedUser) {
       currentUser = JSON.parse(savedUser);
       await initApp();
@@ -1103,7 +1103,7 @@ async function doLogin() {
       role: acc.role || '',
       permission: perm
     };
-    sessionStorage.setItem('currentUser', JSON.stringify(currentUser));
+    localStorage.setItem('currentUser', JSON.stringify(currentUser));
     document.getElementById('loginScreen').classList.remove('active');
     await initApp();
   } catch(e) {
@@ -1114,7 +1114,7 @@ async function doLogin() {
 
 function doLogout() {
   if(!confirm('確定要登出嗎？')) return;
-  sessionStorage.removeItem('currentUser');
+  localStorage.removeItem('currentUser');
   currentUser = null;
   document.getElementById('appShell').classList.remove('active');
   document.getElementById('loginScreen').classList.add('active');
