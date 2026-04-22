@@ -509,7 +509,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       <div class="card">
         <div class="section-header">
           <div class="section-title">📅 今日班表</div>
-          <div class="section-more" onclick="window.location.href='schedule2.0.html'">查看完整 →</div>
+          <div class="section-more" onclick="window.location.href='schedule-V2.html'">查看完整 →</div>
         </div>
         <div id="todayShiftList">
           <div style="text-align:center; color:var(--text-muted); font-size:13px; padding:20px 0;">載入中...</div>
@@ -663,7 +663,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       <span class="nav-icon">🏠</span>
       <span class="nav-label">首頁</span>
     </button>
-    <button class="nav-item" data-page="schedule" onclick="window.location.href='schedule2.0.html'">
+    <button class="nav-item" data-page="schedule" onclick="window.location.href='schedule-V2.html'">
       <span class="nav-icon">📅</span>
       <span class="nav-label">班表</span>
     </button>
@@ -1272,7 +1272,7 @@ function switchPage(name) {
   if(name === 'profile') loadProfilePage();
 }
 
-function goToSchedule() { window.location.href = 'schedule2.0.html'; }
+function goToSchedule() { window.location.href = 'schedule-V2.html'; }
 function goToEmployee() { switchPage('employee'); }
 
 // ===== 人員 / 帳號設定頁 =====
