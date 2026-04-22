@@ -1108,7 +1108,6 @@ async function doLogin() {
       permission: perm
     };
     sessionStorage.setItem('currentUser', JSON.stringify(currentUser));
-    console.log('已儲存 currentUser 到 sessionStorage');
     document.getElementById('loginScreen').classList.remove('active');
     await initApp();
   } catch(e) {
