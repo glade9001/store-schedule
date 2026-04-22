@@ -484,14 +484,21 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
         <div class="quick-grid" id="quickGrid"></div>
       </div>
 
-      <!-- 今日班表 -->
+      <!-- 本週+下週班表 -->
       <div class="card">
         <div class="section-header">
-          <div class="section-title">📅 今日班表</div>
+          <div class="section-title">📅 我的班表</div>
           <div class="section-more" onclick="window.location.href='schedule-V2.html'">查看完整 →</div>
         </div>
-        <div id="todayShiftList">
-          <div style="text-align:center; color:var(--text-muted); font-size:13px; padding:20px 0;">載入中...</div>
+        <!-- 本週 -->
+        <div style="font-size:12px; font-weight:800; color:var(--primary); margin-bottom:8px;" id="thisWeekLabel"></div>
+        <div id="thisWeekShifts" style="margin-bottom:14px;">
+          <div style="text-align:center; color:var(--text-muted); font-size:13px; padding:10px 0;">載入中...</div>
+        </div>
+        <!-- 下週 -->
+        <div style="font-size:12px; font-weight:800; color:var(--accent); margin-bottom:8px;" id="nextWeekLabel"></div>
+        <div id="nextWeekShifts">
+          <div style="text-align:center; color:var(--text-muted); font-size:13px; padding:10px 0;">載入中...</div>
         </div>
       </div>
 
@@ -1026,91 +1033,66 @@ async function initApp() {
   hideLoading();
 }
 
-// ===== 今日班表 =====
+// ===== 我的班表（本週+下週）=====
 async function loadTodayShifts() {
-  const weekStr = getCurrentWeekString();
-  const today = getTodayDayName();
-  const el = document.getElementById('todayShiftList');
-  el.innerHTML = `<div style="text-align:center; color:var(--text-muted); font-size:13px; padding:16px 0;">載入中...</div>`;
+  await loadMySchedule();
+}
+
+async function loadMySchedule() {
+  const store = currentUser.store;
+  const empName = currentUser.empName;
+  if(!store || !empName) return;
+
+  const thisWeek = getCurrentWeekString();
+  const nextWeek = getNextWeekString();
+
+  // 週次標籤
+  const tw = getWeekDates(thisWeek);
+  const nw = getWeekDates(nextWeek);
+  const thisLabel = document.getElementById('thisWeekLabel');
+  const nextLabel = document.getElementById('nextWeekLabel');
+  if(thisLabel) thisLabel.textContent = `📅 本週（${tw[0]} ～ ${tw[6]}）`;
+  if(nextLabel) nextLabel.textContent = `📅 下週（${nw[0]} ～ ${nw[6]}）`;
 
   try {
-    // 先把全部門市的本週 records 撈回來（跨店支援查詢需要）
-    const allStoresRecords = {};
-    for(const store of (appConfig.stores || [])) {
+    for(const [weekStr, elId] of [[thisWeek,'thisWeekShifts'],[nextWeek,'nextWeekShifts']]) {
+      const el = document.getElementById(elId);
+      if(!el) continue;
+
       const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get();
-      allStoresRecords[store] = (snap.exists && snap.data().records) ? snap.data().records : [];
-    }
+      const records = (snap.exists && snap.data().records) ? snap.data().records : [];
+      const myRecs = records.filter(r => r.name === empName);
 
-    // 判斷某人今天是否有去別間店支援
-    function findCrossSupport(empName, homeStore) {
-      for(const [store, recs] of Object.entries(allStoresRecords)) {
-        if(store === homeStore) continue;
-        const cr = recs.find(r =>
-          r.supportEmp === `${homeStore}-${empName}` &&
-          r.day === today &&
-          r.approvalStatus === 'approved'
-        );
-        if(cr) return { ...cr, _atStore: store };
+      if(myRecs.length === 0) {
+        el.innerHTML = `<div style="text-align:center;color:var(--text-muted);font-size:13px;padding:8px 0;">尚未排班</div>`;
+        continue;
       }
-      return null;
+
+      const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
+      const dates = getWeekDates(weekStr);
+
+      el.innerHTML = `<div style="display:grid; grid-template-columns:repeat(7,1fr); gap:4px;">` +
+        dayNames.map((day, i) => {
+          const rec = myRecs.find(r => r.day === day) || {};
+          const shift = rec.shift || '';
+          const isOff = shift === '排休' || shift === '指休';
+          const isEmpty = !shift;
+          const bgColor = isOff ? '#fce8e6' : (isEmpty ? '#f8fafc' : '#e8f0fe');
+          const textColor = isOff ? '#d93025' : (isEmpty ? '#ccc' : '#1a73e8');
+          const fontWeight = isEmpty ? '400' : '800';
+          return `<div style="text-align:center; background:${bgColor}; border-radius:8px; padding:6px 2px;">
+            <div style="font-size:10px; color:var(--text-muted); margin-bottom:2px;">${dates[i]}</div>
+            <div style="font-size:10px; color:var(--text-muted);">${day}</div>
+            <div style="font-size:13px; color:${textColor}; font-weight:${fontWeight}; margin-top:3px;">
+              ${isOff ? '休' : (shift || '-')}
+            </div>
+            ${rec.note ? `<div style="font-size:9px;color:#0088aa;">${rec.note}</div>` : ''}
+          </div>`;
+        }).join('') +
+      `</div>`;
     }
-
-    // 渲染單筆班別 HTML
-    const renderRow = (r) => {
-      const isOff = (r.shift === '排休' || r.shift === '指休');
-      const dotClass = r._isCrossStore ? 'cross' : (isOff ? 'off' : (parseInt(r.shift) >= 15 ? 'night' : 'morning'));
-      const badge = r._isCrossStore
-        ? `<div class="shift-badge cross">支援</div>`
-        : `<div class="shift-badge ${isOff?'off':'work'}">${isOff?'休':'上班'}</div>`;
-      const sub = r._isCrossStore
-        ? `<div style="font-size:11px;color:#9334e6;font-weight:700;">📍${r._location}</div>`
-        : (r.note ? `<div style="font-size:11px;color:var(--text-muted);">${r.note}</div>` : '');
-      return `<div class="shift-item">
-        <div class="shift-dot ${dotClass}"></div>
-        <div style="flex:1;"><div class="shift-emp">${r.name}</div>${sub}</div>
-        <div class="shift-time">${isOff ? '休假' : (r.shift||'-')}</div>
-        ${badge}
-      </div>`;
-    };
-
-    // 決定要顯示哪些門市
-    const storesToShow = currentUser.store ? [currentUser.store] : Object.keys(allStoresRecords);
-    let byStore = {};
-
-    for(const store of storesToShow) {
-      const recs = allStoresRecords[store] || [];
-      const todayRecs = recs.filter(r => r.day === today && r.name !== '門市備註' && !r.name.startsWith('🆘'));
-      if(!byStore[store]) byStore[store] = [];
-
-      todayRecs.forEach(r => {
-        const cross = findCrossSupport(r.name, store);
-        if(cross) {
-          byStore[store].push({ ...r, shift: cross.shift, note: cross.note,
-            _isCrossStore: true, _location: `支援 ${cross._atStore}` });
-        } else {
-          byStore[store].push({ ...r, _isCrossStore: false });
-        }
-      });
-    }
-
-    const totalRecs = Object.values(byStore).flat();
-    if(totalRecs.length === 0) {
-      el.innerHTML = `<div style="text-align:center; color:var(--text-muted); font-size:13px; padding:20px 0;">今日尚未排班</div>`;
-      return;
-    }
-
-    if(!currentUser.store) {
-      // 加盟主/管理者：按門市分組
-      el.innerHTML = Object.entries(byStore).map(([store, recs]) => recs.length === 0 ? '' : `
-        <div style="font-size:11px;font-weight:800;color:var(--primary);margin:10px 0 6px;letter-spacing:0.5px;">🏪 ${store}</div>
-        ${recs.map(renderRow).join('')}
-      `).join('');
-    } else {
-      el.innerHTML = byStore[currentUser.store].map(renderRow).join('');
-    }
-
   } catch(e) {
-    el.innerHTML = `<div style="text-align:center; color:var(--text-muted); font-size:13px; padding:20px 0;">載入失敗</div>`;
+    document.getElementById('thisWeekShifts').innerHTML = `<div style="color:var(--danger);font-size:12px;">載入失敗</div>`;
   }
 }
 
