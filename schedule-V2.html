@@ -604,13 +604,23 @@ function isWeekLocked(weekStr) {
 window.onload = async () => {
   showLoading('驗證登入狀態...');
 
-  // 從 localStorage 讀取登入資訊
+  // 驗證登入狀態
   const saved = sessionStorage.getItem('currentUser');
+  console.log('sessionStorage currentUser:', saved ? '有資料' : '無資料');
   if(!saved) {
-    window.location.href = 'home.html';
+    alert('sessionStorage 無登入資料，請從首頁登入');
+    window.location.replace('home.html');
     return;
   }
-  currentUser = JSON.parse(saved);
+  try {
+    currentUser = JSON.parse(saved);
+    console.log('登入用戶:', currentUser.displayName, '權限:', currentUser.permission);
+  } catch(e) {
+    alert('登入資料解析失敗：' + e.message);
+    sessionStorage.removeItem('currentUser');
+    window.location.replace('home.html');
+    return;
+  }
 
   showLoading('載入系統設定...');
   try {
