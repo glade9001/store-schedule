@@ -604,8 +604,8 @@ function isWeekLocked(weekStr) {
 window.onload = async () => {
   showLoading('驗證登入狀態...');
 
-  // 從 sessionStorage 讀取登入資訊
-  const saved = sessionStorage.getItem('currentUser');
+  // 從 localStorage 讀取登入資訊
+  const saved = localStorage.getItem('currentUser');
   if(!saved) {
     window.location.href = 'home.html';
     return;
