@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>美德門市管理系統</title>
+<title>莉學商行管理系統</title>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
 <script>
@@ -397,15 +397,15 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 <!-- LOADING -->
 <div id="loadingOverlay">
   <div class="spinner"></div>
-  <div class="loading-title">美德管理系統</div>
+  <div class="loading-title">莉學商行管理系統</div>
   <div class="loading-sub">連線雲端資料庫中...</div>
 </div>
 
 <!-- LOGIN SCREEN -->
 <div id="loginScreen">
   <div class="login-logo">🏪</div>
-  <div class="login-title">美德管理系統</div>
-  <div class="login-sub">員工專屬登入入口</div>
+  <div class="login-title">莉學商孩管理系統</div>
+  <div class="login-sub">莉學員工專屬登入入口</div>
   <div class="login-card">
     <div class="login-field">
       <label>帳號</label>
@@ -912,12 +912,14 @@ async function doLogin() {
       return;
     }
 
+    const perm = acc.permission || 'employee';
+    const isGlobal = (perm === 'owner' || perm === 'admin');
     currentUser = {
       username: username,
       name: acc.empName,
-      store: acc.store,
-      role: acc.role,
-      permission: acc.permission || 'employee'
+      store: isGlobal ? null : (acc.store || null),
+      role: acc.role || '',
+      permission: perm
     };
     sessionStorage.setItem('currentUser', JSON.stringify(currentUser));
     document.getElementById('loginScreen').classList.remove('active');
@@ -942,10 +944,12 @@ function doLogout() {
 // ===== 初始化 APP =====
 async function initApp() {
   showLoading('載入個人資料中...');
+  const storeLabel = currentUser.store || '全門市';
+
   // 更新 header
   document.getElementById('headerName').textContent = currentUser.name;
-  document.getElementById('headerRole').textContent = (ROLE_LABELS[currentUser.role] || currentUser.role) + ' · ' + (PERM_LABELS[currentUser.permission] || '');
-  document.getElementById('headerStore').textContent = currentUser.store;
+  document.getElementById('headerRole').textContent = (ROLE_LABELS[currentUser.role] || currentUser.role || '管理者') + ' · ' + (PERM_LABELS[currentUser.permission] || '');
+  document.getElementById('headerStore').textContent = storeLabel;
   document.getElementById('headerAvatar').textContent = currentUser.name ? currentUser.name[0] : '👤';
 
   // Greeting
@@ -954,13 +958,13 @@ async function initApp() {
   document.getElementById('greetingTime').textContent = `${icon} ${now.getMonth()+1}月${now.getDate()}日 · ${['週日','週一','週二','週三','週四','週五','週六'][now.getDay()]}`;
   document.getElementById('greetingName').textContent = `嗨，${currentUser.name}！`;
   document.getElementById('greetingDesc').textContent = greet;
-  document.getElementById('greetingBadge').textContent = `🏪 ${currentUser.store}`;
+  document.getElementById('greetingBadge').textContent = currentUser.store ? `🏪 ${currentUser.store}` : `🏬 全門市管理`;
 
   // 個人頁面更新
   document.getElementById('profileAvatar').textContent = currentUser.name ? currentUser.name[0] : '👤';
   document.getElementById('profileName').textContent = currentUser.name;
-  document.getElementById('profileRoleText').textContent = ROLE_LABELS[currentUser.role] || currentUser.role;
-  document.getElementById('profileStoreText').textContent = currentUser.store;
+  document.getElementById('profileRoleText').textContent = ROLE_LABELS[currentUser.role] || currentUser.role || '管理者';
+  document.getElementById('profileStoreText').textContent = currentUser.store ? currentUser.store : '全門市';
 
   // ===== 根據權限調整 UI =====
 
@@ -1025,75 +1029,128 @@ async function initApp() {
 async function loadTodayShifts() {
   const weekStr = getCurrentWeekString();
   const today = getTodayDayName();
-  const store = currentUser.store;
+  const el = document.getElementById('todayShiftList');
+  el.innerHTML = `<div style="text-align:center; color:var(--text-muted); font-size:13px; padding:16px 0;">載入中...</div>`;
 
   try {
-    const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get();
-    const records = (snap.exists && snap.data().records) ? snap.data().records : [];
+    let allRecs = [];
 
-    const todayRecs = records.filter(r => r.day === today && r.name !== '門市備註');
-    const el = document.getElementById('todayShiftList');
+    if(currentUser.store) {
+      // 員工 / 店長：只讀本店
+      const snap = await window.db.collection('stores').doc(currentUser.store).collection('weeks').doc(weekStr).get();
+      const records = (snap.exists && snap.data().records) ? snap.data().records : [];
+      records.filter(r => r.day === today && r.name !== '門市備註')
+             .forEach(r => allRecs.push({ ...r, _store: currentUser.store }));
+    } else {
+      // 加盟主 / 系統管理者：讀全部門市
+      for(const store of (appConfig.stores || [])) {
+        const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get();
+        const records = (snap.exists && snap.data().records) ? snap.data().records : [];
+        records.filter(r => r.day === today && r.name !== '門市備註')
+               .forEach(r => allRecs.push({ ...r, _store: store }));
+      }
+    }
 
-    if(todayRecs.length === 0) {
+    if(allRecs.length === 0) {
       el.innerHTML = `<div style="text-align:center; color:var(--text-muted); font-size:13px; padding:20px 0;">今日尚未排班</div>`;
       return;
     }
 
-    // 員工：看全店（自己那間）；店長以上：看全店（同左，但首頁只顯示本店）
-    // 全員都可以看本店今日班表，員工不只看自己
-    const display = todayRecs;
-
-    el.innerHTML = display.map(r => {
-      const isOff = (r.shift === '排休' || r.shift === '指休');
-      const dotClass = isOff ? 'off' : (parseInt(r.shift) >= 15 ? 'night' : 'morning');
-      return `<div class="shift-item">
-        <div class="shift-dot ${dotClass}"></div>
-        <div class="shift-emp">${r.name}</div>
-        <div class="shift-time">${isOff ? '休假' : (r.shift||'-')}</div>
-        <div class="shift-badge ${isOff?'off':'work'}">${isOff?'休':'上班'}</div>
-      </div>`;
-    }).join('');
+    // 加盟主/系統管理者：按門市分組顯示
+    if(!currentUser.store) {
+      const byStore = {};
+      allRecs.forEach(r => { if(!byStore[r._store]) byStore[r._store] = []; byStore[r._store].push(r); });
+      el.innerHTML = Object.entries(byStore).map(([store, recs]) => `
+        <div style="font-size:11px; font-weight:800; color:var(--primary); margin:10px 0 6px; text-transform:uppercase; letter-spacing:0.5px;">🏪 ${store}</div>
+        ${recs.map(r => {
+          const isOff = (r.shift === '排休' || r.shift === '指休');
+          const dotClass = isOff ? 'off' : (parseInt(r.shift) >= 15 ? 'night' : 'morning');
+          return `<div class="shift-item">
+            <div class="shift-dot ${dotClass}"></div>
+            <div class="shift-emp">${r.name}</div>
+            <div class="shift-time">${isOff ? '休假' : (r.shift||'-')}</div>
+            <div class="shift-badge ${isOff?'off':'work'}">${isOff?'休':'上班'}</div>
+          </div>`;
+        }).join('')}
+      `).join('');
+    } else {
+      // 員工 / 店長：直接列出
+      el.innerHTML = allRecs.map(r => {
+        const isOff = (r.shift === '排休' || r.shift === '指休');
+        const dotClass = isOff ? 'off' : (parseInt(r.shift) >= 15 ? 'night' : 'morning');
+        return `<div class="shift-item">
+          <div class="shift-dot ${dotClass}"></div>
+          <div class="shift-emp">${r.name}</div>
+          <div class="shift-time">${isOff ? '休假' : (r.shift||'-')}</div>
+          <div class="shift-badge ${isOff?'off':'work'}">${isOff?'休':'上班'}</div>
+        </div>`;
+      }).join('');
+    }
   } catch(e) {
-    document.getElementById('todayShiftList').innerHTML = `<div style="text-align:center; color:var(--text-muted); font-size:13px; padding:20px 0;">載入失敗</div>`;
+    el.innerHTML = `<div style="text-align:center; color:var(--text-muted); font-size:13px; padding:20px 0;">載入失敗</div>`;
   }
 }
 
 // ===== 統計 =====
 async function loadStats() {
   const weekStr = getCurrentWeekString();
-  const store = currentUser.store;
   try {
-    const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get();
-    const records = (snap.exists && snap.data().records) ? snap.data().records : [];
-    const myRecs = records.filter(r => r.name === currentUser.name);
-    const workDays = myRecs.filter(r => r.shift && r.shift !== '排休' && r.shift !== '指休').length;
-    const totalHours = myRecs.reduce((s, r) => s + (parseFloat(r.actualHours)||0), 0);
-    document.getElementById('statThisWeek').textContent = workDays;
-    document.getElementById('statHours').textContent = Math.round(totalHours * 10) / 10;
+    if(currentUser.store) {
+      // 員工 / 店長：顯示個人本週統計
+      const snap = await window.db.collection('stores').doc(currentUser.store).collection('weeks').doc(weekStr).get();
+      const records = (snap.exists && snap.data().records) ? snap.data().records : [];
+      const myRecs = records.filter(r => r.name === currentUser.name);
+      const workDays = myRecs.filter(r => r.shift && r.shift !== '排休' && r.shift !== '指休').length;
+      const totalHours = myRecs.reduce((s, r) => s + (parseFloat(r.actualHours)||0), 0);
+      document.getElementById('statThisWeek').textContent = workDays;
+      document.getElementById('statHours').textContent = Math.round(totalHours * 10) / 10;
+    } else {
+      // 加盟主 / 系統管理者：顯示全門市本週總人次、總工時
+      let totalShifts = 0, totalHours = 0;
+      for(const store of (appConfig.stores || [])) {
+        const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get();
+        const records = (snap.exists && snap.data().records) ? snap.data().records : [];
+        records.forEach(r => {
+          if(r.shift && r.shift !== '排休' && r.shift !== '指休' && r.name !== '門市備註') {
+            totalShifts++;
+            totalHours += parseFloat(r.actualHours || 0);
+          }
+        });
+      }
+      document.getElementById('statThisWeek').textContent = totalShifts;
+      document.getElementById('statHours').textContent = Math.round(totalHours);
+      // 改變標籤說明
+      document.querySelector('#statThisWeek').closest('.stat-card').querySelector('.stat-label').textContent = '本週班次總計';
+      document.querySelector('#statHours').closest('.stat-card').querySelector('.stat-label').textContent = '本週總工時 (h)';
+    }
     document.getElementById('statLeave').textContent = '--';
     document.getElementById('statComp').textContent = '--';
   } catch(e) {}
 }
 
-// ===== 待處理事項（管理者）=====
+// ===== 待處理事項（店長以上）=====
 async function loadPendingItems() {
   const weekStr = getCurrentWeekString();
   const nextWeek = getNextWeekString();
-  const store = currentUser.store;
   let pending = [];
 
+  // 決定要掃哪些門市
+  const storesToScan = currentUser.store ? [currentUser.store] : (appConfig.stores || []);
+
   try {
-    for(const wk of [weekStr, nextWeek]) {
-      const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(wk).get();
-      if(snap.exists && snap.data().records) {
-        snap.data().records.forEach(r => {
-          if(r.approvalStatus === 'pending' && r.supportEmp) {
-            pending.push({ type: '跨店支援待審', desc: `${r.name} 申請 ${r.day} ${r.shift} 支援` });
-          }
-          if(r.requestOff && r.shift && r.shift !== '排休' && r.shift !== '指休') {
-            pending.push({ type: '畫休衝突', desc: `${r.name} 在 ${r.day} 有畫休衝突` });
-          }
-        });
+    for(const store of storesToScan) {
+      for(const wk of [weekStr, nextWeek]) {
+        const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(wk).get();
+        if(snap.exists && snap.data().records) {
+          snap.data().records.forEach(r => {
+            if(r.approvalStatus === 'pending' && r.supportEmp) {
+              pending.push({ type: '跨店支援待審', desc: `${store}｜${r.name} 申請 ${r.day} ${r.shift} 支援` });
+            }
+            if(r.requestOff && r.shift && r.shift !== '排休' && r.shift !== '指休') {
+              pending.push({ type: '畫休衝突', desc: `${store}｜${r.name} 在 ${r.day} 有畫休衝突` });
+            }
+          });
+        }
       }
     }
   } catch(e) {}
@@ -1132,8 +1189,9 @@ async function loadEmployeePage() {
   if(canManageEmployee()) {
     document.getElementById('empAdminView').style.display = 'block';
     document.getElementById('empSelfView').style.display = 'none';
-    // 店長只能看本店；加盟主/系統管理者可看全部
-    await loadEmpAdminList(currentUser.store);
+    // store 為 null（加盟主/管理者）→ 預設第一間門市
+    const defaultStore = currentUser.store || (appConfig.stores && appConfig.stores[0]) || '';
+    await loadEmpAdminList(defaultStore);
   } else {
     document.getElementById('empAdminView').style.display = 'none';
     document.getElementById('empSelfView').style.display = 'block';
@@ -1196,19 +1254,19 @@ async function loadEmpAdminList(store) {
 function loadSelfView() {
   document.getElementById('selfAvatar').textContent = currentUser.name ? currentUser.name[0] : '👤';
   document.getElementById('selfName').textContent = currentUser.name;
-  document.getElementById('selfRole').textContent = ROLE_LABELS[currentUser.role] || currentUser.role;
-  document.getElementById('selfStore').textContent = currentUser.store;
+  document.getElementById('selfRole').textContent = ROLE_LABELS[currentUser.role] || currentUser.role || '管理者';
+  document.getElementById('selfStore').textContent = currentUser.store || '全門市';
   document.getElementById('selfUsername').textContent = currentUser.username;
   document.getElementById('selfNameInfo').textContent = currentUser.name;
-  document.getElementById('selfRoleInfo').textContent = ROLE_LABELS[currentUser.role] || currentUser.role;
-  document.getElementById('selfStoreInfo').textContent = currentUser.store;
+  document.getElementById('selfRoleInfo').textContent = ROLE_LABELS[currentUser.role] || currentUser.role || '管理者';
+  document.getElementById('selfStoreInfo').textContent = currentUser.store || '全門市（無綁定）';
 }
 
 function loadProfilePage() {
   document.getElementById('profileAvatar').textContent = currentUser.name ? currentUser.name[0] : '👤';
   document.getElementById('profileName').textContent = currentUser.name;
-  document.getElementById('profileRoleText').textContent = (ROLE_LABELS[currentUser.role]||currentUser.role) + ' · ' + (PERM_LABELS[currentUser.permission]||'');
-  document.getElementById('profileStoreText').textContent = '🏪 ' + currentUser.store;
+  document.getElementById('profileRoleText').textContent = (ROLE_LABELS[currentUser.role] || currentUser.role || '管理者') + ' · ' + (PERM_LABELS[currentUser.permission] || '');
+  document.getElementById('profileStoreText').textContent = currentUser.store ? `🏪 ${currentUser.store}` : '🏬 全門市';
 }
 
 // ===== 帳號設定 MODAL =====
