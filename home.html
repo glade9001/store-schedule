@@ -998,7 +998,10 @@ function getWeekDates(wStr) {
   let offset = day <= 4 ? 1 - day : 8 - day;
   d.setDate(d.getDate() + offset);
   let res = [];
-  for(let i=0; i<7; i++) { res.push(new Date(d)); d.setDate(d.getDate()+1); }
+  for(let i=0; i<7; i++) {
+    res.push((d.getMonth()+1) + '/' + d.getDate()); // "M/D" 格式
+    d.setDate(d.getDate()+1);
+  }
   return res;
 }
 function getNextWeekString() {
@@ -1105,6 +1108,7 @@ async function doLogin() {
       permission: perm
     };
     sessionStorage.setItem('currentUser', JSON.stringify(currentUser));
+    console.log('已儲存 currentUser 到 sessionStorage');
     document.getElementById('loginScreen').classList.remove('active');
     await initApp();
   } catch(e) {
