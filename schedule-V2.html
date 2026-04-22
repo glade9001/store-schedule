@@ -414,7 +414,7 @@ th:first-child { background: #1557b0; z-index: 12; }
         <label>指派支援人員</label>
         <div style="display:flex; gap:6px;">
           <select id="modalSupportEmp" style="flex:1;" onchange="toggleApprovalVis()"></select>
-          <select id="modalApproval" style="display:none; width:110px;">
+          <select id="modalApproval" style="display:none; width:110px;" onchange="onApprovalChange(this)">
             <option value="pending">⏳ 待審核</option>
             <option value="approved">✅ 直接核准</option>
           </select>
@@ -424,7 +424,7 @@ th:first-child { background: #1557b0; z-index: 12; }
     <div class="form-field">
       <label>備註</label>
       <input type="text" id="modalNote">
-      <div class="quick-note-row">
+      <div class="quick-note-row" id="quickNoteRow">
         <button class="qnote-btn" onclick="appendNote('作帳')">作帳</button>
         <button class="qnote-btn" onclick="appendNote('訂鮮食')">訂鮮食</button>
         <button class="qnote-btn" onclick="appendNote('訂捷盟')">訂捷盟</button>
@@ -853,6 +853,17 @@ async function fetchAllStoreData() {
     appData.records = appData.allStoresRecords.filter(r => r._store === store);
     virtualRowNames = [...new Set(weekRecs.map(r=>r.name).filter(n => n && n.startsWith('🆘')))];
 
+    // 讀取門市班別設定
+    try {
+      const cfgSnap = await window.db.collection('stores').doc(store).collection('config').doc('shifts').get();
+      if(cfgSnap.exists) {
+        const cfg = cfgSnap.data();
+        appConfig.shifts = cfg.shifts || appConfig.shifts;
+        appConfig.shiftHours = cfg.shiftHours || appConfig.shiftHours;
+        appConfig.quickNotes = cfg.quickNotes || ['作帳','訂鮮食','訂捷盟','訂乳品18度C'];
+      }
+    } catch(e) {}
+
     // 發布狀態
     await fetchPublishStatus(store, weekStr);
 
@@ -1242,6 +1253,17 @@ function toggleApprovalVis() {
   document.getElementById('modalApproval').style.display = val ? 'block' : 'none';
 }
 
+function onApprovalChange(sel) {
+  if(sel.value === 'approved') {
+    if(!confirm('⚠️ 請確認已跟對方店長溝通！
+
+按下確認視同審核通過。')) {
+      // 取消 → 改回待審核
+      sel.value = 'pending';
+    }
+  }
+}
+
 function renderTable() {
   const tbody = document.getElementById('tableBody');
   tbody.innerHTML = '';
@@ -1435,12 +1457,21 @@ function handleCellClick(btn, eIdx, isVirtual) {
 }
 
 function renderQuickShiftBtns() {
+  // 班別快捷（過濾掉「清空」，已有獨立按鈕）
   let h=`<button class="quick-shift-btn clear" onclick="clearModalShift()">🗑️ 清空</button>`;
-  (appConfig.shifts||[]).forEach(s => {
+  (appConfig.shifts||[]).filter(s=>s!=='清空').forEach(s => {
     const isOff=(s==='排休'||s==='指休');
     h+=`<button class="quick-shift-btn ${isOff?'off':''}" onclick="setModalShift('${s}')">${s}</button>`;
   });
   document.getElementById('quickShiftBtns').innerHTML=h;
+
+  // 備註快捷（動態渲染）
+  const noteRow = document.getElementById('quickNoteRow');
+  if(noteRow && appConfig.quickNotes) {
+    noteRow.innerHTML = appConfig.quickNotes.map(n =>
+      `<button class="qnote-btn" onclick="appendNote('${n}')">${n}</button>`
+    ).join('');
+  }
 }
 function setModalShift(s) { document.getElementById('modalShift').value=s; autoFillHours(); }
 function clearModalShift() {
@@ -1521,7 +1552,7 @@ function togglePaintMode() {
 }
 function renderPaintBtns() {
   let h=`<button class="paint-shift-btn ${paintShift==='清空'?'active-paint':''}" onclick="setPaintShift('清空')">🗑️ 清空</button>`;
-  (appConfig.shifts||[]).forEach(s=>{
+  (appConfig.shifts||[]).filter(s=>s!=='清空').forEach(s=>{
     const isOff=(s==='排休'||s==='指休');
     h+=`<button class="paint-shift-btn ${isOff?'off-shift':''} ${paintShift===s?'active-paint':''}" onclick="setPaintShift('${s}')">${s}</button>`;
   });
