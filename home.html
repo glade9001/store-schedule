@@ -481,28 +481,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       <!-- 快速功能 -->
       <div class="card">
         <div class="card-title">⚡ 快速功能</div>
-        <div class="quick-grid">
-          <div class="quick-btn primary" id="quickScheduleBtn" onclick="goToSchedule()">
-            <div class="q-icon">📋</div>
-            <div class="q-label">查閱班表</div>
-            <div class="q-sub">本週排班</div>
-          </div>
-          <div class="quick-btn green" onclick="goToEmployee()">
-            <div class="q-icon">👥</div>
-            <div class="q-label">人員管理</div>
-            <div class="q-sub" id="qSubEmployee">管理員工</div>
-          </div>
-          <div class="quick-btn" onclick="showWip('特休 / 補休申請')">
-            <div class="q-icon">📝</div>
-            <div class="q-label">申請假期</div>
-            <div class="q-sub">特休 / 補休</div>
-          </div>
-          <div class="quick-btn" id="quickSalaryBtn" onclick="showWip('薪資計算')">
-            <div class="q-icon">💵</div>
-            <div class="q-label">薪資試算</div>
-            <div class="q-sub">查看明細</div>
-          </div>
-        </div>
+        <div class="quick-grid" id="quickGrid"></div>
       </div>
 
       <!-- 今日班表 -->
@@ -1018,37 +997,14 @@ async function initApp() {
     document.getElementById('pendingCard').style.display = 'block';
   }
 
-  // 人員管理按鈕文字
+  // 動態渲染快速功能按鈕
+  renderQuickBtns();
+
+  // 帳號管理選單文字
   if(canManageEmployee()) {
-    document.getElementById('qSubEmployee').textContent = canViewAllStores() ? '全門市帳號管理' : '本店帳號管理';
     document.getElementById('menuAccountSub').textContent = '管理員工帳號密碼';
   } else {
-    document.getElementById('qSubEmployee').textContent = '查看個人資料';
     document.getElementById('menuAccountSub').textContent = '查看帳號 / 修改密碼';
-  }
-
-  // 班表按鈕文字
-  const scheduleBtn = document.getElementById('quickScheduleBtn');
-  if(scheduleBtn) {
-    if(canSchedule()) {
-      scheduleBtn.querySelector('.q-label').textContent = '排班管理';
-      scheduleBtn.querySelector('.q-sub').textContent = canViewAllStores() ? '全門市排班' : '本店排班';
-    } else {
-      scheduleBtn.querySelector('.q-label').textContent = '查閱班表';
-      scheduleBtn.querySelector('.q-sub').textContent = '本店本週';
-    }
-  }
-
-  // 薪資按鈕文字
-  const salaryBtn = document.getElementById('quickSalaryBtn');
-  if(salaryBtn) {
-    if(canViewAllSalary()) {
-      salaryBtn.querySelector('.q-sub').textContent = '全門市薪資';
-    } else if(canSchedule()) {
-      salaryBtn.querySelector('.q-sub').textContent = '本店薪資';
-    } else {
-      salaryBtn.querySelector('.q-sub').textContent = '我的薪資';
-    }
   }
 
   // Header 權限標籤顏色
@@ -1270,6 +1226,73 @@ function switchPage(name) {
 
   if(name === 'employee') loadEmployeePage();
   if(name === 'profile') loadProfilePage();
+}
+
+// ===== 快速功能按鈕動態渲染 =====
+function renderQuickBtns() {
+  const grid = document.getElementById('quickGrid');
+  if(!grid) return;
+  const isManager = canSchedule(); // 店長以上
+
+  if(isManager) {
+    // 店長以上：6個按鈕
+    grid.innerHTML = `
+      <div class="quick-btn primary" onclick="window.location.href='schedule-V2.html'">
+        <div class="q-icon">📅</div>
+        <div class="q-label">查看班表</div>
+        <div class="q-sub">查閱本週班表</div>
+      </div>
+      <div class="quick-btn" style="background:linear-gradient(135deg,#e67e22,#d35400);border-color:transparent;" onclick="window.location.href='schedule-V2.html?mode=admin'">
+        <div class="q-icon">📋</div>
+        <div class="q-label" style="color:white;">排班管理</div>
+        <div class="q-sub" style="color:rgba(255,255,255,0.8);">${canViewAllStores()?'全門市':'本店'}排班</div>
+      </div>
+      <div class="quick-btn green" onclick="switchPage('employee')">
+        <div class="q-icon">👥</div>
+        <div class="q-label">員工管理</div>
+        <div class="q-sub">${canViewAllStores()?'全門市':'本店'}帳號</div>
+      </div>
+      <div class="quick-btn" style="background:linear-gradient(135deg,#1a73e8,#1557b0);border-color:transparent;" onclick="showWip('劃休系統')">
+        <div class="q-icon">📝</div>
+        <div class="q-label" style="color:white;">劃休系統</div>
+        <div class="q-sub" style="color:rgba(255,255,255,0.8);">申請排休</div>
+      </div>
+      <div class="quick-btn" onclick="showWip('薪資試算')">
+        <div class="q-icon">💰</div>
+        <div class="q-label">薪資試算</div>
+        <div class="q-sub">${canViewAllSalary()?'全門市':'本店'}薪資</div>
+      </div>
+      <div class="quick-btn" onclick="switchPage('profile')">
+        <div class="q-icon">👤</div>
+        <div class="q-label">個人資料</div>
+        <div class="q-sub">帳號設定</div>
+      </div>
+    `;
+  } else {
+    // 員工：4個按鈕
+    grid.innerHTML = `
+      <div class="quick-btn primary" onclick="window.location.href='schedule-V2.html'">
+        <div class="q-icon">📅</div>
+        <div class="q-label">查看班表</div>
+        <div class="q-sub">本店本週</div>
+      </div>
+      <div class="quick-btn" style="background:linear-gradient(135deg,#1a73e8,#1557b0);border-color:transparent;" onclick="showWip('劃休系統')">
+        <div class="q-icon">📝</div>
+        <div class="q-label" style="color:white;">劃休系統</div>
+        <div class="q-sub" style="color:rgba(255,255,255,0.8);">申請排休</div>
+      </div>
+      <div class="quick-btn" onclick="showWip('薪資試算')">
+        <div class="q-icon">💰</div>
+        <div class="q-label">薪資試算</div>
+        <div class="q-sub">我的薪資</div>
+      </div>
+      <div class="quick-btn" onclick="switchPage('profile')">
+        <div class="q-icon">👤</div>
+        <div class="q-label">個人資料</div>
+        <div class="q-sub">帳號設定</div>
+      </div>
+    `;
+  }
 }
 
 function goToSchedule() { window.location.href = 'schedule-V2.html'; }
