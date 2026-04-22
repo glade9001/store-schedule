@@ -187,6 +187,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 .shift-dot.morning { background: #1a73e8; }
 .shift-dot.night { background: #e67e22; }
 .shift-dot.off { background: #ccc; }
+.shift-dot.cross { background: #9334e6; }
 .shift-emp { font-weight: 700; font-size: 14px; flex: 1; }
 .shift-time { font-size: 13px; color: var(--text-muted); }
 .shift-badge {
@@ -194,6 +195,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 }
 .shift-badge.work { background: #e8f0fe; color: #1a73e8; }
 .shift-badge.off { background: #f1f3f4; color: #888; }
+.shift-badge.cross { background: #f3e8ff; color: #9334e6; }
 
 /* ===== NOTICE / PENDING ===== */
 .notice-item {
@@ -404,8 +406,8 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 <!-- LOGIN SCREEN -->
 <div id="loginScreen">
   <div class="login-logo">🏪</div>
-  <div class="login-title">莉學商孩管理系統</div>
-  <div class="login-sub">莉學員工專屬登入入口</div>
+  <div class="login-title">莉學商行管理系統</div>
+  <div class="login-sub">員工專屬登入入口</div>
   <div class="login-card">
     <div class="login-field">
       <label>帳號</label>
@@ -1033,59 +1035,81 @@ async function loadTodayShifts() {
   el.innerHTML = `<div style="text-align:center; color:var(--text-muted); font-size:13px; padding:16px 0;">載入中...</div>`;
 
   try {
-    let allRecs = [];
-
-    if(currentUser.store) {
-      // 員工 / 店長：只讀本店
-      const snap = await window.db.collection('stores').doc(currentUser.store).collection('weeks').doc(weekStr).get();
-      const records = (snap.exists && snap.data().records) ? snap.data().records : [];
-      records.filter(r => r.day === today && r.name !== '門市備註')
-             .forEach(r => allRecs.push({ ...r, _store: currentUser.store }));
-    } else {
-      // 加盟主 / 系統管理者：讀全部門市
-      for(const store of (appConfig.stores || [])) {
-        const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get();
-        const records = (snap.exists && snap.data().records) ? snap.data().records : [];
-        records.filter(r => r.day === today && r.name !== '門市備註')
-               .forEach(r => allRecs.push({ ...r, _store: store }));
-      }
+    // 先把全部門市的本週 records 撈回來（跨店支援查詢需要）
+    const allStoresRecords = {};
+    for(const store of (appConfig.stores || [])) {
+      const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get();
+      allStoresRecords[store] = (snap.exists && snap.data().records) ? snap.data().records : [];
     }
 
-    if(allRecs.length === 0) {
+    // 判斷某人今天是否有去別間店支援
+    function findCrossSupport(empName, homeStore) {
+      for(const [store, recs] of Object.entries(allStoresRecords)) {
+        if(store === homeStore) continue;
+        const cr = recs.find(r =>
+          r.supportEmp === `${homeStore}-${empName}` &&
+          r.day === today &&
+          r.approvalStatus === 'approved'
+        );
+        if(cr) return { ...cr, _atStore: store };
+      }
+      return null;
+    }
+
+    // 渲染單筆班別 HTML
+    const renderRow = (r) => {
+      const isOff = (r.shift === '排休' || r.shift === '指休');
+      const dotClass = r._isCrossStore ? 'cross' : (isOff ? 'off' : (parseInt(r.shift) >= 15 ? 'night' : 'morning'));
+      const badge = r._isCrossStore
+        ? `<div class="shift-badge cross">支援</div>`
+        : `<div class="shift-badge ${isOff?'off':'work'}">${isOff?'休':'上班'}</div>`;
+      const sub = r._isCrossStore
+        ? `<div style="font-size:11px;color:#9334e6;font-weight:700;">📍${r._location}</div>`
+        : (r.note ? `<div style="font-size:11px;color:var(--text-muted);">${r.note}</div>` : '');
+      return `<div class="shift-item">
+        <div class="shift-dot ${dotClass}"></div>
+        <div style="flex:1;"><div class="shift-emp">${r.name}</div>${sub}</div>
+        <div class="shift-time">${isOff ? '休假' : (r.shift||'-')}</div>
+        ${badge}
+      </div>`;
+    };
+
+    // 決定要顯示哪些門市
+    const storesToShow = currentUser.store ? [currentUser.store] : Object.keys(allStoresRecords);
+    let byStore = {};
+
+    for(const store of storesToShow) {
+      const recs = allStoresRecords[store] || [];
+      const todayRecs = recs.filter(r => r.day === today && r.name !== '門市備註' && !r.name.startsWith('🆘'));
+      if(!byStore[store]) byStore[store] = [];
+
+      todayRecs.forEach(r => {
+        const cross = findCrossSupport(r.name, store);
+        if(cross) {
+          byStore[store].push({ ...r, shift: cross.shift, note: cross.note,
+            _isCrossStore: true, _location: `支援 ${cross._atStore}` });
+        } else {
+          byStore[store].push({ ...r, _isCrossStore: false });
+        }
+      });
+    }
+
+    const totalRecs = Object.values(byStore).flat();
+    if(totalRecs.length === 0) {
       el.innerHTML = `<div style="text-align:center; color:var(--text-muted); font-size:13px; padding:20px 0;">今日尚未排班</div>`;
       return;
     }
 
-    // 加盟主/系統管理者：按門市分組顯示
     if(!currentUser.store) {
-      const byStore = {};
-      allRecs.forEach(r => { if(!byStore[r._store]) byStore[r._store] = []; byStore[r._store].push(r); });
-      el.innerHTML = Object.entries(byStore).map(([store, recs]) => `
-        <div style="font-size:11px; font-weight:800; color:var(--primary); margin:10px 0 6px; text-transform:uppercase; letter-spacing:0.5px;">🏪 ${store}</div>
-        ${recs.map(r => {
-          const isOff = (r.shift === '排休' || r.shift === '指休');
-          const dotClass = isOff ? 'off' : (parseInt(r.shift) >= 15 ? 'night' : 'morning');
-          return `<div class="shift-item">
-            <div class="shift-dot ${dotClass}"></div>
-            <div class="shift-emp">${r.name}</div>
-            <div class="shift-time">${isOff ? '休假' : (r.shift||'-')}</div>
-            <div class="shift-badge ${isOff?'off':'work'}">${isOff?'休':'上班'}</div>
-          </div>`;
-        }).join('')}
+      // 加盟主/管理者：按門市分組
+      el.innerHTML = Object.entries(byStore).map(([store, recs]) => recs.length === 0 ? '' : `
+        <div style="font-size:11px;font-weight:800;color:var(--primary);margin:10px 0 6px;letter-spacing:0.5px;">🏪 ${store}</div>
+        ${recs.map(renderRow).join('')}
       `).join('');
     } else {
-      // 員工 / 店長：直接列出
-      el.innerHTML = allRecs.map(r => {
-        const isOff = (r.shift === '排休' || r.shift === '指休');
-        const dotClass = isOff ? 'off' : (parseInt(r.shift) >= 15 ? 'night' : 'morning');
-        return `<div class="shift-item">
-          <div class="shift-dot ${dotClass}"></div>
-          <div class="shift-emp">${r.name}</div>
-          <div class="shift-time">${isOff ? '休假' : (r.shift||'-')}</div>
-          <div class="shift-badge ${isOff?'off':'work'}">${isOff?'休':'上班'}</div>
-        </div>`;
-      }).join('');
+      el.innerHTML = byStore[currentUser.store].map(renderRow).join('');
     }
+
   } catch(e) {
     el.innerHTML = `<div style="text-align:center; color:var(--text-muted); font-size:13px; padding:20px 0;">載入失敗</div>`;
   }
@@ -1096,12 +1120,36 @@ async function loadStats() {
   const weekStr = getCurrentWeekString();
   try {
     if(currentUser.store) {
-      // 員工 / 店長：顯示個人本週統計
+      // 員工 / 店長：顯示個人本週統計（含跨店支援工時）
+      let workDays = 0, totalHours = 0;
+
+      // 1. 本店自己的班別
       const snap = await window.db.collection('stores').doc(currentUser.store).collection('weeks').doc(weekStr).get();
       const records = (snap.exists && snap.data().records) ? snap.data().records : [];
       const myRecs = records.filter(r => r.name === currentUser.name);
-      const workDays = myRecs.filter(r => r.shift && r.shift !== '排休' && r.shift !== '指休').length;
-      const totalHours = myRecs.reduce((s, r) => s + (parseFloat(r.actualHours)||0), 0);
+
+      myRecs.forEach(r => {
+        if(r.shift && r.shift !== '排休' && r.shift !== '指休') {
+          // 檢查這天有沒有跨店支援（若有，工時以跨店為主，避免重複計算）
+          workDays++;
+          totalHours += parseFloat(r.actualHours || 0);
+        }
+      });
+
+      // 2. 跨店支援工時（在別間店的 records 裡找 supportEmp = 本店-我）
+      for(const store of (appConfig.stores || [])) {
+        if(store === currentUser.store) continue;
+        const crossSnap = await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get();
+        const crossRecs = (crossSnap.exists && crossSnap.data().records) ? crossSnap.data().records : [];
+        crossRecs.forEach(r => {
+          if(r.supportEmp === `${currentUser.store}-${currentUser.name}` && r.approvalStatus === 'approved') {
+            // 把本店同一天的工時扣掉，換成跨店工時
+            const sameDay = myRecs.find(m => m.day === r.day);
+            if(sameDay) totalHours = totalHours - (parseFloat(sameDay.actualHours)||0) + (parseFloat(r.actualHours)||0);
+          }
+        });
+      }
+
       document.getElementById('statThisWeek').textContent = workDays;
       document.getElementById('statHours').textContent = Math.round(totalHours * 10) / 10;
     } else {
