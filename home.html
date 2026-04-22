@@ -492,14 +492,15 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
           <div class="section-title">📅 我的班表</div>
           <div class="section-more" onclick="window.location.href='schedule-V2.html'">查看完整 →</div>
         </div>
-        <!-- 週次切換 -->
-        <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
-          <button onclick="homeChangeWeek(-1)" style="background:#f1f3f4; border:none; border-radius:8px; padding:6px 12px; font-size:13px; font-weight:700; cursor:pointer;">‹</button>
-          <div style="flex:1; text-align:center; font-size:13px; font-weight:800; color:var(--primary);" id="homeWeekLabel">--</div>
-          <button onclick="homeChangeWeek(1)" style="background:#f1f3f4; border:none; border-radius:8px; padding:6px 12px; font-size:13px; font-weight:700; cursor:pointer;">›</button>
+        <!-- 第一週（本週）-->
+        <div style="font-size:12px; font-weight:800; color:var(--primary); margin-bottom:6px;" id="homeWeekLabel">--</div>
+        <div id="homeWeekShifts" style="margin-bottom:14px;">
+          <div style="text-align:center; color:var(--text-muted); font-size:13px; padding:8px 0;">載入中...</div>
         </div>
-        <div id="homeWeekShifts">
-          <div style="text-align:center; color:var(--text-muted); font-size:13px; padding:10px 0;">載入中...</div>
+        <!-- 第二週（下週或上週）-->
+        <div style="font-size:12px; font-weight:800; color:var(--text-muted); margin-bottom:6px;" id="homeWeekLabel2">--</div>
+        <div id="homeWeekShifts2">
+          <div style="text-align:center; color:var(--text-muted); font-size:13px; padding:8px 0;">載入中...</div>
         </div>
       </div>
 
@@ -1193,8 +1194,90 @@ async function initApp() {
 let homeCurrentWeek = '';
 
 async function loadTodayShifts() {
-  homeCurrentWeek = getNextWeekString(); // 預設下週
+  // 決定預設週次：本週 + 下週（若下週已發布）或 上週 + 本週
+  homeCurrentWeek = getCurrentWeekString();
   await loadMySchedule();
+
+  // 同時載入第二週（下週或上週）
+  await loadSecondWeek();
+}
+
+async function loadSecondWeek() {
+  const store = currentUser.store;
+  const empName = currentUser.empName;
+  if(!store || !empName) return;
+
+  const nextWeek = getNextWeekString();
+  const el2 = document.getElementById('homeWeekShifts2');
+  const label2 = document.getElementById('homeWeekLabel2');
+  if(!el2) return;
+
+  try {
+    // 檢查下週是否已發布
+    const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(nextWeek).get();
+    const data = snap.exists ? snap.data() : {};
+    const isPublished = data.published || isAutoPublishedHome(nextWeek);
+
+    if(isPublished) {
+      // 顯示下週
+      const dates = getWeekDates(nextWeek);
+      if(label2) label2.textContent = `${dates[0]} ～ ${dates[6]}（下週）`;
+      renderWeekShifts(el2, data.records || [], empName, nextWeek);
+    } else {
+      // 顯示上週
+      const p = getCurrentWeekString().split('-W');
+      let yr = parseInt(p[0]), wk = parseInt(p[1]) - 1;
+      if(wk < 1) { yr--; wk = 52; }
+      const prevWeek = `${yr}-W${wk < 10 ? '0'+wk : wk}`;
+      const prevSnap = await window.db.collection('stores').doc(store).collection('weeks').doc(prevWeek).get();
+      const prevData = prevSnap.exists ? prevSnap.data() : {};
+      const dates = getWeekDates(prevWeek);
+      if(label2) label2.textContent = `${dates[0]} ～ ${dates[6]}（上週）`;
+      renderWeekShifts(el2, prevData.records || [], empName, prevWeek);
+    }
+  } catch(e) {
+    if(el2) el2.innerHTML = `<div style="color:var(--danger);font-size:12px;text-align:center;">載入失敗</div>`;
+  }
+}
+
+function isAutoPublishedHome(weekStr) {
+  // 週五 00:00 後自動發布
+  const p = weekStr.split('-W');
+  const yr = parseInt(p[0]), wk = parseInt(p[1]);
+  let d = new Date(yr, 0, 1);
+  const day = d.getDay();
+  d.setDate(d.getDate() + (wk - 1) * 7);
+  const offset = day <= 4 ? 1 - day : 8 - day;
+  d.setDate(d.getDate() + offset);
+  const weekFri = new Date(d);
+  weekFri.setDate(d.getDate() + 4);
+  weekFri.setHours(0, 0, 0, 0);
+  return new Date() >= weekFri;
+}
+
+function renderWeekShifts(el, records, empName, weekStr) {
+  const myRecs = records.filter(r => r.name === empName);
+  const dNames = ['週一','週二','週三','週四','週五','週六','週日'];
+  const dates = getWeekDates(weekStr);
+  const now = new Date();
+  const todayStr = `${now.getMonth()+1}/${now.getDate()}`;
+
+  el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;">` +
+    dNames.map((day, i) => {
+      const rec = myRecs.find(r => r.day === day) || {};
+      const shift = rec.shift || '';
+      const isOff = shift === '排休' || shift === '指休';
+      const isEmpty = !shift;
+      const isToday = dates[i] === todayStr;
+      const bg = isOff ? '#fce8e6' : isEmpty ? '#f8fafc' : '#e8f0fe';
+      const clr = isOff ? '#d93025' : isEmpty ? '#bbb' : '#1a73e8';
+      return `<div style="text-align:center;background:${bg};border-radius:8px;padding:6px 2px;${isToday?'box-shadow:0 0 0 2px var(--primary);':''}">
+        <div style="font-size:10px;color:${isToday?'var(--primary)':'var(--text-muted)'};font-weight:${isToday?700:400};">${dates[i]}</div>
+        <div style="font-size:10px;color:var(--text-muted);">${day}</div>
+        <div style="font-size:13px;color:${clr};font-weight:${isEmpty?400:800};margin-top:2px;">${isOff?'休':shift||'-'}</div>
+        ${rec.note?`<div style="font-size:9px;color:#0088aa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${rec.note}</div>`:''}
+      </div>`;
+    }).join('') + `</div>`;
 }
 
 function homeChangeWeek(offset) {
@@ -1239,25 +1322,11 @@ async function loadMySchedule() {
     const now = new Date();
     const todayStr = `${now.getMonth()+1}/${now.getDate()}`;
 
-    el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;">` +
-      dNames.map((day, i) => {
-        const rec = myRecs.find(r => r.day === day) || {};
-        const shift = rec.shift || '';
-        const isOff = shift === '排休' || shift === '指休';
-        const isEmpty = !shift;
-        const isToday = dates[i] === todayStr;
-        const bg = isOff ? '#fce8e6' : isEmpty ? '#f8fafc' : '#e8f0fe';
-        const clr = isOff ? '#d93025' : isEmpty ? '#bbb' : '#1a73e8';
-        return `<div style="text-align:center;background:${bg};border-radius:8px;padding:6px 2px;${isToday?'box-shadow:0 0 0 2px var(--primary);':''}">
-          <div style="font-size:10px;color:${isToday?'var(--primary)':'var(--text-muted)'};font-weight:${isToday?700:400};">${dates[i]}</div>
-          <div style="font-size:10px;color:var(--text-muted);">${day}</div>
-          <div style="font-size:13px;color:${clr};font-weight:${isEmpty?400:800};margin-top:2px;">${isOff?'休':shift||'-'}</div>
-          ${rec.note?`<div style="font-size:9px;color:#0088aa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${rec.note}</div>`:''}
-        </div>`;
-      }).join('') + `</div>`;
+    renderWeekShifts(el, records, empName, weekStr);
 
     // 更新 Banner 今日班別
-    updateTodayShiftBadge(myRecs, weekStr, dates, dNames);
+    const dNames2 = ['週一','週二','週三','週四','週五','週六','週日'];
+    updateTodayShiftBadge(myRecs, weekStr, dates, dNames2);
   } catch(e) {
     el.innerHTML = `<div style="color:var(--danger);font-size:12px;text-align:center;">載入失敗</div>`;
   }
