@@ -1495,9 +1495,45 @@ function updateDailyTotals() {
   const sums=[0,0,0,0,0,0,0];
   document.querySelectorAll('.cell-btn').forEach(b=>{
     const idx=dayNames.indexOf(b.dataset.day);
-    if(idx>=0 && b.dataset.loc==='本店') sums[idx]+=parseFloat(b.dataset.hours||0);
+    if(idx>=0) sums[idx]+=parseFloat(b.dataset.hours||0);
   });
   sums.forEach((s,i)=>{ const el=document.getElementById(`dt-${i}`); if(el) el.textContent=Math.round(s); });
+}
+
+// 取得某記錄屬於哪個月份（YYYY-MM）
+function getRecordMonth(r) {
+  const yr = r.week.split('-W')[0];
+  const dates = getWeekDates(r.week);
+  const dayIdx = dayNames.indexOf(r.day);
+  if(dayIdx < 0) return null;
+  const dateStr = dates[dayIdx]; // "4/27"
+  const p = dateStr.split('/');
+  return `${yr}-${p[0].padStart(2,'0')}`;
+}
+
+// 取得本週涵蓋的月份清單（可能1或2個）
+function getWeekMonths(weekStr) {
+  const yr = weekStr.split('-W')[0];
+  const dates = getWeekDates(weekStr);
+  return [...new Set(dates.map(d => {
+    const p = d.split('/');
+    return `${yr}-${p[0].padStart(2,'0')}`;
+  }))];
+}
+
+// 判斷某筆記錄是否屬於指定員工（含跨店支援，去除重複計算）
+function isEmpRecord(r, store, empName) {
+  const isNative = (r._store === store && r.name === empName);
+  const isSupport = (r.supportEmp === `${store}-${empName}` && r.approvalStatus === 'approved');
+  if(!isNative && !isSupport) return false;
+  if(isNative) {
+    const hasSupportThat = (appData.allStoresRecords || []).some(sr =>
+      sr.supportEmp === `${store}-${empName}` && sr.approvalStatus === 'approved' &&
+      sr.day === r.day && sr.week === r.week
+    );
+    if(hasSupportThat) return false;
+  }
+  return true;
 }
 
 async function updateSummary(idx, emp) {
@@ -1510,86 +1546,79 @@ async function updateSummary(idx, emp) {
   const isPartTime = (role === '工讀');
   const isFullTime = (role === '正職' || role === '店長' || role === '加盟主');
 
+  // 本週涵蓋月份（可能跨月）
+  const weekMonths = getWeekMonths(weekStr);
+
   // ===== 本週統計 =====
-  let wH = 0, wD = 0, wOff = 0, wOT = 0;
+  let wH = 0, wOff = 0, wOT = 0;
   (appData.allStoresRecords || []).forEach(r => {
-    const isNative = (r._store === store && r.name === emp.name);
-    const isSupport = (r.supportEmp === `${store}-${emp.name}` && r.approvalStatus === 'approved');
-    if(!isNative && !isSupport) return;
-    if(isNative) {
-      const hasSupportThat = appData.allStoresRecords.some(sr =>
-        sr.supportEmp === `${store}-${emp.name}` && sr.approvalStatus === 'approved' &&
-        sr.day === r.day && sr.week === r.week
-      );
-      if(hasSupportThat) return;
-    }
+    if(!isEmpRecord(r, store, emp.name)) return;
     if(r.week !== weekStr) return;
     const h = parseFloat(r.actualHours || 0);
     const isOff = (r.shift === '排休' || r.shift === '指休');
     if(isOff) { wOff++; }
     else if(r.shift) {
-      wH += h; wD++;
+      wH += h;
       if(r.isOT || h > 8) wOT += Math.max(0, h - 8);
     }
   });
 
-  // ===== 當月統計 =====
-  const weekDates = getWeekDates(weekStr);
-  const months = [...new Set(weekDates.map(d => {
-    const p = d.split('/');
-    const yr = weekStr.split('-W')[0];
-    return `${yr}-${p[0].padStart(2,'0')}`;
-  }))];
+  // ===== 各月份統計（逐月分開）=====
+  // monthStats: { "2026-04": { h, off, ot }, "2026-05": { h, off, ot } }
+  const monthStats = {};
+  weekMonths.forEach(m => { monthStats[m] = { h: 0, off: 0, ot: 0 }; });
 
-  let mH = 0, mD = 0, mOff = 0, mOT = 0;
   (appData.allStoresRecords || []).forEach(r => {
-    const isNative = (r._store === store && r.name === emp.name);
-    const isSupport = (r.supportEmp === `${store}-${emp.name}` && r.approvalStatus === 'approved');
-    if(!isNative && !isSupport) return;
-    if(isNative) {
-      const hasSupportThat = appData.allStoresRecords.some(sr =>
-        sr.supportEmp === `${store}-${emp.name}` && sr.approvalStatus === 'approved' &&
-        sr.day === r.day && sr.week === r.week
-      );
-      if(hasSupportThat) return;
-    }
-    // 判斷是否在當月
-    const rDates = getWeekDates(r.week);
-    const rMonths = [...new Set(rDates.map(d => {
-      const p = d.split('/');
-      const yr = r.week.split('-W')[0];
-      return `${yr}-${p[0].padStart(2,'0')}`;
-    }))];
-    const inMonth = rMonths.some(m => months.includes(m));
-    if(!inMonth) return;
-
+    if(!isEmpRecord(r, store, emp.name)) return;
+    const month = getRecordMonth(r);
+    if(!month) return;
+    // 只統計跟本週有交集的月份
+    if(!weekMonths.includes(month)) return;
     const h = parseFloat(r.actualHours || 0);
     const isOff = (r.shift === '排休' || r.shift === '指休');
-    if(isOff) { mOff++; }
-    else if(r.shift) {
-      mH += h; mD++;
-      if(r.isOT || h > 8) mOT += Math.max(0, h - 8);
+    if(isOff) {
+      monthStats[month].off++;
+    } else if(r.shift) {
+      monthStats[month].h += h;
+      if(r.isOT || h > 8) monthStats[month].ot += Math.max(0, h - 8);
     }
   });
 
   // ===== 渲染統計 =====
+  const r10 = v => Math.round(v * 10) / 10;
   let html = '';
+
   if(isPartTime) {
-    // 工讀：本週工時、本月工時
-    html = `<span style="font-size:11px;line-height:1.9;">
-      本週：${Math.round(wH*10)/10}h<br>
-      本月：${Math.round(mH*10)/10}h
-    </span>`;
+    // 工讀：本週工時 + 各月時數 + 估算薪資
+    const wage = parseFloat(emp.wage || 0);
+    html = `<div style="font-size:11px; line-height:1.8;">`;
+    html += `<b>週時:${r10(wH)}h</b><br>`;
+    weekMonths.forEach(m => {
+      const ms = monthStats[m];
+      const mLabel = m.split('-')[1].replace(/^0/,'') + '月';
+      const salary = Math.round(ms.h * wage);
+      const salColor = salary >= 18000 ? '#d93025' : '#34a853';
+      html += `${mLabel}時: ${r10(ms.h)}h<br>`;
+      if(wage > 0) html += `<span style="color:${salColor};">(估:$${salary.toLocaleString()})</span><br>`;
+    });
+    html += `</div>`;
+
   } else if(isFullTime) {
-    // 正職/店長：加班時數、剩餘特休、剩餘補休
-    const otColor = wOT > 0 ? 'color:#d93025;font-weight:900;' : 'color:#64748b;';
-    html = `<span style="font-size:11px;line-height:1.9;">
-      <span style="${otColor}">加班：${Math.round(wOT*10)/10}h</span><br>
-      特休剩：--<br>
-      補休剩：--
-    </span>`;
+    // 正職/店長：週休檢核 + 各月加班時數
+    const offColor = wOff >= 2 ? '#34a853' : '#d93025';
+    const offLabel = wOff >= 2 ? '達標' : `不足`;
+    html = `<div style="font-size:11px; line-height:1.8;">`;
+    html += `<b>週休:${wOff}天 <span style="color:${offColor};">(${offLabel})</span></b><br>`;
+    weekMonths.forEach(m => {
+      const ms = monthStats[m];
+      const mLabel = m.split('-')[1].replace(/^0/,'') + '月';
+      const otColor = ms.ot > 0 ? '#d93025' : '#64748b';
+      html += `${mLabel}加班: <span style="color:${otColor};font-weight:${ms.ot>0?900:400};">${r10(ms.ot)}h</span><br>`;
+    });
+    html += `</div>`;
+
   } else {
-    html = `<span style="font-size:11px;">本週：${Math.round(wH*10)/10}h</span>`;
+    html = `<div style="font-size:11px;">本週: ${r10(wH)}h</div>`;
   }
   t.innerHTML = html;
 }
@@ -1693,7 +1722,9 @@ async function openLogModal() {
 
 
 // ===== 共用產圖核心（黑白版）=====
-function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates) {
+function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, allStoresRecs) {
+  // allStoresRecs: 全部門市的記錄，用來查跨店支援
+  const allRecs = allStoresRecs || records;
   const ctx = canvas.getContext('2d');
   const font = '"Microsoft JhengHei", "PingFang TC", sans-serif';
   const W = 1400;
@@ -1767,11 +1798,6 @@ function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates) {
   ctx.textAlign = 'center';
   const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
 
-// 取得顯示名字（有 displayName 用新名，否則用原名）
-function getDisplayName(empName) {
-  if(!empName) return empName;
-  return (appData.displayNameMap && appData.displayNameMap[empName]) || empName;
-}
   for (let i = 0; i < 7; i++) {
     const cx = nameColW + i * dataColW + dataColW / 2;
     const cy = tableTop + headerH / 2;
@@ -1872,18 +1898,11 @@ function exportImage() {
       const emps = [...appData.employees];
       virtualRowNames.forEach(n => emps.push({ name: n, role: '待補' }));
 
-      // 跨店支援：把支援出去的班別替換
-      const processedRecords = appData.records.map(r => {
-        const supportOut = appData.allStoresRecords.find(sr =>
-          sr.supportEmp === `${store}-${r.name}` && sr.day === r.day &&
-          sr.week === weekStr && sr.approvalStatus === 'approved'
-        );
-        if (supportOut) return { ...r, shift: supportOut.shift, location: `支援${supportOut._store}`, note: supportOut.note };
-        return r;
-      });
+      // 直接用本店記錄，跨店支援由 drawScheduleCanvas 內部處理
+      const processedRecords = appData.records.filter(r => r.week === weekStr);
 
       const canvas = document.createElement('canvas');
-      drawScheduleCanvas(canvas, store, weekStr, processedRecords, emps, currentWeekDates);
+      drawScheduleCanvas(canvas, store, weekStr, processedRecords, emps, currentWeekDates, appData.allStoresRecords);
 
       const img = document.getElementById('previewImg');
       img.src = canvas.toDataURL('image/jpeg', 0.95);
