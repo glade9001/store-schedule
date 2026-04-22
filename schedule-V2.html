@@ -128,8 +128,8 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 .paint-shift-btn.off-shift { color: var(--danger); border-color: var(--danger); background: #fce8e6; }
 
 /* ===== SCHEDULE TABLE ===== */
-.table-wrap { flex: 1; overflow: auto; }
-table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 800px; user-select: none; }
+.table-wrap { flex: 1; overflow: auto; -webkit-overflow-scrolling: touch; padding-bottom: 20px; }
+table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 820px; user-select: none; }
 th, td { border-right: 1px solid #e8eaed; border-bottom: 1px solid #e8eaed; padding: 6px 4px; text-align: center; vertical-align: middle; }
 th { position: sticky; top: 0; z-index: 10; background: var(--primary); color: white; font-size: 13px; font-weight: 800; }
 .date-sub { display: block; font-size: 10px; font-weight: 400; opacity: 0.8; }
@@ -264,7 +264,7 @@ th:first-child { background: #1557b0; z-index: 12; }
   <!-- TOP HEADER -->
   <div class="top-header">
     <button class="header-back" onclick="window.location.href='home.html'">←</button>
-    <div class="header-title">📅 班表管理</div>
+    <div class="header-title" id="appTitle">📅 班表管理</div>
     <div class="header-store-badge" id="headerStoreBadge">--</div>
     <!-- 管理者/店長才顯示發布按鈕 -->
     <button class="publish-btn" id="publishBtn" style="display:none;" onclick="togglePublish()">
@@ -285,6 +285,8 @@ th:first-child { background: #1557b0; z-index: 12; }
           <button class="week-btn" onclick="changeWeek(-1)">‹ 上週</button>
           <input type="week" id="weekSelector" class="week-input" onchange="fetchAllStoreData()">
           <button class="week-btn" onclick="changeWeek(1)">下週 ›</button>
+          <button class="week-btn" onclick="goToThisWeek()" style="background:#e8f0fe; color:#1a73e8; font-weight:800;">本週</button>
+          <button class="week-btn" onclick="fetchAllStoreData()" style="font-size:16px; padding:7px 10px;">🔄</button>
         </div>
         <select id="storeSelector" class="store-select" onchange="fetchAllStoreData()"></select>
         <div class="sync-status" id="syncStatus">
@@ -370,29 +372,7 @@ th:first-child { background: #1557b0; z-index: 12; }
 
   </div><!-- end main-content -->
 
-  <!-- BOTTOM NAV -->
-  <nav class="bottom-nav">
-    <button class="nav-item" onclick="window.location.href='home.html'">
-      <span class="nav-icon">🏠</span>
-      <span class="nav-label">首頁</span>
-    </button>
-    <button class="nav-item active">
-      <span class="nav-icon">📅</span>
-      <span class="nav-label">班表</span>
-    </button>
-    <button class="nav-item" onclick="window.location.href='home.html#apply'">
-      <span class="nav-icon">📝</span>
-      <span class="nav-label">申請</span>
-    </button>
-    <button class="nav-item" onclick="window.location.href='home.html#salary'">
-      <span class="nav-icon">💰</span>
-      <span class="nav-label">薪資</span>
-    </button>
-    <button class="nav-item" onclick="window.location.href='home.html#profile'">
-      <span class="nav-icon">👤</span>
-      <span class="nav-label">個人</span>
-    </button>
-  </nav>
+
 
 </div><!-- end appShell -->
 
@@ -635,14 +615,18 @@ window.onload = async () => {
     document.getElementById('weekSelector').value = getNextWeekString();
     empWeekStr = getNextWeekString();
 
-    // 依權限顯示介面
-    if(canSchedule()) {
+    // 判斷模式：?mode=admin 進排班管理，其他進查閱
+    const urlParams = new URLSearchParams(window.location.search);
+    const mode = urlParams.get('mode');
+    const isAdminMode = (mode === 'admin') && canSchedule();
+
+    if(isAdminMode) {
       document.getElementById('adminView').style.display = 'flex';
       document.getElementById('empView').style.display = 'none';
-      // 非本店時鎖定門市選擇器為僅限本店
+      document.getElementById('appTitle').textContent = '📋 排班管理';
+      // 店長只能選本店
       if(currentUser.permission === 'manager') {
         sel.value = currentUser.store;
-        // 讓店長只能選自己的店
         Array.from(sel.options).forEach(o => {
           if(o.value !== currentUser.store) o.disabled = true;
         });
@@ -650,8 +634,17 @@ window.onload = async () => {
       document.getElementById('publishBtn').style.display = 'flex';
       await fetchAllStoreData();
     } else {
+      // 查閱模式：所有人都進員工視角（查看圖片）
       document.getElementById('adminView').style.display = 'none';
       document.getElementById('empView').style.display = 'block';
+      document.getElementById('appTitle').textContent = '📅 查看班表';
+      // 店長以上可切換門市，員工鎖定本店
+      if(!canSchedule()) {
+        sel.value = currentUser.store || appConfig.stores[0];
+        Array.from(sel.options).forEach(o => {
+          if(o.value !== (currentUser.store || appConfig.stores[0])) o.disabled = true;
+        });
+      }
       updateEmpWeekLabel();
       await loadEmpView();
     }
@@ -741,6 +734,11 @@ async function togglePublish() {
 }
 
 // ===== 週次切換 =====
+function goToThisWeek() {
+  document.getElementById('weekSelector').value = getNextWeekString();
+  fetchAllStoreData();
+}
+
 function changeWeek(offset) {
   const input = document.getElementById('weekSelector');
   if(!input.value) return;
@@ -860,9 +858,32 @@ function empChangeWeek(offset) {
   wk += offset;
   if(wk < 1) { yr--; wk = 52; }
   if(wk > 52) { yr++; wk = 1; }
-  empWeekStr = `${yr}-W${wk < 10 ? '0'+wk : wk}`;
+  const newWeekStr = `${yr}-W${wk < 10 ? '0'+wk : wk}`;
+
+  // 員工/店長：最多只能往前到上個月第一週
+  const perm = currentUser?.permission || 'employee';
+  if(!['owner','admin'].includes(perm)) {
+    const now = new Date();
+    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const limitYr = lastMonth.getFullYear();
+    const limitWk = getWeekNumber(lastMonth);
+    const newWkNum = yr * 100 + wk;
+    const limitNum = limitYr * 100 + limitWk;
+    if(newWkNum < limitNum) {
+      showToast('⚠️ 最多只能查閱上個月的班表');
+      return;
+    }
+  }
+
+  empWeekStr = newWeekStr;
   updateEmpWeekLabel();
   loadEmpView();
+}
+
+function getWeekNumber(date) {
+  const d = new Date(date);
+  const firstDay = new Date(d.getFullYear(), 0, 1);
+  return Math.ceil((((d - firstDay) / 86400000) + firstDay.getDay() + 1) / 7);
 }
 
 function updateEmpWeekLabel() {
@@ -1143,7 +1164,7 @@ function renderTable() {
   const hRow = document.getElementById('headerRow');
   hRow.innerHTML = '<th>員工</th>';
   dayNames.forEach((d,i) => hRow.innerHTML += `<th><span class="date-sub">${currentWeekDates[i]}</span>${d}</th>`);
-  hRow.innerHTML += '<th>統計</th>';
+  hRow.innerHTML += '<th style="min-width:110px;">本週統計</th>';
 
   const emps = [...appData.employees];
   virtualRowNames.forEach(n => emps.push({ name: n, role: '待補' }));
@@ -1161,7 +1182,9 @@ function renderTable() {
     dayNames.forEach(day => {
       let rec = appData.records.find(r => r.name===emp.name && r.day===day && r.week===weekStr);
       let supportOutRec = null;
-      if(!isVirtual) {
+      const ownIsOff = rec && (rec.shift === '排休' || rec.shift === '指休');
+      if(!isVirtual && !ownIsOff) {
+        // 只有非休假才考慮跨店支援覆蓋
         supportOutRec = appData.allStoresRecords.find(r =>
           r.supportEmp === `${store}-${emp.name}` && r.day===day && r.week===weekStr && r.approvalStatus==='approved'
         );
@@ -1217,7 +1240,7 @@ function renderTable() {
 
     const sumTd = document.createElement('td');
     sumTd.id = `sum-${eIdx}`;
-    sumTd.style.cssText = 'font-size:11px; text-align:left; background:#f8f9fa; padding:5px; font-weight:600;';
+    sumTd.style.cssText = 'font-size:11px; text-align:left; background:#f8f9fa; padding:6px 8px; font-weight:600; min-width:110px; vertical-align:top;';
     tr.appendChild(sumTd);
     tbody.appendChild(tr);
     updateSummary(eIdx, emp);
@@ -1458,31 +1481,102 @@ function updateDailyTotals() {
   sums.forEach((s,i)=>{ const el=document.getElementById(`dt-${i}`); if(el) el.textContent=Math.round(s); });
 }
 
-function updateSummary(idx, emp) {
-  const t=document.getElementById(`sum-${idx}`);
-  if(!t || emp.name.startsWith('🆘')) { if(t) t.textContent='-'; return; }
-  const weekStr=document.getElementById('weekSelector').value;
-  const store=document.getElementById('storeSelector').value;
-  let wH=0, wD=0, wOT=0;
-  const activeMonths=[...new Set(currentWeekDates.map(d=>d.split('/')[0]))];
-  const monthStats={};
-  activeMonths.forEach(m=>monthStats[m]={hours:0,ot:0,days:0});
+async function updateSummary(idx, emp) {
+  const t = document.getElementById(`sum-${idx}`);
+  if(!t || emp.name.startsWith('🆘')) { if(t) t.textContent = '-'; return; }
 
-  (appData.allStoresRecords||[]).forEach(r=>{
-    const isNative=(r._store===store && r.name===emp.name);
-    const isSupport=(r.supportEmp===`${store}-${emp.name}` && r.approvalStatus==='approved');
+  const weekStr = document.getElementById('weekSelector').value;
+  const store = document.getElementById('storeSelector').value;
+  const role = emp.role || '';
+  const isPartTime = (role === '工讀');
+  const isFullTime = (role === '正職' || role === '店長' || role === '加盟主');
+
+  // ===== 本週統計 =====
+  let wH = 0, wD = 0, wOff = 0, wOT = 0;
+  (appData.allStoresRecords || []).forEach(r => {
+    const isNative = (r._store === store && r.name === emp.name);
+    const isSupport = (r.supportEmp === `${store}-${emp.name}` && r.approvalStatus === 'approved');
     if(!isNative && !isSupport) return;
     if(isNative) {
-      const hasSupportThat=appData.allStoresRecords.some(sr=>sr.supportEmp===`${store}-${emp.name}`&&sr.approvalStatus==='approved'&&sr.day===r.day&&sr.week===r.week);
+      const hasSupportThat = appData.allStoresRecords.some(sr =>
+        sr.supportEmp === `${store}-${emp.name}` && sr.approvalStatus === 'approved' &&
+        sr.day === r.day && sr.week === r.week
+      );
       if(hasSupportThat) return;
     }
-    if(r.week!==weekStr) return;
-    const h=parseFloat(r.actualHours||0);
-    const isOff=(r.shift==='排休'||r.shift==='指休');
-    if(!isOff && r.shift) { wH+=h; wD++; if(r.isOT||h>8) wOT+=Math.max(0,h-8); }
+    if(r.week !== weekStr) return;
+    const h = parseFloat(r.actualHours || 0);
+    const isOff = (r.shift === '排休' || r.shift === '指休');
+    if(isOff) { wOff++; }
+    else if(r.shift) {
+      wH += h; wD++;
+      if(r.isOT || h > 8) wOT += Math.max(0, h - 8);
+    }
   });
 
-  t.innerHTML=`本週：${wD}天/${Math.round(wH*10)/10}h${wOT>0?`<br><span style="color:var(--danger);">加班：${Math.round(wOT*10)/10}h</span>`:''}`;
+  // ===== 當月統計 =====
+  const weekDates = getWeekDates(weekStr);
+  const months = [...new Set(weekDates.map(d => {
+    const p = d.split('/');
+    const yr = weekStr.split('-W')[0];
+    return `${yr}-${p[0].padStart(2,'0')}`;
+  }))];
+
+  let mH = 0, mD = 0, mOff = 0, mOT = 0;
+  (appData.allStoresRecords || []).forEach(r => {
+    const isNative = (r._store === store && r.name === emp.name);
+    const isSupport = (r.supportEmp === `${store}-${emp.name}` && r.approvalStatus === 'approved');
+    if(!isNative && !isSupport) return;
+    if(isNative) {
+      const hasSupportThat = appData.allStoresRecords.some(sr =>
+        sr.supportEmp === `${store}-${emp.name}` && sr.approvalStatus === 'approved' &&
+        sr.day === r.day && sr.week === r.week
+      );
+      if(hasSupportThat) return;
+    }
+    // 判斷是否在當月
+    const rDates = getWeekDates(r.week);
+    const rMonths = [...new Set(rDates.map(d => {
+      const p = d.split('/');
+      const yr = r.week.split('-W')[0];
+      return `${yr}-${p[0].padStart(2,'0')}`;
+    }))];
+    const inMonth = rMonths.some(m => months.includes(m));
+    if(!inMonth) return;
+
+    const h = parseFloat(r.actualHours || 0);
+    const isOff = (r.shift === '排休' || r.shift === '指休');
+    if(isOff) { mOff++; }
+    else if(r.shift) {
+      mH += h; mD++;
+      if(r.isOT || h > 8) mOT += Math.max(0, h - 8);
+    }
+  });
+
+  // ===== 渲染統計 =====
+  let html = '';
+  if(isPartTime) {
+    // 工讀：本週時數、當月時數、當月薪資
+    const wage = parseFloat(emp.wage || 0);
+    const monthlySalary = Math.round(mH * wage);
+    const salaryColor = monthlySalary >= 18000 ? 'color:#d93025;font-weight:900;' : 'color:#34a853;font-weight:800;';
+    html = `<span style="font-size:11px;line-height:1.8;">
+      本週：${wD}天 / ${Math.round(wH*10)/10}h<br>
+      當月：${mD}天 / ${Math.round(mH*10)/10}h<br>
+      <span style="${salaryColor}">月薪：$${monthlySalary.toLocaleString()}</span>
+    </span>`;
+  } else if(isFullTime) {
+    // 正職/店長：當週休假檢核、本月已休、當月加班
+    const offColor = wOff < 2 ? 'color:#d93025;font-weight:900;' : 'color:#34a853;font-weight:800;';
+    html = `<span style="font-size:11px;line-height:1.8;">
+      <span style="${offColor}">本週休：${wOff}天${wOff < 2 ? '⚠️' : '✅'}</span><br>
+      月已休：${mOff}天<br>
+      月加班：${Math.round(mOT*10)/10}h
+    </span>`;
+  } else {
+    html = `<span style="font-size:11px;">本週：${wD}天/${Math.round(wH*10)/10}h</span>`;
+  }
+  t.innerHTML = html;
 }
 
 // ===== 記憶體同步 =====
