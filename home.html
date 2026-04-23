@@ -494,6 +494,19 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
           <div style="text-align:center; color:var(--text-muted); font-size:13px; padding:20px 0;">暫無待處理</div>
         </div>
       </div>
+
+      <!-- 薪資未送出提示（最後一週才顯示）-->
+      <div id="salaryReminderCard" style="display:none;" class="card" onclick="window.location.href='salary.html'"
+        style="background:linear-gradient(135deg,#fff3e0,#ffe0b2); border:1.5px solid #ffcc80; cursor:pointer;">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <div style="font-size:28px;">⚠️</div>
+          <div>
+            <div style="font-size:14px; font-weight:800; color:#e65100;">本月薪資尚未送出</div>
+            <div style="font-size:12px; color:#bf360c; margin-top:2px;">點此前往薪資管理系統送出</div>
+          </div>
+          <div style="margin-left:auto; font-size:20px; color:#e65100;">›</div>
+        </div>
+      </div>
     </div>
 
     <!-- ===== 班表 PAGE ===== -->
@@ -1153,6 +1166,7 @@ async function initApp() {
 
   // 動態渲染快速功能按鈕
   renderQuickBtns();
+  checkSalaryReminder();
 
   // 帳號管理選單文字
   if(canManageEmployee()) {
@@ -1523,6 +1537,31 @@ function switchPage(name) {
 }
 
 // ===== 快速功能按鈕動態渲染 =====
+async function checkSalaryReminder() {
+  const card = document.getElementById('salaryReminderCard');
+  if(!card) return;
+  // 只對店長顯示
+  if(!canSchedule() || canApprove()) { card.style.display='none'; return; }
+  const store = currentUser.store;
+  if(!store) { card.style.display='none'; return; }
+
+  // 判斷是否為本月最後一週（第4週以後）
+  const now = new Date();
+  const lastDay = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+  const isLastWeek = now.getDate() > lastDay - 7;
+  if(!isLastWeek) { card.style.display='none'; return; }
+
+  // 查本月薪資狀態
+  const ym = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  try {
+    const snap = await window.db.collection('stores').doc(store).collection('salary').doc(ym).get();
+    const status = snap.exists ? snap.data().status : 'draft';
+    card.style.display = (status === 'draft') ? 'block' : 'none';
+  } catch(e) {
+    card.style.display='none';
+  }
+}
+
 function renderQuickBtns() {
   const grid = document.getElementById('quickGrid');
   if(!grid) return;
@@ -1551,9 +1590,9 @@ function renderQuickBtns() {
         <div class="q-label" style="color:white;">劃休系統</div>
         <div class="q-sub" style="color:rgba(255,255,255,0.8);">申請排休</div>
       </div>
-      <div class="quick-btn" onclick="showWip('薪資試算')">
+      <div class="quick-btn" onclick="window.location.href='salary.html'">
         <div class="q-icon">💰</div>
-        <div class="q-label">薪資試算</div>
+        <div class="q-label">薪資管理</div>
         <div class="q-sub">${canViewAllSalary()?'全門市':'本店'}薪資</div>
       </div>
       <div class="quick-btn" onclick="switchPage('profile')">
@@ -1575,9 +1614,9 @@ function renderQuickBtns() {
         <div class="q-label" style="color:white;">劃休系統</div>
         <div class="q-sub" style="color:rgba(255,255,255,0.8);">申請排休</div>
       </div>
-      <div class="quick-btn" onclick="showWip('薪資試算')">
+      <div class="quick-btn" onclick="window.location.href='salary.html'">
         <div class="q-icon">💰</div>
-        <div class="q-label">薪資試算</div>
+        <div class="q-label">薪資查詢</div>
         <div class="q-sub">我的薪資</div>
       </div>
       <div class="quick-btn" onclick="switchPage('profile')">
