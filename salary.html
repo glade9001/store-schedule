@@ -57,7 +57,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 .store-select{border:1.5px solid var(--border);border-radius:8px;padding:6px 10px;font-size:13px;background:white;font-weight:600;}
 
 /* Content */
-.content{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:12px 14px calc(env(safe-area-inset-bottom)+80px);}
+.content{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:12px 14px calc(env(safe-area-inset-bottom)+100px);}
 
 /* Employee Card */
 .emp-salary-card{background:white;border-radius:var(--radius);margin-bottom:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.06);}
@@ -158,8 +158,13 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
   </div>
 
   <!-- Content -->
-  <div class="content" id="empList">
-    <div class="empty-state"><div class="empty-icon">💰</div><div>載入中...</div></div>
+  <div class="content">
+    <!-- 本月說明區 -->
+    <div id="monthInfoArea"></div>
+    <!-- 員工列表 -->
+    <div id="empList">
+      <div class="empty-state"><div class="empty-icon">💰</div><div>載入中...</div></div>
+    </div>
   </div>
 
   <!-- Bottom Action -->
@@ -169,6 +174,28 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 <div class="toast" id="toast"></div>
 
 <script>
+// ===== 台灣國定假日 2026-2027 =====
+const TW_HOLIDAYS = {
+  "2026-01-01":"元旦","2026-01-26":"農曆除夕","2026-01-27":"春節",
+  "2026-01-28":"春節","2026-01-29":"春節","2026-01-30":"春節補假",
+  "2026-02-28":"和平紀念日","2026-04-03":"兒童節補假",
+  "2026-04-04":"兒童節/清明節","2026-05-01":"勞動節",
+  "2026-05-31":"端午節","2026-10-01":"中秋節補假",
+  "2026-10-02":"中秋節","2026-10-10":"國慶日",
+  "2027-01-01":"元旦","2027-01-15":"農曆除夕","2027-01-16":"春節",
+  "2027-01-17":"春節","2027-01-18":"春節","2027-02-28":"和平紀念日",
+  "2027-04-04":"兒童節/清明節","2027-04-05":"清明節補假",
+  "2027-05-01":"勞動節","2027-06-19":"端午節","2027-06-21":"端午節補假",
+  "2027-09-21":"中秋節","2027-10-10":"國慶日","2027-10-11":"國慶日補假"
+};
+
+// 取得某月的國定假日
+function getMonthHolidays(ym) {
+  return Object.entries(TW_HOLIDAYS)
+    .filter(([k]) => k.startsWith(ym))
+    .map(([k, v]) => ({ date: k, name: v, day: parseInt(k.split('-')[2]) }));
+}
+
 // ===== 狀態 =====
 let currentUser = null;
 let appConfig = { stores: [] };
@@ -253,7 +280,8 @@ function calcTotal(rec) {
     const wage = parseFloat(rec.wage || 0);
     const hours = parseFloat(rec.hours || 0);
     const holidayH = parseFloat(rec.holidayHours || 0);
-    return Math.round(wage * hours + wage * holidayH * 2);
+    const roleBonus = parseFloat(rec.roleBonus || 0);
+    return Math.round(wage * hours + wage * holidayH * 2 + roleBonus);
   } else {
     const base = parseFloat(rec.baseSalary || 0);
     const attend = parseFloat(rec.fullAttendBonus || 0);
@@ -326,6 +354,7 @@ async function loadSalaryData() {
     ));
 
     updateStatusBadge();
+    renderMonthInfo();
     renderEmpList();
     renderBottomAction();
   } catch(e) {
@@ -350,6 +379,48 @@ function getMonthWeeks(ym) {
     d.setDate(d.getDate() + 7);
   }
   return [...weeks];
+}
+
+// ===== 本月說明區（國定假日 + 應休天數）=====
+function renderMonthInfo() {
+  const el = document.getElementById('monthInfoArea');
+  if(!el) return;
+  const holidays = getMonthHolidays(currentMonth);
+  const minLeave = parseInt(appConfig.minLeaveDays || 8);
+  const [y, m] = currentMonth.split('-').map(Number);
+  const daysInMonth = new Date(y, m, 0).getDate();
+
+  // 國定假日說明
+  let holidayHtml = '';
+  if(holidays.length > 0) {
+    const hList = holidays.map(h => {
+      const d = new Date(h.date);
+      const wd = ['日','一','二','三','四','五','六'][d.getDay()];
+      return `<span style="background:#fce8e6;color:#c0392b;border-radius:6px;padding:3px 8px;font-size:12px;font-weight:700;white-space:nowrap;">${m}/${h.day}(${wd}) ${h.name}</span>`;
+    }).join(' ');
+    holidayHtml = `
+      <div style="margin-bottom:10px;">
+        <div style="font-size:12px;font-weight:800;color:var(--text-muted);margin-bottom:6px;">🎌 本月國定假日</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">${hList}</div>
+        <div style="font-size:11px;color:#c0392b;margin-top:6px;font-weight:600;">
+          ⚠️ 工讀人員國定假日出勤請手動填入時數，薪資 = 時數 × 時薪 × 2
+        </div>
+      </div>`;
+  }
+
+  // 應休天數說明（正職/店長）
+  const minLeaveHtml = `
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <div style="font-size:12px;font-weight:800;color:var(--text-muted);">📋 本月最少應休</div>
+      <span style="background:#e8f0fe;color:var(--primary);border-radius:6px;padding:3px 10px;font-size:14px;font-weight:900;">${minLeave} 天</span>
+      <span style="font-size:11px;color:var(--text-muted);">（含國定假日 ${holidays.length} 天）</span>
+    </div>`;
+
+  el.innerHTML = `
+    <div style="background:white;border-radius:var(--radius);padding:14px 16px;margin-bottom:10px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      ${holidayHtml}
+      ${minLeaveHtml}
+    </div>`;
 }
 
 function updateStatusBadge() {
@@ -429,7 +500,13 @@ function buildDefaultRecord(emp) {
     role: emp.role || ROLE_PART,
   };
   if(emp.role === ROLE_PART) {
-    return { ...base, wage: emp.wage || 0, hours: totalH, holidayHours: 0 };
+    return {
+      ...base,
+      wage: prev.wage !== undefined ? prev.wage : (emp.wage || 0),
+      roleBonus: prev.roleBonus !== undefined ? prev.roleBonus : 0,
+      hours: totalH,
+      holidayHours: 0
+    };
   } else if(emp.role === ROLE_FULL) {
     return {
       ...base,
@@ -472,12 +549,32 @@ function renderSalaryForm(emp, rec, idx, readonly) {
 
   if(emp.role === ROLE_PART) {
     const { totalH } = calcEmpHours(emp.name);
+    const holidays = getMonthHolidays(currentMonth);
+    const holidayNote = holidays.length > 0
+      ? holidays.map(h => {
+          const [y,m,d] = h.date.split('-').map(Number);
+          const wd = ['日','一','二','三','四','五','六'][new Date(h.date).getDay()];
+          return `${m}/${d}(${wd})${h.name}`;
+        }).join('、')
+      : '本月無國定假日';
+    const holidayH = parseFloat(rec.holidayHours || 0);
+    const holidayHint = holidayH > 0
+      ? `<div style="font-size:11px;color:#c0392b;font-weight:700;margin-top:4px;">💡 ${holidayH}h × $${rec.wage} × 2 = $${Math.round(holidayH * rec.wage * 2).toLocaleString()}</div>`
+      : `<div style="font-size:11px;color:#c0392b;margin-top:4px;">⚠️ 填入時數後系統會提示金額（不自動加入）</div>`;
     return `
       <div class="salary-section">
         <div class="salary-section-title">基本資訊</div>
-        <div class="salary-row"><span class="salary-row-label">時薪</span><span class="salary-row-val">$${rec.wage}</span></div>
+        ${inp('wage', rec.wage, '時薪')}
         <div class="salary-row"><span class="salary-row-label">系統計算工時</span><span class="salary-row-val">${totalH} h <span class="readonly-tag">自動</span></span></div>
-        ${inpNum('holidayHours', rec.holidayHours, '國定假日工時', 'h')}
+        ${inp('roleBonus', rec.roleBonus ?? 0, '職務津貼')}
+      </div>
+      <div class="salary-section">
+        <div class="salary-section-title">國定假日加班</div>
+        <div style="font-size:11px;color:#c0392b;background:#fef9f9;border-radius:8px;padding:8px 10px;margin-bottom:8px;">
+          🎌 本月國定假日：${holidayNote}
+        </div>
+        ${inpNum('holidayHours', rec.holidayHours, '國定假日出勤時數', 'h')}
+        ${holidayHint}
       </div>
       <div class="salary-total-row">
         <span class="salary-total-label">本月薪資</span>
@@ -485,7 +582,8 @@ function renderSalaryForm(emp, rec, idx, readonly) {
       </div>
       <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">
         一般：${totalH}h × $${rec.wage} = $${Math.round(totalH * rec.wage).toLocaleString()}
-        ${parseFloat(rec.holidayHours||0)>0 ? `<br>國假加班：${rec.holidayHours}h × $${rec.wage} × 2 = $${Math.round(rec.holidayHours * rec.wage * 2).toLocaleString()}` : ''}
+        ${parseFloat(rec.roleBonus||0)>0 ? `<br>職務津貼：$${parseFloat(rec.roleBonus).toLocaleString()}` : ''}
+        ${holidayH>0 ? `<br>國假加班：${holidayH}h × $${rec.wage} × 2 = $${Math.round(holidayH * rec.wage * 2).toLocaleString()}（請手動核實後加入）` : ''}
       </div>
       ${renderCalendar(emp.name, emp.role)}`;
   } else if(emp.role === ROLE_FULL) {
