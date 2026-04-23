@@ -504,6 +504,21 @@ let empWeekStr = '';
 
 const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
 
+// 台灣國定假日 2026-2027
+const TW_HOLIDAYS_SCHED = {
+  "2026-01-01":"元旦","2026-01-26":"農曆除夕","2026-01-27":"春節",
+  "2026-01-28":"春節","2026-01-29":"春節","2026-01-30":"春節補假",
+  "2026-02-28":"和平紀念日","2026-04-03":"兒童節補假",
+  "2026-04-04":"兒童節/清明節","2026-05-01":"勞動節",
+  "2026-05-31":"端午節","2026-10-01":"中秋節補假",
+  "2026-10-02":"中秋節","2026-10-10":"國慶日",
+  "2027-01-01":"元旦","2027-01-15":"農曆除夕","2027-01-16":"春節",
+  "2027-01-17":"春節","2027-01-18":"春節","2027-02-28":"和平紀念日",
+  "2027-04-04":"兒童節/清明節","2027-04-05":"清明節補假",
+  "2027-05-01":"勞動節","2027-06-19":"端午節","2027-06-21":"端午節補假",
+  "2027-09-21":"中秋節","2027-10-10":"國慶日","2027-10-11":"國慶日補假"
+};
+
 // 取得顯示名字（有 displayName 用新名，否則用原名）
 function getDisplayName(empName) {
   if(!empName) return empName;
@@ -1231,7 +1246,18 @@ function renderTable() {
   const hRow = document.getElementById('headerRow');
   hRow.innerHTML = '<th>員工</th>';
   dayNames.forEach((d,i) => hRow.innerHTML += `<th><span class="date-sub">${currentWeekDates[i]}</span>${d}</th>`);
-  hRow.innerHTML += '<th style="min-width:110px;">本週統計</th>';
+  // 計算本月應休天數提示
+  const weekStr2 = document.getElementById('weekSelector').value;
+  const [wy, wm] = (() => {
+    const dates = getWeekDates(weekStr2);
+    const months = [...new Set(dates.map(d => d.split('/')[0]))];
+    const yr = weekStr2.split('-W')[0];
+    return [yr, months[0]];
+  })();
+  const monthKey = `${wy}-${String(parseInt(wm)).padStart(2,'0')}`;
+  const minLeave = parseInt(appConfig.minLeaveDays || 8);
+  const holidayCount = Object.keys(TW_HOLIDAYS_SCHED).filter(k => k.startsWith(monthKey)).length;
+  hRow.innerHTML += `<th style="min-width:110px;">本週統計</th>`;
 
   const emps = [...appData.employees];
   virtualRowNames.forEach(n => emps.push({ name: n, role: '待補' }));
@@ -1664,13 +1690,14 @@ async function updateSummary(idx, emp) {
   } else if(isFullTime) {
     // 正職/店長：週休檢核 + 各月加班時數
     const offColor = wOff >= 2 ? '#34a853' : '#d93025';
-    const offLabel = wOff >= 2 ? '達標' : `不足`;
+    const offLabel = wOff >= 2 ? '達標' : '不足';
     html = `<div style="font-size:11px; line-height:1.8;">`;
     html += `<b>週休:${wOff}天 <span style="color:${offColor};">(${offLabel})</span></b><br>`;
     weekMonths.forEach(m => {
       const ms = monthStats[m];
       const mLabel = m.split('-')[1].replace(/^0/,'') + '月';
       const otColor = ms.ot > 0 ? '#d93025' : '#64748b';
+      html += `${mLabel}已休:${ms.off||0}天<br>`;
       html += `${mLabel}加班: <span style="color:${otColor};font-weight:${ms.ot>0?900:400};">${r10(ms.ot)}h</span><br>`;
     });
     html += `</div>`;
@@ -1855,6 +1882,21 @@ function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, al
   // 日期表頭
   ctx.textAlign = 'center';
   const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
+
+// 台灣國定假日 2026-2027
+const TW_HOLIDAYS_SCHED = {
+  "2026-01-01":"元旦","2026-01-26":"農曆除夕","2026-01-27":"春節",
+  "2026-01-28":"春節","2026-01-29":"春節","2026-01-30":"春節補假",
+  "2026-02-28":"和平紀念日","2026-04-03":"兒童節補假",
+  "2026-04-04":"兒童節/清明節","2026-05-01":"勞動節",
+  "2026-05-31":"端午節","2026-10-01":"中秋節補假",
+  "2026-10-02":"中秋節","2026-10-10":"國慶日",
+  "2027-01-01":"元旦","2027-01-15":"農曆除夕","2027-01-16":"春節",
+  "2027-01-17":"春節","2027-01-18":"春節","2027-02-28":"和平紀念日",
+  "2027-04-04":"兒童節/清明節","2027-04-05":"清明節補假",
+  "2027-05-01":"勞動節","2027-06-19":"端午節","2027-06-21":"端午節補假",
+  "2027-09-21":"中秋節","2027-10-10":"國慶日","2027-10-11":"國慶日補假"
+};
 
   for (let i = 0; i < 7; i++) {
     const cx = nameColW + i * dataColW + dataColW / 2;
