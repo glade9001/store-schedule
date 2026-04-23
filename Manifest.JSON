@@ -1,0 +1,26 @@
+{
+  "name": "莉學商行管理系統",
+  "short_name": "莉學商行",
+  "description": "莉學商行門市管理系統",
+  "start_url": "/store-schedule/home.html",
+  "scope": "/store-schedule/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1a73e8",
+  "theme_color": "#1a73e8",
+  "lang": "zh-TW",
+  "icons": [
+    {
+      "src": "icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
