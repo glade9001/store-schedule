@@ -145,8 +145,14 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
   <div class="header">
     <button class="header-back" onclick="window.location.href='home.html'">←</button>
     <div class="header-title">💰 薪資管理</div>
-    <div class="header-badge" id="headerStore">--</div>
-    <div class="status-badge status-draft" id="statusBadge">草稿</div>
+    <div style="flex:1;"></div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;">
+      <div style="display:flex;gap:6px;align-items:center;">
+        <div class="header-badge" id="headerStore">--</div>
+        <div class="status-badge status-draft" id="statusBadge">草稿</div>
+      </div>
+      <div style="font-size:11px;color:rgba(255,255,255,0.8);font-weight:600;" id="headerUserInfo">--</div>
+    </div>
   </div>
 
   <!-- Month Nav -->
@@ -227,6 +233,18 @@ function showLoading(msg) {
 function hideLoading() {
   const el = document.getElementById('loadingOverlay');
   if(el) el.classList.add('hidden');
+}
+
+function updateHeaderInfo() {
+  if(!currentUser) return;
+  const ROLE_LABELS = { '工讀':'工讀生', '正職':'正職員工', '店長':'店長', '加盟主':'加盟主' };
+  const PERM_LABELS = { 'employee':'員工', 'manager':'店長', 'owner':'加盟主', 'admin':'系統管理者' };
+  const roleText = ROLE_LABELS[currentUser.role] || currentUser.role || '';
+  const permText = PERM_LABELS[currentUser.permission] || '';
+  const storeText = currentUser.store || '全門市';
+  const label = roleText ? `${roleText}・${storeText}` : `${permText}・${storeText}`;
+  const el = document.getElementById('headerUserInfo');
+  if(el) el.textContent = label;
 }
 function showToast(msg) {
   const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show');
@@ -432,22 +450,46 @@ function updateStatusBadge() {
 // ===== 渲染員工列表 =====
 function renderEmpList() {
   const el = document.getElementById('empList');
-  const perm = currentUser.permission;
   const readonly = isReadonly();
 
-  // 決定要顯示的員工
-  let emps = empList.filter(e => {
-    if(e.role === ROLE_MANAGER) return canEditManagerSalary();
-    return canEditSalary();
-  });
-  // 員工本人只看自己
+  // 員工只能看自己，且只有發布後才能看
   if(!canEditSalary()) {
-    emps = empList.filter(e => e.name === currentUser.empName);
-  }
-  if(salaryData.status !== 'published' && !canEditSalary()) {
-    el.innerHTML = `<div class="empty-state"><div class="empty-icon">🔒</div><div style="font-weight:700;">薪資尚未發布</div><div style="font-size:12px;margin-top:6px;">發布後即可查看</div></div>`;
+    if(salaryData.status !== 'published') {
+      el.innerHTML = `<div class="empty-state"><div class="empty-icon">🔒</div><div style="font-weight:700;">薪資尚未發布</div><div style="font-size:12px;margin-top:6px;">發布後即可查看</div></div>`;
+      return;
+    }
+    // 找自己的薪資記錄（用 empName 對應）
+    const myEmpName = currentUser.empName;
+    const myRec = salaryData.records?.find(r => r.empName === myEmpName);
+    if(!myRec) {
+      el.innerHTML = `<div class="empty-state"><div class="empty-icon">💰</div><div style="font-weight:700;">本月薪資尚未建立</div></div>`;
+      return;
+    }
+    const myEmp = empList.find(e => e.name === myEmpName) || { name: myEmpName, role: myRec.role };
+    const total = calcTotal(myRec);
+    const isOpen = expandedCards.has(myEmpName);
+    el.innerHTML = `<div class="emp-salary-card" id="card-0">
+      <div class="emp-salary-header" onclick="toggleCard('${myEmpName}', 0)">
+        <div class="emp-salary-avatar">${myEmpName[0]}</div>
+        <div class="emp-salary-info">
+          <div class="emp-salary-name">${myEmpName} <span style="font-size:11px;background:#f1f3f4;padding:2px 6px;border-radius:4px;font-weight:600;">${myRec.role||''}</span></div>
+          <div class="emp-salary-role">${currentMonth.replace('-','年')}月 薪資</div>
+        </div>
+        <div class="emp-salary-total">$${total.toLocaleString()}</div>
+        <div class="emp-salary-arrow ${isOpen?'open':''}" id="arrow-0">›</div>
+      </div>
+      <div class="emp-salary-body ${isOpen?'open':''}" id="body-0">
+        ${renderSalaryForm(myEmp, myRec, 0, true)}
+      </div>
+    </div>`;
     return;
   }
+
+  // 店長以上：顯示所有員工（店長薪資只有加盟主以上可看）
+  let emps = empList.filter(e => {
+    if(e.role === ROLE_MANAGER) return canEditManagerSalary();
+    return true;
+  });
   if(emps.length === 0) {
     el.innerHTML = `<div class="empty-state"><div class="empty-icon">👥</div><div>無員工資料</div></div>`;
     return;
@@ -1040,6 +1082,7 @@ window.onload = async () => {
     }
 
     document.getElementById('appShell').classList.add('active');
+    updateHeaderInfo();
     hideLoading();
     await loadSalaryData();
   } catch(e) {
