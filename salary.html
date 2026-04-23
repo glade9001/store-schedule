@@ -248,6 +248,74 @@ function updateHeaderInfo() {
   if(el) el.textContent = name ? `${name}・${permText}・${storeText}` : `${permText}・${storeText}`;
 }
 
+
+// ===== 權限判斷 =====
+function canEditSalary() { return ['manager','owner','admin'].includes(currentUser?.permission); }
+function canEditManagerSalary() { return ['owner','admin'].includes(currentUser?.permission); }
+function canApprove() { return ['owner','admin'].includes(currentUser?.permission); }
+function isReadonly() {
+  const s = salaryData.status || 'draft';
+  if(canApprove()) return s === 'published';
+  return s !== 'draft';
+}
+
+// ===== Toast =====
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  if(!t) return;
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ===== 薪資計算 =====
+function hourlyRate(rec) {
+  const base = parseFloat(rec.baseSalary || 0);
+  const attendBase = parseFloat(rec.fullAttendBase ?? rec.fullAttendBonus ?? 0);
+  return (base + attendBase) / 30 / 8;
+}
+
+function calcEmpHours(empName) {
+  let totalH = 0, otH = 0;
+  Object.values(scheduleData).forEach(weekRecs => {
+    (weekRecs || []).forEach(r => {
+      if(r.name !== empName) return;
+      const h = parseFloat(r.actualHours || 0);
+      if(r.shift === '排休' || r.shift === '指休' || !r.shift) return;
+      totalH += h;
+      if(r.isOT || h > 8) otH += Math.max(0, h - 8);
+    });
+  });
+  return { totalH: Math.round(totalH*10)/10, otH: Math.round(otH*10)/10 };
+}
+
+function calcTotal(rec) {
+  const role = rec.role;
+  if(role === ROLE_PART) {
+    const wage = parseFloat(rec.wage || 0);
+    const hours = parseFloat(rec.hours || 0);
+    const holidayH = parseFloat(rec.holidayHours || 0);
+    const roleBonus = parseFloat(rec.roleBonus || 0);
+    return Math.round(wage * hours + wage * holidayH * 2 + roleBonus);
+  } else {
+    const base = parseFloat(rec.baseSalary || 0);
+    const attend = parseFloat(rec.fullAttendBonus || 0);
+    const rate = hourlyRate(rec);
+    const lateMin = parseFloat(rec.lateMinutes || 0);
+    const otH = parseFloat(rec.otHours || 0);
+    const lateDeduct = Math.round(rate * lateMin);
+    const otPay = Math.round(rate * otH);
+    if(role === ROLE_FULL) {
+      const roleBonus = parseFloat(rec.roleBonus || 0);
+      return base + attend + roleBonus - lateDeduct + otPay;
+    } else {
+      const mgmt = ['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader']
+        .reduce((s, k) => s + parseFloat(rec[k] || 0), 0);
+      return base + attend + mgmt - lateDeduct + otPay;
+    }
+  }
+}
+
 // ===== 月份切換 =====
 function changeMonth(offset) {
   const [y, m] = currentMonth.split('-').map(Number);
