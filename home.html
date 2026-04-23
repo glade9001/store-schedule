@@ -2,6 +2,12 @@
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="莉學商行">
+<link rel="apple-touch-icon" href="icon-192.svg">
+<meta name="theme-color" content="#1a73e8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>莉學商行管理系統</title>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
@@ -1201,6 +1207,13 @@ async function doLogin() {
       localStorage.removeItem('rememberMe');
     }
     document.getElementById('loginScreen').classList.remove('active');
+    // 檢查是否有待跳轉頁面
+    const redirect = localStorage.getItem('redirectAfterLogin');
+    if(redirect) {
+      localStorage.removeItem('redirectAfterLogin');
+      window.location.href = redirect;
+      return;
+    }
     await initApp();
   } catch(e) {
     hideLoading();
@@ -2456,6 +2469,29 @@ document.getElementById('loginPassword').addEventListener('keydown', (e) => {
 document.getElementById('loginUsername').addEventListener('keydown', (e) => {
   if(e.key === 'Enter') document.getElementById('loginPassword').focus();
 });
+</script>
+
+<script>
+if('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/store-schedule/sw.js')
+      .then(reg => {
+        console.log('[PWA] Service Worker 已註冊');
+        // 有新版本時提示用戶
+        reg.addEventListener('updatefound', () => {
+          const newWorker = reg.installing;
+          newWorker.addEventListener('statechange', () => {
+            if(newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              // 有新版本，靜默更新
+              newWorker.postMessage('SKIP_WAITING');
+              window.location.reload();
+            }
+          });
+        });
+      })
+      .catch(err => console.warn('[PWA] SW 註冊失敗:', err));
+  });
+}
 </script>
 </body>
 </html>
