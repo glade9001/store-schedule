@@ -311,6 +311,20 @@ async function loadSalaryData() {
   hideLoading();
 }
 
+function getPrevMonth(ym) {
+  const [y, m] = ym.split('-').map(Number);
+  if(m === 1) return `${y-1}-12`;
+  return `${y}-${String(m-1).padStart(2,'0')}`;
+}
+function getMonthLabel(ym) {
+  const [y, m] = ym.split('-');
+  return `${y} 年 ${parseInt(m)} 月`;
+}
+function getCurrentMonth() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+
 function getMonthWeeks(ym) {
   // 取得某月份涵蓋的所有 ISO 週次
   const [y, m] = ym.split('-').map(Number);
