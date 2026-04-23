@@ -550,15 +550,50 @@ function renderSalaryForm(emp, rec, idx, readonly) {
     const holidays = getMonthHolidays(currentMonth);
     const holidayNote = holidays.length > 0
       ? holidays.map(h => {
-          const [y,m,d] = h.date.split('-').map(Number);
           const wd = ['日','一','二','三','四','五','六'][new Date(h.date).getDay()];
-          return `${m}/${d}(${wd})${h.name}`;
+          const [hy,hm,hd] = h.date.split('-').map(Number);
+          return `${hm}/${hd}(${['日','一','二','三','四','五','六'][new Date(h.date).getDay()]})${h.name}`;
         }).join('、')
       : '本月無國定假日';
+
+    // 自動偵測國定假日當天出勤時數
+    const [cy, cm] = currentMonth.split('-').map(Number);
+    let autoHolidayH = 0;
+    holidays.forEach(h => {
+      const [hy, hm, hd] = h.date.split('-').map(Number);
+      // 從排班記錄找這天
+      Object.entries(scheduleData).forEach(([ws, recs]) => {
+        recs.forEach(r => {
+          if(r.name !== emp.name) return;
+          const wDates = getWeekDatesFromStr(ws);
+          const dIdx = ['週一','週二','週三','週四','週五','週六','週日'].indexOf(r.day);
+          if(dIdx < 0) return;
+          const dateStr = wDates[dIdx];
+          if(!dateStr) return;
+          const [dm, dd] = dateStr.split('/').map(Number);
+          if(dm === hm && dd === hd && r.shift && r.shift !== '排休' && r.shift !== '指休') {
+            autoHolidayH += parseFloat(r.actualHours || 0);
+          }
+        });
+      });
+    });
+    autoHolidayH = Math.round(autoHolidayH * 10) / 10;
+
     const holidayH = parseFloat(rec.holidayHours || 0);
-    const holidayHint = holidayH > 0
-      ? `<div style="font-size:11px;color:#c0392b;font-weight:700;margin-top:4px;">💡 ${holidayH}h × $${rec.wage} × 2 = $${Math.round(holidayH * rec.wage * 2).toLocaleString()}</div>`
-      : `<div style="font-size:11px;color:#c0392b;margin-top:4px;">⚠️ 填入時數後系統會提示金額（不自動加入）</div>`;
+    // 顯示提示：有自動偵測到出勤時數就顯示計算式
+    let autoHolidayHint = '';
+    if(autoHolidayH > 0) {
+      const autoAmt = Math.round(autoHolidayH * parseFloat(rec.wage||0) * 2);
+      autoHolidayHint = `<div style="font-size:11px;color:#c0392b;font-weight:700;margin-top:4px;">
+        💡 系統偵測：${autoHolidayH}h × $${rec.wage} × 2 = $${autoAmt.toLocaleString()}（請核實後填入時數）
+      </div>`;
+    } else if(holidayH > 0) {
+      const manualAmt = Math.round(holidayH * parseFloat(rec.wage||0) * 2);
+      autoHolidayHint = `<div style="font-size:11px;color:#c0392b;font-weight:700;margin-top:4px;">
+        💡 ${holidayH}h × $${rec.wage} × 2 = $${manualAmt.toLocaleString()}
+      </div>`;
+    }
+    // 若國定假日全部沒出勤，不顯示提示
     return `
       <div class="salary-section">
         <div class="salary-section-title">基本資訊</div>
@@ -572,7 +607,7 @@ function renderSalaryForm(emp, rec, idx, readonly) {
           🎌 本月國定假日：${holidayNote}
         </div>
         ${inpNum('holidayHours', rec.holidayHours, '國定假日出勤時數', 'h')}
-        ${holidayHint}
+        ${autoHolidayHint}
       </div>
       <div class="salary-total-row">
         <span class="salary-total-label">本月薪資</span>
