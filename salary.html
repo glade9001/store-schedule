@@ -241,6 +241,12 @@ function updateHeaderInfo() {
     'employee':'員工', 'manager':'店長',
     'owner':'加盟主', 'admin':'系統管理者'
   };
+  const name = currentUser.displayName || currentUser.empName || currentUser.username || '';
+  const permText = PERM_LABELS[currentUser.permission] || currentUser.permission || '';
+  const storeText = currentUser.store || '全門市';
+  const el = document.getElementById('headerUserInfo');
+  if(el) el.textContent = name ? `${name}・${permText}・${storeText}` : `${permText}・${storeText}`;
+};
   const name = currentUser.displayName || currentUser.empName || '';
   const permText = PERM_LABELS[currentUser.permission] || currentUser.permission || '';
   const storeText = currentUser.store || '全門市';
