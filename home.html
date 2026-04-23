@@ -127,6 +127,21 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 }
 .card-title { font-size: 13px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
 
+.role-preview-btn {
+  background: var(--card); border: 2px solid var(--border); border-radius: 14px;
+  padding: 16px 10px; text-align: center; cursor: pointer; transition: all 0.15s;
+}
+.role-preview-btn:active { transform: scale(0.96); }
+.role-preview-btn.selected { border-color: #9334e6; background: #f3e8ff; }
+
+/* 預覽模式頂部提示條 */
+#previewBanner {
+  display: none; background: linear-gradient(135deg,#9334e6,#6a1bb5);
+  color: white; padding: 8px 16px; font-size: 12px; font-weight: 700;
+  text-align: center; cursor: pointer; flex-shrink: 0;
+}
+#previewBanner.show { display: block; }
+
 /* ===== GREETING BANNER ===== */
 .greeting-banner {
   background: linear-gradient(135deg, #1a73e8, #0d47a1);
@@ -633,6 +648,14 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
           </div>
           <div class="menu-item-arrow">›</div>
         </div>
+        <div class="menu-item" id="menuRolePreview" style="display:none;" onclick="openRolePreviewModal()">
+          <div class="menu-item-icon" style="background:#f3e8ff;">🎭</div>
+          <div class="menu-item-text">
+            <div class="menu-item-title" style="color:#9334e6;">角色預覽</div>
+            <div class="menu-item-sub" id="menuRolePreviewSub">以不同角色體驗介面</div>
+          </div>
+          <div class="menu-item-arrow">›</div>
+        </div>
         <div class="menu-item" id="menuStoreConfig" style="display:none;" onclick="openStoreConfigModal()">
           <div class="menu-item-icon" style="background:#e8f0fe;">🔧</div>
           <div class="menu-item-text">
@@ -905,6 +928,46 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 
     <button class="save-btn" onclick="saveStoreConfig()">💾 儲存班別設定</button>
     <button class="cancel-btn" onclick="closeModal('storeConfigModal')">取消</button>
+  </div>
+</div>
+
+<!-- ===== 角色預覽 MODAL ===== -->
+<div class="modal-overlay" id="rolePreviewModal" onclick="closeWip(event)">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-title">🎭 角色預覽</div>
+    <div class="modal-sub" id="rolePreviewSub">目前以真實身份登入</div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:20px;">
+      <div class="role-preview-btn" onclick="setPreviewRole('employee')" id="rpBtn-employee">
+        <div style="font-size:28px;">👤</div>
+        <div style="font-size:14px; font-weight:800; margin-top:6px;">員工</div>
+        <div style="font-size:11px; color:var(--text-muted);">查看班表、申請</div>
+      </div>
+      <div class="role-preview-btn" onclick="setPreviewRole('manager')" id="rpBtn-manager">
+        <div style="font-size:28px;">🏪</div>
+        <div style="font-size:14px; font-weight:800; margin-top:6px;">店長</div>
+        <div style="font-size:11px; color:var(--text-muted);">排班、員工管理</div>
+      </div>
+      <div class="role-preview-btn" onclick="setPreviewRole('owner')" id="rpBtn-owner">
+        <div style="font-size:28px;">👑</div>
+        <div style="font-size:14px; font-weight:800; margin-top:6px;">加盟主</div>
+        <div style="font-size:11px; color:var(--text-muted);">全門市管理</div>
+      </div>
+      <div class="role-preview-btn" onclick="setPreviewRole('admin')" id="rpBtn-admin">
+        <div style="font-size:28px;">⚙️</div>
+        <div style="font-size:14px; font-weight:800; margin-top:6px;">系統管理員</div>
+        <div style="font-size:11px; color:var(--text-muted);">最高權限</div>
+      </div>
+    </div>
+
+    <div id="rolePreviewWarning" style="display:none; background:#fff3e0; border:1px solid #ffcc80; border-radius:10px; padding:10px 14px; font-size:12px; color:#e65100; margin-bottom:16px;">
+      ⚠️ 目前以預覽模式體驗「<span id="previewRoleName"></span>」角色介面，資料為真實資料但操作權限受限。
+    </div>
+
+    <button class="save-btn" onclick="confirmRolePreview()" style="background:#9334e6;">🎭 套用預覽角色</button>
+    <button class="save-btn" id="restoreRealBtn" style="display:none; background:#34a853;" onclick="restoreRealRole()">↩️ 恢復真實身份</button>
+    <button class="cancel-btn" onclick="closeModal('rolePreviewModal')">取消</button>
   </div>
 </div>
 
@@ -1772,6 +1835,13 @@ function loadProfilePage() {
   if(sysMenuItem) sysMenuItem.style.display = canSysConfig() ? 'flex' : 'none';
   const storeConfigItem = document.getElementById('menuStoreConfig');
   if(storeConfigItem) storeConfigItem.style.display = canSchedule() ? 'flex' : 'none';
+  // 角色預覽：只有真實 admin 才顯示
+  const realPerm = realUser ? realUser.permission : currentUser.permission;
+  const rolePreviewItem = document.getElementById('menuRolePreview');
+  if(rolePreviewItem) rolePreviewItem.style.display = realPerm === 'admin' ? 'flex' : 'none';
+  // 顯示目前預覽狀態
+  const rpSub = document.getElementById('menuRolePreviewSub');
+  if(rpSub) rpSub.textContent = previewRole ? `目前：${ROLE_PREVIEW_LABELS[previewRole]}` : '以不同角色體驗介面';
 }
 
 // ===== 帳號設定 MODAL =====
@@ -2267,6 +2337,115 @@ async function saveStoreConfig() {
     hideLoading();
     showToast('❌ 儲存失敗：' + e.message);
   }
+}
+
+// ===== 角色預覽 =====
+let realUser = null; // 保存真實用戶資料
+let previewRole = null; // 目前預覽的角色
+
+const ROLE_PREVIEW_LABELS = {
+  employee: '員工',
+  manager: '店長',
+  owner: '加盟主',
+  admin: '系統管理員'
+};
+
+function openRolePreviewModal() {
+  // 只有真實 admin 才能使用
+  const realPerm = realUser ? realUser.permission : currentUser.permission;
+  if(realPerm !== 'admin') return;
+
+  const sub = document.getElementById('rolePreviewSub');
+  const warning = document.getElementById('rolePreviewWarning');
+  const restoreBtn = document.getElementById('restoreRealBtn');
+
+  if(previewRole) {
+    sub.textContent = `目前預覽：${ROLE_PREVIEW_LABELS[previewRole]}`;
+    warning.style.display = 'block';
+    document.getElementById('previewRoleName').textContent = ROLE_PREVIEW_LABELS[previewRole];
+    restoreBtn.style.display = 'block';
+  } else {
+    sub.textContent = '目前以真實身份（系統管理員）登入';
+    warning.style.display = 'none';
+    restoreBtn.style.display = 'none';
+  }
+
+  // 更新選中狀態
+  ['employee','manager','owner','admin'].forEach(r => {
+    const btn = document.getElementById(`rpBtn-${r}`);
+    if(btn) btn.classList.toggle('selected', r === (previewRole || 'admin'));
+  });
+
+  openModal('rolePreviewModal');
+}
+
+let selectedPreviewRole = null;
+function setPreviewRole(role) {
+  selectedPreviewRole = role;
+  ['employee','manager','owner','admin'].forEach(r => {
+    const btn = document.getElementById(`rpBtn-${r}`);
+    if(btn) btn.classList.toggle('selected', r === role);
+  });
+  const warning = document.getElementById('rolePreviewWarning');
+  const nameEl = document.getElementById('previewRoleName');
+  if(role === 'admin') {
+    warning.style.display = 'none';
+  } else {
+    warning.style.display = 'block';
+    nameEl.textContent = ROLE_PREVIEW_LABELS[role];
+  }
+}
+
+async function confirmRolePreview() {
+  const role = selectedPreviewRole;
+  if(!role) { showToast('⚠️ 請選擇角色'); return; }
+
+  // 備份真實用戶（第一次才備份）
+  if(!realUser) realUser = { ...currentUser };
+
+  if(role === 'admin') {
+    // 恢復真實身份
+    restoreRealRole();
+    return;
+  }
+
+  // 套用預覽角色
+  previewRole = role;
+  currentUser = {
+    ...realUser,
+    permission: role,
+    role: role === 'employee' ? '工讀' : role === 'manager' ? '店長' : '加盟主',
+  };
+  // 員工預覽：限定本店
+  if(role === 'employee') currentUser.store = realUser.store || (appConfig.stores && appConfig.stores[0]);
+
+  closeModal('rolePreviewModal');
+  showToast(`🎭 正在以「${ROLE_PREVIEW_LABELS[role]}」角色預覽`);
+
+  // 更新提示條
+  const banner = document.getElementById('previewBanner');
+  const bannerRole = document.getElementById('previewBannerRole');
+  if(banner) { banner.classList.add('show'); bannerRole.textContent = ROLE_PREVIEW_LABELS[role]; }
+
+  // 重新渲染首頁
+  await initApp();
+}
+
+function restoreRealRole() {
+  if(!realUser) return;
+  currentUser = { ...realUser };
+  previewRole = null;
+  realUser = null;
+  selectedPreviewRole = null;
+
+  closeModal('rolePreviewModal');
+  showToast('✅ 已恢復真實身份');
+
+  // 隱藏提示條
+  const banner = document.getElementById('previewBanner');
+  if(banner) banner.classList.remove('show');
+
+  initApp();
 }
 
 // ===== Enter 鍵登入 =====
