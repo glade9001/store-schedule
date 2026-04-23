@@ -662,7 +662,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       </div>
       <span class="nav-label">申請</span>
     </button>
-    <button class="nav-item" data-page="salary" onclick="switchPage('salary')">
+    <button class="nav-item" onclick="window.location.href='salary.html'">
       <span class="nav-icon">💰</span>
       <span class="nav-label">薪資</span>
     </button>
@@ -1042,14 +1042,19 @@ window.onload = async () => {
       console.warn('設定讀取失敗，使用快取');
     }
 
-    // 嘗試讀取已登入 session
-    const savedUser = sessionStorage.getItem('currentUser');
+    // 嘗試讀取已登入資訊（localStorage = 記住我，sessionStorage = 一般登入）
+    const savedUser = localStorage.getItem('currentUser') || sessionStorage.getItem('currentUser');
     if(savedUser) {
-      currentUser = JSON.parse(savedUser);
-      await initApp();
+      try {
+        currentUser = JSON.parse(savedUser);
+        await initApp();
+      } catch(e) {
+        localStorage.removeItem('currentUser');
+        sessionStorage.removeItem('currentUser');
+        showLoginScreen();
+      }
     } else {
-      hideLoading();
-      document.getElementById('loginScreen').classList.add('active');
+      showLoginScreen();
     }
   } catch(e) {
     hideLoading();
@@ -1057,6 +1062,21 @@ window.onload = async () => {
     document.getElementById('loginError').textContent = '⚠️ 連線失敗：' + e.message;
   }
 };
+
+function showLoginScreen() {
+  hideLoading();
+  document.getElementById('loginScreen').classList.add('active');
+  // 帶入上次帳號密碼
+  const lastUser = localStorage.getItem('lastLoginUsername');
+  const lastPwd = localStorage.getItem('lastLoginPassword');
+  const rememberMe = localStorage.getItem('rememberMe') === '1';
+  if(lastUser) document.getElementById('loginUsername').value = lastUser;
+  if(lastPwd && rememberMe) document.getElementById('loginPassword').value = lastPwd;
+  if(rememberMe) {
+    const cb = document.getElementById('rememberMe');
+    if(cb) cb.checked = true;
+  }
+}
 
 async function doLogin() {
   const username = document.getElementById('loginUsername').value.trim().toUpperCase();
@@ -1104,12 +1124,16 @@ async function doLogin() {
       permission: perm
     };
     const remember = document.getElementById('rememberMe')?.checked;
+    // 永遠記住帳號（方便下次輸入）
+    localStorage.setItem('lastLoginUsername', username);
     if(remember) {
       localStorage.setItem('currentUser', JSON.stringify(currentUser));
+      localStorage.setItem('lastLoginPassword', password);
       localStorage.setItem('rememberMe', '1');
     } else {
       sessionStorage.setItem('currentUser', JSON.stringify(currentUser));
       localStorage.removeItem('currentUser');
+      localStorage.removeItem('lastLoginPassword');
       localStorage.removeItem('rememberMe');
     }
     document.getElementById('loginScreen').classList.remove('active');
