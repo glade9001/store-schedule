@@ -76,6 +76,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 
 /* ===== MAIN CONTENT ===== */
 .main-content { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+#empView { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 14px 14px calc(env(safe-area-inset-bottom) + 80px); }
 
 /* ===== WEEK NAV BAR ===== */
 .week-bar {
@@ -338,7 +339,7 @@ th:first-child { background: #1557b0; z-index: 12; }
     </div>
 
     <!-- ===== 員工視角 ===== -->
-    <div id="empView" style="display:none;">
+    <div id="empView" style="display:none; flex-direction:column;">
       <div class="emp-view">
 
         <!-- 發布狀態 -->
