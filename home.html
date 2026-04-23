@@ -454,31 +454,8 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
         </div>
       </div>
 
-      <!-- 統計卡片 -->
-      <div class="stats-row">
-        <div class="stat-card" onclick="showWip('班表功能')">
-          <div class="stat-icon">📅</div>
-          <div class="stat-val" id="statThisWeek">--</div>
-          <div class="stat-label">本週排班天數</div>
-        </div>
-        <div class="stat-card" onclick="showWip('薪資功能')">
-          <div class="stat-icon">💰</div>
-          <div class="stat-val" id="statHours">--</div>
-          <div class="stat-label">本週工時 (h)</div>
-        </div>
-      </div>
-      <div class="stats-row">
-        <div class="stat-card" onclick="showWip('特休管理')">
-          <div class="stat-icon">🏖️</div>
-          <div class="stat-val" id="statLeave">--</div>
-          <div class="stat-label">剩餘特休 (天)</div>
-        </div>
-        <div class="stat-card" onclick="showWip('補休管理')">
-          <div class="stat-icon">🔄</div>
-          <div class="stat-val" id="statComp">--</div>
-          <div class="stat-label">補休餘額 (h)</div>
-        </div>
-      </div>
+      <!-- 統計卡片（依角色動態渲染）-->
+      <div id="statsArea"></div>
 
       <!-- 快速功能 -->
       <div class="card">
@@ -978,6 +955,9 @@ function showWip(name) {
 function closeWip(e) {
   if(e.target.classList.contains('modal-overlay')) closeModal(e.target.id);
 }
+function openModal(id) {
+  document.getElementById(id).classList.add('active');
+}
 function closeModal(id) {
   document.getElementById(id).classList.remove('active');
 }
@@ -1342,64 +1322,139 @@ function updateTodayShiftBadge(myRecs, dates, dNames, todayStr) {
 }
 
 // ===== 統計 =====
+function renderStatsArea() {
+  const role = currentUser.role || '';
+  const isPartTime = role === '工讀';
+  // 正職、店長、加盟主都算正職邏輯
+  const el = document.getElementById('statsArea');
+  if(!el) return;
+
+  if(isPartTime) {
+    el.innerHTML = `
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-icon">⏱️</div>
+          <div class="stat-val" id="statWeekH">--</div>
+          <div class="stat-label">本週工時 (h)</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">📆</div>
+          <div class="stat-val" id="statMonthH">--</div>
+          <div class="stat-label">本月工時 (h)</div>
+        </div>
+      </div>`;
+  } else {
+    el.innerHTML = `
+      <div class="stats-row">
+        <div class="stat-card" onclick="showWip('特休補休管理')">
+          <div class="stat-icon">🏖️</div>
+          <div class="stat-val" id="statLeave" style="font-size:20px;">--</div>
+          <div class="stat-label" id="statLeaveLabel">特休剩餘 (天)</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">😴</div>
+          <div class="stat-val" id="statMonthOff">--</div>
+          <div class="stat-label">本月已休 (天)</div>
+        </div>
+      </div>
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-icon">⚡</div>
+          <div class="stat-val" id="statMonthOT" style="color:var(--danger);">--</div>
+          <div class="stat-label">本月加班時數 (h)</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">📅</div>
+          <div class="stat-val" id="statThisWeek">--</div>
+          <div class="stat-label">本週排班天數</div>
+        </div>
+      </div>`;
+  }
+}
+
 async function loadStats() {
+  renderStatsArea();
   const weekStr = getCurrentWeekString();
+  const store = currentUser.store;
+  const empName = currentUser.empName;
+  const role = currentUser.role || '';
+  const isPartTime = role === '工讀';
+
+  if(!store || !empName) return;
+
   try {
-    if(currentUser.store) {
-      // 員工 / 店長：顯示個人本週統計（含跨店支援工時）
-      let workDays = 0, totalHours = 0;
+    // 本週統計
+    const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get();
+    const records = (snap.exists && snap.data().records) ? snap.data().records : [];
+    const myRecs = records.filter(r => r.name === empName);
+    const workDays = myRecs.filter(r => r.shift && r.shift !== '排休' && r.shift !== '指休').length;
+    const weekHours = myRecs.reduce((s, r) => {
+      if(r.shift && r.shift !== '排休' && r.shift !== '指休') return s + (parseFloat(r.actualHours)||0);
+      return s;
+    }, 0);
 
-      // 1. 本店自己的班別
-      const snap = await window.db.collection('stores').doc(currentUser.store).collection('weeks').doc(weekStr).get();
-      const records = (snap.exists && snap.data().records) ? snap.data().records : [];
-      const myRecs = records.filter(r => r.name === currentUser.empName);
+    // 本月統計：找同月所有週次
+    const yr = parseInt(weekStr.split('-W')[0]);
+    const wk = parseInt(weekStr.split('-W')[1]);
+    const dates = getWeekDates(weekStr);
+    const months = [...new Set(dates.map(d => {
+      const p = d.split('/');
+      return `${yr}-${p[0].padStart(2,'0')}`;
+    }))];
 
-      myRecs.forEach(r => {
-        if(r.shift && r.shift !== '排休' && r.shift !== '指休') {
-          // 檢查這天有沒有跨店支援（若有，工時以跨店為主，避免重複計算）
-          workDays++;
-          totalHours += parseFloat(r.actualHours || 0);
-        }
-      });
-
-      // 2. 跨店支援工時（在別間店的 records 裡找 supportEmp = 本店-我）
-      for(const store of (appConfig.stores || [])) {
-        if(store === currentUser.store) continue;
-        const crossSnap = await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get();
-        const crossRecs = (crossSnap.exists && crossSnap.data().records) ? crossSnap.data().records : [];
-        crossRecs.forEach(r => {
-          if(r.supportEmp === `${currentUser.store}-${currentUser.empName}` && r.approvalStatus === 'approved') {
-            // 把本店同一天的工時扣掉，換成跨店工時
-            const sameDay = myRecs.find(m => m.day === r.day);
-            if(sameDay) totalHours = totalHours - (parseFloat(sameDay.actualHours)||0) + (parseFloat(r.actualHours)||0);
+    let monthHours = 0, monthOff = 0, monthOT = 0;
+    // 掃前後幾週找同月資料
+    for(let i = -5; i <= 2; i++) {
+      let w2 = wk + i, y2 = yr;
+      if(w2 < 1) { y2--; w2 += 52; }
+      if(w2 > 52) { y2++; w2 -= 52; }
+      const ws = `${y2}-W${w2 < 10 ? '0'+w2 : w2}`;
+      try {
+        const s2 = await window.db.collection('stores').doc(store).collection('weeks').doc(ws).get();
+        if(!s2.exists) continue;
+        const recs2 = (s2.data().records || []).filter(r => r.name === empName);
+        const wDates = getWeekDates(ws);
+        recs2.forEach(r => {
+          const dayIdx = ['週一','週二','週三','週四','週五','週六','週日'].indexOf(r.day);
+          if(dayIdx < 0) return;
+          const mo = `${y2}-${wDates[dayIdx].split('/')[0].padStart(2,'0')}`;
+          if(!months.includes(mo)) return;
+          const h = parseFloat(r.actualHours || 0);
+          if(r.shift === '排休' || r.shift === '指休') {
+            monthOff++;
+          } else if(r.shift) {
+            monthHours += h;
+            if(r.isOT || h > 8) monthOT += Math.max(0, h - 8);
           }
         });
-      }
-
-      document.getElementById('statThisWeek').textContent = workDays;
-      document.getElementById('statHours').textContent = Math.round(totalHours * 10) / 10;
-    } else {
-      // 加盟主 / 系統管理者：顯示全門市本週總人次、總工時
-      let totalShifts = 0, totalHours = 0;
-      for(const store of (appConfig.stores || [])) {
-        const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get();
-        const records = (snap.exists && snap.data().records) ? snap.data().records : [];
-        records.forEach(r => {
-          if(r.shift && r.shift !== '排休' && r.shift !== '指休' && r.name !== '門市備註') {
-            totalShifts++;
-            totalHours += parseFloat(r.actualHours || 0);
-          }
-        });
-      }
-      document.getElementById('statThisWeek').textContent = totalShifts;
-      document.getElementById('statHours').textContent = Math.round(totalHours);
-      // 改變標籤說明
-      document.querySelector('#statThisWeek').closest('.stat-card').querySelector('.stat-label').textContent = '本週班次總計';
-      document.querySelector('#statHours').closest('.stat-card').querySelector('.stat-label').textContent = '本週總工時 (h)';
+      } catch(e) {}
     }
-    document.getElementById('statLeave').textContent = '--';
-    document.getElementById('statComp').textContent = '--';
-  } catch(e) {}
+
+    if(isPartTime) {
+      const whEl = document.getElementById('statWeekH');
+      const mhEl = document.getElementById('statMonthH');
+      if(whEl) whEl.textContent = Math.round(weekHours * 10) / 10;
+      if(mhEl) mhEl.textContent = Math.round(monthHours * 10) / 10;
+    } else {
+      const twEl = document.getElementById('statThisWeek');
+      const moEl = document.getElementById('statMonthOff');
+      const otEl = document.getElementById('statMonthOT');
+      const leaveEl = document.getElementById('statLeave');
+      if(twEl) twEl.textContent = workDays;
+      if(moEl) moEl.textContent = monthOff;
+      if(otEl) {
+        const otVal = Math.round(monthOT * 10) / 10;
+        otEl.textContent = otVal;
+        otEl.style.color = otVal > 0 ? 'var(--danger)' : 'var(--text)';
+      }
+      // 特休補休待後續開發，顯示 --
+      if(leaveEl) leaveEl.textContent = '--';
+      const compEl = document.getElementById('statComp');
+      if(compEl) compEl.textContent = '--';
+    }
+  } catch(e) {
+    console.error('統計載入失敗:', e);
+  }
 }
 
 // ===== 待處理事項（店長以上）=====
@@ -1637,6 +1692,11 @@ function loadProfilePage() {
   document.getElementById('profileName').textContent = dName;
   document.getElementById('profileRoleText').textContent = (ROLE_LABELS[currentUser.role] || currentUser.role || '管理者') + ' · ' + (PERM_LABELS[currentUser.permission] || '');
   document.getElementById('profileStoreText').textContent = currentUser.store ? `🏪 ${currentUser.store}` : '🏬 全門市';
+  // 每次進個人頁面重新判斷選單顯示
+  const sysMenuItem = document.getElementById('menuSysConfig');
+  if(sysMenuItem) sysMenuItem.style.display = canSysConfig() ? 'flex' : 'none';
+  const storeConfigItem = document.getElementById('menuStoreConfig');
+  if(storeConfigItem) storeConfigItem.style.display = canSchedule() ? 'flex' : 'none';
 }
 
 // ===== 帳號設定 MODAL =====
