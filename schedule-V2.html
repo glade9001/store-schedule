@@ -822,6 +822,161 @@ function changeWeek(offset) {
   fetchAllStoreData();
 }
 
+
+// ===== 同步狀態 =====
+function setSyncStatus(type, msg) {
+  const el = document.getElementById('syncStatus');
+  if(!el) return;
+  el.className = 'sync-status' + (type === 'syncing' ? ' syncing' : '');
+  el.innerHTML = `<div class="sync-dot"></div><span>${msg}</span>`;
+}
+
+// ===== 自動儲存 =====
+function triggerAutoSave() {
+  setSyncStatus('syncing', '儲存中...');
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(() => saveScheduleData(false), 1500);
+}
+
+async function saveScheduleData(isManual) {
+  syncUIToMemory();
+  const store = document.getElementById('storeSelector').value;
+  const weekStr = document.getElementById('weekSelector').value;
+  if(!store || !weekStr) return;
+  try {
+    const schedule = appData.records.filter(r => r.week === weekStr);
+    const pd = weekPublishData[weekStr] || {};
+    let extra = {};
+    if(pd.published || isAutoPublished(weekStr)) {
+      extra = {
+        publishedAt: new Date().toISOString(),
+        publishedBy: currentUser.displayName || currentUser.empName
+      };
+      weekPublishData[weekStr] = { ...weekPublishData[weekStr], ...extra };
+      updatePublishBtn(store, weekStr);
+    }
+    await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).set(
+      { records: schedule, ...extra }, { merge: true }
+    );
+    setSyncStatus('ok', `已儲存 ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`);
+    if(isManual) showToast('💾 儲存成功！');
+  } catch(e) {
+    setSyncStatus('err', '儲存失敗');
+    showToast('❌ 儲存失敗：' + e.message);
+  }
+}
+
+// ===== 班別 Modal =====
+function openShiftModal(btn) {
+  currentBtn = btn;
+  const empName = btn.dataset.emp;
+  const day = btn.dataset.day;
+  document.getElementById('shiftModalTitle').textContent = `${getDisplayName(empName)} · ${day}`;
+  document.getElementById('modalShift').value = btn.dataset.shift || '';
+  document.getElementById('modalHours').value = btn.dataset.hours || '';
+  document.getElementById('modalOT').checked = btn.dataset.ot === 'true';
+  document.getElementById('modalNote').value = btn.dataset.note || '';
+  document.getElementById('modalSupportEmp').value = btn.dataset.support || '';
+  document.getElementById('modalApproval').value = btn.dataset.approval || 'pending';
+  const store = document.getElementById('storeSelector').value;
+  const loc = btn.dataset.loc || '本店';
+  document.getElementById('modalLoc').value = loc;
+  toggleApprovalVis();
+  updateConflictWarn(btn);
+  renderQuickShiftBtns();
+  document.getElementById('shiftModal').classList.add('active');
+}
+
+function saveShiftModal() {
+  if(!currentBtn) return;
+  const shift = document.getElementById('modalShift').value.trim();
+  const hours = parseFloat(document.getElementById('modalHours').value) || 0;
+  const ot = document.getElementById('modalOT').checked;
+  const note = document.getElementById('modalNote').value.trim();
+  const loc = document.getElementById('modalLoc').value || '本店';
+  const support = document.getElementById('modalSupportEmp').value;
+  const approval = document.getElementById('modalApproval').value;
+  pushToUndo(currentBtn);
+  currentBtn.dataset.shift = shift;
+  currentBtn.dataset.hours = hours;
+  currentBtn.dataset.ot = ot;
+  currentBtn.dataset.note = note;
+  currentBtn.dataset.loc = loc;
+  currentBtn.dataset.support = support;
+  currentBtn.dataset.approval = approval;
+  currentBtn.dataset.badges = '';
+  const store = document.getElementById('storeSelector').value;
+  const weekStr = document.getElementById('weekSelector').value;
+  const idx = appData.records.findIndex(r =>
+    r.name===currentBtn.dataset.emp && r.day===currentBtn.dataset.day && r.week===weekStr);
+  const data = {
+    week:weekStr, day:currentBtn.dataset.day, name:currentBtn.dataset.emp,
+    shift, location:loc, note, actualHours:hours, isOT:ot,
+    supportEmp:support, approvalStatus:approval, requestOff:false
+  };
+  const hasData = shift||note||ot||support;
+  if(hasData) { if(idx!==-1) appData.records[idx]=data; else appData.records.push(data); }
+  else { if(idx!==-1) appData.records.splice(idx,1); }
+  const eIdx = appData.employees.findIndex(e=>e.name===currentBtn.dataset.emp);
+  updateCellUI(currentBtn, '');
+  updateDailyTotals();
+  const empObj = appData.employees.find(e=>e.name===currentBtn.dataset.emp)||{name:currentBtn.dataset.emp,role:'待補'};
+  updateSummary(eIdx, empObj);
+  closeModal('shiftModal');
+  triggerAutoSave();
+}
+
+// ===== 畫筆模式 =====
+function paintCell(btn) {
+  if(!paintMode || !paintShift) return;
+  const store = document.getElementById('storeSelector').value;
+  const weekStr = document.getElementById('weekSelector').value;
+  if(!canScheduleStore(store)) return;
+  pushToUndo(btn);
+  if(paintShift === '清空') {
+    btn.dataset.shift=''; btn.dataset.hours=0; btn.dataset.ot='false';
+    btn.dataset.note=''; btn.dataset.loc='本店';
+  } else {
+    const h = appConfig.shiftHours?.[paintShift] || 0;
+    btn.dataset.shift = paintShift;
+    btn.dataset.hours = h;
+    btn.dataset.ot = 'false';
+  }
+  const idx = appData.records.findIndex(r=>r.name===btn.dataset.emp&&r.day===btn.dataset.day&&r.week===weekStr);
+  const data = {week:weekStr,day:btn.dataset.day,name:btn.dataset.emp,
+    shift:btn.dataset.shift,location:btn.dataset.loc||'本店',note:btn.dataset.note||'',
+    actualHours:parseFloat(btn.dataset.hours||0),isOT:btn.dataset.ot==='true',
+    supportEmp:'',approvalStatus:'',requestOff:false};
+  const hasData = btn.dataset.shift||btn.dataset.note;
+  if(hasData){if(idx!==-1)appData.records[idx]=data;else appData.records.push(data);}
+  else{if(idx!==-1)appData.records.splice(idx,1);}
+  const eIdx=appData.employees.findIndex(e=>e.name===btn.dataset.emp);
+  updateCellUI(btn,'');
+  updateDailyTotals();
+  const empObj=appData.employees.find(e=>e.name===btn.dataset.emp)||{name:btn.dataset.emp,role:'待補'};
+  updateSummary(eIdx,empObj);
+  triggerAutoSave();
+}
+
+// ===== 操作紀錄 =====
+async function loadLogs() {
+  const el = document.getElementById('logContent');
+  if(!el) return;
+  const store = document.getElementById('storeSelector').value;
+  const weekStr = document.getElementById('weekSelector').value;
+  el.innerHTML = '載入中...';
+  try {
+    const snap = await window.db.collection('stores').doc(store).collection('logs')
+      .orderBy('ts','desc').limit(50).get();
+    const logs = [];
+    snap.forEach(d => {
+      const data = d.data();
+      if(data.week === weekStr || !data.week) logs.push(data.msg || JSON.stringify(data));
+    });
+    el.innerHTML = [...logs].reverse().map(l=>`<div class="log-item">${l}</div>`).join('');
+  } catch(e) { el.innerHTML = '讀取失敗'; }
+}
+
 // ===== 資料載入 =====
 async function fetchAllStoreData() {
   const store = document.getElementById('storeSelector').value;
