@@ -706,6 +706,7 @@ window.onload = async () => {
     }
 
     document.getElementById('appShell').classList.add('active');
+    updateHeaderInfo();
     hideLoading();
   } catch(e) {
     hideLoading();
@@ -974,6 +975,18 @@ async function fetchAllStoreData() {
     console.error(e);
   }
   hideLoading();
+}
+
+function updateHeaderInfo() {
+  if(!currentUser) return;
+  const ROLE_LABELS = { '工讀':'工讀生', '正職':'正職員工', '店長':'店長', '加盟主':'加盟主' };
+  const PERM_LABELS = { 'employee':'員工', 'manager':'店長', 'owner':'加盟主', 'admin':'系統管理者' };
+  const roleText = ROLE_LABELS[currentUser.role] || currentUser.role || '';
+  const permText = PERM_LABELS[currentUser.permission] || '';
+  const storeText = currentUser.store || '全門市';
+  const label = roleText ? `${roleText}・${storeText}` : `${permText}・${storeText}`;
+  const el = document.getElementById('headerUserInfo');
+  if(el) el.textContent = label;
 }
 
 function setSyncStatus(type, msg) {
