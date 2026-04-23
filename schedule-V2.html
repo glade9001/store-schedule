@@ -605,7 +605,8 @@ window.onload = async () => {
   showLoading('驗證登入狀態...');
 
   // 驗證登入狀態
-  const saved = sessionStorage.getItem('currentUser');
+  // 先查 localStorage（記住我），再查 sessionStorage
+  const saved = localStorage.getItem('currentUser') || sessionStorage.getItem('currentUser');
   if(!saved) {
     window.location.replace('home.html');
     return;
@@ -613,6 +614,7 @@ window.onload = async () => {
   try {
     currentUser = JSON.parse(saved);
   } catch(e) {
+    localStorage.removeItem('currentUser');
     sessionStorage.removeItem('currentUser');
     window.location.replace('home.html');
     return;
