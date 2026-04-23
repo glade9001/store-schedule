@@ -988,64 +988,6 @@ function updateHeaderInfo() {
   const storeText = currentUser.store || '全門市';
   const el = document.getElementById('headerUserInfo');
   if(el) el.textContent = name ? `${name}・${permText}・${storeText}` : `${permText}・${storeText}`;
-};
-  const name = currentUser.displayName || currentUser.empName || '';
-  const permText = PERM_LABELS[currentUser.permission] || currentUser.permission || '';
-  const storeText = currentUser.store || '全門市';
-  const el = document.getElementById('headerUserInfo');
-  if(el) el.textContent = `${name}・${permText}・${storeText}`;
-};
-  const PERM_LABELS = { 'employee':'員工', 'manager':'店長', 'owner':'加盟主', 'admin':'系統管理者' };
-  const roleText = ROLE_LABELS[currentUser.role] || currentUser.role || '';
-  const permText = PERM_LABELS[currentUser.permission] || '';
-  const storeText = currentUser.store || '全門市';
-  const label = roleText ? `${roleText}・${storeText}` : `${permText}・${storeText}`;
-  const el = document.getElementById('headerUserInfo');
-  if(el) el.textContent = label;
-}
-
-function setSyncStatus(type, msg) {
-  const el = document.getElementById('syncStatus');
-  el.className = 'sync-status' + (type === 'syncing' ? ' syncing' : '');
-  el.innerHTML = `<div class="sync-dot"></div><span>${msg}</span>`;
-}
-
-function triggerAutoSave() {
-  setSyncStatus('syncing', '儲存中...');
-  clearTimeout(autoSaveTimer);
-  autoSaveTimer = setTimeout(() => saveScheduleData(false), 1500);
-}
-
-async function saveScheduleData(isManual) {
-  syncUIToMemory();
-  const store = document.getElementById('storeSelector').value;
-  const weekStr = document.getElementById('weekSelector').value;
-  if(!store || !weekStr) return;
-
-  try {
-    const schedule = appData.records.filter(r => r.week === weekStr);
-    const pd = weekPublishData[weekStr] || {};
-
-    // 若已發布，每次儲存更新 publishedAt
-    let extra = {};
-    if(pd.published || isAutoPublished(weekStr)) {
-      extra = {
-        publishedAt: new Date().toISOString(),
-        publishedBy: currentUser.displayName || currentUser.empName
-      };
-      weekPublishData[weekStr] = { ...weekPublishData[weekStr], ...extra };
-      updatePublishBtn(store, weekStr);
-    }
-
-    await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).set(
-      { records: schedule, ...extra }, { merge: true }
-    );
-    setSyncStatus('ok', `已儲存 ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`);
-    if(isManual) showToast('💾 儲存成功！');
-  } catch(e) {
-    setSyncStatus('err', '儲存失敗');
-    showToast('❌ 儲存失敗：' + e.message);
-  }
 }
 
 // ===== 員工視角 =====
