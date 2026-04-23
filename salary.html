@@ -108,6 +108,33 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 
 .empty-state{text-align:center;padding:40px 20px;color:var(--text-muted);}
 .empty-icon{font-size:48px;margin-bottom:12px;}
+
+/* 月曆 */
+.cal-wrap{margin-top:12px;border-top:1px solid var(--border);padding-top:12px;}
+.cal-title{font-size:12px;font-weight:800;color:var(--text-muted);margin-bottom:8px;letter-spacing:0.5px;}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;}
+.cal-head{text-align:center;font-size:10px;font-weight:700;color:var(--text-muted);padding:4px 0;}
+.cal-cell{border-radius:6px;padding:4px 2px;text-align:center;min-height:48px;font-size:10px;background:#f8fafc;}
+.cal-cell.work{background:#e8f0fe;}
+.cal-cell.off-day{background:#f1f3f4;}
+.cal-cell.leave{background:#fce8e6;}
+.cal-cell.ot{background:#e8f5e9;}
+.cal-cell-date{font-weight:700;font-size:10px;color:var(--text-muted);margin-bottom:2px;}
+.cal-cell-val{font-size:11px;font-weight:800;}
+.cal-cell.work .cal-cell-val{color:var(--primary);}
+.cal-cell.leave .cal-cell-val{color:var(--danger);}
+.cal-cell.ot .cal-cell-val{color:var(--accent);}
+.cal-summary{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;}
+.cal-summary-item{background:#f1f3f4;border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700;}
+
+/* 排班對照 */
+.schedule-ref{margin-top:8px;border-top:1px solid var(--border);padding-top:10px;}
+.sched-row{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #f8fafc;font-size:12px;}
+.sched-date{width:56px;color:var(--text-muted);font-weight:600;flex-shrink:0;}
+.sched-shift{font-weight:800;color:var(--primary);}
+.sched-off{color:var(--danger);}
+.sched-hours{margin-left:auto;color:var(--text-muted);font-size:11px;}
+.sched-ot{color:var(--accent);font-weight:800;}
 </style>
 </head>
 <body>
@@ -459,7 +486,8 @@ function renderSalaryForm(emp, rec, idx, readonly) {
       <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">
         一般：${totalH}h × $${rec.wage} = $${Math.round(totalH * rec.wage).toLocaleString()}
         ${parseFloat(rec.holidayHours||0)>0 ? `<br>國假加班：${rec.holidayHours}h × $${rec.wage} × 2 = $${Math.round(rec.holidayHours * rec.wage * 2).toLocaleString()}` : ''}
-      </div>`;
+      </div>
+      ${renderCalendar(emp.name, emp.role)}`;
   } else if(emp.role === ROLE_FULL) {
     return `
       <div class="salary-section">
@@ -480,7 +508,9 @@ function renderSalaryForm(emp, rec, idx, readonly) {
       <div class="salary-total-row">
         <span class="salary-total-label">本月薪資</span>
         <span class="salary-total-val" id="total-${idx}">$${total.toLocaleString()}</span>
-      </div>`;
+      </div>
+      ${renderCalendar(emp.name, emp.role)}
+      ${canEditSalary() ? renderScheduleRef(emp.name, emp.role) : ''}`;
   } else { // 店長
     return `
       <div class="salary-section">
@@ -505,7 +535,196 @@ function renderSalaryForm(emp, rec, idx, readonly) {
       <div class="salary-total-row">
         <span class="salary-total-label">本月薪資</span>
         <span class="salary-total-val" id="total-${idx}">$${total.toLocaleString()}</span>
-      </div>`;
+      </div>
+      ${renderCalendar(emp.name, emp.role)}
+      ${canApprove() ? renderScheduleRef(emp.name, emp.role) : ''}`;
+  }
+}
+
+// ===== 月曆生成 =====
+function buildCalendarData(empName, role) {
+  const [y, m] = currentMonth.split('-').map(Number);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
+  
+  // 整理當月所有排班記錄
+  const empRecs = {};
+  Object.entries(scheduleData).forEach(([ws, recs]) => {
+    recs.forEach(r => {
+      if(r.name !== empName) return;
+      // 找這筆記錄對應的日期
+      const wDates = getWeekDatesFromStr(ws);
+      const dIdx = dayNames.indexOf(r.day);
+      if(dIdx < 0) return;
+      const dateStr = wDates[dIdx]; // "4/1"
+      if(!dateStr) return;
+      const [dm, dd] = dateStr.split('/').map(Number);
+      if(dm !== m) return; // 只要當月
+      empRecs[dd] = r;
+    });
+  });
+  return { empRecs, daysInMonth, firstWeekday: new Date(y, m-1, 1).getDay() };
+}
+
+function getWeekDatesFromStr(weekStr) {
+  const [yr, wk] = weekStr.split('-W').map(Number);
+  const d = new Date(yr, 0, 1);
+  const day = d.getDay();
+  d.setDate(d.getDate() + (wk-1)*7);
+  const offset = day <= 4 ? 1-day : 8-day;
+  d.setDate(d.getDate() + offset);
+  const res = [];
+  for(let i=0;i<7;i++){
+    res.push(`${d.getMonth()+1}/${d.getDate()}`);
+    d.setDate(d.getDate()+1);
+  }
+  return res;
+}
+
+function renderCalendar(empName, role) {
+  const { empRecs, daysInMonth, firstWeekday } = buildCalendarData(empName, role);
+  const isPartTime = role === ROLE_PART;
+  const dayLabels = ['一','二','三','四','五','六','日'];
+  // firstWeekday: 0=日,1=一,...
+  // 轉換為週一開頭的偏移
+  const startOffset = firstWeekday === 0 ? 6 : firstWeekday - 1;
+  
+  let totalH = 0, totalOT = 0, totalOff = 0, workDays = 0;
+  
+  const heads = dayLabels.map(d => `<div class="cal-head">${d}</div>`).join('');
+  const empties = Array(startOffset).fill('<div class="cal-cell"></div>').join('');
+  
+  const cells = Array.from({length: daysInMonth}, (_, i) => {
+    const d = i + 1;
+    const rec = empRecs[d];
+    const shift = rec?.shift || '';
+    const h = parseFloat(rec?.actualHours || 0);
+    const isOff = shift === '排休' || shift === '指休';
+    const isOT = rec?.isOT || h > 8;
+    const otH = isOT ? Math.max(0, h-8) : 0;
+    
+    if(isOff) { totalOff++; }
+    else if(shift) { workDays++; totalH += h; totalOT += otH; }
+    
+    let cellClass = 'cal-cell';
+    let valHtml = '';
+    
+    if(isOff) {
+      cellClass += ' leave';
+      valHtml = `<div class="cal-cell-val">休</div>`;
+    } else if(shift) {
+      if(isOT && !isPartTime) {
+        cellClass += ' ot';
+        valHtml = isPartTime
+          ? `<div class="cal-cell-val">${h}h</div>`
+          : `<div class="cal-cell-val">班</div><div style="font-size:9px;color:var(--accent);font-weight:800;">+${Math.round(otH*10)/10}h</div>`;
+      } else {
+        cellClass += ' work';
+        valHtml = isPartTime
+          ? `<div class="cal-cell-val">${h}h</div>`
+          : `<div class="cal-cell-val">✓</div>`;
+      }
+    }
+    
+    return `<div class="${cellClass}">
+      <div class="cal-cell-date">${d}</div>
+      ${valHtml}
+    </div>`;
+  }).join('');
+  
+  const totalR = Math.round(totalH*10)/10;
+  const totalOTR = Math.round(totalOT*10)/10;
+  
+  let summaryHtml = '';
+  if(isPartTime) {
+    summaryHtml = `
+      <div class="cal-summary-item">⏱️ 總工時 ${totalR}h</div>
+      <div class="cal-summary-item">📅 出勤 ${workDays}天</div>
+      <div class="cal-summary-item" style="color:var(--danger);">😴 休假 ${totalOff}天</div>`;
+  } else {
+    summaryHtml = `
+      <div class="cal-summary-item">📅 出勤 ${workDays}天</div>
+      <div class="cal-summary-item" style="color:var(--danger);">😴 休假 ${totalOff}天</div>
+      <div class="cal-summary-item" style="color:var(--accent);">⚡ 加班 ${totalOTR}h</div>`;
+  }
+  
+  return `<div class="cal-wrap">
+    <div class="cal-title">📅 ${currentMonth.replace('-','年')}月 出勤月曆</div>
+    <div class="cal-grid">
+      ${heads}${empties}${cells}
+    </div>
+    <div class="cal-summary">${summaryHtml}</div>
+  </div>`;
+}
+
+// ===== 排班對照（店長/加盟主用）=====
+function renderScheduleRef(empName, role) {
+  const { empRecs, daysInMonth } = buildCalendarData(empName, role);
+  const [y, m] = currentMonth.split('-').map(Number);
+  const weekDayNames = ['日','一','二','三','四','五','六'];
+  
+  let rows = '';
+  let totalH = 0, totalOT = 0, offCount = 0;
+  
+  for(let d = 1; d <= daysInMonth; d++) {
+    const rec = empRecs[d];
+    if(!rec) continue;
+    const shift = rec.shift || '';
+    if(!shift) continue;
+    const h = parseFloat(rec.actualHours || 0);
+    const isOff = shift === '排休' || shift === '指休';
+    const isOT = rec.isOT || h > 8;
+    const otH = isOT ? Math.max(0, h-8) : 0;
+    const wd = weekDayNames[new Date(y, m-1, d).getDay()];
+    
+    if(isOff) { offCount++; }
+    else { totalH += h; totalOT += otH; }
+    
+    rows += `<div class="sched-row">
+      <span class="sched-date">${m}/${d}(${wd})</span>
+      <span class="${isOff?'sched-off':'sched-shift'}">${isOff?'休假':shift}</span>
+      ${!isOff ? `<span class="sched-hours">${h}h${isOT?` <span class="sched-ot">+${Math.round(otH*10)/10}h加班</span>`:''}</span>` : ''}
+    </div>`;
+  }
+  
+  return `<div class="schedule-ref">
+    <div class="cal-title">🗓️ 班表對照</div>
+    ${rows || '<div style="font-size:12px;color:var(--text-muted);padding:8px 0;">無排班記錄</div>'}
+    <div class="cal-summary" style="margin-top:8px;">
+      <div class="cal-summary-item">⏱️ 總工時 ${Math.round(totalH*10)/10}h</div>
+      <div class="cal-summary-item" style="color:var(--danger);">😴 休假 ${offCount}天</div>
+      <div class="cal-summary-item" style="color:var(--accent);">⚡ 加班 ${Math.round(totalOT*10)/10}h</div>
+    </div>
+  </div>`;
+}
+
+// ===== 自動儲存 =====
+let autoSaveTimer = null;
+function triggerAutoSave() {
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(() => autoSaveDraft(), 2000);
+  // 顯示儲存中提示
+  const badge = document.getElementById('statusBadge');
+  if(badge && salaryData.status === 'draft') {
+    badge.textContent = '儲存中...';
+    badge.style.opacity = '0.7';
+  }
+}
+
+async function autoSaveDraft() {
+  if(isReadonly()) return;
+  collectRecords();
+  try {
+    await window.db.collection('stores').doc(currentStore).collection('salary').doc(currentMonth).set({
+      ...salaryData,
+      status: 'draft',
+      updatedAt: new Date().toISOString(),
+      updatedBy: currentUser.displayName || currentUser.empName
+    });
+    salaryData.status = 'draft';
+    updateStatusBadge();
+  } catch(e) {
+    console.error('自動儲存失敗:', e);
   }
 }
 
@@ -538,6 +757,8 @@ function updateField(empName, key, val, cardIdx) {
     if(lateEl) lateEl.textContent = `-$${Math.round(rate*(rec.lateMinutes||0)).toLocaleString()}`;
     if(otEl) otEl.textContent = `+$${Math.round(rate*(rec.otHours||0)).toLocaleString()}`;
   }
+  // 觸發自動儲存
+  triggerAutoSave();
 }
 
 // ===== 底部按鈕 =====
@@ -551,8 +772,7 @@ function renderBottomAction() {
 
   if(perm === 'manager' || perm === 'owner' || perm === 'admin') {
     if(s === 'draft') {
-      el.innerHTML = `<button class="action-btn primary" onclick="saveDraft()">💾 儲存草稿</button>
-        <button class="action-btn accent" onclick="submitSalary()">📤 送出薪資</button>`;
+      el.innerHTML = `<button class="action-btn accent" onclick="submitSalary()">📤 送出薪資</button>`;
     } else if(s === 'submitted' && canApprove()) {
       el.innerHTML = `<button class="action-btn primary" onclick="saveDraft()">✏️ 修正儲存</button>
         <button class="action-btn accent" onclick="publishSalary()">✅ 審核發布</button>`;
@@ -657,11 +877,17 @@ window.onload = async () => {
       if(snap.exists) { appConfig = snap.data(); localStorage.setItem('appConfig', JSON.stringify(appConfig)); }
     } catch(e) {}
 
-    // 月份：預設上個月
+    // 月份：10號後→當月，10號前→上月
     const now = new Date();
-    const prevM = now.getMonth() === 0 ? 12 : now.getMonth();
-    const prevY = now.getMonth() === 0 ? now.getFullYear()-1 : now.getFullYear();
-    currentMonth = `${prevY}-${String(prevM).padStart(2,'0')}`;
+    let targetM, targetY;
+    if(now.getDate() >= 10) {
+      targetM = now.getMonth() + 1;
+      targetY = now.getFullYear();
+    } else {
+      targetM = now.getMonth() === 0 ? 12 : now.getMonth();
+      targetY = now.getMonth() === 0 ? now.getFullYear()-1 : now.getFullYear();
+    }
+    currentMonth = `${targetY}-${String(targetM).padStart(2,'0')}`;
     document.getElementById('monthLabel').textContent = getMonthLabel(currentMonth);
 
     // 門市選擇器
