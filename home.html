@@ -420,6 +420,10 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       <label>密碼</label>
       <input type="password" id="loginPassword" placeholder="請輸入密碼" autocomplete="current-password">
     </div>
+    <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+      <input type="checkbox" id="rememberMe" style="width:16px; height:16px; cursor:pointer;">
+      <label for="rememberMe" style="font-size:13px; color:var(--text-muted); cursor:pointer; font-weight:600;">記住我（下次自動登入）</label>
+    </div>
     <button class="login-btn" onclick="doLogin()">登入</button>
     <div class="login-error" id="loginError"></div>
   </div>
@@ -1086,7 +1090,15 @@ async function doLogin() {
       role: acc.role || '',
       permission: perm
     };
-    sessionStorage.setItem('currentUser', JSON.stringify(currentUser));
+    const remember = document.getElementById('rememberMe')?.checked;
+    if(remember) {
+      localStorage.setItem('currentUser', JSON.stringify(currentUser));
+      localStorage.setItem('rememberMe', '1');
+    } else {
+      sessionStorage.setItem('currentUser', JSON.stringify(currentUser));
+      localStorage.removeItem('currentUser');
+      localStorage.removeItem('rememberMe');
+    }
     document.getElementById('loginScreen').classList.remove('active');
     await initApp();
   } catch(e) {
