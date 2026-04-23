@@ -875,19 +875,19 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
     <!-- 班別快捷 -->
     <div class="card-title" style="margin-top:8px;">📋 班別快捷按鈕</div>
     <div style="font-size:11px; color:var(--text-muted); margin-bottom:8px;">預設班別（7-15、15-23、23-07、18-23、清空、指休、排休）不可刪除</div>
-    <div id="shiftBtnList" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;"></div>
-    <div style="display:flex; gap:8px; margin-bottom:16px;">
-      <input type="text" id="newShiftBtn" placeholder="班別名稱（如：8-16）" style="flex:2; padding:10px; border:1.5px solid var(--border); border-radius:10px; font-size:14px;">
-      <input type="number" id="newShiftHours" placeholder="時數" style="flex:1; padding:10px; border:1.5px solid var(--border); border-radius:10px; font-size:14px;">
-      <button onclick="addShiftBtn()" style="background:var(--primary); color:white; border:none; border-radius:10px; padding:10px 14px; font-weight:700; cursor:pointer;">加入</button>
+    <div id="shiftBtnList" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; max-width:100%; overflow:hidden;"></div>
+    <div style="display:flex; gap:6px; margin-bottom:16px;">
+      <input type="text" id="newShiftBtn" placeholder="如：8-16" style="flex:2; padding:10px; border:1.5px solid var(--border); border-radius:10px; font-size:14px; min-width:0;">
+      <input type="number" id="newShiftHours" placeholder="時數" style="flex:1; padding:10px; border:1.5px solid var(--border); border-radius:10px; font-size:14px; min-width:0;">
+      <button onclick="addShiftBtn()" style="background:var(--primary); color:white; border:none; border-radius:10px; padding:10px 14px; font-weight:700; cursor:pointer; flex-shrink:0;">加入</button>
     </div>
 
     <!-- 備註快捷 -->
     <div class="card-title">💬 備註快捷按鈕</div>
-    <div id="noteBtnList" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;"></div>
-    <div style="display:flex; gap:8px; margin-bottom:16px;">
-      <input type="text" id="newNoteBtn" placeholder="備註文字（如：訂鮮食）" style="flex:1; padding:10px; border:1.5px solid var(--border); border-radius:10px; font-size:14px;">
-      <button onclick="addNoteBtn()" style="background:var(--accent); color:white; border:none; border-radius:10px; padding:10px 14px; font-weight:700; cursor:pointer;">加入</button>
+    <div id="noteBtnList" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; max-width:100%; overflow:hidden;"></div>
+    <div style="display:flex; gap:6px; margin-bottom:16px;">
+      <input type="text" id="newNoteBtn" placeholder="如：訂鮮食" style="flex:1; padding:10px; border:1.5px solid var(--border); border-radius:10px; font-size:14px; min-width:0;">
+      <button onclick="addNoteBtn()" style="background:var(--accent); color:white; border:none; border-radius:10px; padding:10px 14px; font-weight:700; cursor:pointer; flex-shrink:0;">加入</button>
     </div>
 
     <button class="save-btn" onclick="saveStoreConfig()">💾 儲存班別設定</button>
@@ -1717,7 +1717,7 @@ async function openAccountModal(empName, store) {
   document.getElementById('accountModalSub').textContent = `設定 ${empName} 的登入帳號`;
   document.getElementById('accountPassword').value = '';
   document.getElementById('accountPasswordConfirm').value = '';
-  document.getElementById('accountDisplayName').value = '';
+  document.getElementById('accountDisplayName').value = empName; // 預設帶入排班系統名稱
   document.getElementById('accountUsername').value = '';
 
   // 載入該門市員工名單到連動下拉選單
@@ -1749,7 +1749,7 @@ async function openAccountModal(empName, store) {
       const accData = d.data();
       const uid = accData.ID || ''; // 登入帳號（B28213）
       document.getElementById('accountUsername').value = uid;
-      document.getElementById('accountDisplayName').value = accData.displayName || accData.empName || '';
+      document.getElementById('accountDisplayName').value = accData.displayName || empName || '';
       document.getElementById('accountRole').value = accData.role || 'employee';
       permSel.value = accData.permission || 'employee';
       // 連動狀態
@@ -2141,10 +2141,10 @@ function renderShiftBtnList() {
   el.innerHTML = storeConfig.shifts.map(s => {
     const isDefault = DEFAULT_SHIFTS.includes(s);
     const h = storeConfig.shiftHours[s] || '';
-    return `<div style="display:inline-flex; align-items:center; background:${isDefault?'#f1f3f4':'#e8f0fe'}; border-radius:8px; padding:6px 10px; gap:6px; font-size:13px; font-weight:700;">
-      ${s}${h ? ` <span style="color:var(--text-muted);font-size:11px;">(${h}h)</span>` : ''}
+    return `<div style="display:inline-flex; align-items:center; background:${isDefault?'#f1f3f4':'#e8f0fe'}; border-radius:8px; padding:5px 8px; gap:4px; font-size:12px; font-weight:700; max-width:100%;">
+      <span>${s}${h ? ` <span style="color:var(--text-muted);font-size:10px;">(${h}h)</span>` : ''}</span>
       ${isDefault ? '<span style="color:var(--text-muted);font-size:10px;">預設</span>' :
-        `<span onclick="removeShiftBtn('${s}')" style="cursor:pointer;color:var(--danger);font-size:14px;font-weight:900;">✕</span>`}
+        `<span onclick="removeShiftBtn('${s}')" style="cursor:pointer;color:var(--danger);font-size:13px;font-weight:900;">✕</span>`}
     </div>`;
   }).join('');
 }
