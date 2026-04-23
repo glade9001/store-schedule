@@ -1898,9 +1898,38 @@ function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, al
         ctx.font = `900 30px ${font}`;
         ctx.fillText('休', cx, textY);
       } else if (shift) {
-        ctx.fillStyle = '#000';
+        const h = parseFloat(rec.actualHours || 0);
+        const isOT = rec.isOT === true;
+        const overHours = h > 8;
         ctx.font = `900 28px ${font}`;
-        ctx.fillText(shift.replace('-', ' / '), cx, textY);
+
+        if (isOT) {
+          // 勾選加班：全部紅色
+          ctx.fillStyle = '#d93025';
+          ctx.fillText(shift.replace('-', ' / '), cx, textY);
+        } else if (overHours && shift.includes('-')) {
+          // 超過8小時：「開始時間 / 」黑色，結束時間數字紅色
+          const parts = shift.split('-');
+          if (parts.length === 2) {
+            const startTxt = parts[0] + ' / '; // 黑色部分
+            const endTxt = parts[1];            // 紅色部分（只有數字）
+            const startW = ctx.measureText(startTxt).width;
+            const endW = ctx.measureText(endTxt).width;
+            const totalW = startW + endW;
+            ctx.textAlign = 'left';
+            ctx.fillStyle = '#000';
+            ctx.fillText(startTxt, cx - totalW/2, textY);
+            ctx.fillStyle = '#d93025';
+            ctx.fillText(endTxt, cx - totalW/2 + startW, textY);
+            ctx.textAlign = 'center';
+          } else {
+            ctx.fillStyle = '#000';
+            ctx.fillText(shift.replace('-', ' / '), cx, textY);
+          }
+        } else {
+          ctx.fillStyle = '#000';
+          ctx.fillText(shift.replace('-', ' / '), cx, textY);
+        }
       }
 
       // 備註 or 地點
