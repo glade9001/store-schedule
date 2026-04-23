@@ -57,7 +57,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 .store-select{border:1.5px solid var(--border);border-radius:8px;padding:6px 10px;font-size:13px;background:white;font-weight:600;}
 
 /* Content */
-.content{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:12px 14px calc(env(safe-area-inset-bottom)+100px);}
+.content{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:12px 14px calc(env(safe-area-inset-bottom)+130px);}
 
 /* Employee Card */
 .emp-salary-card{background:white;border-radius:var(--radius);margin-bottom:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.06);}
@@ -640,8 +640,7 @@ function renderSalaryForm(emp, rec, idx, readonly) {
         <span class="salary-total-label">本月薪資</span>
         <span class="salary-total-val" id="total-${idx}">$${total.toLocaleString()}</span>
       </div>
-      ${renderCalendar(emp.name, emp.role)}
-      ${canEditSalary() ? renderScheduleRef(emp.name, emp.role) : ''}`;
+      ${renderCalendar(emp.name, emp.role)}`;
   } else { // 店長
     return `
       <div class="salary-section">
