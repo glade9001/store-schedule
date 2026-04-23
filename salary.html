@@ -371,9 +371,9 @@ function renderEmpList() {
           <div class="emp-salary-role">${currentMonth.replace('-','年')}月 薪資</div>
         </div>
         <div class="emp-salary-total">$${total.toLocaleString()}</div>
-        <div class="emp-salary-arrow ${isOpen?'open'}" id="arrow-${idx}">›</div>
+        <div class="emp-salary-arrow ${isOpen?'open':''}" id="arrow-${idx}">›</div>
       </div>
-      <div class="emp-salary-body ${isOpen?'open'}" id="body-${idx}">
+      <div class="emp-salary-body ${isOpen?'open':''}" id="body-${idx}">
         ${renderSalaryForm(emp, rec, idx, readonly)}
       </div>
     </div>`;
