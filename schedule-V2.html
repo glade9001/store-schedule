@@ -200,8 +200,8 @@ th:first-child { background: #1557b0; z-index: 12; }
   background: white; border-radius: var(--radius); padding: 40px 20px; text-align: center;
   border: 1px solid var(--border); margin-bottom: 14px;
 }
-.schedule-img-wrap { background: white; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); margin-bottom: 14px; }
-.schedule-img-wrap img { width: 100%; display: block; }
+.schedule-img-wrap { background: white; border-radius: var(--radius); overflow-x: auto; overflow-y: hidden; border: 1px solid var(--border); margin-bottom: 14px; -webkit-overflow-scrolling: touch; }
+.schedule-img-wrap canvas { display: block; max-width: 100%; height: auto; }
 .req-off-card { background: white; border-radius: var(--radius); padding: 16px; border: 1px solid var(--border); }
 .req-off-title { font-size: 14px; font-weight: 800; margin-bottom: 12px; }
 .req-day-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
@@ -1124,7 +1124,8 @@ function renderEmpCanvas(store, weekStr, records, emps) {
   const dates = getWeekDates(weekStr);
   // 查閱模式不需要 allStoresRecords，傳空陣列
   drawScheduleCanvas(canvas, store, weekStr, records, emps, dates, []);
-  canvas.style.width = '100%';
+  canvas.style.maxWidth = '100%';
+  canvas.style.height = 'auto';
 }
 
 
