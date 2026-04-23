@@ -281,28 +281,7 @@ async function loadSalaryData() {
     if(!salaryData.records) salaryData.records = [];
     prevSalaryData = prevSalSnap.exists ? (prevSalSnap.data().records || []) : [];
 
-    // 讀取當月排班資料（計算工時）
-    scheduleData = {};
-    const [y, m] = currentMonth.split('-').map(Number);
-    // 掃當月所有週次
-    const weekPromises = [];
-    for(let wk = 1; wk <= 53; wk++) {
-      const ws = `${y}-W${String(wk).padStart(2,'0')}`;
-      weekPromises.push(
-        window.db.collection('stores').doc(currentStore).collection('weeks').doc(ws).get()
-          .then(snap => {
-            if(!snap.exists) return;
-            const recs = snap.data().records || [];
-            // 過濾當月日期
-            const hasThisMonth = recs.some(r => {
-              // 用 day 判斷（週一到週日對應日期）
-              return true; // 先全撈，後面用週次過濾
-            });
-            if(hasThisMonth) scheduleData[ws] = recs;
-          }).catch(()=>{})
-      );
-    }
-    // 只讀有可能在當月的週次（約4-6週）
+    // 讀取當月排班資料（只讀當月週次）
     scheduleData = {};
     const monthWeeks = getMonthWeeks(currentMonth);
     await Promise.all(monthWeeks.map(ws =>
