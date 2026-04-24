@@ -2433,6 +2433,10 @@ async function confirmRolePreview() {
   // 員工預覽：限定本店
   if(role === 'employee') currentUser.store = realUser.store || (appConfig.stores && appConfig.stores[0]);
 
+  // 預覽角色寫入 sessionStorage，讓跳轉後的頁面也知道
+  sessionStorage.setItem('currentUser', JSON.stringify(currentUser));
+  sessionStorage.setItem('isPreviewMode', '1');
+
   closeModal('rolePreviewModal');
   showToast(`🎭 正在以「${ROLE_PREVIEW_LABELS[role]}」角色預覽`);
 
@@ -2451,6 +2455,10 @@ function restoreRealRole() {
   previewRole = null;
   realUser = null;
   selectedPreviewRole = null;
+
+  // 恢復真實的 sessionStorage
+  sessionStorage.setItem('currentUser', JSON.stringify(currentUser));
+  sessionStorage.removeItem('isPreviewMode');
 
   closeModal('rolePreviewModal');
   showToast('✅ 已恢復真實身份');
