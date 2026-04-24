@@ -434,9 +434,11 @@ function calcTotal(rec) {
   if(role === ROLE_PART) {
     const wage = parseFloat(rec.wage || 0);
     const hours = parseFloat(rec.hours || 0);
+    const extraH = parseFloat(rec.extraHours || 0);
     const holidayH = parseFloat(rec.holidayHours || 0);
     const roleBonus = parseFloat(rec.roleBonus || 0);
-    return Math.round(wage * hours + wage * holidayH * 2 + roleBonus);
+    // 國定假日第一倍已含在一般工時，額外只加第二倍
+    return Math.round(wage * (hours + extraH) + wage * holidayH * 1 + roleBonus);
   } else {
     const base = parseFloat(rec.baseSalary || 0);
     const attend = parseFloat(rec.fullAttendBonus || 0);
@@ -1327,12 +1329,37 @@ function buildDefaultRecord(emp) {
     role: emp.role || ROLE_PART,
   };
   if(emp.role === ROLE_PART) {
+    // 自動偵測國定假日出勤時數
+    const holidays = getMonthHolidays(currentMonth);
+    const [hcy, hcm] = currentMonth.split('-').map(Number);
+    let autoHolidayH = 0;
+    holidays.forEach(h => {
+      const [hy, hm, hd] = h.date.split('-').map(Number);
+      Object.entries(scheduleData).forEach(([ws, recs]) => {
+        recs.forEach(r => {
+          if(r.name !== emp.name) return;
+          const wDates = getWeekDatesFromStr(ws);
+          const dIdx = ['週一','週二','週三','週四','週五','週六','週日'].indexOf(r.day);
+          if(dIdx < 0) return;
+          const dateStr = wDates[dIdx];
+          if(!dateStr) return;
+          const [dm, dd] = dateStr.split('/').map(Number);
+          if(dm === hm && dd === hd && r.shift && r.shift !== '排休' && r.shift !== '指休') {
+            autoHolidayH += parseFloat(r.actualHours || 0);
+          }
+        });
+      });
+    });
+    autoHolidayH = Math.round(autoHolidayH * 10) / 10;
+    // 第一次填寫用自動偵測，之後帶上月
+    const holidayHours = prev.holidayHours !== undefined ? prev.holidayHours : autoHolidayH;
     return {
       ...base,
       wage: prev.wage !== undefined ? prev.wage : (emp.wage || 0),
       roleBonus: prev.roleBonus !== undefined ? prev.roleBonus : 0,
       hours: totalH,
-      holidayHours: 0
+      holidayHours: holidayHours,
+      extraHours: prev.extraHours !== undefined ? prev.extraHours : 0,
     };
   } else if(emp.role === ROLE_FULL) {
     return {
@@ -1378,12 +1405,13 @@ function buildDefaultRecord(emp) {
 function renderSalaryForm(emp, rec, idx, readonly) {
   const ro = readonly ? 'readonly' : '';
   const roClass = readonly ? 'readonly-tag' : '';
+  const fmtVal = v => parseFloat(v||0) === 0 ? '' : `$${parseFloat(v||0).toLocaleString()}`;
   const inp = (key, val, label) => readonly
-    ? `<div class="salary-row"><span class="salary-row-label">${label}</span><span class="salary-row-val">$${parseFloat(val||0).toLocaleString()}</span></div>`
-    : `<div class="salary-row"><span class="salary-row-label">${label}</span><input class="salary-input" type="number" value="${val||0}" onchange="updateField('${emp.name}','${key}',this.value,${idx})"></div>`;
+    ? `<div class="salary-row"><span class="salary-row-label">${label}</span><span class="salary-row-val">${fmtVal(val)}</span></div>`
+    : `<div class="salary-row"><span class="salary-row-label">${label}</span><input class="salary-input" type="number" value="${parseFloat(val||0)||''}" placeholder="0" onchange="updateField('${emp.name}','${key}',this.value,${idx})"></div>`;
   const inpNum = (key, val, label, unit='') => readonly
-    ? `<div class="salary-row"><span class="salary-row-label">${label}</span><span class="salary-row-val">${parseFloat(val||0)}${unit}</span></div>`
-    : `<div class="salary-row"><span class="salary-row-label">${label}</span><input class="salary-input" type="number" value="${val||0}" onchange="updateField('${emp.name}','${key}',this.value,${idx})" style="width:90px;">${unit?`<span style="font-size:12px;color:var(--text-muted);margin-left:4px;">${unit}</span>`:''}</div>`;
+    ? `<div class="salary-row"><span class="salary-row-label">${label}</span><span class="salary-row-val">${parseFloat(val||0)||''}${parseFloat(val||0)?unit:''}</span></div>`
+    : `<div class="salary-row"><span class="salary-row-label">${label}</span><input class="salary-input" type="number" value="${parseFloat(val||0)||''}" placeholder="0" onchange="updateField('${emp.name}','${key}',this.value,${idx})" style="width:90px;">${unit?`<span style="font-size:12px;color:var(--text-muted);margin-left:4px;">${unit}</span>`:''}</div>`;
 
   const total = calcTotal(rec);
   const rate = emp.role !== ROLE_PART ? hourlyRate(rec) : 0;
