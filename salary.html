@@ -63,7 +63,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 .store-select{border:1.5px solid var(--border);border-radius:8px;padding:6px 10px;font-size:13px;background:white;font-weight:600;}
 
 /* Content */
-.content{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:12px 14px calc(env(safe-area-inset-bottom)+180px);}
+.content{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:12px 14px calc(env(safe-area-inset-bottom)+20px);}
 
 /* Employee Card */
 .emp-salary-card{background:white;border-radius:var(--radius);margin-bottom:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.06);}
@@ -93,8 +93,8 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 .readonly-tag{font-size:10px;background:#f1f3f4;color:var(--text-muted);padding:2px 6px;border-radius:4px;font-weight:600;}
 
 /* Bottom Action */
-.bottom-action{position:fixed;bottom:0;left:0;right:0;padding:12px 16px calc(env(safe-area-inset-bottom)+12px);background:white;border-top:1px solid var(--border);display:flex;gap:8px;}
-.action-btn{flex:1;padding:14px;border:none;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer;}
+.bottom-action{display:flex;gap:6px;margin-left:4px;}
+.action-btn{padding:7px 14px;border:none;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;}
 .action-btn.primary{background:var(--primary);color:white;}
 .action-btn.accent{background:var(--accent);color:white;}
 .action-btn.warn{background:var(--warn);color:white;}
@@ -172,6 +172,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
     <div class="month-label" id="monthLabel">--</div>
     <button class="month-btn" onclick="changeMonth(1)">›</button>
     <select class="store-select" id="storeSelector" onchange="loadSalaryData()" style="display:none;"></select>
+    <div id="bottomAction" style="display:none;"></div>
   </div>
 
   <!-- Content -->
@@ -184,8 +185,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
     </div>
   </div>
 
-  <!-- Bottom Action -->
-  <div class="bottom-action" id="bottomAction" style="display:none;"></div>
+  <!-- Bottom Action 已移至上方 -->
 </div>
 
 <div class="toast" id="toast"></div>
