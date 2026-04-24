@@ -1340,7 +1340,32 @@ function renderEmpList() {
   }
 
   el.innerHTML = emps.map((emp, idx) => {
-    const rec = getSalaryRecord(emp.name) || buildDefaultRecord(emp);
+    let rec = getSalaryRecord(emp.name) || buildDefaultRecord(emp);
+    // 工讀：若 holidayHours 是 0 且排班有偵測到出勤，自動更新
+    if(emp.role === ROLE_PART && parseFloat(rec.holidayHours||0) === 0) {
+      const holidays = getMonthHolidays(currentMonth);
+      const [hcy, hcm] = currentMonth.split('-').map(Number);
+      let autoH = 0;
+      holidays.forEach(h => {
+        const [hy, hm, hd] = h.date.split('-').map(Number);
+        Object.entries(scheduleData).forEach(([ws, recs]) => {
+          recs.forEach(r => {
+            if(r.name !== emp.name) return;
+            const wDates = getWeekDatesFromStr(ws);
+            const dIdx = ['週一','週二','週三','週四','週五','週六','週日'].indexOf(r.day);
+            if(dIdx < 0) return;
+            const dateStr = wDates[dIdx];
+            if(!dateStr) return;
+            const [dm, dd] = dateStr.split('/').map(Number);
+            if(dm === hm && dd === hd && r.shift && r.shift !== '排休' && r.shift !== '指休') {
+              autoH += parseFloat(r.actualHours || 0);
+            }
+          });
+        });
+      });
+      autoH = Math.round(autoH * 10) / 10;
+      if(autoH > 0) rec = { ...rec, holidayHours: autoH };
+    }
     const total = calcTotal(rec);
     const isOpen = expandedCards.has(emp.name);
     return `<div class="emp-salary-card" id="card-${idx}">
