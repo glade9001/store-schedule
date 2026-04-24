@@ -1960,15 +1960,17 @@ function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, al
   const allRecs = allStoresRecs || records;
   const ctx = canvas.getContext('2d');
   const font = '"Microsoft JhengHei", "PingFang TC", sans-serif';
-  const W = 1400;
+  const W = 1500;
+  const margin = 50; // 兩側留白
+  const tableW = W - margin * 2;
   const nameColW = 160;
-  const dataColW = (W - nameColW) / 7;
+  const dataColW = (tableW - nameColW) / 7;
   const rowH = 100;
   const headerH = 100;
   const titleH = 200;
   const numDataRows = emps.length + 1; // +備註列
   const emptyRows = 5;
-  const H = titleH + headerH + (numDataRows + emptyRows) * rowH + 60;
+  const H = titleH + headerH + (numDataRows + emptyRows) * rowH + 80;
 
   canvas.width = W;
   canvas.height = H;
@@ -1994,21 +1996,21 @@ function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, al
   const tableH = headerH + (numDataRows + emptyRows) * rowH;
   ctx.strokeStyle = '#000';
   ctx.lineWidth = 3;
-  ctx.strokeRect(0, tableTop, W, tableH);
+  ctx.strokeRect(margin, tableTop, tableW, tableH);
 
   // 欄線
   ctx.lineWidth = 2;
-  let x = nameColW;
+  let x = margin + nameColW;
   ctx.beginPath(); ctx.moveTo(x, tableTop); ctx.lineTo(x, tableTop + tableH); ctx.stroke();
   for (let i = 1; i < 7; i++) {
-    x = nameColW + i * dataColW;
+    x = margin + nameColW + i * dataColW;
     ctx.beginPath(); ctx.moveTo(x, tableTop); ctx.lineTo(x, tableTop + tableH); ctx.stroke();
   }
 
   // 列線
   let lineY = tableTop + headerH;
   while (lineY < tableTop + tableH) {
-    ctx.beginPath(); ctx.moveTo(0, lineY); ctx.lineTo(W, lineY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(margin, lineY); ctx.lineTo(margin + tableW, lineY); ctx.stroke();
     lineY += rowH;
   }
 
@@ -2016,16 +2018,16 @@ function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, al
   // 左上角斜線格（月/日 ╲ 姓名）
   ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.moveTo(0, tableTop);
-  ctx.lineTo(nameColW, tableTop + headerH);
+  ctx.moveTo(margin, tableTop);
+  ctx.lineTo(margin + nameColW, tableTop + headerH);
   ctx.stroke();
 
   ctx.fillStyle = '#000';
   ctx.font = `bold 20px ${font}`;
   ctx.textAlign = 'right';
-  ctx.fillText('月/日', nameColW - 10, tableTop + 28);
+  ctx.fillText('月/日', margin + nameColW - 10, tableTop + 28);
   ctx.textAlign = 'left';
-  ctx.fillText('姓名', 10, tableTop + headerH - 22);
+  ctx.fillText('姓名', margin + 10, tableTop + headerH - 22);
 
   // 日期表頭
   ctx.textAlign = 'center';
@@ -2053,11 +2055,11 @@ function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, al
     ctx.font = `900 28px ${font}`;
     ctx.textAlign = 'center';
     if (!emp.name.startsWith('🆘')) {
-      ctx.fillText(getDisplayName(emp.name), nameColW / 2, midY);
+      ctx.fillText(getDisplayName(emp.name), margin + nameColW / 2, midY);
     }
 
     dayNames.forEach((day, i) => {
-      const cx = nameColW + i * dataColW + dataColW / 2;
+      const cx = margin + nameColW + i * dataColW + dataColW / 2;
       let rec = records.find(r => r.name === emp.name && r.day === day) || {};
       const shift = rec.shift || '';
       const note = rec.note || '';
@@ -2135,13 +2137,13 @@ function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, al
   ctx.fillStyle = '#000';
   ctx.font = `900 24px ${font}`;
   ctx.textAlign = 'center';
-  ctx.fillText('門市備註', nameColW / 2, noteY);
+  ctx.fillText('門市備註', margin + nameColW / 2, noteY);
   dayNames.forEach((day, i) => {
     const rec = records.find(r => r.name === '門市備註' && r.day === day);
     if (rec?.note) {
       ctx.fillStyle = '#0077aa';
       ctx.font = `bold 20px ${font}`;
-      ctx.fillText(rec.note, nameColW + i * dataColW + dataColW / 2, noteY);
+      ctx.fillText(rec.note, margin + nameColW + i * dataColW + dataColW / 2, noteY);
     }
   });
 
@@ -2149,7 +2151,7 @@ function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, al
   ctx.textAlign = 'left';
   ctx.fillStyle = '#333';
   ctx.font = `bold 19px ${font}`;
-  ctx.fillText('※每周五、六公佈下週排班表，若有變動者，請事先向店長反映，勿私自調動！', 10, H - 18);
+  ctx.fillText('※每周五、六公佈下週排班表，若有變動者，請事先向店長反映，勿私自調動！', margin, H - 22);
 }
 
 // ===== 產圖（管理者用）=====
