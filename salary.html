@@ -315,6 +315,15 @@ const ROLE_FULL = '正職';
 const ROLE_MANAGER = '店長';
 
 // ===== 工具 =====
+function openModal(id) {
+  const el = document.getElementById(id);
+  if(el) el.classList.add('active');
+}
+function closeModal(id) {
+  const el = document.getElementById(id);
+  if(el) el.classList.remove('active');
+}
+
 function showLoading(msg) {
   const el = document.getElementById('loadingOverlay');
   const txt = document.getElementById('loadingText');
@@ -348,6 +357,12 @@ function isReadonly() {
   const s = salaryData.status || 'draft';
   if(canApprove()) return s === 'published';
   return s !== 'draft';
+}
+// 勞健保唯讀：送審後店長不能改
+function isInsuranceReadonly() {
+  const s = salaryData.status || 'draft';
+  if(canApprove()) return false; // 加盟主永遠可改
+  return s !== 'draft'; // 店長送審後不能改
 }
 
 // ===== Toast =====
@@ -397,7 +412,7 @@ function calcTotal(rec) {
     const lateDeduct = Math.round(rate * lateMin);
     const otPay = Math.round(rate * otH);
     const laborIns = parseFloat(rec.laborInsurance || 0);
-    const healthIns = parseFloat(rec.healthInsurance || 0);
+    const healthIns = parseFloat(rec.healthInsurance || 0) + parseFloat(rec.dependentInsurance || 0);
     const pension = parseFloat(rec.laborPension || 0);
     const otherBonus = parseFloat(rec.otherBonus || 0);
     const performance = parseFloat(rec.performance || 0);
@@ -622,6 +637,98 @@ function printPayslip() {
     </style>
   </head><body>${printContent.outerHTML}<script>window.onload=()=>{window.print();}<\/script></body></html>`);
   win.document.close();
+}
+
+// ===== 代扣區塊渲染（含唯讀控制）=====
+function renderInsuranceSection(empName, rec, idx) {
+  const ro = isInsuranceReadonly();
+  const inp2 = (key, val, label) => ro
+    ? `<div class="salary-row"><span class="salary-row-label">${label}</span><span class="salary-row-val">$${parseFloat(val||0).toLocaleString()}</span></div>`
+    : `<div class="salary-row"><span class="salary-row-label">${label}</span><input class="salary-input" type="number" value="${val||0}" onchange="updateField('${empName}','${key}',this.value,${idx})"></div>`;
+
+  const depBtn = ro
+    ? (rec.hasDependent ? `<span style="background:#e8f0fe;color:var(--primary);border-radius:8px;padding:4px 10px;font-size:12px;font-weight:700;">有眷屬</span>` : '')
+    : `<button onclick="toggleDependent('${empName}',${idx})"
+        style="background:${rec.hasDependent?'#1a73e8':'#f1f3f4'};color:${rec.hasDependent?'white':'var(--text)'};border:none;border-radius:8px;padding:6px 10px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">
+        ${rec.hasDependent?'✓ 眷屬':'+ 眷屬'}
+      </button>`;
+
+  const depInput = rec.hasDependent
+    ? `<div style="display:flex;align-items:center;gap:8px;margin-top:8px;padding-left:4px;">
+        <span style="font-size:12px;color:var(--text-muted);flex:1;">眷屬健保費</span>
+        ${ro
+          ? `<span style="font-weight:800;">$${parseFloat(rec.dependentInsurance||0).toLocaleString()}</span>`
+          : `<input class="salary-input" type="number" value="${rec.dependentInsurance||0}" onchange="updateField('${empName}','dependentInsurance',this.value,${idx})" style="width:90px;">`
+        }
+      </div>` : '';
+
+  return `<div class="salary-section" style="background:#fef2f2;border-radius:10px;padding:12px;">
+    <div class="salary-section-title" style="color:#991b1b;">代扣項目${ro && !canApprove()?'<span style="font-size:10px;font-weight:500;color:#b91c1c;margin-left:6px;">送審後不可修改</span>':''}</div>
+    ${inp2('laborInsurance', rec.laborInsurance??0, '勞保費（個人）')}
+    <div style="padding:8px 0;border-bottom:1px solid #fecaca;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span class="salary-row-label" style="flex:1;">健保費</span>
+        ${ro
+          ? `<span class="salary-row-val">$${parseFloat(rec.healthInsurance||0).toLocaleString()}</span>`
+          : `<input class="salary-input" type="number" value="${rec.healthInsurance||0}" onchange="updateField('${empName}','healthInsurance',this.value,${idx})" style="width:90px;">`
+        }
+        ${depBtn}
+      </div>
+      ${depInput}
+    </div>
+    ${inp2('laborPension', rec.laborPension??0, '勞退個人自提')}
+  </div>`;
+}
+
+// ===== 眷屬健保切換 =====
+function toggleDependent(empName, cardIdx) {
+  let rec = getSalaryRecord(empName);
+  const emp = empList.find(e => e.name === empName);
+  if(!rec) { rec = buildDefaultRecord(emp); salaryData.records.push(rec); }
+  rec.hasDependent = !rec.hasDependent;
+  if(!rec.hasDependent) rec.dependentInsurance = 0;
+  // 重新渲染該卡片的 body
+  const emp2 = empList.find(e => e.name === empName) || { name: empName, role: rec.role };
+  const body = document.getElementById(`body-${cardIdx}`);
+  if(body) {
+    body.innerHTML = renderSalaryForm(emp2, rec, cardIdx, isReadonly());
+  }
+  const totalEl = document.getElementById(`total-${cardIdx}`);
+  if(totalEl) totalEl.textContent = `$${calcTotal(rec).toLocaleString()}`;
+  triggerAutoSave();
+}
+
+// ===== 流程控制 =====
+async function recallSalary() {
+  if(!confirm('確定收回薪資送審？收回後可以重新修改。')) return;
+  showLoading('收回中...');
+  try {
+    await window.db.collection('stores').doc(currentStore).collection('salary').doc(currentMonth).set({
+      ...salaryData, status: 'draft',
+      recalledAt: new Date().toISOString(),
+      recalledBy: currentUser.displayName || currentUser.empName
+    });
+    salaryData.status = 'draft';
+    updateStatusBadge(); renderBottomAction(); renderEmpList();
+    showToast('✅ 已收回，可重新修改');
+  } catch(e) { showToast('❌ 收回失敗：' + e.message); }
+  hideLoading();
+}
+
+async function rejectSalary() {
+  if(!confirm('確定退回薪資？退回後店長可重新修改。')) return;
+  showLoading('退回中...');
+  try {
+    await window.db.collection('stores').doc(currentStore).collection('salary').doc(currentMonth).set({
+      ...salaryData, status: 'draft',
+      rejectedAt: new Date().toISOString(),
+      rejectedBy: currentUser.displayName || currentUser.empName
+    });
+    salaryData.status = 'draft';
+    updateStatusBadge(); renderBottomAction(); renderEmpList();
+    showToast('✅ 已退回給店長修改');
+  } catch(e) { showToast('❌ 退回失敗：' + e.message); }
+  hideLoading();
 }
 
 // ===== 月份切換 =====
@@ -1021,19 +1128,7 @@ function renderSalaryForm(emp, rec, idx, readonly) {
         ${inpNum('otHours', rec.otHours, '加班時數', 'h')}
         <div class="salary-row"><span class="salary-row-label">加班費</span><span class="salary-row-val" style="color:var(--accent);" id="otPay-${idx}">+$${Math.round(rate*(rec.otHours||0)).toLocaleString()}</span></div>
       </div>
-      <div class="salary-section" style="background:#fef2f2;border-radius:10px;padding:12px;">
-        <div class="salary-section-title" style="color:#991b1b;">代扣項目</div>
-        ${inp('laborInsurance', rec.laborInsurance ?? 0, '勞保費（個人）')}
-        <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f1f3f4;">
-          <span class="salary-row-label" style="flex:1;">健保費</span>
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:600;cursor:pointer;">
-            <input type="checkbox" ${rec.hasDependent?'checked':''} onchange="updateField('${emp.name}','hasDependent',this.checked,${idx})"> 有眷屬
-          </label>
-          <input class="salary-input" type="number" value="${rec.healthInsurance??0}"
-            onchange="updateField('${emp.name}','healthInsurance',this.value,${idx})" style="width:90px;">
-        </div>
-        ${inp('laborPension', rec.laborPension ?? 0, '勞退個人自提')}
-      </div>
+      ${renderInsuranceSection(emp.name, rec, idx)}
       <div class="salary-total-row">
         <span class="salary-total-label">本月實發薪資</span>
         <span class="salary-total-val" id="total-${idx}">$${total.toLocaleString()}</span>
@@ -1066,19 +1161,7 @@ function renderSalaryForm(emp, rec, idx, readonly) {
         ${inp('performance', rec.performance ?? 0, '績效獎金')}
         ${inp('otherBonus', rec.otherBonus ?? 0, '其他獎金/津貼')}
       </div>
-      <div class="salary-section" style="background:#fef2f2;border-radius:10px;padding:12px;">
-        <div class="salary-section-title" style="color:#991b1b;">代扣項目</div>
-        ${inp('laborInsurance', rec.laborInsurance ?? 0, '勞保費（個人）')}
-        <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f1f3f4;">
-          <span class="salary-row-label" style="flex:1;">健保費</span>
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:600;cursor:pointer;">
-            <input type="checkbox" ${rec.hasDependent?'checked':''} onchange="updateField('${emp.name}','hasDependent',this.checked,${idx})"> 有眷屬
-          </label>
-          <input class="salary-input" type="number" value="${rec.healthInsurance??0}"
-            onchange="updateField('${emp.name}','healthInsurance',this.value,${idx})" style="width:90px;">
-        </div>
-        ${inp('laborPension', rec.laborPension ?? 0, '勞退個人自提')}
-      </div>
+      ${renderInsuranceSection(emp.name, rec, idx)}
       <div class="salary-total-row">
         <span class="salary-total-label">本月實發薪資</span>
         <span class="salary-total-val" id="total-${idx}">$${total.toLocaleString()}</span>
@@ -1407,16 +1490,27 @@ function renderBottomAction() {
       ? `<button class="action-btn" style="background:#6366f1;color:white;" onclick="openPayslipModal()">🖨️ 薪資單</button>`
       : '';
     if(s === 'draft') {
-      el.innerHTML = `<button class="action-btn accent" onclick="submitSalary()">📤 送出薪資</button>${printBtn}`;
-    } else if(s === 'submitted' && canApprove()) {
-      el.innerHTML = `<button class="action-btn primary" onclick="saveDraft()">✏️ 修正</button>
-        <button class="action-btn accent" onclick="publishSalary()">✅ 審核發布</button>${printBtn}`;
-    } else if(s === 'approved' && canApprove()) {
-      el.innerHTML = `<button class="action-btn accent" onclick="publishSalary()">📢 發布薪資</button>${printBtn}`;
+      // 草稿：店長可送出
+      el.innerHTML = `<button class="action-btn accent" onclick="submitSalary()">📤 送出薪資</button>`;
+    } else if(s === 'submitted') {
+      if(canApprove()) {
+        // 加盟主：可修正儲存、審核發布、退回
+        el.innerHTML = `<button class="action-btn" style="background:#e67e22;color:white;" onclick="rejectSalary()">↩️ 退回</button>
+          <button class="action-btn primary" onclick="saveDraft()">✏️ 修正</button>
+          <button class="action-btn accent" onclick="publishSalary()">✅ 發布</button>${printBtn}`;
+      } else {
+        // 店長：可收回（加盟主還沒審核前）
+        el.innerHTML = `<button class="action-btn" style="background:#e67e22;color:white;" onclick="recallSalary()">↩️ 收回修改</button>`;
+      }
     } else if(s === 'published') {
-      el.innerHTML = `<button class="action-btn primary" disabled>✅ 已發布</button>${printBtn}`;
+      if(canApprove()) {
+        // 加盟主：已發布可退回重改
+        el.innerHTML = `<button class="action-btn" style="background:#e67e22;color:white;" onclick="rejectSalary()">↩️ 退回重改</button>${printBtn}`;
+      } else {
+        el.innerHTML = `<button class="action-btn primary" disabled>✅ 已發布</button>`;
+      }
     } else {
-      el.innerHTML = `<button class="action-btn primary" disabled>等待審核中...</button>${printBtn}`;
+      el.innerHTML = `<button class="action-btn primary" disabled>等待審核中...</button>`;
     }
   }
 }
