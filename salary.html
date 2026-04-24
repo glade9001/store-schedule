@@ -188,6 +188,25 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
   <!-- Bottom Action 已移至上方 -->
 </div>
 
+
+<!-- ===== 薪資單 Modal ===== -->
+<div class="modal-overlay" id="payslipModal" onclick="if(event.target===this)closeModal('payslipModal')">
+  <div class="modal-box" style="max-height:90vh;">
+    <div class="modal-handle"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+      <div class="modal-title" style="margin-bottom:0;">🧾 薪資單</div>
+      <div style="display:flex;gap:8px;">
+        <button onclick="printPayslip()" style="background:#6366f1;color:white;border:none;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer;font-size:13px;">🖨️ 列印/PDF</button>
+        <button onclick="closeModal('payslipModal')" style="background:#f1f3f4;border:none;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer;font-size:13px;">關閉</button>
+      </div>
+    </div>
+    <!-- 選擇員工 -->
+    <select id="payslipEmpSelect" onchange="renderPayslip()" style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:10px;font-size:14px;margin-bottom:12px;"></select>
+    <!-- 薪資單內容 -->
+    <div id="payslipContent"></div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -377,15 +396,232 @@ function calcTotal(rec) {
     const otH = parseFloat(rec.otHours || 0);
     const lateDeduct = Math.round(rate * lateMin);
     const otPay = Math.round(rate * otH);
+    const laborIns = parseFloat(rec.laborInsurance || 0);
+    const healthIns = parseFloat(rec.healthInsurance || 0);
+    const pension = parseFloat(rec.laborPension || 0);
+    const otherBonus = parseFloat(rec.otherBonus || 0);
+    const performance = parseFloat(rec.performance || 0);
     if(role === ROLE_FULL) {
       const roleBonus = parseFloat(rec.roleBonus || 0);
-      return base + attend + roleBonus - lateDeduct + otPay;
+      const gross = base + attend + roleBonus + otherBonus - lateDeduct + otPay;
+      return gross - laborIns - healthIns - pension;
     } else {
       const mgmt = ['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader']
         .reduce((s, k) => s + parseFloat(rec[k] || 0), 0);
-      return base + attend + mgmt - lateDeduct + otPay;
+      const gross = base + attend + mgmt + performance + otherBonus - lateDeduct + otPay;
+      return gross - laborIns - healthIns - pension;
     }
   }
+}
+
+
+// ===== 薪資單 =====
+function openPayslipModal() {
+  if(!canApprove()) return;
+  const sel = document.getElementById('payslipEmpSelect');
+  sel.innerHTML = empList.map(e =>
+    `<option value="${e.name}">${e.name}（${e.role||''}）</option>`
+  ).join('');
+  renderPayslip();
+  openModal('payslipModal');
+}
+
+function renderPayslip() {
+  const empName = document.getElementById('payslipEmpSelect').value;
+  const emp = empList.find(e => e.name === empName) || {};
+  const rec = getSalaryRecord(empName) || buildDefaultRecord(emp);
+  const el = document.getElementById('payslipContent');
+  const [y, m] = currentMonth.split('-').map(Number);
+  const role = emp.role || rec.role || '';
+  const isPartTime = role === ROLE_PART;
+  const gross = calcGross(rec);
+  const deduct = calcDeduct(rec);
+  const net = calcTotal(rec);
+  const rate = isPartTime ? 0 : hourlyRate(rec);
+
+  // 薪資單 HTML
+  el.innerHTML = `
+    <div id="payslipPrint" style="font-family:'Microsoft JhengHei','PingFang TC',sans-serif;background:white;border:2px solid #1a73e8;border-radius:12px;padding:20px;font-size:13px;">
+      <!-- 標題 -->
+      <div style="text-align:center;margin-bottom:16px;border-bottom:2px solid #1a73e8;padding-bottom:12px;">
+        <div style="font-size:20px;font-weight:900;color:#1a73e8;">莉學商行</div>
+        <div style="font-size:15px;font-weight:700;margin-top:4px;">${y}年${m}月份薪資單</div>
+        <div style="font-size:12px;color:#64748b;margin-top:2px;">${currentStore}</div>
+      </div>
+
+      <!-- 員工資訊 -->
+      <div style="display:flex;justify-content:space-between;margin-bottom:12px;background:#f8fafc;border-radius:8px;padding:10px 14px;">
+        <div>
+          <div style="font-size:15px;font-weight:900;">${empName}</div>
+          <div style="font-size:12px;color:#64748b;">${role}</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:12px;color:#64748b;">到職日</div>
+          <div style="font-size:12px;font-weight:700;">${emp.startDate || '--'}</div>
+        </div>
+      </div>
+
+      <!-- 薪資明細表 -->
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <tr style="background:#1a73e8;color:white;">
+          <th style="padding:8px;text-align:left;border-radius:6px 0 0 0;">薪資/考勤項目</th>
+          <th style="padding:8px;text-align:right;">金額</th>
+          <th style="padding:8px;text-align:left;">代扣項目</th>
+          <th style="padding:8px;text-align:right;border-radius:0 6px 0 0;">金額</th>
+        </tr>
+        ${buildPayslipRows(rec, emp, rate, isPartTime)}
+      </table>
+
+      <!-- 合計 -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px;">
+        <div style="background:#e8f0fe;border-radius:8px;padding:10px;text-align:center;">
+          <div style="font-size:11px;color:#64748b;">應發薪資</div>
+          <div style="font-size:16px;font-weight:900;color:#1a73e8;">$${gross.toLocaleString()}</div>
+        </div>
+        <div style="background:#fef2f2;border-radius:8px;padding:10px;text-align:center;">
+          <div style="font-size:11px;color:#64748b;">代扣合計</div>
+          <div style="font-size:16px;font-weight:900;color:#d93025;">$${deduct.toLocaleString()}</div>
+        </div>
+        <div style="background:#e8f5e9;border-radius:8px;padding:10px;text-align:center;">
+          <div style="font-size:11px;color:#64748b;">實發金額</div>
+          <div style="font-size:16px;font-weight:900;color:#34a853;">$${net.toLocaleString()}</div>
+        </div>
+      </div>
+
+      <!-- 考勤資訊 -->
+      <div style="margin-top:12px;background:#f8fafc;border-radius:8px;padding:10px;">
+        <div style="font-size:11px;font-weight:800;color:#64748b;margin-bottom:6px;">考勤記錄</div>
+        ${buildAttendanceInfo(rec, emp, isPartTime)}
+      </div>
+
+      <!-- 特補休 -->
+      ${!isPartTime ? `
+      <div style="margin-top:8px;background:#fffbf0;border-radius:8px;padding:10px;border:1px solid #fde68a;">
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;font-size:11px;text-align:center;">
+          <div><div style="color:#64748b;">年度特休</div><div style="font-weight:700;">--天</div></div>
+          <div><div style="color:#64748b;">已用特休</div><div style="font-weight:700;">--天</div></div>
+          <div><div style="color:#64748b;">剩餘特休</div><div style="font-weight:700;">--天</div></div>
+          <div><div style="color:#64748b;">剩餘補休</div><div style="font-weight:700;">--天</div></div>
+        </div>
+      </div>` : ''}
+
+      <!-- 溝通事項 -->
+      <div style="margin-top:10px;border:1px solid #e2e8f0;border-radius:8px;padding:10px;">
+        <div style="font-size:11px;font-weight:800;color:#64748b;margin-bottom:4px;">溝通事項：</div>
+        <div style="min-height:40px;font-size:12px;color:#64748b;">（無）</div>
+      </div>
+
+      <!-- 簽名 -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
+        <div style="border-top:1px solid #e2e8f0;padding-top:8px;text-align:center;font-size:11px;color:#64748b;">員工簽名</div>
+        <div style="border-top:1px solid #e2e8f0;padding-top:8px;text-align:center;font-size:11px;color:#64748b;">主管確認</div>
+      </div>
+    </div>`;
+}
+
+function buildPayslipRows(rec, emp, rate, isPartTime) {
+  const rows = [];
+  if(isPartTime) {
+    const { totalH } = calcEmpHours(emp.name);
+    rows.push(['時薪', `$${rec.wage||0}`, '勞保費', `$${rec.laborInsurance||0}`]);
+    rows.push([`工時 ${totalH}h`, `$${Math.round((rec.wage||0)*totalH).toLocaleString()}`, '健保費', `$${rec.healthInsurance||0}`]);
+    if(parseFloat(rec.holidayHours||0)>0)
+      rows.push([`國假加班 ${rec.holidayHours}h×2`, `$${Math.round((rec.wage||0)*rec.holidayHours*2).toLocaleString()}`, '', '']);
+    if(parseFloat(rec.roleBonus||0)>0)
+      rows.push(['職務津貼', `$${parseFloat(rec.roleBonus).toLocaleString()}`, '', '']);
+  } else {
+    rows.push(['底薪', `$${(rec.baseSalary||0).toLocaleString()}`, '勞保費', `$${rec.laborInsurance||0}`]);
+    rows.push(['全勤獎金', `$${(rec.fullAttendBonus||0).toLocaleString()}`, `健保費${rec.hasDependent?'（有眷）':''}`, `$${rec.healthInsurance||0}`]);
+    if(emp.role === ROLE_FULL) {
+      rows.push(['職務津貼', `$${(rec.roleBonus||0).toLocaleString()}`, '勞退自提', `$${rec.laborPension||0}`]);
+    } else {
+      ['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].forEach((k,i) => {
+        const labels = ['營運獎勵','品保獎勵','營運指標','帳務獎勵','卓越領導'];
+        if(parseFloat(rec[k]||0)>0)
+          rows.push([labels[i], `$${parseFloat(rec[k]).toLocaleString()}`, i===0?'勞退自提':'', i===0?`$${rec.laborPension||0}`:'']);
+      });
+      if(parseFloat(rec.performance||0)>0)
+        rows.push(['績效獎金', `$${parseFloat(rec.performance).toLocaleString()}`, '', '']);
+    }
+    if(parseFloat(rec.otherBonus||0)>0)
+      rows.push(['其他津貼', `$${parseFloat(rec.otherBonus).toLocaleString()}`, '', '']);
+    if(parseFloat(rec.otHours||0)>0)
+      rows.push(['加班費', `+$${Math.round(rate*(rec.otHours||0)).toLocaleString()}`, '', '']);
+    if(parseFloat(rec.lateMinutes||0)>0)
+      rows.push(['遲到扣款', `-$${Math.round(rate*(rec.lateMinutes||0)).toLocaleString()}`, '', '']);
+  }
+  return rows.map(([a,b,c,d]) => `
+    <tr style="border-bottom:1px solid #f1f3f4;">
+      <td style="padding:6px 8px;">${a}</td>
+      <td style="padding:6px 8px;text-align:right;font-weight:700;">${b}</td>
+      <td style="padding:6px 8px;color:#d93025;">${c}</td>
+      <td style="padding:6px 8px;text-align:right;font-weight:700;color:#d93025;">${d}</td>
+    </tr>`).join('');
+}
+
+function buildAttendanceInfo(rec, emp, isPartTime) {
+  const { totalH, otH } = calcEmpHours(emp.name);
+  if(isPartTime) {
+    return `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;font-size:11px;text-align:center;">
+      <div><div style="color:#64748b;">本月工時</div><div style="font-weight:700;">${totalH}h</div></div>
+      <div><div style="color:#64748b;">國假時數</div><div style="font-weight:700;">${rec.holidayHours||0}h</div></div>
+      <div><div style="color:#64748b;">遲到</div><div style="font-weight:700;">${rec.lateMinutes||0}分</div></div>
+    </div>`;
+  } else {
+    const weekends = getMonthWeekendDays(currentMonth);
+    const offDays = calcMonthOffDays(emp.name, currentMonth);
+    return `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;font-size:11px;text-align:center;">
+      <div><div style="color:#64748b;">應休天數</div><div style="font-weight:700;">${weekends.total}天</div></div>
+      <div><div style="color:#64748b;">已休天數</div><div style="font-weight:700;">${offDays}天</div></div>
+      <div><div style="color:#64748b;">加班時數</div><div style="font-weight:700;">${otH}h</div></div>
+      <div><div style="color:#64748b;">遲到</div><div style="font-weight:700;">${rec.lateMinutes||0}分</div></div>
+    </div>`;
+  }
+}
+
+function calcGross(rec) {
+  const role = rec.role;
+  if(role === ROLE_PART) {
+    const wage = parseFloat(rec.wage||0);
+    const { totalH } = calcEmpHours(rec.empName);
+    return Math.round(wage*totalH + wage*(rec.holidayHours||0)*2 + (rec.roleBonus||0));
+  } else {
+    const base = parseFloat(rec.baseSalary||0);
+    const attend = parseFloat(rec.fullAttendBonus||0);
+    const rate = hourlyRate(rec);
+    const otPay = Math.round(rate*(rec.otHours||0));
+    const lateDeduct = Math.round(rate*(rec.lateMinutes||0));
+    const otherBonus = parseFloat(rec.otherBonus||0);
+    const performance = parseFloat(rec.performance||0);
+    if(role === ROLE_FULL) {
+      return base + attend + (rec.roleBonus||0) + otherBonus - lateDeduct + otPay;
+    } else {
+      const mgmt = ['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader']
+        .reduce((s,k) => s+parseFloat(rec[k]||0), 0);
+      return base + attend + mgmt + performance + otherBonus - lateDeduct + otPay;
+    }
+  }
+}
+
+function calcDeduct(rec) {
+  return parseFloat(rec.laborInsurance||0) +
+         parseFloat(rec.healthInsurance||0) +
+         parseFloat(rec.laborPension||0);
+}
+
+function printPayslip() {
+  const printContent = document.getElementById('payslipPrint');
+  if(!printContent) return;
+  const win = window.open('', '_blank');
+  win.document.write(`<!DOCTYPE html><html><head>
+    <meta charset="UTF-8">
+    <title>薪資單</title>
+    <style>
+      body { margin: 10px; font-family: 'Microsoft JhengHei','PingFang TC',sans-serif; }
+      @media print { body { margin: 0; } }
+    </style>
+  </head><body>${printContent.outerHTML}<script>window.onload=()=>{window.print();}<\/script></body></html>`);
+  win.document.close();
 }
 
 // ===== 月份切換 =====
@@ -645,6 +881,12 @@ function buildDefaultRecord(emp) {
       lateMinutes: 0,
       otHours: otH,
       givenLeave: prev.givenLeave !== undefined ? prev.givenLeave : 0,
+      laborInsurance: prev.laborInsurance !== undefined ? prev.laborInsurance : (emp.laborInsurance || 0),
+      healthInsurance: prev.healthInsurance !== undefined ? prev.healthInsurance : (emp.healthInsurance || 0),
+      hasDependent: prev.hasDependent !== undefined ? prev.hasDependent : (emp.hasDependent || false),
+      laborPension: prev.laborPension !== undefined ? prev.laborPension : (emp.laborPension || 0),
+      performance: prev.performance !== undefined ? prev.performance : 0,
+      otherBonus: prev.otherBonus !== undefined ? prev.otherBonus : 0,
     };
   } else { // 店長
     return {
@@ -660,6 +902,12 @@ function buildDefaultRecord(emp) {
       lateMinutes: 0,
       otHours: otH,
       givenLeave: prev.givenLeave !== undefined ? prev.givenLeave : 0,
+      laborInsurance: prev.laborInsurance !== undefined ? prev.laborInsurance : (emp.laborInsurance || 0),
+      healthInsurance: prev.healthInsurance !== undefined ? prev.healthInsurance : (emp.healthInsurance || 0),
+      hasDependent: prev.hasDependent !== undefined ? prev.hasDependent : (emp.hasDependent || false),
+      laborPension: prev.laborPension !== undefined ? prev.laborPension : (emp.laborPension || 0),
+      performance: prev.performance !== undefined ? prev.performance : 0,
+      otherBonus: prev.otherBonus !== undefined ? prev.otherBonus : 0,
     };
   }
 }
@@ -762,6 +1010,10 @@ function renderSalaryForm(emp, rec, idx, readonly) {
         ${inp('roleBonus', rec.roleBonus, '職務津貼')}
       </div>
       <div class="salary-section">
+        <div class="salary-section-title">其他項目</div>
+        ${inp('otherBonus', rec.otherBonus ?? 0, '其他獎金/津貼')}
+      </div>
+      <div class="salary-section">
         <div class="salary-section-title">加減項</div>
         <div class="salary-row"><span class="salary-row-label">計算費率</span><span class="salary-row-val" style="font-size:12px;" id="rate-${idx}">$${rate.toFixed(1)}/hr</span></div>
         ${inpNum('lateMinutes', rec.lateMinutes, '遲到分鐘', 'min')}
@@ -769,8 +1021,21 @@ function renderSalaryForm(emp, rec, idx, readonly) {
         ${inpNum('otHours', rec.otHours, '加班時數', 'h')}
         <div class="salary-row"><span class="salary-row-label">加班費</span><span class="salary-row-val" style="color:var(--accent);" id="otPay-${idx}">+$${Math.round(rate*(rec.otHours||0)).toLocaleString()}</span></div>
       </div>
+      <div class="salary-section" style="background:#fef2f2;border-radius:10px;padding:12px;">
+        <div class="salary-section-title" style="color:#991b1b;">代扣項目</div>
+        ${inp('laborInsurance', rec.laborInsurance ?? 0, '勞保費（個人）')}
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f1f3f4;">
+          <span class="salary-row-label" style="flex:1;">健保費</span>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:600;cursor:pointer;">
+            <input type="checkbox" ${rec.hasDependent?'checked':''} onchange="updateField('${emp.name}','hasDependent',this.checked,${idx})"> 有眷屬
+          </label>
+          <input class="salary-input" type="number" value="${rec.healthInsurance??0}"
+            onchange="updateField('${emp.name}','healthInsurance',this.value,${idx})" style="width:90px;">
+        </div>
+        ${inp('laborPension', rec.laborPension ?? 0, '勞退個人自提')}
+      </div>
       <div class="salary-total-row">
-        <span class="salary-total-label">本月薪資</span>
+        <span class="salary-total-label">本月實發薪資</span>
         <span class="salary-total-val" id="total-${idx}">$${total.toLocaleString()}</span>
       </div>
       ${renderCalendar(emp.name, emp.role)}`;
@@ -796,12 +1061,29 @@ function renderSalaryForm(emp, rec, idx, readonly) {
         ${inpNum('otHours', rec.otHours, '加班時數', 'h')}
         <div class="salary-row"><span class="salary-row-label">加班費</span><span class="salary-row-val" style="color:var(--accent);" id="otPay-${idx}">+$${Math.round(rate*(rec.otHours||0)).toLocaleString()}</span></div>
       </div>
+      <div class="salary-section">
+        <div class="salary-section-title">其他項目</div>
+        ${inp('performance', rec.performance ?? 0, '績效獎金')}
+        ${inp('otherBonus', rec.otherBonus ?? 0, '其他獎金/津貼')}
+      </div>
+      <div class="salary-section" style="background:#fef2f2;border-radius:10px;padding:12px;">
+        <div class="salary-section-title" style="color:#991b1b;">代扣項目</div>
+        ${inp('laborInsurance', rec.laborInsurance ?? 0, '勞保費（個人）')}
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f1f3f4;">
+          <span class="salary-row-label" style="flex:1;">健保費</span>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:600;cursor:pointer;">
+            <input type="checkbox" ${rec.hasDependent?'checked':''} onchange="updateField('${emp.name}','hasDependent',this.checked,${idx})"> 有眷屬
+          </label>
+          <input class="salary-input" type="number" value="${rec.healthInsurance??0}"
+            onchange="updateField('${emp.name}','healthInsurance',this.value,${idx})" style="width:90px;">
+        </div>
+        ${inp('laborPension', rec.laborPension ?? 0, '勞退個人自提')}
+      </div>
       <div class="salary-total-row">
-        <span class="salary-total-label">本月薪資</span>
+        <span class="salary-total-label">本月實發薪資</span>
         <span class="salary-total-val" id="total-${idx}">$${total.toLocaleString()}</span>
       </div>
-      ${renderCalendar(emp.name, emp.role)}
-      ${canApprove() ? renderScheduleRef(emp.name, emp.role) : ''}`;
+      ${renderCalendar(emp.name, emp.role)}`;
   }
 }
 
@@ -1121,17 +1403,20 @@ function renderBottomAction() {
   el.style.display = 'flex';
 
   if(perm === 'manager' || perm === 'owner' || perm === 'admin') {
+    const printBtn = canApprove() && s === 'published'
+      ? `<button class="action-btn" style="background:#6366f1;color:white;" onclick="openPayslipModal()">🖨️ 薪資單</button>`
+      : '';
     if(s === 'draft') {
-      el.innerHTML = `<button class="action-btn accent" onclick="submitSalary()">📤 送出薪資</button>`;
+      el.innerHTML = `<button class="action-btn accent" onclick="submitSalary()">📤 送出薪資</button>${printBtn}`;
     } else if(s === 'submitted' && canApprove()) {
-      el.innerHTML = `<button class="action-btn primary" onclick="saveDraft()">✏️ 修正儲存</button>
-        <button class="action-btn accent" onclick="publishSalary()">✅ 審核發布</button>`;
+      el.innerHTML = `<button class="action-btn primary" onclick="saveDraft()">✏️ 修正</button>
+        <button class="action-btn accent" onclick="publishSalary()">✅ 審核發布</button>${printBtn}`;
     } else if(s === 'approved' && canApprove()) {
-      el.innerHTML = `<button class="action-btn accent" onclick="publishSalary()">📢 發布薪資</button>`;
+      el.innerHTML = `<button class="action-btn accent" onclick="publishSalary()">📢 發布薪資</button>${printBtn}`;
     } else if(s === 'published') {
-      el.innerHTML = `<button class="action-btn primary" disabled>✅ 已發布</button>`;
+      el.innerHTML = `<button class="action-btn primary" disabled>✅ 已發布</button>${printBtn}`;
     } else {
-      el.innerHTML = `<button class="action-btn primary" disabled>等待審核中...</button>`;
+      el.innerHTML = `<button class="action-btn primary" disabled>等待審核中...</button>${printBtn}`;
     }
   }
 }
