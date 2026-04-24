@@ -333,11 +333,23 @@ function changeMonth(offset) {
   let nm = m + offset, ny = y;
   if(nm < 1) { ny--; nm = 12; }
   if(nm > 12) { ny++; nm = 1; }
-  // 不能看未來月份
   const now = new Date();
   const nowYM = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
   const newYM = `${ny}-${String(nm).padStart(2,'0')}`;
+
+  // 往後限制：不能看未來月份
   if(newYM > nowYM) { showToast('⚠️ 不能查看未來月份'); return; }
+
+  // 往前限制：員工/店長最多12個月前，加盟主/管理者不限
+  if(offset < 0) {
+    const perm = currentUser?.permission || 'employee';
+    if(!['owner','admin'].includes(perm)) {
+      const limitDate = new Date(now.getFullYear(), now.getMonth() - 12, 1);
+      const limitYM = `${limitDate.getFullYear()}-${String(limitDate.getMonth()+1).padStart(2,'0')}`;
+      if(newYM < limitYM) { showToast('⚠️ 最多只能查閱近12個月的薪資'); return; }
+    }
+  }
+
   currentMonth = newYM;
   document.getElementById('monthLabel').textContent = getMonthLabel(currentMonth);
   loadSalaryData();
