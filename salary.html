@@ -1654,6 +1654,7 @@ function getWeekDatesFromStr(weekStr) {
 
 function renderCalendar(empName, role) {
   const { empRecs, daysInMonth, firstWeekday } = buildCalendarData(empName, role);
+  const [cy, cm] = currentMonth.split('-').map(Number);
   const isPartTime = role === ROLE_PART;
   const dayLabels = ['一','二','三','四','五','六','日'];
   // firstWeekday: 0=日,1=一,...
