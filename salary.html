@@ -88,7 +88,8 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 .salary-row:last-child{border-bottom:none;}
 .salary-row-label{font-size:13px;font-weight:600;color:var(--text);}
 .salary-row-val{font-size:14px;font-weight:800;color:var(--text);}
-.salary-input{width:110px;padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;text-align:right;background:#f8fafc;}
+.salary-input{width:110px;padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;text-align:right;background:#f8fafc;-moz-appearance:textfield;}
+.salary-input::-webkit-outer-spin-button,.salary-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
 .salary-input:focus{outline:none;border-color:var(--primary);}
 .salary-total-row{display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding-top:12px;border-top:2px solid var(--border);}
 .salary-total-label{font-size:14px;font-weight:800;}
@@ -458,10 +459,11 @@ function calcTotal(rec) {
     const attend = parseFloat(rec.fullAttendBonus || 0);
     const ratePerHour = hourlyRate(rec);          // (底薪+全勤基準)/30/8
     const ratePerMin = ratePerHour / 60;          // 遲到：每分鐘費率
+    const otBaseRate = parseFloat(rec.otBase||0) > 0 ? parseFloat(rec.otBase) : ratePerHour; // 加班費基準
     const lateMin = parseFloat(rec.lateMinutes || 0);
     const otH = parseFloat(rec.otHours || 0);
     const lateDeduct = Math.round(ratePerMin * lateMin);
-    const otPay = Math.ceil(ratePerHour * otH * 1.34);
+    const otPay = Math.ceil(otBaseRate * otH * 1.34);
     const laborIns = parseFloat(rec.laborInsurance || 0);
     const healthIns = parseFloat(rec.healthInsurance || 0) + parseFloat(rec.dependentInsurance || 0);
     const pension = parseFloat(rec.laborPension || 0);
@@ -649,7 +651,8 @@ function calcGross(rec) {
     const attend = parseFloat(rec.fullAttendBonus||0);
     const ratePerHour = hourlyRate(rec);
     const ratePerMin = ratePerHour / 60;
-    const otPay = Math.ceil(ratePerHour*(rec.otHours||0)*1.34);
+    const otBaseRate2 = parseFloat(rec.otBase||0) > 0 ? parseFloat(rec.otBase) : ratePerHour;
+    const otPay = Math.ceil(otBaseRate2*(rec.otHours||0)*1.34);
     const lateDeduct = Math.round(ratePerMin*(rec.lateMinutes||0));
     const otherBonus = parseFloat(rec.otherBonus||0);
     const performance = parseFloat(rec.performance||0);
@@ -724,6 +727,36 @@ function renderInsuranceSection(empName, rec, idx) {
     </div>
     ${inp2('laborPension', rec.laborPension??0, '勞退個人自提')}
   </div>`;
+}
+
+// ===== 加班費基準額設定 =====
+function toggleOtBase(empName, cardIdx) {
+  let rec = getSalaryRecord(empName);
+  const emp = empList.find(e => e.name === empName);
+  if(!rec) { rec = buildDefaultRecord(emp); salaryData.records.push(rec); }
+  // 若還沒設定，預設填入費率的無條件進位值
+  if(!rec.otBase || parseFloat(rec.otBase) === 0) {
+    rec.otBase = Math.ceil(hourlyRate(rec));
+  }
+  // 重新渲染
+  const body = document.getElementById(`body-${cardIdx}`);
+  if(body) body.innerHTML = renderSalaryForm(emp || {name:empName}, rec, cardIdx, isReadonly());
+  triggerAutoSave();
+}
+
+function clearOtBase(empName, cardIdx) {
+  let rec = getSalaryRecord(empName);
+  if(!rec) return;
+  rec.otBase = 0;
+  const body = document.getElementById(`body-${cardIdx}`);
+  const emp = empList.find(e => e.name === empName);
+  if(body) body.innerHTML = renderSalaryForm(emp || {name:empName}, rec, cardIdx, isReadonly());
+  const total = calcTotal(rec);
+  const totalEl = document.getElementById(`total-${cardIdx}`);
+  if(totalEl) totalEl.textContent = `$${total.toLocaleString()}`;
+  const card = document.getElementById(`card-${cardIdx}`);
+  if(card) { const s = card.querySelector('.emp-salary-total'); if(s) s.textContent = `$${total.toLocaleString()}`; }
+  triggerAutoSave();
 }
 
 // ===== 眷屬健保切換 =====
@@ -1457,6 +1490,7 @@ function buildDefaultRecord(emp) {
       laborPension: prev.laborPension !== undefined ? prev.laborPension : (emp.laborPension || 0),
       performance: prev.performance !== undefined ? prev.performance : 0,
       otherBonus: prev.otherBonus !== undefined ? prev.otherBonus : 0,
+      otBase: prev.otBase !== undefined ? prev.otBase : 0, // 0=用費率公式
     };
   } else { // 店長
     return {
@@ -1478,6 +1512,7 @@ function buildDefaultRecord(emp) {
       laborPension: prev.laborPension !== undefined ? prev.laborPension : (emp.laborPension || 0),
       performance: prev.performance !== undefined ? prev.performance : 0,
       otherBonus: prev.otherBonus !== undefined ? prev.otherBonus : 0,
+      otBase: prev.otBase !== undefined ? prev.otBase : 0,
     };
   }
 }
@@ -1561,7 +1596,7 @@ function renderSalaryForm(emp, rec, idx, readonly) {
         ${inp('roleBonus', rec.roleBonus, '職務津貼')}
         <div class="salary-row" style="border-top:2px solid var(--border);margin-top:6px;">
           <span class="salary-row-label" style="font-weight:800;">小計</span>
-          <span class="salary-row-val" style="font-weight:900;color:var(--primary);">
+          <span class="salary-row-val" style="font-weight:900;color:var(--primary);" id="subtotal-${idx}">
             $${(parseFloat(rec.baseSalary||0)+parseFloat(rec.fullAttendBonus||0)+parseFloat(rec.roleBonus||0)).toLocaleString()}
           </span>
         </div>
@@ -1957,14 +1992,47 @@ function updateField(empName, key, val, cardIdx) {
     if(totalSpan) totalSpan.textContent = `$${total.toLocaleString()}`;
   }
   // 重新計算衍生欄位（費率/扣款/加班費）
-  if(['lateMinutes','otHours','baseSalary','fullAttendBase','fullAttendBonus'].includes(key)) {
+  // 即時更新費率相關
+  if(['lateMinutes','otHours','baseSalary','fullAttendBase','fullAttendBonus','otBase'].includes(key)) {
     const rate = hourlyRate(rec);
+    const otRate = parseFloat(rec.otBase || 0) > 0 ? parseFloat(rec.otBase) : rate;
     const rateEl = document.getElementById(`rate-${cardIdx}`);
     const lateEl = document.getElementById(`lateDeduct-${cardIdx}`);
     const otEl = document.getElementById(`otPay-${cardIdx}`);
+    const otBaseEl = document.getElementById(`otBase-${cardIdx}`);
     if(rateEl) rateEl.textContent = `$${rate.toFixed(1)}/hr`;
     if(lateEl) lateEl.textContent = `-$${Math.round(rate/60*(rec.lateMinutes||0)).toLocaleString()}`;
-    if(otEl) otEl.textContent = `+$${Math.ceil(rate*(rec.otHours||0)*1.34).toLocaleString()}`;
+    if(otEl) otEl.textContent = `+$${Math.ceil(otRate*(rec.otHours||0)*1.34).toLocaleString()}`;
+    if(otBaseEl) otBaseEl.textContent = `$${Math.ceil(otRate).toLocaleString()}/hr`;
+  }
+  // 即時更新小計
+  const subtotalEl = document.getElementById(`subtotal-${cardIdx}`);
+  if(subtotalEl) {
+    const role = rec.role;
+    let subtotal = 0;
+    if(role === ROLE_FULL) {
+      subtotal = parseFloat(rec.baseSalary||0) + parseFloat(rec.fullAttendBonus||0) + parseFloat(rec.roleBonus||0);
+    } else if(role === ROLE_MANAGER) {
+      subtotal = parseFloat(rec.baseSalary||0) + parseFloat(rec.fullAttendBonus||0) +
+        ['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+parseFloat(rec[k]||0),0);
+    }
+    subtotalEl.textContent = `$${subtotal.toLocaleString()}`;
+  }
+  // 即時更新應發小計
+  const grossSubEl = document.getElementById(`grossSub-${cardIdx}`);
+  if(grossSubEl) {
+    const role = rec.role;
+    const otRate2 = parseFloat(rec.otBase||0) > 0 ? parseFloat(rec.otBase) : hourlyRate(rec);
+    const otPay = Math.ceil(otRate2*(rec.otHours||0)*1.34);
+    const lateDeduct = Math.round(hourlyRate(rec)/60*(rec.lateMinutes||0));
+    let gross = 0;
+    if(role === ROLE_FULL) {
+      gross = parseFloat(rec.baseSalary||0)+parseFloat(rec.fullAttendBonus||0)+parseFloat(rec.roleBonus||0)+parseFloat(rec.otherBonus||0)+otPay-lateDeduct;
+    } else if(role === ROLE_MANAGER) {
+      const mgmt = ['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+parseFloat(rec[k]||0),0);
+      gross = parseFloat(rec.baseSalary||0)+parseFloat(rec.fullAttendBonus||0)+mgmt+parseFloat(rec.performance||0)+parseFloat(rec.otherBonus||0)+otPay-lateDeduct;
+    }
+    grossSubEl.textContent = `$${gross.toLocaleString()}`;
   }
   // 觸發自動儲存
   triggerAutoSave();
