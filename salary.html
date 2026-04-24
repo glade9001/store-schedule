@@ -445,7 +445,7 @@ function calcTotal(rec) {
     const lateMin = parseFloat(rec.lateMinutes || 0);
     const otH = parseFloat(rec.otHours || 0);
     const lateDeduct = Math.round(ratePerMin * lateMin);
-    const otPay = Math.round(ratePerHour * otH);
+    const otPay = Math.ceil(ratePerHour * otH * 1.34);
     const laborIns = parseFloat(rec.laborInsurance || 0);
     const healthIns = parseFloat(rec.healthInsurance || 0) + parseFloat(rec.dependentInsurance || 0);
     const pension = parseFloat(rec.laborPension || 0);
@@ -588,7 +588,7 @@ function buildPayslipRows(rec, emp, rate, isPartTime) {
     if(parseFloat(rec.otherBonus||0)>0)
       rows.push(['其他津貼', `$${parseFloat(rec.otherBonus).toLocaleString()}`, '', '']);
     if(parseFloat(rec.otHours||0)>0)
-      rows.push(['加班費', `+$${Math.round(rate*(rec.otHours||0)).toLocaleString()}`, '', '']);
+      rows.push(['加班費', `+$${Math.ceil(rate*(rec.otHours||0)*1.34).toLocaleString()}`, '', '']);
     if(parseFloat(rec.lateMinutes||0)>0)
       rows.push(['遲到扣款', `-$${Math.round(rate*(rec.lateMinutes||0)).toLocaleString()}`, '', '']);
   }
@@ -632,7 +632,7 @@ function calcGross(rec) {
     const attend = parseFloat(rec.fullAttendBonus||0);
     const ratePerHour = hourlyRate(rec);
     const ratePerMin = ratePerHour / 60;
-    const otPay = Math.round(ratePerHour*(rec.otHours||0));
+    const otPay = Math.ceil(ratePerHour*(rec.otHours||0)*1.34);
     const lateDeduct = Math.round(ratePerMin*(rec.lateMinutes||0));
     const otherBonus = parseFloat(rec.otherBonus||0);
     const performance = parseFloat(rec.performance||0);
@@ -853,7 +853,7 @@ function buildSinglePayslipHtml(emp, y, m) {
   const weekends = isPartTime ? null : getMonthWeekendDays(currentMonth);
   const offDays = isPartTime ? 0 : calcMonthOffDays(emp.name, currentMonth);
   const lateDeductAmt = isPartTime ? 0 : Math.round(rph/60*(rec.lateMinutes||0));
-  const otPayAmt = isPartTime ? 0 : Math.round(rph*(rec.otHours||0));
+  const otPayAmt = isPartTime ? 0 : Math.ceil(rph*(rec.otHours||0)*1.34);
   const workedH = detectHolidayWork(emp.name, currentMonth);
   const pensionBase = parseFloat(rec.baseSalary||0) + parseFloat(rec.fullAttendBonus||0);
   const companyPension = Math.round(pensionBase * 0.06);
@@ -1468,13 +1468,31 @@ function renderSalaryForm(emp, rec, idx, readonly) {
       <div class="salary-section">
         <div class="salary-section-title">底薪與津貼</div>
         ${inp('baseSalary', rec.baseSalary, '底薪')}
-        ${inp('fullAttendBase', rec.fullAttendBase ?? rec.fullAttendBonus ?? 0, '全勤基準額（計算用）')}
+        <div style="background:#f8fafc;border-radius:8px;padding:8px 10px;margin:4px 0;">
+          ${inp('fullAttendBase', rec.fullAttendBase ?? rec.fullAttendBonus ?? 0, '全勤基準額')}
+          <div style="font-size:10px;color:#94a3b8;margin-top:2px;">⚠️ 僅用於計算加班費/遲到費率，不計入薪資</div>
+        </div>
         ${inp('fullAttendBonus', rec.fullAttendBonus, '本月全勤獎金')}
         ${inp('roleBonus', rec.roleBonus, '職務津貼')}
+        <div class="salary-row" style="border-top:2px solid var(--border);margin-top:6px;">
+          <span class="salary-row-label" style="font-weight:800;">小計</span>
+          <span class="salary-row-val" style="font-weight:900;color:var(--primary);">
+            $${(parseFloat(rec.baseSalary||0)+parseFloat(rec.fullAttendBonus||0)+parseFloat(rec.roleBonus||0)).toLocaleString()}
+          </span>
+        </div>
       </div>
       <div class="salary-section">
         <div class="salary-section-title">其他項目</div>
         ${inp('otherBonus', rec.otherBonus ?? 0, '其他獎金/津貼')}
+      </div>
+      <div class="salary-section" style="background:#f0fdf4;border-radius:10px;padding:10px 12px;">
+        <div class="salary-section-title" style="color:#166534;">應發小計</div>
+        <div class="salary-row">
+          <span class="salary-row-label">底薪+全勤+津貼+其他+加班-遲到</span>
+          <span class="salary-row-val" style="font-weight:900;color:#16a34a;">
+            $${(parseFloat(rec.baseSalary||0)+parseFloat(rec.fullAttendBonus||0)+parseFloat(rec.roleBonus||0)+parseFloat(rec.otherBonus||0)+Math.ceil(hourlyRate(rec)*(rec.otHours||0)*1.34)-Math.round(hourlyRate(rec)/60*(rec.lateMinutes||0))).toLocaleString()}
+          </span>
+        </div>
       </div>
       <div class="salary-section">
         <div class="salary-section-title">加減項</div>
@@ -1482,7 +1500,7 @@ function renderSalaryForm(emp, rec, idx, readonly) {
         ${inpNum('lateMinutes', rec.lateMinutes, '遲到分鐘', 'min')}
         <div class="salary-row"><span class="salary-row-label">遲到扣款 <span style="font-size:10px;color:var(--text-muted);">費率/60×分</span></span><span class="salary-row-val" style="color:var(--danger);" id="lateDeduct-${idx}">-$${Math.round(rate/60*(rec.lateMinutes||0)).toLocaleString()}</span></div>
         ${inpNum('otHours', rec.otHours, '加班時數', 'h')}
-        <div class="salary-row"><span class="salary-row-label">加班費 <span style="font-size:10px;color:var(--text-muted);">費率×時</span></span><span class="salary-row-val" style="color:var(--accent);" id="otPay-${idx}">+$${Math.round(rate*(rec.otHours||0)).toLocaleString()}</span></div>
+        <div class="salary-row"><span class="salary-row-label">加班費 <span style="font-size:10px;color:var(--text-muted);">費率×時×1.34</span></span><span class="salary-row-val" style="color:var(--accent);" id="otPay-${idx}">+$${Math.ceil(rate*(rec.otHours||0)*1.34).toLocaleString()}</span></div>
       </div>
       ${renderInsuranceSection(emp.name, rec, idx)}
       <div class="salary-total-row">
@@ -1496,13 +1514,24 @@ function renderSalaryForm(emp, rec, idx, readonly) {
       <div class="salary-section">
         <div class="salary-section-title">底薪與獎金</div>
         ${inp('baseSalary', rec.baseSalary, '底薪')}
-        ${inp('fullAttendBase', rec.fullAttendBase ?? rec.fullAttendBonus ?? 0, '全勤基準額（計算用）')}
+        <div style="background:#f8fafc;border-radius:8px;padding:8px 10px;margin:4px 0;">
+          ${inp('fullAttendBase', rec.fullAttendBase ?? rec.fullAttendBonus ?? 0, '全勤基準額')}
+          <div style="font-size:10px;color:#94a3b8;margin-top:2px;">⚠️ 僅用於計算加班費/遲到費率，不計入薪資</div>
+        </div>
         ${inp('fullAttendBonus', rec.fullAttendBonus, '本月全勤獎金')}
         ${inp('mgmtOps', rec.mgmtOps, '營運獎勵')}
         ${inp('mgmtQuality', rec.mgmtQuality, '品保獎勵')}
         ${inp('mgmtKPI', rec.mgmtKPI, '營運指標獎勵')}
         ${inp('mgmtAccount', rec.mgmtAccount, '帳務獎勵')}
         ${inp('mgmtLeader', rec.mgmtLeader, '卓越領導獎勵')}
+        <div class="salary-row" style="border-top:2px solid var(--border);margin-top:6px;">
+          <span class="salary-row-label" style="font-weight:800;">小計</span>
+          <span class="salary-row-val" style="font-weight:900;color:var(--primary);">
+            $${(parseFloat(rec.baseSalary||0)+parseFloat(rec.fullAttendBonus||0)+
+               ['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+parseFloat(rec[k]||0),0)
+               ).toLocaleString()}
+          </span>
+        </div>
       </div>
       <div class="salary-section">
         <div class="salary-section-title">加減項</div>
@@ -1510,12 +1539,24 @@ function renderSalaryForm(emp, rec, idx, readonly) {
         ${inpNum('lateMinutes', rec.lateMinutes, '遲到分鐘', 'min')}
         <div class="salary-row"><span class="salary-row-label">遲到扣款 <span style="font-size:10px;color:var(--text-muted);">費率/60×分</span></span><span class="salary-row-val" style="color:var(--danger);" id="lateDeduct-${idx}">-$${Math.round(rate/60*(rec.lateMinutes||0)).toLocaleString()}</span></div>
         ${inpNum('otHours', rec.otHours, '加班時數', 'h')}
-        <div class="salary-row"><span class="salary-row-label">加班費 <span style="font-size:10px;color:var(--text-muted);">費率×時</span></span><span class="salary-row-val" style="color:var(--accent);" id="otPay-${idx}">+$${Math.round(rate*(rec.otHours||0)).toLocaleString()}</span></div>
+        <div class="salary-row"><span class="salary-row-label">加班費 <span style="font-size:10px;color:var(--text-muted);">費率×時×1.34</span></span><span class="salary-row-val" style="color:var(--accent);" id="otPay-${idx}">+$${Math.ceil(rate*(rec.otHours||0)*1.34).toLocaleString()}</span></div>
       </div>
       <div class="salary-section">
         <div class="salary-section-title">其他項目</div>
         ${inp('performance', rec.performance ?? 0, '績效獎金')}
         ${inp('otherBonus', rec.otherBonus ?? 0, '其他獎金/津貼')}
+      </div>
+      <div class="salary-section" style="background:#f0fdf4;border-radius:10px;padding:10px 12px;">
+        <div class="salary-section-title" style="color:#166534;">應發小計</div>
+        <div class="salary-row">
+          <span class="salary-row-label">底薪+全勤+獎金+績效+其他+加班-遲到</span>
+          <span class="salary-row-val" style="font-weight:900;color:#16a34a;">
+            $${(parseFloat(rec.baseSalary||0)+parseFloat(rec.fullAttendBonus||0)+
+               ['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+parseFloat(rec[k]||0),0)+
+               parseFloat(rec.performance||0)+parseFloat(rec.otherBonus||0)+
+               Math.ceil(hourlyRate(rec)*(rec.otHours||0)*1.34)-Math.round(hourlyRate(rec)/60*(rec.lateMinutes||0))).toLocaleString()}
+          </span>
+        </div>
       </div>
       ${renderInsuranceSection(emp.name, rec, idx)}
       <div class="salary-total-row">
@@ -1838,7 +1879,7 @@ function updateField(empName, key, val, cardIdx) {
     const otEl = document.getElementById(`otPay-${cardIdx}`);
     if(rateEl) rateEl.textContent = `$${rate.toFixed(1)}/hr`;
     if(lateEl) lateEl.textContent = `-$${Math.round(rate/60*(rec.lateMinutes||0)).toLocaleString()}`;
-    if(otEl) otEl.textContent = `+$${Math.round(rate*(rec.otHours||0)).toLocaleString()}`;
+    if(otEl) otEl.textContent = `+$${Math.ceil(rate*(rec.otHours||0)*1.34).toLocaleString()}`;
   }
   // 觸發自動儲存
   triggerAutoSave();
