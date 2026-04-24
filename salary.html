@@ -1183,13 +1183,30 @@ async function loadSalaryData() {
     if(!salaryData.records) salaryData.records = [];
     prevSalaryData = prevSalSnap.exists ? (prevSalSnap.data().records || []) : [];
 
-    // 讀取當月排班資料（只讀當月週次）
+    // 讀取當月排班資料（跨所有門市）
     scheduleData = {};
     const monthWeeks = getMonthWeeks(currentMonth);
-    await Promise.all(monthWeeks.map(ws =>
-      window.db.collection('stores').doc(currentStore).collection('weeks').doc(ws).get()
-        .then(snap => { if(snap.exists) scheduleData[ws] = snap.data().records || []; })
-        .catch(()=>{})
+    const allStores = appConfig.stores || [currentStore];
+
+    await Promise.all(allStores.flatMap(store =>
+      monthWeeks.map(ws =>
+        window.db.collection('stores').doc(store).collection('weeks').doc(ws).get()
+          .then(snap => {
+            if(!snap.exists) return;
+            const recs = snap.data().records || [];
+            // 標記每筆記錄來自哪個門市
+            const tagged = recs.map(r => ({ ...r, _store: store }));
+            if(!scheduleData[ws]) scheduleData[ws] = [];
+            // 合併，避免重複（同一人同一天以本店優先）
+            tagged.forEach(r => {
+              const exists = scheduleData[ws].find(
+                e => e.name === r.name && e.day === r.day && e._store === currentStore
+              );
+              if(!exists) scheduleData[ws].push(r);
+            });
+          })
+          .catch(()=>{})
+      )
     ));
 
     updateStatusBadge();
