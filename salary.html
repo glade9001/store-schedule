@@ -446,12 +446,13 @@ function calcTotal(rec) {
   const role = rec.role;
   if(role === ROLE_PART) {
     const wage = parseFloat(rec.wage || 0);
-    const hours = parseFloat(rec.hours || 0);
+    // 動態計算當月工時（不用 rec.hours，避免舊資料影響）
+    const { totalH } = calcEmpHours(rec.empName || rec.name || '');
     const extraH = parseFloat(rec.extraHours || 0);
     const holidayH = parseFloat(rec.holidayHours || 0);
     const roleBonus = parseFloat(rec.roleBonus || 0);
     // 國定假日第一倍已含在一般工時，額外只加第二倍
-    return Math.round(wage * (hours + extraH) + wage * holidayH * 1 + roleBonus);
+    return Math.round(wage * (totalH + extraH) + wage * holidayH * 1 + roleBonus);
   } else {
     const base = parseFloat(rec.baseSalary || 0);
     const attend = parseFloat(rec.fullAttendBonus || 0);
@@ -640,8 +641,9 @@ function calcGross(rec) {
   const role = rec.role;
   if(role === ROLE_PART) {
     const wage = parseFloat(rec.wage||0);
-    const { totalH } = calcEmpHours(rec.empName);
-    return Math.round(wage*totalH + wage*(rec.holidayHours||0)*2 + (rec.roleBonus||0));
+    const { totalH } = calcEmpHours(rec.empName || rec.name || '');
+    const extraH = parseFloat(rec.extraHours||0);
+    return Math.round(wage*(totalH+extraH) + wage*(rec.holidayHours||0) + (rec.roleBonus||0));
   } else {
     const base = parseFloat(rec.baseSalary||0);
     const attend = parseFloat(rec.fullAttendBonus||0);
