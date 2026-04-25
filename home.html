@@ -1827,6 +1827,7 @@ async function loadEmpAdminList(store) {
           </div>
           <div class="emp-account" style="font-size:11px; color:var(--text-muted);">
             ${acc ? `🔐 ${acc.username} · ${PERM_LABELS[acc.permission]||'👤 員工'}` : '⚠️ 尚未設定帳號'}
+            ${emp.startDate ? ` · 📅 ${emp.startDate}到職` : ''}
           </div>
           ${moreBtn}
         </div>
@@ -1883,8 +1884,9 @@ async function openAccountModal(empName, store) {
   document.getElementById('accountModalSub').textContent = `設定 ${empName} 的登入帳號`;
   document.getElementById('accountPassword').value = '';
   document.getElementById('accountPasswordConfirm').value = '';
-  document.getElementById('accountDisplayName').value = empName; // 預設帶入排班系統名稱
+  document.getElementById('accountDisplayName').value = empName;
   document.getElementById('accountUsername').value = '';
+  document.getElementById('accountStartDate').value = '';
 
   // 載入該門市員工名單到連動下拉選單
   try {
@@ -1916,6 +1918,7 @@ async function openAccountModal(empName, store) {
       const uid = accData.ID || ''; // 登入帳號（B28213）
       document.getElementById('accountUsername').value = uid;
       document.getElementById('accountDisplayName').value = accData.displayName || empName || '';
+      document.getElementById('accountStartDate').value = accData.startDate || empData?.startDate || '';
       document.getElementById('accountRole').value = accData.role || 'employee';
       permSel.value = accData.permission || 'employee';
       // 連動狀態
