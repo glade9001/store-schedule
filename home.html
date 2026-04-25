@@ -1092,9 +1092,16 @@ function getNextWeekString() {
   return `${yr}-W${w < 10 ? '0'+w : w}`;
 }
 function getCurrentWeekString() {
-  let d = new Date();
-  let yr = d.getFullYear(); let first = new Date(yr, 0, 1);
-  let w = Math.ceil((((d - first) / 86400000) + first.getDay() + 1) / 7);
+  // 以今日日期為主，用 ISO 週次（週一為一週起點）
+  const d = new Date();
+  const day = d.getDay() || 7; // 週日=7
+  // 找本週週一
+  const mon = new Date(d);
+  mon.setDate(d.getDate() - day + 1);
+  mon.setHours(0,0,0,0);
+  const yr = mon.getFullYear();
+  const first = new Date(yr, 0, 1);
+  const w = Math.ceil((((mon - first) / 86400000) + first.getDay() + 1) / 7);
   return `${yr}-W${w < 10 ? '0'+w : w}`;
 }
 const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
