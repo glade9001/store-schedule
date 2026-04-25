@@ -691,7 +691,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       </div>
       <span class="nav-label">申請</span>
     </button>
-    <button class="nav-item" onclick="window.location.href='salary.html'">
+    <button class="nav-item" onclick="goToSalary()">
       <span class="nav-icon">💰</span>
       <span class="nav-label">薪資</span>
     </button>
@@ -1718,10 +1718,16 @@ function renderQuickBtns() {
         <div class="q-sub" style="color:rgba(255,255,255,0.8);">申請排休</div>
       </div>
       <div class="quick-btn" onclick="window.location.href='salary.html'">
-        <div class="q-icon">💰</div>
+        <div class="q-icon">📋</div>
         <div class="q-label">薪資管理</div>
         <div class="q-sub">${canViewAllSalary()?'全門市':'本店'}薪資</div>
       </div>
+      ${currentUser.empName ? `
+      <div class="quick-btn" onclick="window.location.href='my-salary.html'">
+        <div class="q-icon">💰</div>
+        <div class="q-label">查看薪資</div>
+        <div class="q-sub">我的薪資</div>
+      </div>` : ''}
       <div class="quick-btn" onclick="switchPage('profile')">
         <div class="q-icon">👤</div>
         <div class="q-label">個人資料</div>
@@ -1741,9 +1747,9 @@ function renderQuickBtns() {
         <div class="q-label" style="color:white;">劃休系統</div>
         <div class="q-sub" style="color:rgba(255,255,255,0.8);">申請排休</div>
       </div>
-      <div class="quick-btn" onclick="window.location.href='salary.html'">
+      <div class="quick-btn" onclick="window.location.href='my-salary.html'">
         <div class="q-icon">💰</div>
-        <div class="q-label">薪資查詢</div>
+        <div class="q-label">查看薪資</div>
         <div class="q-sub">我的薪資</div>
       </div>
       <div class="quick-btn" onclick="switchPage('profile')">
@@ -2648,6 +2654,16 @@ function restoreRealRole() {
   if(banner) banner.classList.remove('show');
 
   initApp();
+}
+
+// ===== 薪資頁面跳轉 =====
+function goToSalary() {
+  const perm = currentUser?.permission;
+  if(['manager','owner','admin'].includes(perm)) {
+    window.location.href = 'salary.html';
+  } else {
+    window.location.href = 'my-salary.html';
+  }
 }
 
 // ===== Enter 鍵登入 =====
