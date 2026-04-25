@@ -781,6 +781,19 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       <label>調往門市</label>
       <select id="transferToStore" style="width:100%; padding:12px; border:1.5px solid var(--border); border-radius:10px; font-size:14px;"></select>
     </div>
+    <div class="form-field">
+      <label>生效日期（月初）</label>
+      <select id="transferDate" style="width:100%; padding:12px; border:1.5px solid var(--border); border-radius:10px; font-size:14px;"></select>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">⚠️ 生效日起的班表將複製到新門市，並標記「支援原門市」</div>
+    </div>
+    <div class="form-field">
+      <label>新門市職務</label>
+      <select id="transferRole" style="width:100%; padding:12px; border:1.5px solid var(--border); border-radius:10px; font-size:14px;">
+        <option value="工讀">工讀</option>
+        <option value="正職">正職</option>
+        <option value="店長">店長</option>
+      </select>
+    </div>
     <button class="save-btn" onclick="confirmTransfer()" style="background:var(--warn); color:white;">🏪 確認調店</button>
     <button class="cancel-btn" onclick="closeModal('transferModal')">取消</button>
   </div>
@@ -2158,23 +2171,64 @@ function openTransferModal(empId, fromStore, dispName) {
   document.getElementById('transferFromStore').value = fromStore;
   const name = dispName || empId;
   document.getElementById('transferSub').textContent = `將「${name}」從「${fromStore}」調往`;
+
+  // 門市選單
   const sel = document.getElementById('transferToStore');
   sel.innerHTML = (appConfig.stores || [])
     .filter(s => s !== fromStore)
     .map(s => `<option value="${s}">${s}</option>`).join('');
-  document.getElementById('transferModal').classList.add('active');
+
+  // 生效日期：未來最近6個月初
+  const dateSel = document.getElementById('transferDate');
+  dateSel.innerHTML = '';
+  const now = new Date();
+  for(let i = 0; i <= 5; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,'0');
+    const label = `${y}年${d.getMonth()+1}月1日`;
+    const val = `${y}-${m}-01`;
+    const opt = document.createElement('option');
+    opt.value = val;
+    opt.textContent = label;
+    if(i === 0 || (i === 1 && now.getDate() > 20)) opt.selected = true;
+    dateSel.appendChild(opt);
+  }
+
+  // 設定新門市職務
+  const empStore = fromStore;
+  window.db.collection('stores').doc(empStore).collection('employees').doc(empId).get()
+    .then(snap => {
+      if(snap.exists) {
+        const role = snap.data().role || '工讀';
+        document.getElementById('transferRole').value = role;
+      }
+    }).catch(()=>{});
+
+  openModal('transferModal');
 }
 
 async function confirmTransfer() {
   const empId = document.getElementById('transferEmpId').value;
   const fromStore = document.getElementById('transferFromStore').value;
   const toStore = document.getElementById('transferToStore').value;
+  const effectDate = document.getElementById('transferDate').value; // YYYY-MM-DD
+  const newRole = document.getElementById('transferRole').value;
   if(!toStore) { showToast('⚠️ 請選擇目標門市'); return; }
+
   const sub = document.getElementById('transferSub').textContent;
   const nameMatch = sub.match(/將「(.+)」從/);
   const displayedName = nameMatch ? nameMatch[1] : empId;
-  if(!confirm(`確定將「${displayedName}」從「${fromStore}」調往「${toStore}」？
-原門市將標記為離職，新門市會建立員工資料。`)) return;
+  const [ey, em] = effectDate.split('-').map(Number);
+
+  if(!confirm(`確定將「${displayedName}」
+從「${fromStore}」調往「${toStore}」？
+
+生效日：${ey}年${em}月1日
+新職務：${newRole}
+
+生效日起的班表將複製到新門市
+並標記「支援${fromStore}」`)) return;
 
   showLoading('調店處理中...');
   try {
@@ -2182,31 +2236,141 @@ async function confirmTransfer() {
     const empSnap = await window.db.collection('stores').doc(fromStore).collection('employees').doc(empId).get();
     const empData = empSnap.data() || {};
 
-    // 2. 原門市標記離職
-    await window.db.collection('stores').doc(fromStore).collection('employees').doc(empId).update({ status: '離職' });
+    // 2. 原門市標記調走（不標記離職）
+    await window.db.collection('stores').doc(fromStore).collection('employees').doc(empId)
+      .update({ status: '調走', transferredTo: toStore, transferDate: effectDate });
 
-    // 3. 新門市建立員工
+    // 3. 新門市建立/更新員工資料
     const newEmpSnap = await window.db.collection('stores').doc(toStore).collection('employees').get();
+    const existsInNew = newEmpSnap.docs.some(d => d.id === empId);
     await window.db.collection('stores').doc(toStore).collection('employees').doc(empId).set({
       ...empData,
+      role: newRole,
       status: '在職',
-      sortKey: newEmpSnap.size + 1
+      sortKey: existsInNew ? empData.sortKey : newEmpSnap.size + 1,
+      transferredFrom: fromStore,
+      transferDate: effectDate
     });
 
-    // 4. 更新 account 的 store
-    const accSnap = await window.db.collection('account').where('empName','==',empId).where('store','==',fromStore).limit(1).get();
+    // 4. 更新 account 的 store + 寫入 storeHistory
+    const accSnap = await window.db.collection('account')
+      .where('empName','==',empId).where('store','==',fromStore).limit(1).get();
     if(!accSnap.empty) {
-      await window.db.collection('account').doc(accSnap.docs[0].id).update({ store: toStore });
+      const accDoc = accSnap.docs[0];
+      const accData = accDoc.data();
+      const prevHistory = accData.storeHistory || [];
+
+      // 更新上一筆歷史的 to 日期
+      const updatedHistory = prevHistory.map((h, i) =>
+        i === prevHistory.length - 1 && !h.to
+          ? { ...h, to: effectDate, role: empData.role || h.role }
+          : h
+      );
+      // 若沒有歷史記錄，補上第一筆
+      if(updatedHistory.length === 0) {
+        updatedHistory.push({
+          store: fromStore,
+          from: accData.createdAt ? accData.createdAt.substring(0,10) : '2026-01-01',
+          to: effectDate,
+          role: empData.role || ''
+        });
+      }
+      // 加入新門市記錄
+      updatedHistory.push({
+        store: toStore,
+        from: effectDate,
+        to: null,
+        role: newRole
+      });
+
+      await window.db.collection('account').doc(accDoc.id).update({
+        store: toStore,
+        storeHistory: updatedHistory
+      });
     }
+
+    // 5. 複製班表：從生效日起到當月底，從舊店複製到新店
+    showLoading('複製班表中...');
+    await transferSchedule(empId, fromStore, toStore, effectDate);
 
     closeModal('transferModal');
     hideLoading();
-    showToast(`✅ ${displayedName} 已調往 ${toStore}`);
+    showToast(`✅ ${displayedName} 已調往 ${toStore}，班表已複製`);
     await loadEmpAdminList(fromStore);
   } catch(e) {
     hideLoading();
     showToast('❌ 調店失敗：' + e.message);
+    console.error(e);
   }
+}
+
+// 複製班表到新門市（生效日起）
+async function transferSchedule(empId, fromStore, toStore, effectDate) {
+  const [ey, em] = effectDate.split('-').map(Number);
+  const effectTs = new Date(ey, em-1, 1).getTime();
+
+  // 取當月和下個月的週次
+  const weeks = new Set();
+  for(let month = em; month <= em+1; month++) {
+    const m = month > 12 ? month-12 : month;
+    const y = month > 12 ? ey+1 : ey;
+    const d = new Date(y, m-1, 1);
+    const end = new Date(y, m, 0);
+    while(d <= end) {
+      const yr = d.getFullYear();
+      const first = new Date(yr, 0, 1);
+      const wk = Math.ceil((((d-first)/86400000)+first.getDay()+1)/7);
+      weeks.add(`${yr}-W${String(wk).padStart(2,'0')}`);
+      d.setDate(d.getDate()+7);
+    }
+  }
+
+  const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
+
+  await Promise.all([...weeks].map(async ws => {
+    const fromSnap = await window.db.collection('stores').doc(fromStore)
+      .collection('weeks').doc(ws).get();
+    if(!fromSnap.exists) return;
+
+    const records = fromSnap.data().records || [];
+    // 找生效日起該員工的記錄
+    const empRecords = records.filter(r => {
+      if(r.name !== empId) return false;
+      // 計算這天的實際日期
+      const wDates = getWeekDates(ws);
+      const dIdx = dayNames.indexOf(r.day);
+      if(dIdx < 0) return false;
+      const [dm, dd] = (wDates[dIdx]||'').split('/').map(Number);
+      const recDate = new Date(parseInt(ws.split('-W')[0]), dm-1, dd).getTime();
+      return recDate >= effectTs;
+    });
+
+    if(empRecords.length === 0) return;
+
+    // 讀取新門市這週的班表
+    const toSnap = await window.db.collection('stores').doc(toStore)
+      .collection('weeks').doc(ws).get();
+    let toRecords = toSnap.exists ? (toSnap.data().records || []) : [];
+
+    // 移除新門市已有的該員工記錄（避免重複）
+    toRecords = toRecords.filter(r => r.name !== empId);
+
+    // 加入複製的記錄（標記支援原門市）
+    const copied = empRecords.map(r => ({
+      ...r,
+      location: `支援${fromStore}`,
+      _transferredFrom: fromStore
+    }));
+
+    toRecords = [...toRecords, ...copied];
+
+    // 儲存到新門市
+    await window.db.collection('stores').doc(toStore)
+      .collection('weeks').doc(ws).set(
+        { records: toRecords },
+        { merge: true }
+      );
+  }));
 }
 
 
