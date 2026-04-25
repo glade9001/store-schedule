@@ -419,7 +419,8 @@ function hourlyRate(rec) {
 function calcEmpHours(empName) {
   let totalH = 0, otH = 0;
   const [cy, cm] = currentMonth.split('-').map(Number);
-  const holidays = getMonthHolidays(currentMonth);
+  // 用 Set 避免同一天重複計算（跨店可能同天有多筆）
+  const counted = new Set();
 
   Object.entries(scheduleData).forEach(([ws, weekRecs]) => {
     (weekRecs || []).forEach(r => {
@@ -427,14 +428,19 @@ function calcEmpHours(empName) {
       const h = parseFloat(r.actualHours || 0);
       if(r.shift === '排休' || r.shift === '指休' || !r.shift) return;
 
-      // 確認這筆記錄是當月的日期
+      // 確認是當月日期
       const wDates = getWeekDatesFromStr(ws);
       const dIdx = ['週一','週二','週三','週四','週五','週六','週日'].indexOf(r.day);
       if(dIdx < 0) return;
       const dateStr = wDates[dIdx];
       if(!dateStr) return;
       const [dm, dd] = dateStr.split('/').map(Number);
-      if(dm !== cm) return; // 只算當月
+      if(dm !== cm) return;
+
+      // 避免跨店同天重複計算
+      const dayKey = `${dm}/${dd}`;
+      if(counted.has(dayKey)) return;
+      counted.add(dayKey);
 
       totalH += h;
       if(r.isOT || h > 8) otH += Math.max(0, h - 8);
@@ -1302,40 +1308,65 @@ function renderEmpList() {
   if(!canEditSalary()) {
     const now = new Date();
     const [cy, cm] = currentMonth.split('-').map(Number);
-    const viewableDate = new Date(cy, cm, 1); // 薪資月份的下個月1日
+    const viewableDate = new Date(cy, cm, 1);
     const notYetViewable = now < viewableDate;
+
+    // 找對應門市（依 storeHistory）
+    const history = currentUser.storeHistory || [];
+    const thisMonthStore = history.length > 0
+      ? getStoreForMonth(history, currentMonth)
+      : (currentUser.store || currentStore);
+
+    // 顯示門市標籤
+    const storeBadge = thisMonthStore && thisMonthStore !== currentUser.store
+      ? `<span style="font-size:10px;background:#fce8e6;color:#c0392b;padding:2px 6px;border-radius:4px;font-weight:700;">${thisMonthStore}</span>`
+      : `<span style="font-size:10px;background:#e8f0fe;color:var(--primary);padding:2px 6px;border-radius:4px;font-weight:700;">${thisMonthStore||currentStore}</span>`;
+
     if(salaryData.status !== 'published') {
-      el.innerHTML = `<div class="empty-state"><div class="empty-icon">🔒</div><div style="font-weight:700;">薪資尚未發布</div><div style="font-size:12px;margin-top:6px;">發布後可於 ${cm+1 > 12 ? cy+1 : cy}/${cm+1 > 12 ? 1 : cm+1}/1 起查看</div></div>`;
+      el.innerHTML = `<div class="empty-state"><div class="empty-icon">🔒</div>
+        ${storeBadge}
+        <div style="font-weight:700;margin-top:6px;">薪資尚未發布</div>
+        <div style="font-size:12px;margin-top:6px;">發布後可於 ${cm+1>12?cy+1:cy}年${cm+1>12?1:cm+1}月1日起查看</div>
+      </div>`;
       return;
     }
     if(notYetViewable) {
-      el.innerHTML = `<div class="empty-state"><div class="empty-icon">⏰</div><div style="font-weight:700;">${cy}年${cm}月薪資</div><div style="font-size:12px;margin-top:6px;">${cm+1 > 12 ? cy+1 : cy}年${cm+1 > 12 ? 1 : cm+1}月1日起可查看</div></div>`;
+      el.innerHTML = `<div class="empty-state"><div class="empty-icon">⏰</div>
+        ${storeBadge}
+        <div style="font-weight:700;margin-top:6px;">${cy}年${cm}月薪資</div>
+        <div style="font-size:12px;margin-top:6px;">${cm+1>12?cy+1:cy}年${cm+1>12?1:cm+1}月1日起可查看</div>
+      </div>`;
       return;
     }
-    // 找自己的薪資記錄（用 empName 對應）
+
     const myEmpName = currentUser.empName;
     const myRec = salaryData.records?.find(r => r.empName === myEmpName);
     if(!myRec) {
-      el.innerHTML = `<div class="empty-state"><div class="empty-icon">💰</div><div style="font-weight:700;">本月薪資尚未建立</div></div>`;
+      el.innerHTML = `<div class="empty-state"><div class="empty-icon">💰</div>${storeBadge}<div style="font-weight:700;margin-top:6px;">本月薪資尚未建立</div></div>`;
       return;
     }
     const myEmp = empList.find(e => e.name === myEmpName) || { name: myEmpName, role: myRec.role };
     const total = calcTotal(myRec);
     const isOpen = expandedCards.has(myEmpName);
-    el.innerHTML = `<div class="emp-salary-card" id="card-0">
-      <div class="emp-salary-header" onclick="toggleCard('${myEmpName}', 0)">
-        <div class="emp-salary-avatar">${myEmpName[0]}</div>
-        <div class="emp-salary-info">
-          <div class="emp-salary-name">${myEmpName} <span style="font-size:11px;background:#f1f3f4;padding:2px 6px;border-radius:4px;font-weight:600;">${myRec.role||''}</span></div>
-          <div class="emp-salary-role">${currentMonth.replace('-','年')}月 薪資</div>
+    el.innerHTML = `
+      <div style="padding:8px 0 4px;display:flex;align-items:center;gap:8px;">
+        ${storeBadge}
+        <span style="font-size:11px;color:var(--text-muted);">${cy}年${cm}月薪資</span>
+      </div>
+      <div class="emp-salary-card" id="card-0">
+        <div class="emp-salary-header" onclick="toggleCard('${myEmpName}', 0)">
+          <div class="emp-salary-avatar">${myEmpName[0]}</div>
+          <div class="emp-salary-info">
+            <div class="emp-salary-name">${myEmpName} <span style="font-size:11px;background:#f1f3f4;padding:2px 6px;border-radius:4px;font-weight:600;">${myRec.role||''}</span></div>
+            <div class="emp-salary-role">${currentMonth.replace('-','年')}月 薪資</div>
+          </div>
+          <div class="emp-salary-total">$${total.toLocaleString()}</div>
+          <div class="emp-salary-arrow ${isOpen?'open':''}" id="arrow-0">›</div>
         </div>
-        <div class="emp-salary-total">$${total.toLocaleString()}</div>
-        <div class="emp-salary-arrow ${isOpen?'open':''}" id="arrow-0">›</div>
-      </div>
-      <div class="emp-salary-body ${isOpen?'open':''}" id="body-0">
-        ${renderSalaryForm(myEmp, myRec, 0, true)}
-      </div>
-    </div>`;
+        <div class="emp-salary-body ${isOpen?'open':''}" id="body-0">
+          ${renderSalaryForm(myEmp, myRec, 0, true)}
+        </div>
+      </div>`;
     return;
   }
 
