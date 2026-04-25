@@ -229,7 +229,7 @@ async function loadMySalary(){
   const empName=currentUser.empName;
   if(!empName){
     el.innerHTML='<div class="empty-state"><div class="empty-icon">⚠️</div><div>帳號未連動排班系統</div></div>';
-    return;
+    hideLoading(); return;
   }
   // 依 storeHistory 找本月對應門市
   const history=currentUser.storeHistory||[];
@@ -238,7 +238,7 @@ async function loadMySalary(){
     :(currentUser.store||'');
   if(!thisStore){
     el.innerHTML='<div class="empty-state"><div class="empty-icon">🏪</div><div>找不到對應門市</div></div>';
-    return;
+    hideLoading(); return;
   }
   document.getElementById('headerStore').textContent=thisStore;
 
@@ -269,7 +269,7 @@ async function loadMySalary(){
           發布後於 ${cy}年${cm+1>12?1:cm+1}月1日起可查看
         </div>
       </div>`;
-      return;
+      hideLoading(); return;
     }
     if(!canView){
       el.innerHTML=`<div class="empty-state">
@@ -279,14 +279,14 @@ async function loadMySalary(){
           ${cy}年${cm+1>12?1:cm+1}月1日起可查看
         </div>
       </div>`;
-      return;
+      hideLoading(); return;
     }
 
     // 找自己的薪資記錄
     const rec=(salData.records||[]).find(r=>r.empName===empName);
     if(!rec){
       el.innerHTML='<div class="empty-state"><div style="font-size:40px;">💰</div><div style="font-weight:700;margin-top:8px;">本月薪資尚未建立</div></div>';
-      return;
+      hideLoading(); return;
     }
 
     const role=rec.role||'';
@@ -358,6 +358,7 @@ async function loadMySalary(){
 
   }catch(e){
     el.innerHTML=`<div class="empty-state"><div style="font-size:32px;">❌</div><div style="margin-top:8px;">載入失敗：${e.message}</div></div>`;
+    hideLoading();
   }
   hideLoading();
 }
