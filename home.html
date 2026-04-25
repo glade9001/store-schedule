@@ -1931,7 +1931,7 @@ async function openAccountModal(empName, store) {
       const uid = accData.ID || ''; // 登入帳號（B28213）
       document.getElementById('accountUsername').value = uid;
       document.getElementById('accountDisplayName').value = accData.displayName || empName || '';
-      document.getElementById('accountStartDate').value = accData.startDate || empData?.startDate || '';
+      document.getElementById('accountStartDate').value = accData.startDate || '';
       document.getElementById('accountRole').value = accData.role || 'employee';
       permSel.value = accData.permission || 'employee';
       // 連動狀態
