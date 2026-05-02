@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="莉學商行">
 <link rel="apple-touch-icon" href="icon-192.svg">
 <meta name="theme-color" content="#1a73e8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>📅 班表管理</title>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
@@ -708,6 +708,8 @@ window.onload = async () => {
         // 店長以上：預設本店或第一間
         sel.value = currentUser.store || appConfig.stores[0];
       }
+      // 初始化：跳到含今天的週次
+      empWeekStr = getCurrentWeekString();
       updateEmpWeekLabel();
       await loadEmpView();
     }
@@ -879,6 +881,12 @@ async function saveScheduleData(isManual) {
 
 // ===== 班別 Modal =====
 function openShiftModal(btn) {
+  // 調走員工不能編輯
+  const emp = appData.employees.find(e => e.name === btn.dataset.emp);
+  if(emp?.status === '調走') {
+    showToast('⚠️ 此員工已調往 ' + (emp.transferredTo||'其他門市'));
+    return;
+  }
   currentBtn = btn;
   const empName = btn.dataset.emp;
   const day = btn.dataset.day;
@@ -1056,7 +1064,7 @@ async function fetchAllStoreData() {
     const mainWeekRecs = (mainWeekSnap.exists && mainWeekSnap.data().records) ? mainWeekSnap.data().records : [];
     const scheduledNames = mainWeekRecs.filter(r => r.shift||r.note||r.requestOff).map(r=>r.name);
     mainEmpSnap.forEach(d => {
-      if(d.data().status !== '離職' || scheduledNames.includes(d.id))
+      if(!['離職','調走'].includes(d.data().status) || scheduledNames.includes(d.id))
         appData.employees.push({ name: d.id, ...d.data() });
     });
     appData.employees.sort((a,b) => (a.sortKey||0)-(b.sortKey||0));
@@ -1093,7 +1101,7 @@ async function fetchAllStoreData() {
     otherStores.forEach(s => {
       allFetches.push(
         window.db.collection('stores').doc(s).collection('employees').get()
-          .then(snap => { const emps=[]; snap.forEach(d=>{if(d.data().status!=='離職')emps.push(d.id);}); appData.allStoresEmployees[s]=emps; })
+          .then(snap => { const emps=[]; snap.forEach(d=>{if(!['離職','調走'].includes(d.data().status))emps.push(d.id);}); appData.allStoresEmployees[s]=emps; })
           .catch(()=>{})
       );
       allFetches.push(
@@ -1258,7 +1266,7 @@ async function loadEmpView() {
       }
 
       let emps = [];
-      empSnap.forEach(d => { if(d.data().status !== '離職') emps.push({ name: d.id, ...d.data() }); });
+      empSnap.forEach(d => { if(!['離職','調走'].includes(d.data().status)) emps.push({ name: d.id, ...d.data() }); });
       emps.sort((a,b) => (a.sortKey||0) - (b.sortKey||0));
 
       // 查閱模式不需要 allStoresRecords，傳空陣列
@@ -1416,6 +1424,7 @@ function renderTable() {
     let nameHtml = `<strong class="emp-cell">${dispName}</strong><span class="role-tag">${emp.role||''}</span>`;
     if(isVirtual) nameHtml += ` <span style="color:var(--danger); font-size:11px; cursor:pointer;" onclick="deleteVirtualRow('${emp.name}')">✖</span>`;
     if(emp.status==='離職') nameHtml += ` <span style="color:var(--danger); font-size:10px;">(離職)</span>`;
+    if(emp.status==='調走') nameHtml += ` <span style="color:var(--warn); font-size:10px;">(已調走)</span>`;
     tr.innerHTML = `<td>${nameHtml}</td>`;
 
     dayNames.forEach(day => {
