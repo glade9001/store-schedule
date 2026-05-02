@@ -100,6 +100,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
     <button class="month-btn" onclick="changeMonth(1)">›</button>
   </div>
   <div class="content" id="salaryContent">
+    <!-- 預設載入狀態，稍後會被 JS 覆蓋 -->
     <div class="empty-state">載入中...</div>
   </div>
 </div>
@@ -119,6 +120,17 @@ const TW_HOLIDAYS = {
 
 const ROLE_PART='工讀', ROLE_FULL='正職', ROLE_MANAGER='店長';
 let currentUser=null, currentMonth='', scheduleData={};
+
+// 測試中提示標語 HTML 常數
+const TEST_BANNER_HTML = `
+<div style="background: #fff8e1; border: 1.5px solid #fcd34d; border-radius: 10px; padding: 12px; margin-bottom: 14px; display: flex; align-items: center; gap: 10px; box-shadow: 0 2px 8px rgba(245,158,11,0.1);">
+  <div style="font-size: 22px;">⚠️</div>
+  <div>
+    <div style="font-size: 14px; font-weight: 800; color: #b45309;">目前系統測試中</div>
+    <div style="font-size: 12px; font-weight: 600; color: #d97706; margin-top: 2px;">試算結果僅供參考，實際薪資請以最終發放為準。</div>
+  </div>
+</div>
+`;
 
 function showLoading(msg){const e=document.getElementById('loadingOverlay'),t=document.getElementById('loadingText');if(e)e.classList.remove('hidden');if(t)t.textContent=msg||'載入中...';}
 function hideLoading(){const e=document.getElementById('loadingOverlay');if(e)e.classList.add('hidden');}
@@ -225,10 +237,10 @@ function changeMonth(offset){
 
 async function loadMySalary(){
   const el=document.getElementById('salaryContent');
-  el.innerHTML='<div class="empty-state">載入中...</div>';
+  el.innerHTML = TEST_BANNER_HTML + '<div class="empty-state">載入中...</div>';
   const empName=currentUser.empName;
   if(!empName){
-    el.innerHTML='<div class="empty-state"><div class="empty-icon">⚠️</div><div>帳號未連動排班系統</div></div>';
+    el.innerHTML = TEST_BANNER_HTML + '<div class="empty-state"><div class="empty-icon">⚠️</div><div>帳號未連動排班系統</div></div>';
     hideLoading(); return;
   }
   // 依 storeHistory 找本月對應門市
@@ -237,7 +249,7 @@ async function loadMySalary(){
     ?getStoreForMonth(history,currentMonth)
     :(currentUser.store||'');
   if(!thisStore){
-    el.innerHTML='<div class="empty-state"><div class="empty-icon">🏪</div><div>找不到對應門市</div></div>';
+    el.innerHTML = TEST_BANNER_HTML + '<div class="empty-state"><div class="empty-icon">🏪</div><div>找不到對應門市</div></div>';
     hideLoading(); return;
   }
   document.getElementById('headerStore').textContent=thisStore;
@@ -262,7 +274,7 @@ async function loadMySalary(){
 
     // 未發布或未到查看日期
     if(!isPublished){
-      el.innerHTML=`<div class="empty-state">
+      el.innerHTML = TEST_BANNER_HTML + `<div class="empty-state">
         <div style="font-size:40px;">🔒</div>
         <div style="font-weight:700;margin-top:8px;">薪資尚未發布</div>
         <div style="font-size:12px;margin-top:6px;color:var(--text-muted);">
@@ -272,7 +284,7 @@ async function loadMySalary(){
       hideLoading(); return;
     }
     if(!canView){
-      el.innerHTML=`<div class="empty-state">
+      el.innerHTML = TEST_BANNER_HTML + `<div class="empty-state">
         <div style="font-size:40px;">⏰</div>
         <div style="font-weight:700;margin-top:8px;">${cy}年${cm}月薪資</div>
         <div style="font-size:12px;margin-top:6px;color:var(--text-muted);">
@@ -285,7 +297,7 @@ async function loadMySalary(){
     // 找自己的薪資記錄
     const rec=(salData.records||[]).find(r=>r.empName===empName);
     if(!rec){
-      el.innerHTML='<div class="empty-state"><div style="font-size:40px;">💰</div><div style="font-weight:700;margin-top:8px;">本月薪資尚未建立</div></div>';
+      el.innerHTML = TEST_BANNER_HTML + '<div class="empty-state"><div style="font-size:40px;">💰</div><div style="font-weight:700;margin-top:8px;">本月薪資尚未建立</div></div>';
       hideLoading(); return;
     }
 
@@ -336,7 +348,7 @@ async function loadMySalary(){
     // 月曆
     const calHtml=renderCalendar(empName,role,cy,cm);
 
-    el.innerHTML=`
+    el.innerHTML= TEST_BANNER_HTML + `
       <div class="salary-card">
         <div class="salary-card-header">
           <div>
@@ -357,7 +369,7 @@ async function loadMySalary(){
       </div>`;
 
   }catch(e){
-    el.innerHTML=`<div class="empty-state"><div style="font-size:32px;">❌</div><div style="margin-top:8px;">載入失敗：${e.message}</div></div>`;
+    el.innerHTML= TEST_BANNER_HTML + `<div class="empty-state"><div style="font-size:32px;">❌</div><div style="margin-top:8px;">載入失敗：${e.message}</div></div>`;
     hideLoading();
   }
   hideLoading();
