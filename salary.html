@@ -221,10 +221,14 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
   <div class="modal-box">
     <div class="modal-handle"></div>
     <div class="modal-title">📧 寄送薪資單</div>
-    <div class="modal-sub" id="emailModalSub">全店薪資單 Email 寄送</div>
+    <div class="modal-sub" id="emailModalSub">將全店薪資單寄送至指定 Email</div>
 
-    <!-- 員工 Email 列表 -->
-    <div id="emailEmpList" style="margin-bottom:16px;"></div>
+    <!-- 收件人 Email -->
+    <div style="margin-bottom:16px;">
+      <label style="font-size:13px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:6px;">收件人 Email</label>
+      <input type="email" id="ownerEmail" placeholder="請填寫收件人 Email"
+        style="width:100%;padding:12px;border:1.5px solid var(--border);border-radius:10px;font-size:14px;font-weight:600;">
+    </div>
 
     <!-- 預覽按鈕 -->
     <button onclick="previewEmail()" style="width:100%;padding:12px;background:#f1f3f4;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:8px;">
@@ -235,7 +239,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
     <!-- 寄送按鈕 -->
     <button onclick="sendAllPayslips()" id="sendBtn"
       style="width:100%;padding:14px;background:#34a853;color:white;border:none;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer;">
-      📧 確認寄送全店薪資單
+      📧 確認寄送
     </button>
     <div id="sendProgress" style="display:none;margin-top:12px;"></div>
     <button onclick="closeModal('emailModal')" style="width:100%;padding:12px;background:none;border:none;color:var(--text-muted);font-size:14px;cursor:pointer;margin-top:8px;">取消</button>
@@ -833,29 +837,17 @@ function openPayslipModal() {
   openModal('payslipModal');
 }
 
-// 渲染 Email 員工列表
+// 渲染 Email Modal
 function renderEmailEmpList() {
-  const el = document.getElementById('emailEmpList');
-  if(!el) return;
   const sub = document.getElementById('emailModalSub');
-  if(sub) sub.textContent = `${currentStore} · ${getMonthLabel(currentMonth)} 薪資單寄送`;
-
-  el.innerHTML = `
-    <div style="font-size:12px;font-weight:800;color:var(--text-muted);margin-bottom:8px;">📋 填寫員工 Email（留空則略過）</div>
-    ${empList.map((emp, i) => {
-      const rec = getSalaryRecord(emp.name);
-      const hasRec = !!rec;
-      return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
-        <div style="width:32px;height:32px;border-radius:10px;background:linear-gradient(135deg,#1a73e8,#0d47a1);color:white;font-size:13px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;">${emp.name[0]}</div>
-        <div style="flex:1;min-width:0;">
-          <div style="font-size:13px;font-weight:700;">${emp.name} <span style="font-size:11px;color:var(--text-muted);">${emp.role||''}</span></div>
-          ${!hasRec ? '<div style="font-size:10px;color:#e65100;">⚠️ 無薪資記錄</div>' : ''}
-        </div>
-        <input type="email" id="empEmail-${i}" placeholder="email@example.com"
-          style="flex:2;padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;min-width:0;"
-          ${!hasRec ? 'disabled' : ''}>
-      </div>`;
-    }).join('')}`;
+  if(sub) sub.textContent = `${currentStore} · ${getMonthLabel(currentMonth)} 薪資單`;
+  // 清空之前的進度
+  const progress = document.getElementById('sendProgress');
+  if(progress) { progress.style.display='none'; progress.innerHTML=''; }
+  const sendBtn = document.getElementById('sendBtn');
+  if(sendBtn) { sendBtn.disabled=false; sendBtn.textContent='📧 確認寄送'; }
+  const preview = document.getElementById('emailPreview');
+  if(preview) preview.style.display='none';
 }
 
 // 預覽 Email
@@ -870,16 +862,37 @@ function previewEmail() {
 function buildAllPayslipsHtml() {
   const [y, m] = currentMonth.split('-').map(Number);
   let html = `<style>
-    .payslip-page { page-break-after: always; }
-    .payslip-half { height: 47%; padding: 16px; box-sizing: border-box; border: 2px solid #1a73e8; border-radius: 8px; margin-bottom: 8px; font-family: 'Microsoft JhengHei','PingFang TC',Arial,sans-serif; font-size: 12px; }
-    .cut-line { text-align:center; color:#aaa; font-size:11px; margin: 4px 0; border-top: 1px dashed #ccc; padding-top: 4px; }
-    .ps-title { text-align:center; background:#1a73e8; color:white; padding:8px; border-radius:6px 6px 0 0; margin:-16px -16px 10px; }
-    .ps-grid { display:grid; grid-template-columns:1fr 1fr; gap:4px; }
-    .ps-row { display:flex; justify-content:space-between; padding:3px 0; border-bottom:1px solid #f1f3f4; font-size:11px; }
-    .ps-total { display:flex; justify-content:space-between; padding:6px 0; font-weight:900; font-size:13px; border-top:2px solid #1a73e8; margin-top:6px; }
+    @page { size: A4; margin: 8mm; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: 'Microsoft JhengHei','PingFang TC',Arial,sans-serif; }
+    .payslip-page {
+      width: 100%;
+      height: 277mm;
+      page-break-after: always;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .payslip-half {
+      flex: 1;
+      max-height: 133mm;
+      padding: 8px 12px;
+      border: 1.5px solid #1a73e8;
+      border-radius: 6px;
+      overflow: hidden;
+      font-size: 11px;
+    }
+    .cut-line { text-align:center; color:#aaa; font-size:10px; margin: 3px 0; border-top: 1px dashed #ccc; padding-top: 3px; flex-shrink:0; }
+    .ps-title { text-align:center; background:#1a73e8; color:white; padding:5px; border-radius:4px 4px 0 0; margin:-8px -12px 8px; }
+    .ps-grid { display:grid; grid-template-columns:1fr 1fr; gap:3px; }
+    .ps-row { display:flex; justify-content:space-between; padding:2px 0; border-bottom:1px solid #f1f3f4; font-size:10px; }
+    .ps-total { display:flex; justify-content:space-between; padding:4px 0; font-weight:900; font-size:12px; border-top:2px solid #1a73e8; margin-top:4px; }
     .deduct { color:#d93025; }
-    .sign-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:8px; }
-    .sign-box { border-top:1px solid #e2e8f0; padding-top:6px; text-align:center; font-size:10px; color:#64748b; }
+    .sign-row { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:6px; }
+    .sign-box { border-top:1px solid #e2e8f0; padding-top:4px; text-align:center; font-size:10px; color:#64748b; }
+    @media print {
+      .payslip-page { page-break-after: always; }
+    }
   </style>`;
 
   const emps = empList.filter(e => getSalaryRecord(e.name));
@@ -1065,74 +1078,44 @@ function printAllPayslips() {
   const html = buildAllPayslipsHtml();
   const win = window.open('', '_blank');
   win.document.write(`<!DOCTYPE html><html><head>
-    <meta charset="UTF-8"><title>薪資單</title>
-    <style>
-      body { margin:10mm; }
-      @media print {
-        body { margin: 0; }
-        .payslip-page { page-break-after: always; height: 297mm; }
-      }
-    </style>
+    <meta charset="UTF-8"><title>${currentStore} ${getMonthLabel(currentMonth)} 薪資單</title>
   </head><body>${html}<script>window.onload=()=>window.print();<\/script></body></html>`);
   win.document.close();
 }
 
-// 寄送全店薪資單
+// 寄送全店薪資單（寄給加盟主單一 email）
 async function sendAllPayslips() {
+  const email = document.getElementById('ownerEmail')?.value?.trim();
+  if(!email) { showToast('⚠️ 請填寫收件人 Email'); return; }
+
   const sendBtn = document.getElementById('sendBtn');
   const progress = document.getElementById('sendProgress');
   sendBtn.disabled = true;
   progress.style.display = 'block';
+  progress.innerHTML = `<div style="font-size:13px;color:var(--text-muted);">寄送中...</div>`;
 
-  const emps = empList.filter(e => getSalaryRecord(e.name));
-  let sent = 0, skipped = 0, failed = 0;
-  const results = [];
+  // 建立全店薪資單 HTML
+  const allHtml = buildAllPayslipsHtml();
+  const [y, m] = currentMonth.split('-').map(Number);
 
-  for(let i = 0; i < emps.length; i++) {
-    const emp = emps[i];
-    const emailInput = document.getElementById(`empEmail-${empList.indexOf(emp)}`);
-    const email = emailInput?.value?.trim();
-
-    progress.innerHTML = `<div style="font-size:13px;color:var(--text-muted);">處理中 ${i+1}/${emps.length}：${emp.name}...</div>`;
-
-    if(!email) {
-      skipped++;
-      results.push(`⏭️ ${emp.name}：略過（未填 Email）`);
-      continue;
-    }
-
-    // 建立個人薪資單 HTML
-    const [y, m] = currentMonth.split('-').map(Number);
-    const payslipHtml = buildSinglePayslipHtml(emp, y, m);
-
-    try {
-      await emailjs.send(EMAILJS_SERVICE, EMAILJS_TEMPLATE, {
-        to_email: email,
-        store: currentStore,
-        month: getMonthLabel(currentMonth),
-        payslip_html: payslipHtml,
-      });
-      sent++;
-      results.push(`✅ ${emp.name}：已寄送至 ${email}`);
-    } catch(e) {
-      failed++;
-      results.push(`❌ ${emp.name}：寄送失敗 (${e.text || e.message || '未知錯誤'})`);
-    }
-
-    // 避免頻率限制，每封間隔 1 秒
-    if(i < emps.length - 1) await new Promise(r => setTimeout(r, 1000));
-  }
-
-  progress.innerHTML = `
-    <div style="background:#f8fafc;border-radius:10px;padding:12px;font-size:12px;">
-      <div style="font-weight:800;margin-bottom:8px;">
-        ✅ 已寄送 ${sent} 封　⏭️ 略過 ${skipped} 人　❌ 失敗 ${failed} 封
-      </div>
-      ${results.map(r => `<div style="padding:3px 0;border-bottom:1px solid #f1f3f4;">${r}</div>`).join('')}
+  try {
+    await emailjs.send(EMAILJS_SERVICE, EMAILJS_TEMPLATE, {
+      to_email: email,
+      store: currentStore,
+      month: getMonthLabel(currentMonth),
+      payslip_html: allHtml,
+    });
+    progress.innerHTML = `<div style="background:#e8f5e9;border-radius:10px;padding:12px;font-size:13px;font-weight:700;color:#2e7d32;">
+      ✅ 已成功寄送至 ${email}
     </div>`;
-
-  sendBtn.disabled = false;
-  sendBtn.textContent = '🔄 重新寄送';
+    sendBtn.textContent = '✅ 已寄送';
+  } catch(e) {
+    progress.innerHTML = `<div style="background:#fce8e6;border-radius:10px;padding:12px;font-size:13px;font-weight:700;color:#c62828;">
+      ❌ 寄送失敗：${e.text || e.message || '未知錯誤'}
+    </div>`;
+    sendBtn.disabled = false;
+    sendBtn.textContent = '🔄 重新寄送';
+  }
 }
 
 // ===== 月份切換 =====
