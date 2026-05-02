@@ -1544,7 +1544,7 @@ async function loadStats() {
   if(!store || !empName) return;
 
   try {
-    // 本週統計
+    // ===== 本週統計 (維持原樣) =====
     const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get();
     const records = (snap.exists && snap.data().records) ? snap.data().records : [];
     const myRecs = records.filter(r => r.name === empName);
@@ -1554,43 +1554,73 @@ async function loadStats() {
       return s;
     }, 0);
 
-    // 本月統計：找同月所有週次
-    const yr = parseInt(weekStr.split('-W')[0]);
-    const wk = parseInt(weekStr.split('-W')[1]);
-    const dates = getWeekDates(weekStr);
-    const months = [...new Set(dates.map(d => {
-      const p = d.split('/');
-      return `${yr}-${p[0].padStart(2,'0')}`;
-    }))];
+    // ===== 全新本月統計：精準計算「現實當月」1號到月底 =====
+    // 1. 確認現在真實的月份與年份
+    const nowMonth = new Date();
+    const targetY = nowMonth.getFullYear();
+    const targetM = nowMonth.getMonth() + 1; // 1 ~ 12
+    const targetMonthStr = `${targetY}-${String(targetM).padStart(2, '0')}`;
+
+    // 2. 找出這個月 1 號到月底
+    const firstDay = new Date(targetY, targetM - 1, 1);
+    const lastDay = new Date(targetY, targetM, 0);
+
+    // 3. 找出這個月涵蓋了哪些「週次」(格式: YYYY-Www)，避免多撈或少撈
+    const weeksToFetch = new Set();
+    let tempD = new Date(firstDay);
+    while (tempD <= lastDay) {
+      const mon = new Date(tempD);
+      const day = mon.getDay() || 7;
+      mon.setDate(mon.getDate() - day + 1); // 找週一
+      mon.setHours(0, 0, 0, 0);
+      const y = mon.getFullYear();
+      const first = new Date(y, 0, 1);
+      const w = Math.ceil((((mon - first) / 86400000) + first.getDay() + 1) / 7);
+      weeksToFetch.add(`${y}-W${w < 10 ? '0' + w : w}`);
+      tempD.setDate(tempD.getDate() + 1);
+    }
 
     let monthHours = 0, monthOff = 0, monthOT = 0;
-    // 掃前後幾週找同月資料
-    for(let i = -5; i <= 2; i++) {
-      let w2 = wk + i, y2 = yr;
-      if(w2 < 1) { y2--; w2 += 52; }
-      if(w2 > 52) { y2++; w2 -= 52; }
-      const ws = `${y2}-W${w2 < 10 ? '0'+w2 : w2}`;
+
+    // 4. 只撈取這些涵蓋的週次，並嚴格檢查日期是否為當月
+    for (const ws of weeksToFetch) {
       try {
         const s2 = await window.db.collection('stores').doc(store).collection('weeks').doc(ws).get();
         if(!s2.exists) continue;
         const recs2 = (s2.data().records || []).filter(r => r.name === empName);
-        const wDates = getWeekDates(ws);
+        const wDates = getWeekDates(ws); // 回傳格式如: ['5/1', '5/2', ...]
+
         recs2.forEach(r => {
           const dayIdx = ['週一','週二','週三','週四','週五','週六','週日'].indexOf(r.day);
           if(dayIdx < 0) return;
-          const mo = `${y2}-${wDates[dayIdx].split('/')[0].padStart(2,'0')}`;
-          if(!months.includes(mo)) return;
-          const h = parseFloat(r.actualHours || 0);
-          if(r.shift === '排休' || r.shift === '指休') {
-            monthOff++;
-          } else if(r.shift) {
-            monthHours += h;
-            if(r.isOT || h > 8) monthOT += Math.max(0, h - 8);
+
+          // 從班表日期字串 (例如 "5/1") 拆出月份
+          const [recM] = wDates[dayIdx].split('/');
+          let recY = parseInt(ws.split('-W')[0]);
+
+          // 校正跨年週次的年份 (例如: 週次 2026-W01 包含了 2025/12/31)
+          if (parseInt(recM) === 12 && parseInt(ws.split('-W')[1]) === 1) recY -= 1;
+          if (parseInt(recM) === 1 && parseInt(ws.split('-W')[1]) >= 52) recY += 1;
+
+          const recMonthStr = `${recY}-${recM.padStart(2, '0')}`;
+
+          // 5. 如果這天的紀錄確實屬於「現在的月份」，才加總進去
+          if(recMonthStr === targetMonthStr) {
+            const h = parseFloat(r.actualHours || 0);
+            if(r.shift === '排休' || r.shift === '指休') {
+              monthOff++;
+            } else if(r.shift) {
+              monthHours += h;
+              if(r.isOT || h > 8) monthOT += Math.max(0, h - 8);
+            }
           }
         });
-      } catch(e) {}
+      } catch(e) {
+        console.error('撈取單週統計失敗:', e);
+      }
     }
 
+    // ===== 渲染至畫面 (補回原本被刪掉的部分) =====
     if(isPartTime) {
       const whEl = document.getElementById('statWeekH');
       const mhEl = document.getElementById('statMonthH');
@@ -1617,7 +1647,6 @@ async function loadStats() {
     console.error('統計載入失敗:', e);
   }
 }
-
 // ===== 待處理事項（店長以上）=====
 async function loadPendingItems() {
   const weekStr = getCurrentWeekString();
