@@ -57,6 +57,21 @@ function getWeekDates(wStr) {
 }
 
 /**
+ * 取得某年某月（自然月）所涵蓋的所有 ISO week 字串陣列
+ * 例如 getMonthWeekStrings(2025, 5) → ["2025-W18","2025-W19","2025-W20","2025-W21","2025-W22"]
+ * 判斷依據：該週有任何一天（週一～週日）落在該自然月內，就納入
+ */
+function getMonthWeekStrings(year, month) {
+  const result = new Set();
+  // 從月初掃到月底，每天轉成 ISO week
+  const daysInMonth = new Date(year, month, 0).getDate(); // month 已是 1-based
+  for (let d = 1; d <= daysInMonth; d++) {
+    result.add(dateToISOWeek(new Date(year, month - 1, d)));
+  }
+  return [...result];
+}
+
+/**
  * 判斷某週是否已過封盤時間（前一週五 00:00）
  * 用於員工端禁止修改
  */
