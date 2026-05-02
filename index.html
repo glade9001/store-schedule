@@ -291,7 +291,7 @@ th:first-child { background-color: #185abc; z-index: 12; }
 
 <script>
 let appConfig = { stores: [], shifts: ['排休', '指休'], shiftHours: {} };
-let appData   = { employees: [], records: [], allStoresRecords: [], allStoresEmployees: {}, currentWeekLogs: [] };
+let appData   = { employees: [], records: [], allStoresRecords: [], allStoresEmployees: {}, currentWeekLogs: [], monthRecords: [] };
 let currentWeekDates = [], virtualRowNames = [], localActiveEmps = [], localDeletedNames = [];
 let undoStack = [];
 let currentCell = null, autoSaveTimer = null;
@@ -376,7 +376,7 @@ function undoLastAction() {
   syncUIToMemory(); renderTable(); triggerAutoSave();
 }
 
-// ===== ✅ Firestore 讀取優化：只讀當週 =====
+// ===== ✅ Firestore 讀取優化：當週 + 本月所有週 =====
 async function fetchAllStoreData() {
   const store   = document.getElementById('storeSelector').value;
   const weekStr = document.getElementById('weekSelector').value;
@@ -384,31 +384,68 @@ async function fetchAllStoreData() {
   localStorage.setItem('lastStore', store);
   showLoading('同步各門市最新資料...');
 
-  appData.allStoresRecords  = [];
+  appData.allStoresRecords   = [];
   appData.allStoresEmployees = {};
-  appData.currentWeekLogs   = [];
+  appData.currentWeekLogs    = [];
+  appData.monthRecords       = [];
+
+  // 本月 = 今天實際日期所在的自然月（與班表選到哪週無關）
+  const today        = new Date();
+  const currentYear  = today.getFullYear();
+  const currentMonth = today.getMonth() + 1;  // 1~12
+  const monthWeeks   = getMonthWeekStrings(currentYear, currentMonth);
 
   try {
-    // 各門市只讀「當週」一份文件，而非所有週
+    // ── Step 1：各門市讀「當週」（用於跨店支援判斷） ──
     for (const s of appConfig.stores) {
-      // 員工名單仍需完整讀取（不隨週次變動）
       const empSnap = await window.db.collection('stores').doc(s).collection('employees').get();
       const emps = [];
       empSnap.forEach(d => { if (d.data().status !== '離職') emps.push(d.id); });
       appData.allStoresEmployees[s] = emps;
 
-      // ✅ 只讀當週 doc（原本是 .get() 全部週次）
-      const weekDoc = await window.db.collection('stores').doc(s).collection('weeks').doc(weekStr).get();
+      const weekDoc = await window.db.collection('stores').doc(s)
+        .collection('weeks').doc(weekStr).get();
       if (weekDoc.exists) {
         const data = weekDoc.data();
         (data.records || []).forEach(r => {
           appData.allStoresRecords.push({ ...r, _store: s, week: weekStr });
         });
-        if (s === store && data.logs) {
-          appData.currentWeekLogs = data.logs;
+        if (s === store && data.logs) appData.currentWeekLogs = data.logs;
+      }
+    }
+
+    // ── Step 2：讀「本月其他週」— 只讀當前門市 + 其他門市（只取支援記錄用） ──
+    // monthWeeks 已包含 weekStr，用 filter 排除避免重複讀
+    const otherWeeks = monthWeeks.filter(w => w !== weekStr);
+    for (const w of otherWeeks) {
+      // 當前門市：完整讀取（計算本店員工的月累計）
+      const myDoc = await window.db.collection('stores').doc(store)
+        .collection('weeks').doc(w).get();
+      if (myDoc.exists) {
+        (myDoc.data().records || []).forEach(r => {
+          appData.monthRecords.push({ ...r, _store: store, week: w });
+        });
+      }
+      // 其他門市：只讀有支援記錄的（判斷員工是否跨店支援）
+      for (const s of appConfig.stores) {
+        if (s === store) continue;
+        const otherDoc = await window.db.collection('stores').doc(s)
+          .collection('weeks').doc(w).get();
+        if (otherDoc.exists) {
+          (otherDoc.data().records || []).forEach(r => {
+            // 只保留「支援對象是本店員工」且已核准的記錄
+            if (r.supportEmp && r.supportEmp.startsWith(store + '-') && r.approvalStatus === 'approved') {
+              appData.monthRecords.push({ ...r, _store: s, week: w });
+            }
+          });
         }
       }
     }
+
+    // 當週的資料也併入 monthRecords，方便 updateSummary 統一查詢
+    appData.allStoresRecords.forEach(r => {
+      appData.monthRecords.push({ ...r });
+    });
 
     appData.records = appData.allStoresRecords.filter(r => r._store === store);
 
@@ -792,59 +829,90 @@ function updateDailyTotals() {
 function updateSummary(idx, emp) {
   const t = document.getElementById(`sum-${idx}`); if (!t) return;
   if (emp.name.includes('待補')) { t.innerHTML = '-'; return; }
+
   const weekStr = document.getElementById('weekSelector').value;
   const myStore = document.getElementById('storeSelector').value;
-  const activeMonths = [...new Set(currentWeekDates.map(d => d.split('/')[0]))];
+
+  // 本月 = 今天實際日期所在的自然月
+  const today        = new Date();
+  const currentMonth = today.getMonth() + 1;  // 1~12
+
   let weekHours = 0, weekOffD = 0;
-  const monthStats = {};
-  activeMonths.forEach(m => monthStats[m] = { hours: 0, ot: 0, offD: 0 });
+  let monthHours = 0, monthOT = 0, monthOffD = 0;
 
-  if (appData.allStoresRecords) {
-    appData.allStoresRecords.forEach(r => {
-      const isNative  = (r._store === myStore && r.name === emp.name);
-      const isSupport = (r.supportEmp === `${myStore}-${emp.name}` && r.approvalStatus === 'approved');
-      if (isNative) {
-        const hasSupportThatDay = appData.allStoresRecords.some(sr =>
-          sr.supportEmp === `${myStore}-${emp.name}` && sr.approvalStatus === 'approved' && sr.day === r.day && sr.week === r.week
-        );
-        if (hasSupportThatDay) return;
-      }
-      if (!isNative && !isSupport) return;
-      const h = parseFloat(r.actualHours || 0);
-      const isOffDay = (r.shift === '排休' || r.shift === '指休');
-      // 週統計
-      if (r.week === weekStr) {
-        weekHours += isOffDay ? 0 : h;
-        if (isOffDay) weekOffD++;
-      }
-      // 月統計：確認該 record 的日期屬於哪個月
-      const weekDates = getWeekDates(r.week);
-      const dayIdx    = dayNames.indexOf(r.day);
-      if (dayIdx !== -1 && weekDates[dayIdx]) {
-        const mo = weekDates[dayIdx].split('/')[0];
-        if (monthStats[mo]) {
-          if (isOffDay) monthStats[mo].offD++;
-          else {
-            monthStats[mo].hours += h;
-            if (r.isOT) monthStats[mo].ot += h;
-          }
-        }
-      }
-    });
-  }
+  // ── 週統計：從 allStoresRecords（當週）算 ──
+  appData.allStoresRecords.forEach(r => {
+    const isNative  = (r._store === myStore && r.name === emp.name);
+    const isSupport = (r.supportEmp === `${myStore}-${emp.name}` && r.approvalStatus === 'approved');
+    if (!isNative && !isSupport) return;
+    // 若本店有排班，同時有去其他店支援 → 以支援為準，略過本店本日
+    if (isNative) {
+      const hasSupportOut = appData.allStoresRecords.some(sr =>
+        sr.supportEmp === `${myStore}-${emp.name}` && sr.approvalStatus === 'approved' &&
+        sr.day === r.day && sr.week === r.week
+      );
+      if (hasSupportOut) return;
+    }
+    const h = parseFloat(r.actualHours || 0);
+    const isOffDay = (r.shift === '排休' || r.shift === '指休');
+    weekHours += isOffDay ? 0 : h;
+    if (isOffDay) weekOffD++;
+  });
 
-  let html = `<div>本週 <b>${Math.round(weekHours)}h</b> / 休${weekOffD}天</div>`;
-  activeMonths.forEach(m => {
-    const ms = monthStats[m];
-    html += `<div>${m}月 <b>${Math.round(ms.hours)}h</b>`;
-    if (ms.ot > 0) html += ` <span style="color:#d93025;">+OT${Math.round(ms.ot)}h</span>`;
-    html += ` / 休${ms.offD}天</div>`;
-    if (emp.wage) {
-      const pay = emp.role === '工讀' ? emp.wage * ms.hours : emp.wage;
-      html += `<div style="color:#1a73e8;">💰 ${Math.round(pay).toLocaleString()}</div>`;
+  // ── 月統計：從 monthRecords（本月所有週）算 ──
+  // 用 Set 追蹤已計算的 (week+day)，避免重複（當週資料同時存在 allStoresRecords 和 monthRecords）
+  const counted = new Set();
+  appData.monthRecords.forEach(r => {
+    const isNative  = (r._store === myStore && r.name === emp.name);
+    const isSupport = (r.supportEmp === `${myStore}-${emp.name}` && r.approvalStatus === 'approved');
+    if (!isNative && !isSupport) return;
+
+    // 確認這天真正屬於當前自然月
+    const rDates = getWeekDates(r.week);
+    const dIdx   = dayNames.indexOf(r.day);
+    if (dIdx === -1) return;
+    const dayMonth = parseInt(rDates[dIdx].split('/')[0]);
+    if (dayMonth !== currentMonth) return;
+
+    // 若本店有排班，同時有去其他店支援 → 以支援為準，略過本店本日
+    if (isNative) {
+      const hasSupportOut = appData.monthRecords.some(sr =>
+        sr.supportEmp === `${myStore}-${emp.name}` && sr.approvalStatus === 'approved' &&
+        sr.day === r.day && sr.week === r.week
+      );
+      if (hasSupportOut) return;
+    }
+
+    // 去重：同一個 (week, day, empName) 只計算一次
+    const key = `${r.week}-${r.day}-${r.name}-${r._store}`;
+    if (counted.has(key)) return;
+    counted.add(key);
+
+    const h = parseFloat(r.actualHours || 0);
+    const isOffDay = (r.shift === '排休' || r.shift === '指休');
+    if (isOffDay) { monthOffD++; }
+    else {
+      monthHours += h;
+      if (r.isOT) monthOT += h;
     }
   });
-  t.innerHTML = html;
+
+  // ── 薪資試算 ──
+  let payHtml = '';
+  if (emp.wage && emp.wage > 0) {
+    const pay = emp.role === '工讀'
+      ? emp.wage * monthHours           // 工讀：時薪 × 月總工時
+      : emp.wage;                       // 正職/副店長/店長：固定月薪
+    payHtml = `<div style="color:#1a73e8;font-weight:bold;">💰 ${Math.round(pay).toLocaleString()}</div>`;
+  }
+
+  t.innerHTML =
+    `<div>本週 <b>${Math.round(weekHours)}h</b> / 休${weekOffD}天</div>` +
+    `<div style="border-top:1px solid #e0e0e0;margin-top:3px;padding-top:3px;">` +
+    `${currentMonth}月 <b>${Math.round(monthHours)}h</b>` +
+    (monthOT > 0 ? ` <span style="color:#d93025;">+OT${Math.round(monthOT)}h</span>` : '') +
+    ` / 休${monthOffD}天</div>` +
+    payHtml;
 }
 
 // ===== 記憶體同步 =====
