@@ -462,8 +462,11 @@ function calcTotal(rec) {
     const extraH = parseFloat(rec.extraHours || 0);
     const holidayH = parseFloat(rec.holidayHours || 0);
     const roleBonus = parseFloat(rec.roleBonus || 0);
+    
     // 國定假日第一倍已含在一般工時，額外只加第二倍
-    return Math.round(wage * (totalH + extraH) + wage * holidayH * 1 + roleBonus);
+    const gross = Math.round(wage * (totalH + extraH) + wage * holidayH * 1 + roleBonus);
+    const deduct = parseFloat(rec.laborInsurance || 0) + parseFloat(rec.healthInsurance || 0) + parseFloat(rec.dependentInsurance || 0) + parseFloat(rec.laborPension || 0);
+    return gross - deduct;
   } else {
     const base = parseFloat(rec.baseSalary || 0);
     const attend = parseFloat(rec.fullAttendBonus || 0);
@@ -493,8 +496,6 @@ function calcTotal(rec) {
     }
   }
 }
-
-
 
 function renderPayslip() {
   const empName = document.getElementById('payslipEmpSelect').value;
@@ -594,9 +595,16 @@ function buildPayslipRows(rec, emp, rate, isPartTime) {
   if(isPartTime) {
     const { totalH } = calcEmpHours(emp.name);
     rows.push(['時薪', `$${rec.wage||0}`, '勞保費', `$${rec.laborInsurance||0}`]);
-    rows.push([`工時 ${totalH}h`, `$${Math.round((rec.wage||0)*totalH).toLocaleString()}`, '健保費', `$${rec.healthInsurance||0}`]);
-    if(parseFloat(rec.holidayHours||0)>0)
-      rows.push([`國假加班 ${rec.holidayHours}h×2`, `$${Math.round((rec.wage||0)*rec.holidayHours*2).toLocaleString()}`, '', '']);
+    rows.push([`工時 ${totalH}h`, `$${Math.round((rec.wage||0)*totalH).toLocaleString()}`, `健保費${rec.hasDependent?'（有眷）':''}`, `$${((rec.healthInsurance||0)+(rec.dependentInsurance||0)).toLocaleString()}`]);
+    
+    const hasHoliday = parseFloat(rec.holidayHours||0) > 0;
+    rows.push([
+      hasHoliday ? `國假加班 ${rec.holidayHours}h×2` : '',
+      hasHoliday ? `$${Math.round((rec.wage||0)*rec.holidayHours*2).toLocaleString()}` : '',
+      '勞退自提',
+      `$${rec.laborPension||0}`
+    ]);
+    
     if(parseFloat(rec.roleBonus||0)>0)
       rows.push(['職務津貼', `$${parseFloat(rec.roleBonus).toLocaleString()}`, '', '']);
   } else {
@@ -945,7 +953,7 @@ function buildSinglePayslipHtml(emp, y, m) {
     earningRows += row('其他獎金/津貼', `$${(rec.otherBonus||0).toLocaleString()}`);
     earningRows += row('國定假日加班', `$${Math.round((rec.wage||0)*(rec.holidayHours||0)*2).toLocaleString()}`);
     deductItemRows += row('勞保費', `$${(rec.laborInsurance||0).toLocaleString()}`);
-    deductItemRows += row('健保費', `$${(rec.healthInsurance||0).toLocaleString()}`);
+    deductItemRows += row('健保費', `$${((rec.healthInsurance||0)+(rec.dependentInsurance||0)).toLocaleString()}`);
     deductItemRows += row('勞退個人自提', `$${(rec.laborPension||0).toLocaleString()}`);
     deductItemRows += row('其他扣款', '$0');
     attendRows += row('平日加班時數', `${otH}h`);
@@ -1404,6 +1412,10 @@ function buildDefaultRecord(emp) {
       hours: totalH,
       holidayHours: holidayHours,
       extraHours: prev.extraHours !== undefined ? prev.extraHours : 0,
+      laborInsurance: prev.laborInsurance !== undefined ? prev.laborInsurance : (emp.laborInsurance || 0),
+      healthInsurance: prev.healthInsurance !== undefined ? prev.healthInsurance : (emp.healthInsurance || 0),
+      hasDependent: prev.hasDependent !== undefined ? prev.hasDependent : (emp.hasDependent || false),
+      laborPension: prev.laborPension !== undefined ? prev.laborPension : (emp.laborPension || 0),
     };
   } else if(emp.role === ROLE_FULL) {
     return {
@@ -1482,6 +1494,7 @@ function renderSalaryForm(emp, rec, idx, readonly) {
       : `<div style="font-size:11px;color:#94a3b8;margin-top:4px;">已從排班自動帶入，可手動修正</div>`;
 
     const normalPay = Math.round((totalH + extraH) * wage);
+    const gross = calcGross(rec);
 
     return `
       <div class="salary-section">
@@ -1502,8 +1515,21 @@ function renderSalaryForm(emp, rec, idx, readonly) {
         ${inpNum('holidayHours', rec.holidayHours, '國定假日出勤時數', 'h')}
         ${holidayHint}
       </div>
+      
+      <div class="salary-section" style="background:#f0fdf4;border-radius:10px;padding:10px 12px;">
+        <div class="salary-section-title" style="color:#166534;">應發小計</div>
+        <div class="salary-row">
+          <span class="salary-row-label">時薪×工時+津貼+國假加給</span>
+          <span class="salary-row-val" style="font-weight:900;color:#16a34a;" id="grossSub-${idx}">
+            $${gross.toLocaleString()}
+          </span>
+        </div>
+      </div>
+      
+      ${renderInsuranceSection(emp.name, rec, idx)}
+      
       <div class="salary-total-row">
-        <span class="salary-total-label">本月薪資</span>
+        <span class="salary-total-label">本月實發薪資</span>
         <span class="salary-total-val" id="total-${idx}">$${total.toLocaleString()}</span>
       </div>
       <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.8;">
@@ -1949,19 +1975,23 @@ function updateField(empName, key, val, cardIdx) {
     }
     subtotalEl.textContent = `$${subtotal.toLocaleString()}`;
   }
-  // 即時更新應發小計
+ // 即時更新應發小計
   const grossSubEl = document.getElementById(`grossSub-${cardIdx}`);
   if(grossSubEl) {
     const role = rec.role;
-    const otRate2 = parseFloat(rec.otBase||0) > 0 ? parseFloat(rec.otBase) : hourlyRate(rec);
-    const otPay = Math.ceil(otRate2*(rec.otHours||0)*1.34);
-    const lateDeduct = Math.round(hourlyRate(rec)/60*(rec.lateMinutes||0));
     let gross = 0;
-    if(role === ROLE_FULL) {
-      gross = parseFloat(rec.baseSalary||0)+parseFloat(rec.fullAttendBonus||0)+parseFloat(rec.roleBonus||0)+parseFloat(rec.otherBonus||0)+otPay-lateDeduct;
-    } else if(role === ROLE_MANAGER) {
-      const mgmt = ['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+parseFloat(rec[k]||0),0);
-      gross = parseFloat(rec.baseSalary||0)+parseFloat(rec.fullAttendBonus||0)+mgmt+parseFloat(rec.performance||0)+parseFloat(rec.otherBonus||0)+otPay-lateDeduct;
+    if(role === ROLE_PART) {
+      gross = calcGross(rec);
+    } else {
+      const otRate2 = parseFloat(rec.otBase||0) > 0 ? parseFloat(rec.otBase) : hourlyRate(rec);
+      const otPay = Math.ceil(otRate2*(rec.otHours||0)*1.34);
+      const lateDeduct = Math.round(hourlyRate(rec)/60*(rec.lateMinutes||0));
+      if(role === ROLE_FULL) {
+        gross = parseFloat(rec.baseSalary||0)+parseFloat(rec.fullAttendBonus||0)+parseFloat(rec.roleBonus||0)+parseFloat(rec.otherBonus||0)+otPay-lateDeduct;
+      } else if(role === ROLE_MANAGER) {
+        const mgmt = ['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+parseFloat(rec[k]||0),0);
+        gross = parseFloat(rec.baseSalary||0)+parseFloat(rec.fullAttendBonus||0)+mgmt+parseFloat(rec.performance||0)+parseFloat(rec.otherBonus||0)+otPay-lateDeduct;
+      }
     }
     grossSubEl.textContent = `$${gross.toLocaleString()}`;
   }
