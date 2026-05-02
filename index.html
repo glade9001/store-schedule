@@ -1,1136 +1,1213 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>📅 門市排班神器 🚀</title>
-  
-  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>📅 門市排班神器 🚀</title>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyAmVwq-Wny1KMRGNSdOnBEJ_A-3HmTO-hM",
+  authDomain: "store-schedule-3b056.firebaseapp.com",
+  projectId: "store-schedule-3b056",
+  storageBucket: "store-schedule-3b056.firebasestorage.app",
+  messagingSenderId: "296522693619",
+  appId: "1:296522693619:web:f90ec5d666c7a4a5943086"
+};
+firebase.initializeApp(firebaseConfig);
+window.db = firebase.firestore();
+window.db.settings({ experimentalForceLongPolling: true });
+</script>
+<!-- ✅ 共用工具函式 (週次計算、showLoading、closeModal) -->
+<script src="utils.js"></script>
+<style>
+body { font-family: -apple-system, "Segoe UI", "Microsoft JhengHei", sans-serif; padding: 10px; background-color: #f1f3f4; margin: 0; color: #202124; }
+h2 { text-align: center; margin-bottom: 5px; font-size: 22px; font-weight: 900; color: #1a73e8; letter-spacing: 1px; }
+#syncStatus { text-align: center; font-size: 12px; color: #70757a; margin-bottom: 10px; height: 22px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+#syncStatus .dot { width: 10px; height: 10px; border-radius: 50%; background: #34a853; box-shadow: 0 0 5px rgba(52,168,83,0.5); }
+#syncStatus.syncing { color: #d93025; font-weight: bold; }
+#syncStatus.syncing .dot { background: #d93025; animation: blink 0.8s infinite; }
+@keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-  <script>
-    const firebaseConfig = {
-      apiKey: "AIzaSyAmVwq-Wny1KMRGNSdOnBEJ_A-3HmTO-hM",
-      authDomain: "store-schedule-3b056.firebaseapp.com",
-      projectId: "store-schedule-3b056",
-      storageBucket: "store-schedule-3b056.firebasestorage.app",
-      messagingSenderId: "296522693619",
-      appId: "1:296522693619:web:f90ec5d666c7a4a5943086"
-    };
-    firebase.initializeApp(firebaseConfig);
-    window.db = firebase.firestore();
-    window.db.settings({ experimentalForceLongPolling: true });
-  </script>
+/* ===== 控制列：手機改為緊湊兩行 ===== */
+.controls-row1 { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px; margin-bottom: 6px; }
+.controls-row2 { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px; margin-bottom: 10px; }
 
-  <style>
-    body { font-family: -apple-system, "Segoe UI", "Microsoft JhengHei", sans-serif; padding: 15px; background-color: #f1f3f4; margin: 0; color: #202124; }
-    h2 { text-align: center; margin-bottom: 5px; font-size: 24px; font-weight: 900; color: #1a73e8; letter-spacing: 1px; }
-    #syncStatus { text-align: center; font-size: 12px; color: #70757a; margin-bottom: 12px; height: 24px; display: flex; align-items: center; justify-content: center; gap: 8px; }
-    #syncStatus .dot { width: 10px; height: 10px; border-radius: 50%; background: #34a853; box-shadow: 0 0 5px rgba(52,168,83,0.5); }
-    #syncStatus.syncing { color: #d93025; font-weight: bold; }
-    #syncStatus.syncing .dot { background: #d93025; animation: blink 0.8s infinite; }
-    @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+/* ===== 次要功能收納到「更多」選單 ===== */
+.more-menu-wrap { position: relative; display: inline-block; }
+#moreMenu {
+  display: none; position: absolute; top: calc(100% + 4px); right: 0;
+  background: white; border: 1px solid #dadce0; border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15); z-index: 9000;
+  min-width: 150px; padding: 6px 0;
+}
+#moreMenu.open { display: block; }
+#moreMenu button { display: block; width: 100%; padding: 11px 18px; text-align: left;
+  background: none; border: none; font-size: 14px; font-weight: 700; cursor: pointer;
+  color: #202124; box-shadow: none; border-radius: 0; }
+#moreMenu button:hover { background: #f1f3f4; }
 
-    .controls { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; margin-bottom: 15px; }
-    select, input, button { padding: 9px 12px; border-radius: 6px; border: 1px solid #dadce0; font-size: 14px; background: white; }
-    button { cursor: pointer; font-weight: 700; transition: 0.1s; border: none; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
-    button:active { transform: translateY(1px); box-shadow: none; }
-    
-    .btn-nav { background: #5f6368; color: white; padding: 9px 15px; }
-    .btn-undo { background: #e0e0e0; color: #333; padding: 9px 15px; }
-    .btn-save { background: #1a73e8; color: white; }
-    .btn-print { background: #e67e22; color: white; }
-    .btn-manage { background: #9334e6; color: white; }
-    .btn-virtual { background: #ff9800; color: white; }
-    .btn-log { background: #00897b; color: white; }
-    
-    /* 🌟 新增：畫筆按鈕樣式 */
-    .btn-paint { background: #e91e63; color: white; }
-    .btn-paint.active { background: #c2185b; box-shadow: inset 0 3px 5px rgba(0,0,0,0.3); }
-    .paint-active-btn { background: #ffeb3b !important; border: 2px solid #000 !important; color: #000 !important; transform: scale(1.05); }
+select, input[type="week"] { padding: 9px 10px; border-radius: 6px; border: 1px solid #dadce0; font-size: 14px; background: white; }
+button { cursor: pointer; font-weight: 700; transition: 0.1s; border: none; box-shadow: 0 1px 3px rgba(0,0,0,0.2); padding: 9px 13px; border-radius: 6px; font-size: 14px; }
+button:active { transform: translateY(1px); box-shadow: none; }
+.btn-nav   { background: #5f6368; color: white; }
+.btn-undo  { background: #e0e0e0; color: #333; }
+.btn-save  { background: #1a73e8; color: white; }
+.btn-print { background: #e67e22; color: white; }
+.btn-manage{ background: #9334e6; color: white; }
+.btn-virtual{ background: #ff9800; color: white; }
+.btn-log   { background: #00897b; color: white; }
+.btn-paint { background: #e91e63; color: white; }
+.btn-paint.active { background: #c2185b; box-shadow: inset 0 3px 5px rgba(0,0,0,0.3); }
+.btn-more  { background: #3c4043; color: white; }
+.paint-active-btn { background: #ffeb3b !important; border: 2px solid #000 !important; color: #000 !important; transform: scale(1.05); }
 
-    .table-responsive { width: 100%; height: 65vh; overflow: auto; background: white; border-radius: 8px; border: 1px solid #dadce0; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
-    table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 1000px; user-select: none; /* 防止拖曳時反白 */ }
-    th, td { border-right: 1px solid #e8eaed; border-bottom: 1px solid #e8eaed; padding: 8px; text-align: center; vertical-align: middle; }
-    th { position: sticky; top: 0; z-index: 10; background-color: #1a73e8; color: white; font-size: 14px; }
-    .date-text { display: block; font-size: 10px; font-weight: normal; margin-bottom: 2px; color: #e8f0fe; }
-    td:first-child, th:first-child { position: sticky; left: 0; z-index: 11; background-color: #f8f9fa; border-right: 2px solid #dadce0; width: 90px; }
-    th:first-child { background-color: #185abc; z-index: 12; }
+.table-responsive { width: 100%; height: 65vh; overflow: auto; background: white; border-radius: 8px; border: 1px solid #dadce0; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 1000px; user-select: none; }
+th, td { border-right: 1px solid #e8eaed; border-bottom: 1px solid #e8eaed; padding: 8px; text-align: center; vertical-align: middle; }
+th { position: sticky; top: 0; z-index: 10; background-color: #1a73e8; color: white; font-size: 14px; }
+.date-text { display: block; font-size: 10px; font-weight: normal; margin-bottom: 2px; color: #e8f0fe; }
+td:first-child, th:first-child { position: sticky; left: 0; z-index: 11; background-color: #f8f9fa; border-right: 2px solid #dadce0; width: 90px; }
+th:first-child { background-color: #185abc; z-index: 12; }
 
-    .cell-btn { width: 100%; height: 100%; min-height: 55px; border: 1px solid #f1f3f4; background: #fff; cursor: pointer; border-radius: 4px; font-size: 15px; font-weight: 700; color: #3c4043; position: relative; transition: 0.1s; }
-    .zhi-xiu { color: #d93025 !important; border: 2px solid #d93025 !important; background: #fce8e6 !important; }
-    .pai-xiu { color: #70757a !important; background: #f1f3f4 !important; border: 1px solid #dadce0 !important; }
-    .shift-morning { color: #1a73e8 !important; border-left: 5px solid #1a73e8 !important; }
-    .shift-night { color: #e67e22 !important; border-left: 5px solid #e67e22 !important; }
+.cell-btn { width: 100%; height: 100%; min-height: 55px; border: 1px solid #f1f3f4; background: #fff; cursor: pointer; border-radius: 4px; font-size: 15px; font-weight: 700; color: #3c4043; position: relative; transition: 0.1s; touch-action: none; }
+.zhi-xiu  { color: #d93025 !important; border: 2px solid #d93025 !important; background: #fce8e6 !important; }
+.pai-xiu  { color: #70757a !important; background: #f1f3f4 !important; border: 1px solid #dadce0 !important; }
+.shift-morning { color: #1a73e8 !important; border-left: 5px solid #1a73e8 !important; }
+.shift-night   { color: #e67e22 !important; border-left: 5px solid #e67e22 !important; }
+.unfilled-shift { background-color: #ffe0b2 !important; border: 2px dashed #f57c00 !important; color: #e65100 !important; }
+.conflict-alert { border: 2px solid #d93025 !important; background-color: #fce8e6 !important; animation: blink-border 1.5s infinite; }
+@keyframes blink-border { 0%,100% { border-color: #d93025; } 50% { border-color: #ff9800; } }
 
-    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(32,33,36,0.85); z-index: 9999; justify-content: center; align-items: center; }
-    .modal-content { background: white; width: 90%; max-width: 500px; padding: 25px; border-radius: 15px; box-shadow: 0 15px 40px rgba(0,0,0,0.4); max-height: 90vh; overflow-y: auto;}
-    #loadingOverlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000000; flex-direction: column; justify-content: center; align-items: center; color: white; font-weight: bold; }
-    .spinner { border: 4px solid rgba(255,255,255,0.2); border-top: 4px solid #fff; border-radius: 50%; width: 45px; height: 45px; animation: spin 1s linear infinite; margin-bottom: 20px; }
-    @keyframes spin { 100% { transform: rotate(360deg); } }
-    
-    .summary-box { font-size: 11px; text-align: left; background: #f8f9fa; line-height: 1.6; min-width: 140px; font-weight: 600; padding: 5px; }
-    .total-row { background-color: #e8f5e9; font-weight: bold; font-size: 15px; color: #2e7d32; }
-    .quick-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 15px 0; }
-    .emp-row { display: flex; align-items: center; padding: 12px; border-bottom: 1px solid #eee; background: white; gap: 10px; }
-    .quick-note-btn { background:#e8f0fe; color:#1a73e8; border:1px solid #1a73e8; border-radius:4px; padding:4px 8px; font-size:12px; cursor:pointer; font-weight:bold; margin-top: 4px; }
+.modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(32,33,36,0.85); z-index: 9999; justify-content: center; align-items: center; }
+.modal-content { background: white; width: 90%; max-width: 500px; padding: 25px; border-radius: 15px; box-shadow: 0 15px 40px rgba(0,0,0,0.4); max-height: 90vh; overflow-y: auto; }
+#loadingOverlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000000; flex-direction: column; justify-content: center; align-items: center; color: white; font-weight: bold; }
+.spinner { border: 4px solid rgba(255,255,255,0.2); border-top: 4px solid #fff; border-radius: 50%; width: 45px; height: 45px; animation: spin 1s linear infinite; margin-bottom: 20px; }
+@keyframes spin { 100% { transform: rotate(360deg); } }
 
-    #exportContainer { display: none; position: absolute; top: 0; left: 0; z-index: -10; width: 1400px !important; min-width: 1400px !important; max-width: 1400px !important; background-color: #ffffff; padding: 40px 60px; box-sizing: border-box; font-family: "Microsoft JhengHei", "Segoe UI", sans-serif; }
-    #exportContainer table { width: 100%; border-collapse: collapse; border: 3px solid #000; table-layout: fixed; }
-    #exportContainer th, #exportContainer td { border: 2px solid #000 !important; background-color: #fff !important; color: #000 !important; text-align: center; vertical-align: middle; }
-    
-    .footer-copyright { text-align: center; margin-top: 20px; font-size: 13px; color: #aaa; font-weight: bold; letter-spacing: 1px; }
-    .ot-text { color: #d93025; font-weight: bold; }
-    .warn-tag { display: inline-block; background: #fce8e6; color: #d93025; font-weight: bold; font-size: 11px; padding: 2px 4px; border-radius: 4px; margin-top: 3px; border: 1px solid #d93025; }
-    
-    .req-tag { display: inline-block; background: #e8f0fe; color: #1a73e8; font-weight: bold; font-size: 11px; padding: 2px 4px; border-radius: 4px; margin-top: 3px; border: 1px solid #1a73e8; }
-    .conflict-alert { border: 2px solid #d93025 !important; background-color: #fce8e6 !important; animation: blink-border 1.5s infinite; }
-    @keyframes blink-border { 0% { border-color: #d93025; } 50% { border-color: #ff9800; } 100% { border-color: #d93025; } }
-
-    .unfilled-shift { background-color: #ffe0b2 !important; border: 2px dashed #f57c00 !important; color: #e65100 !important; }
-    .pending-badge { display: block; background: #fef08a; border: 2px solid #fbc02d; color: #d84315; font-size: 12px; font-weight: bold; border-radius: 6px; padding: 6px; margin-top: 6px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.2); animation: pulse 1.5s infinite; line-height: 1.3; }
-  </style>
+.summary-box { font-size: 11px; text-align: left; background: #f8f9fa; line-height: 1.6; min-width: 140px; font-weight: 600; padding: 5px; }
+.total-row { background-color: #e8f5e9; font-weight: bold; font-size: 15px; color: #2e7d32; }
+.quick-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 15px 0; }
+.emp-row { display: flex; align-items: center; padding: 12px; border-bottom: 1px solid #eee; background: white; gap: 10px; }
+.quick-note-btn { background:#e8f0fe; color:#1a73e8; border:1px solid #1a73e8; border-radius:4px; padding:4px 8px; font-size:12px; cursor:pointer; font-weight:bold; margin-top: 4px; }
+.footer-copyright { text-align: center; margin-top: 20px; font-size: 13px; color: #aaa; font-weight: bold; letter-spacing: 1px; }
+.ot-text { color: #d93025; font-weight: bold; }
+.warn-tag { display: inline-block; background: #fce8e6; color: #d93025; font-weight: bold; font-size: 11px; padding: 2px 4px; border-radius: 4px; margin-top: 3px; border: 1px solid #d93025; }
+.req-tag  { display: inline-block; background: #e8f0fe; color: #1a73e8; font-weight: bold; font-size: 11px; padding: 2px 4px; border-radius: 4px; margin-top: 3px; border: 1px solid #1a73e8; }
+.pending-badge { display: block; background: #fef08a; border: 2px solid #fbc02d; color: #d84315; font-size: 12px; font-weight: bold; border-radius: 6px; padding: 6px; margin-top: 6px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.2); animation: pulse 1.5s infinite; line-height: 1.3; }
+</style>
 </head>
 <body>
 
-  <div id="loadingOverlay"><div class="spinner"></div><div id="loadingText">跨店資料同步中...</div></div>
+<div id="loadingOverlay"><div class="spinner"></div><div id="loadingText">跨店資料同步中...</div></div>
 
-  <h2>📅 門市排班神器 🚀</h2>
-  <div id="syncStatus"><div class="dot"></div><span>✅ 所有變更已儲存</span></div>
-  
- <div class="controls">
-    <select id="storeSelector" onchange="fetchAllStoreData()"></select>
-    <button class="btn-nav" onclick="changeWeek(-1)">◀ 上週</button>
-    <input type="week" id="weekSelector" onchange="fetchAllStoreData()">
-    <button class="btn-nav" onclick="changeWeek(1)">下週 ▶</button>
-    
-    <button style="background: #17a2b8; color: white;" onclick="window.location.reload()">🔄 重新整理</button>
-    
-    <button class="btn-paint" onclick="togglePaintMode()">🖌️ 畫筆模式</button>
-    
-    <button class="btn-undo" onclick="undoLastAction()">↩️ 上一步</button>
-    <button class="btn-save" onclick="saveScheduleData(true)">💾 強制儲存</button>
-    <button class="btn-print" onclick="exportNativeImage()">📱 產圖 (A4)</button>
-    <button class="btn-virtual" onclick="addVirtualRow()">➕ 待補</button>
-    <button class="btn-manage" onclick="openEmpModal()">👥 人員管理</button>
-    
-    <button class="btn-log" onclick="openLogModal()" style="display: none;">📜 畫休紀錄</button>
-  </div>
+<h2>📅 門市排班神器 🚀</h2>
+<div id="syncStatus"><div class="dot"></div><span>✅ 所有變更已儲存</span></div>
 
-  <div id="paintToolbar" style="display:none; background:#e8f0fe; border:2px solid #1a73e8; border-radius:8px; padding:10px; margin-bottom:15px; text-align:center;">
-       <span style="font-weight:bold; color:#1a73e8; margin-right:10px;">🖌️ 請選擇畫筆 (可點擊或拖曳連刷)：</span>
-       <span id="paintButtons"></span>
-  </div>
+<!-- ===== 控制列：第一行 (主要操作) ===== -->
+<div class="controls-row1">
+  <select id="storeSelector" onchange="fetchAllStoreData()"></select>
+  <button class="btn-nav" onclick="changeWeek(-1)">◀ 上週</button>
+  <input type="week" id="weekSelector" onchange="fetchAllStoreData()">
+  <button class="btn-nav" onclick="changeWeek(1)">下週 ▶</button>
+</div>
 
-  <div class="table-responsive">
-    <table id="scheduleTable">
-      <thead><tr id="headerRow"><th>員工</th><th>週一</th><th>週二</th><th>週三</th><th>週四</th><th>週五</th><th>週六</th><th>週日</th><th>統計</th></tr></thead>
-      <tbody id="tableBody"></tbody>
-      <tfoot id="tableFoot" style="display:none;"><tr class="total-row"><td style="text-align: right;">每日總工時：</td><td id="dailyTotal-0">0</td><td id="dailyTotal-1">0</td><td id="dailyTotal-2">0</td><td id="dailyTotal-3">0</td><td id="dailyTotal-4">0</td><td id="dailyTotal-5">0</td><td id="dailyTotal-6">0</td><td>-</td></tr></tfoot>
-    </table>
-  </div>
-
-  <div class="footer-copyright">
-      © Kai Kai All Rights Reserved. 
-      <span onclick="openSysModal()" style="cursor:pointer; color:#ccc; margin-left:10px;" title="系統設定">⚙️</span>
-  </div>
-
-  <div id="logModal" class="modal">
-    <div class="modal-content" style="max-width:500px;">
-        <h3 style="color:#00897b;">📜 員工畫休異動紀錄</h3>
-        <div id="logContent" style="background:#f1f3f4; padding:15px; border-radius:8px; max-height:400px; overflow-y:auto; font-size:13px; line-height:1.6; border:1px solid #ccc;">
-            讀取中...
-        </div>
-        <button onclick="closeModal('logModal')" style="width:100%; padding:12px; background:#5f6368; color:white; margin-top:15px; border-radius:8px; font-weight:bold; cursor:pointer;">關閉</button>
+<!-- ===== 控制列：第二行 (功能按鈕 + 更多選單) ===== -->
+<div class="controls-row2">
+  <button class="btn-paint" id="btnPaint" onclick="togglePaintMode()">🖌️ 畫筆</button>
+  <button class="btn-undo"  onclick="undoLastAction()">↩️ 上一步</button>
+  <button class="btn-save"  onclick="saveScheduleData(true)">💾 強制儲存</button>
+  <button class="btn-virtual" onclick="addVirtualRow()">➕ 待補</button>
+  <!-- 次要功能收納進「更多」 -->
+  <div class="more-menu-wrap">
+    <button class="btn-more" onclick="toggleMoreMenu()">⋮ 更多</button>
+    <div id="moreMenu">
+      <button onclick="closeMoreMenu(); exportNativeImage()">📱 產圖 (A4)</button>
+      <button onclick="closeMoreMenu(); openEmpModal()">👥 人員管理</button>
+      <button onclick="closeMoreMenu(); openLogModal()">📜 畫休紀錄</button>
+      <button onclick="closeMoreMenu(); openSysModal()">⚙️ 系統設定</button>
     </div>
   </div>
+</div>
 
-  <div id="shiftModal" class="modal">
-    <div class="modal-content">
-      <h3 id="modalTitle">設定班別</h3>
-      
-      <div id="modalConflictWarning" style="display:none; background:#fce8e6; border:2px solid #d93025; color:#d93025; padding:10px; border-radius:6px; font-weight:bold; font-size:14px; margin-bottom:15px; text-align:center;">
-          ⚠️ 該員工已提出排休，但您已預排班別。<br>請決定是否保留班別並清除畫休，或改為排休。
-      </div>
+<!-- 畫筆工具列 -->
+<div id="paintToolbar" style="display:none; background:#e8f0fe; border:2px solid #1a73e8; border-radius:8px; padding:10px; margin-bottom:10px; text-align:center; overflow-x:auto; white-space:nowrap;">
+  <span style="font-weight:bold; color:#1a73e8; margin-right:8px;">🖌️ 選擇畫筆：</span>
+  <span id="paintButtons"></span>
+</div>
 
-      <div id="quickShiftButtons" class="quick-grid"></div>
-      
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
-        <div><label style="font-size:12px; font-weight:bold; color:#5f6368;">📝 班別名稱 (時間)</label><input type="text" id="modalShift" oninput="autoFillHours()" style="width:100%; padding:12px; box-sizing:border-box;"></div>
-        <div>
-            <label style="font-size:12px; font-weight:bold; color:#5f6368;">⏱️ 工時 (自動)</label>
-            <div style="display:flex; gap:10px; align-items:center;">
-                <input type="number" id="modalHours" step="0.5" style="width:60%; padding:12px; box-sizing:border-box;">
-                <label style="display:flex; align-items:center; font-size:14px; font-weight:bold; color:#d93025; cursor:pointer;">
-                    <input type="checkbox" id="modalOvertime" style="width:18px; height:18px; margin-right:5px;"> 加班
-                </label>
-            </div>
-        </div>
-      </div>
+<div class="table-responsive">
+  <table id="scheduleTable">
+    <thead><tr id="headerRow"><th>員工</th><th>週一</th><th>週二</th><th>週三</th><th>週四</th><th>週五</th><th>週六</th><th>週日</th><th>統計</th></tr></thead>
+    <tbody id="tableBody"></tbody>
+    <tfoot id="tableFoot" style="display:none;">
+      <tr class="total-row">
+        <td style="text-align:right;">每日總工時：</td>
+        <td id="dailyTotal-0">0</td><td id="dailyTotal-1">0</td><td id="dailyTotal-2">0</td>
+        <td id="dailyTotal-3">0</td><td id="dailyTotal-4">0</td><td id="dailyTotal-5">0</td>
+        <td id="dailyTotal-6">0</td><td>-</td>
+      </tr>
+    </tfoot>
+  </table>
+</div>
 
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px; margin-top:15px;">
-        <div id="modalLocGroup"><label style="font-size:12px; font-weight:bold; color:#5f6368;">📍 工作地點</label><select id="modalLocation" style="width:100%; padding:12px; box-sizing:border-box;"></select></div>
-        <div id="modalSupportGroup" style="display:none; grid-column: 1 / span 2;">
-            <label style="font-size:12px; font-weight:bold; color:#d93025;">👤 指派支援人員 (跨店支援請從此選)</label>
-            <div style="display:flex; gap:10px;">
-                <select id="modalSupportEmp" style="width:65%; padding:12px; box-sizing:border-box; border:2px solid #1a73e8;" onchange="toggleApprovalStatusVis()"></select>
-                <select id="modalApprovalStatus" style="width:35%; padding:12px; box-sizing:border-box; display:none; background:#e8f0fe;">
-                    <option value="pending">⏳ 待審核 (預設)</option>
-                    <option value="approved">✅ 直接核准</option>
-                </select>
-            </div>
-        </div>
+<div class="footer-copyright">© Kai Kai All Rights Reserved.</div>
 
-        <div id="modalNoteGroup">
-            <label id="modalNoteLabel" style="font-size:12px; font-weight:bold; color:#5f6368;">💡 備註</label>
-            <input type="text" id="modalNote" style="width:100%; padding:12px; box-sizing:border-box;">
-            <div style="margin-top:5px; display:flex; gap:6px; flex-wrap:wrap;">
-                <button class="quick-note-btn" onclick="appendNote('作帳')">作帳</button>
-                <button class="quick-note-btn" onclick="appendNote('訂鮮食')">訂鮮食</button>
-                <button class="quick-note-btn" onclick="appendNote('訂捷盟')">訂捷盟</button>
-                <button class="quick-note-btn" onclick="appendNote('訂乳品18度C')">訂乳品18度C</button>
-            </div>
-        </div>
-      </div>
+<!-- ===== Modals ===== -->
+<div id="logModal" class="modal">
+  <div class="modal-content" style="max-width:500px;">
+    <h3 style="color:#00897b;">📜 員工畫休異動紀錄</h3>
+    <div id="logContent" style="background:#f1f3f4; padding:15px; border-radius:8px; max-height:400px; overflow-y:auto; font-size:13px; line-height:1.6; border:1px solid #ccc;">讀取中...</div>
+    <button onclick="closeModal('logModal')" style="width:100%; padding:12px; background:#5f6368; color:white; margin-top:15px; border-radius:8px; font-weight:bold; cursor:pointer;">關閉</button>
+  </div>
+</div>
 
-      <label id="modalReqClearWrapper" style="display:none; align-items:center; font-size:14px; font-weight:bold; color:#1a73e8; cursor:pointer; margin-top:15px; background:#e8f0fe; padding:10px; border-radius:6px;">
-        <input type="checkbox" id="modalClearReq" style="width:18px; height:18px; margin-right:8px;"> ✅ 員工畫休已處理完畢 (清除畫休標籤)
-      </label>
-
-      <button onclick="applyShift()" style="width:100%; padding:15px; background:#1a73e8; color:white; margin-top:15px; border-radius:10px; font-size:16px;">確認套用並同步</button>
-      <button onclick="closeModal('shiftModal')" style="width:100%; background:none; border:none; color:#666; margin-top:10px; cursor:pointer;">取消返回</button>
+<div id="shiftModal" class="modal">
+  <div class="modal-content">
+    <h3 id="modalTitle">設定班別</h3>
+    <div id="modalConflictWarning" style="display:none; background:#fce8e6; border:2px solid #d93025; color:#d93025; padding:10px; border-radius:6px; font-weight:bold; font-size:14px; margin-bottom:15px; text-align:center;">
+      ⚠️ 該員工已提出排休，但您已預排班別。<br>請決定是否保留班別並清除畫休，或改為排休。
     </div>
-  </div>
-
-  <div id="approvalModal" class="modal">
-    <div class="modal-content" style="max-width:400px; text-align:center;">
-        <h3 id="approvalTitle" style="color:#d93025; font-weight:900;">跨店支援請求審核</h3>
-        <p id="approvalDesc" style="font-size:16px; margin: 20px 0; line-height:1.6;"></p>
-        <input type="hidden" id="approvalReqData">
-        <div style="display:flex; gap:10px; margin-top:25px;">
-            <button onclick="handleApproval(true)" style="flex:1; padding:15px; background:#34a853; color:white; border-radius:8px; font-size:16px; font-weight:bold;">✅ 同意支援</button>
-            <button onclick="handleApproval(false)" style="flex:1; padding:15px; background:#d93025; color:white; border-radius:8px; font-size:16px; font-weight:bold;">❌ 拒絕 (退回)</button>
+    <div id="quickShiftButtons" class="quick-grid"></div>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
+      <div>
+        <label style="font-size:12px; font-weight:bold; color:#5f6368;">📝 班別名稱 (時間)</label>
+        <input type="text" id="modalShift" oninput="autoFillHours()" style="width:100%; padding:12px; box-sizing:border-box;">
+      </div>
+      <div>
+        <label style="font-size:12px; font-weight:bold; color:#5f6368;">⏱️ 工時 (自動)</label>
+        <div style="display:flex; gap:10px; align-items:center;">
+          <input type="number" id="modalHours" step="0.5" style="width:60%; padding:12px; box-sizing:border-box;">
+          <label style="display:flex; align-items:center; font-size:14px; font-weight:bold; color:#d93025; cursor:pointer;">
+            <input type="checkbox" id="modalOvertime" style="width:18px; height:18px; margin-right:5px;"> 加班
+          </label>
         </div>
-        <button onclick="closeModal('approvalModal')" style="width:100%; background:none; border:none; color:#666; margin-top:15px; cursor:pointer;">取消</button>
+      </div>
     </div>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px; margin-top:15px;">
+      <div id="modalLocGroup">
+        <label style="font-size:12px; font-weight:bold; color:#5f6368;">📍 工作地點</label>
+        <select id="modalLocation" style="width:100%; padding:12px; box-sizing:border-box;"></select>
+      </div>
+      <div id="modalSupportGroup" style="display:none; grid-column: 1 / span 2;">
+        <label style="font-size:12px; font-weight:bold; color:#d93025;">👤 指派支援人員</label>
+        <div style="display:flex; gap:10px;">
+          <select id="modalSupportEmp" style="width:65%; padding:12px; box-sizing:border-box; border:2px solid #1a73e8;" onchange="toggleApprovalStatusVis()"></select>
+          <select id="modalApprovalStatus" style="width:35%; padding:12px; box-sizing:border-box; display:none; background:#e8f0fe;">
+            <option value="pending">⏳ 待審核 (預設)</option>
+            <option value="approved">✅ 直接核准</option>
+          </select>
+        </div>
+      </div>
+      <div id="modalNoteGroup">
+        <label style="font-size:12px; font-weight:bold; color:#5f6368;">💡 備註</label>
+        <input type="text" id="modalNote" style="width:100%; padding:12px; box-sizing:border-box;">
+        <div style="margin-top:5px; display:flex; gap:6px; flex-wrap:wrap;">
+          <button class="quick-note-btn" onclick="appendNote('作帳')">作帳</button>
+          <button class="quick-note-btn" onclick="appendNote('訂鮮食')">訂鮮食</button>
+          <button class="quick-note-btn" onclick="appendNote('訂捷盟')">訂捷盟</button>
+          <button class="quick-note-btn" onclick="appendNote('訂乳品18度C')">訂乳品18度C</button>
+        </div>
+      </div>
+    </div>
+    <label id="modalReqClearWrapper" style="display:none; align-items:center; font-size:14px; font-weight:bold; color:#1a73e8; cursor:pointer; margin-top:15px; background:#e8f0fe; padding:10px; border-radius:6px;">
+      <input type="checkbox" id="modalClearReq" style="width:18px; height:18px; margin-right:8px;"> ✅ 員工畫休已處理完畢 (清除畫休標籤)
+    </label>
+    <button onclick="applyShift()" style="width:100%; padding:15px; background:#1a73e8; color:white; margin-top:15px; border-radius:10px; font-size:16px;">確認套用並同步</button>
+    <button onclick="closeModal('shiftModal')" style="width:100%; background:none; border:none; color:#666; margin-top:10px; cursor:pointer;">取消返回</button>
   </div>
-  
-  <div id="imagePreviewModal" class="modal"><div class="modal-content" style="max-width:800px;"><img id="previewImg" style="width:100%; border-radius:8px; border:1px solid #ddd;"><button id="downloadImgBtn" style="width:100%; padding:15px; background:#1a73e8; color:white; margin-top:15px; border-radius:10px; border:none; font-size:16px; cursor:pointer;">⬇️ 下載班表圖片</button><button onclick="closeModal('imagePreviewModal')" style="width:100%; border:none; background:none; margin-top:10px; color:#666; cursor:pointer;">關閉預覽</button></div></div>
-  <div id="empModal" class="modal"><div class="modal-content" style="max-width:650px;"><h3>👥 人員與調店管理系統</h3><div style="background:#e8f5e9; padding:15px; border-radius:10px; display:flex; gap:10px; margin-bottom:15px;"><input type="text" id="newEmpName" placeholder="員工姓名" style="width:35%; padding:10px; box-sizing:border-box;"><select id="newEmpRole" style="width:25%; padding:10px; box-sizing:border-box;"><option value="工讀">工讀</option><option value="正職">正職</option><option value="副店長">副店長</option><option value="店長">店長</option></select><input type="number" id="newEmpWage" placeholder="薪資" style="width:30%; padding:10px; box-sizing:border-box;"><button onclick="localAddEmp()" style="background:#34a853; color:white; padding:10px 15px; border-radius:8px;">加入</button></div><div id="localEmpList" style="max-height:350px; overflow-y:auto; border:1px solid #eee; border-radius:8px;"></div><button onclick="batchSaveEmps()" style="width:100%; padding:18px; background:#9334e6; color:white; margin-top:20px; border-radius:10px; border:none; font-size:16px; cursor:pointer;">💾 儲存薪資與異動</button><button onclick="closeModal('empModal')" style="width:100%; border:none; background:none; margin-top:10px; color:#666; cursor:pointer;">取消</button></div></div>
-  <div id="transferModal" class="modal"><div class="modal-content" style="max-width:300px;"><h3>🏪 選擇調往門市</h3><input type="hidden" id="transferEmpIdx"><select id="transferStoreSelect" style="width:100%; padding:12px; margin-bottom:15px; border-radius:6px;"></select><button onclick="confirmTransfer()" style="width:100%; padding:15px; background:#e67e22; color:white; border-radius:8px; font-weight:bold; cursor:pointer;">確認調店</button><button onclick="closeModal('transferModal')" style="width:100%; background:none; border:none; color:#666; margin-top:10px; cursor:pointer;">取消</button></div></div>
-  <div id="sysModal" class="modal"><div class="modal-content"><h3>🛠️ 系統基礎設定</h3><div id="sysStoreList"></div><div style="display:flex; gap:5px; margin-top:10px;"><input type="text" id="newStoreInput" placeholder="門市名稱" style="padding:10px; width:100%; box-sizing:border-box;"><button onclick="addSysStore()" style="background:#1a73e8; color:white;">新增門市</button></div><div id="sysShiftList" style="margin-top:20px; border-top:1px solid #eee; padding-top:15px;"></div><div style="display:flex; gap:5px; margin-top:10px;"><input type="text" id="newShiftName" placeholder="班別" style="flex:2; padding:10px; box-sizing:border-box;"><input type="number" id="newShiftHours" placeholder="時數" style="flex:1; padding:10px; box-sizing:border-box;"><button onclick="addSysShift()" style="background:#34a853; color:white;">新增</button></div><button onclick="saveSysConfig()" style="width:100%; padding:18px; background:#3c4043; color:white; margin-top:30px; border-radius:10px; border:none; font-size:16px; cursor:pointer;">💾 儲存並套用</button><button onclick="closeModal('sysModal')" style="width:100%; border:none; background:none; margin-top:10px; color:#666; cursor:pointer;">取消</button></div></div>
+</div>
 
-  <div id="exportContainer">
-    <h1 id="exportTitle" style="text-align: center; font-size: 48px; font-weight: 900; margin-bottom: 10px; letter-spacing: 4px; color: #000;">美德 職員輪班表</h1>
-    <p id="exportDates" style="text-align: center; font-size: 26px; color: #333; margin-bottom: 25px; font-weight:bold; letter-spacing: 3px;"></p>
-    <table id="exportTable"><thead id="exportHeader"></thead><tbody id="exportBody"></tbody></table>
-    <p style="text-align: left; font-size: 20px; font-weight: bold; color: #000; margin-top: 15px; margin-left: 5px;">※每周五、六公佈下週排班表，若有變動者，請事先向店長反映，勿私自調動！</p>
+<div id="approvalModal" class="modal">
+  <div class="modal-content" style="max-width:400px; text-align:center;">
+    <h3 style="color:#d93025; font-weight:900;">跨店支援請求審核</h3>
+    <p id="approvalDesc" style="font-size:16px; margin: 20px 0; line-height:1.6;"></p>
+    <input type="hidden" id="approvalReqData">
+    <div style="display:flex; gap:10px; margin-top:25px;">
+      <button onclick="handleApproval(true)"  style="flex:1; padding:15px; background:#34a853; color:white; border-radius:8px; font-size:16px; font-weight:bold;">✅ 同意支援</button>
+      <button onclick="handleApproval(false)" style="flex:1; padding:15px; background:#d93025; color:white; border-radius:8px; font-size:16px; font-weight:bold;">❌ 拒絕 (退回)</button>
+    </div>
+    <button onclick="closeModal('approvalModal')" style="width:100%; background:none; border:none; color:#666; margin-top:15px; cursor:pointer;">取消</button>
   </div>
+</div>
 
-  <script>
-    let appConfig = { stores: [], shifts: ["排休", "指休"], shiftHours: {} };
-    let appData = { employees: [], records: [], allStoresRecords: [], allStoresEmployees: {}, currentWeekLogs: [] };
-    let currentWeekDates = [], virtualRowNames = [], localActiveEmps = [], localDeletedNames = [];
-    let undoStack = []; 
-    let currentCell = null, autoSaveTimer = null;
-    
-    // 🌟 新增：畫筆模式的全域變數
-    let isPaintMode = false; 
-    let paintShift = ''; 
-    let isDragging = false;
-    
-    const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
+<div id="imagePreviewModal" class="modal">
+  <div class="modal-content" style="max-width:800px;">
+    <img id="previewImg" style="width:100%; border-radius:8px; border:1px solid #ddd;">
+    <button id="downloadImgBtn" style="width:100%; padding:15px; background:#1a73e8; color:white; margin-top:15px; border-radius:10px; border:none; font-size:16px; cursor:pointer;">⬇️ 下載班表圖片</button>
+    <button onclick="closeModal('imagePreviewModal')" style="width:100%; border:none; background:none; margin-top:10px; color:#666; cursor:pointer;">關閉預覽</button>
+  </div>
+</div>
 
-    function getNextWeekString() {
-        let d = new Date(); d.setDate(d.getDate() + 7);
-        let yr = d.getFullYear(); let first = new Date(yr, 0, 1);
-        let w = Math.ceil((((d - first) / 86400000) + first.getDay() + 1) / 7);
-        return `${yr}-W${w < 10 ? '0'+w : w}`;
-    }
+<div id="empModal" class="modal">
+  <div class="modal-content" style="max-width:650px;">
+    <h3>👥 人員與調店管理系統</h3>
+    <div style="background:#e8f5e9; padding:15px; border-radius:10px; display:flex; gap:10px; margin-bottom:15px; flex-wrap:wrap;">
+      <input type="text" id="newEmpName" placeholder="員工姓名" style="width:35%; padding:10px; box-sizing:border-box; min-width:100px;">
+      <select id="newEmpRole" style="width:25%; padding:10px; box-sizing:border-box; min-width:80px;">
+        <option value="工讀">工讀</option><option value="正職">正職</option>
+        <option value="副店長">副店長</option><option value="店長">店長</option>
+      </select>
+      <input type="number" id="newEmpWage" placeholder="薪資" style="width:25%; padding:10px; box-sizing:border-box; min-width:80px;">
+      <button onclick="localAddEmp()" style="background:#34a853; color:white; padding:10px 15px; border-radius:8px;">加入</button>
+    </div>
+    <div id="localEmpList" style="max-height:350px; overflow-y:auto; border:1px solid #eee; border-radius:8px;"></div>
+    <button onclick="batchSaveEmps()" style="width:100%; padding:18px; background:#9334e6; color:white; margin-top:20px; border-radius:10px; border:none; font-size:16px; cursor:pointer;">💾 儲存薪資與異動</button>
+    <button onclick="closeModal('empModal')" style="width:100%; border:none; background:none; margin-top:10px; color:#666; cursor:pointer;">取消</button>
+  </div>
+</div>
 
-    function getWeekDates(wStr) {
-        let p = wStr.split('-W'); let yr = parseInt(p[0]); let wk = parseInt(p[1]);
-        let d = new Date(yr, 0, 1); let day = d.getDay();
-        d.setDate(d.getDate() + (wk - 1) * 7);
-        let offset = day <= 4 ? 1 - day : 8 - day;
-        d.setDate(d.getDate() + offset);
-        let res = [];
-        for(let i=0; i<7; i++) { res.push((d.getMonth()+1)+'/'+d.getDate()); d.setDate(d.getDate()+1); }
-        return res;
-    }
+<div id="transferModal" class="modal">
+  <div class="modal-content" style="max-width:300px;">
+    <h3>🏪 選擇調往門市</h3>
+    <input type="hidden" id="transferEmpIdx">
+    <select id="transferStoreSelect" style="width:100%; padding:12px; margin-bottom:15px; border-radius:6px;"></select>
+    <button onclick="confirmTransfer()" style="width:100%; padding:15px; background:#e67e22; color:white; border-radius:8px; font-weight:bold; cursor:pointer;">確認調店</button>
+    <button onclick="closeModal('transferModal')" style="width:100%; background:none; border:none; color:#666; margin-top:10px; cursor:pointer;">取消</button>
+  </div>
+</div>
 
-    function changeWeek(offset) {
-        let input = document.getElementById('weekSelector');
-        if(!input.value) return;
-        input.stepUp(offset); 
-        fetchAllStoreData();
-    }
+<div id="sysModal" class="modal">
+  <div class="modal-content">
+    <h3>🛠️ 系統基礎設定</h3>
+    <div id="sysStoreList"></div>
+    <div style="display:flex; gap:5px; margin-top:10px;">
+      <input type="text" id="newStoreInput" placeholder="門市名稱" style="padding:10px; width:100%; box-sizing:border-box;">
+      <button onclick="addSysStore()" style="background:#1a73e8; color:white;">新增門市</button>
+    </div>
+    <div id="sysShiftList" style="margin-top:20px; border-top:1px solid #eee; padding-top:15px;"></div>
+    <div style="display:flex; gap:5px; margin-top:10px;">
+      <input type="text" id="newShiftName" placeholder="班別" style="flex:2; padding:10px; box-sizing:border-box;">
+      <input type="number" id="newShiftHours" placeholder="時數" style="flex:1; padding:10px; box-sizing:border-box;">
+      <button onclick="addSysShift()" style="background:#34a853; color:white;">新增</button>
+    </div>
+    <button onclick="saveSysConfig()" style="width:100%; padding:18px; background:#3c4043; color:white; margin-top:30px; border-radius:10px; border:none; font-size:16px; cursor:pointer;">💾 儲存並套用</button>
+    <button onclick="closeModal('sysModal')" style="width:100%; border:none; background:none; margin-top:10px; color:#666; cursor:pointer;">取消</button>
+  </div>
+</div>
 
-    function updateLocDropdowns() {
-        let currentStore = document.getElementById('storeSelector').value;
-        let opts = `<option value="本店">本店</option>`;
-        (appConfig.stores || []).forEach(s => {
-            if (s !== currentStore) opts += `<option value="${s}">${s}</option>`;
+<!-- ✅ exportContainer 已移除（改用 Canvas 直接產圖，不需要 DOM 元素） -->
+
+<script>
+let appConfig = { stores: [], shifts: ['排休', '指休'], shiftHours: {} };
+let appData   = { employees: [], records: [], allStoresRecords: [], allStoresEmployees: {}, currentWeekLogs: [] };
+let currentWeekDates = [], virtualRowNames = [], localActiveEmps = [], localDeletedNames = [];
+let undoStack = [];
+let currentCell = null, autoSaveTimer = null;
+let isPaintMode = false, paintShift = '', isDragging = false;
+
+// ===== 更多選單 =====
+function toggleMoreMenu() {
+  document.getElementById('moreMenu').classList.toggle('open');
+}
+function closeMoreMenu() {
+  document.getElementById('moreMenu').classList.remove('open');
+}
+// 點外部關閉
+document.addEventListener('click', e => {
+  if (!e.target.closest('.more-menu-wrap')) closeMoreMenu();
+});
+
+// ===== 初始化 =====
+window.onload = async () => {
+  showLoading('正在連線雲端庫...');
+  document.getElementById('weekSelector').value = getNextWeekString();
+  try {
+    const snap = await window.db.collection('settings').doc('globalConfig').get();
+    if (snap.exists) appConfig = snap.data();
+    const sel = document.getElementById('storeSelector');
+    sel.innerHTML = '';
+    (appConfig.stores || []).forEach(s => sel.innerHTML += `<option value="${s}">${s}</option>`);
+    sel.value = localStorage.getItem('lastStore') || appConfig.stores[0] || '';
+    fetchAllStoreData();
+  } catch (e) { alert('連線失敗：' + e.message); hideLoading(); }
+};
+
+function changeWeek(offset) {
+  const input = document.getElementById('weekSelector');
+  if (!input.value) return;
+  input.stepUp(offset);
+  fetchAllStoreData();
+}
+
+function appendNote(text) {
+  const n = document.getElementById('modalNote');
+  n.value = n.value.trim() ? n.value + ' ' + text : text;
+}
+
+// ===== 自動儲存 =====
+function triggerAutoSave() {
+  const s = document.getElementById('syncStatus');
+  s.innerHTML = '<div class="dot"></div><span>☁️ 雲端同步中...</span>';
+  s.className = 'syncing';
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(() => saveScheduleData(false), 1500);
+}
+
+async function saveScheduleData(isManual) {
+  syncUIToMemory();
+  const store = document.getElementById('storeSelector').value;
+  const week  = document.getElementById('weekSelector').value;
+  if (!store || !week) return;
+  try {
+    const schedule = appData.records.filter(r => r.week === week);
+    await window.db.collection('stores').doc(store).collection('weeks').doc(week)
+      .set({ records: schedule }, { merge: true });
+    const s = document.getElementById('syncStatus');
+    s.innerHTML = `<div class="dot"></div><span>✅ 所有變更已儲存 (${new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})})</span>`;
+    s.className = '';
+    if (isManual) alert('💾 雲端儲存成功！');
+  } catch(e) {
+    document.getElementById('syncStatus').innerText = '❌ 同步失敗：' + e.message;
+  }
+}
+
+// ===== Undo =====
+function pushToUndo(b) {
+  undoStack.push({ btn:b, s:b.dataset.shift, h:b.dataset.hours, l:b.dataset.loc, n:b.dataset.note, ot:b.dataset.ot, warn:b.dataset.warn, supp:b.dataset.support, app:b.dataset.approval, reqOff:b.dataset.reqoff });
+  if (undoStack.length > 30) undoStack.shift();
+}
+function undoLastAction() {
+  if (!undoStack.length) return alert('沒動作可回上一步囉！');
+  const l = undoStack.pop();
+  l.btn.dataset.shift=l.s; l.btn.dataset.hours=l.h; l.btn.dataset.loc=l.l; l.btn.dataset.note=l.n;
+  l.btn.dataset.ot=l.ot; l.btn.dataset.support=l.supp; l.btn.dataset.approval=l.app; l.btn.dataset.reqoff=l.reqOff;
+  syncUIToMemory(); renderTable(); triggerAutoSave();
+}
+
+// ===== ✅ Firestore 讀取優化：只讀當週 =====
+async function fetchAllStoreData() {
+  const store   = document.getElementById('storeSelector').value;
+  const weekStr = document.getElementById('weekSelector').value;
+  if (!store || !weekStr) return;
+  localStorage.setItem('lastStore', store);
+  showLoading('同步各門市最新資料...');
+
+  appData.allStoresRecords  = [];
+  appData.allStoresEmployees = {};
+  appData.currentWeekLogs   = [];
+
+  try {
+    // 各門市只讀「當週」一份文件，而非所有週
+    for (const s of appConfig.stores) {
+      // 員工名單仍需完整讀取（不隨週次變動）
+      const empSnap = await window.db.collection('stores').doc(s).collection('employees').get();
+      const emps = [];
+      empSnap.forEach(d => { if (d.data().status !== '離職') emps.push(d.id); });
+      appData.allStoresEmployees[s] = emps;
+
+      // ✅ 只讀當週 doc（原本是 .get() 全部週次）
+      const weekDoc = await window.db.collection('stores').doc(s).collection('weeks').doc(weekStr).get();
+      if (weekDoc.exists) {
+        const data = weekDoc.data();
+        (data.records || []).forEach(r => {
+          appData.allStoresRecords.push({ ...r, _store: s, week: weekStr });
         });
-        let mLoc = document.getElementById('modalLocation'); if(mLoc) mLoc.innerHTML = opts;
-    }
-
-    function appendNote(text) {
-        let noteInput = document.getElementById('modalNote');
-        if(noteInput.value.trim() === '') noteInput.value = text;
-        else noteInput.value += ' ' + text;
-    }
-
-    window.onload = async () => {
-        showLoading("正在連線雲端庫...");
-        document.getElementById('weekSelector').value = getNextWeekString();
-        try {
-            const snap = await window.db.collection('settings').doc('globalConfig').get();
-            if (snap.exists) appConfig = snap.data();
-            let sel = document.getElementById('storeSelector'); sel.innerHTML = '';
-            (appConfig.stores || []).forEach(s => sel.innerHTML += `<option value="${s}">${s}</option>`);
-            sel.value = localStorage.getItem('lastStore') || appConfig.stores[0] || "";
-            fetchAllStoreData();
-        } catch (e) { alert("連線失敗：" + e.message); hideLoading(); }
-    };
-
-    function triggerAutoSave() {
-        const s = document.getElementById('syncStatus');
-        s.innerHTML = '<div class="dot"></div><span>☁️ 雲端同步中...</span>';
-        s.className = "syncing";
-        clearTimeout(autoSaveTimer);
-        autoSaveTimer = setTimeout(() => { saveScheduleData(false); }, 1500);
-    }
-
-    async function saveScheduleData(isManual) {
-        syncUIToMemory();
-        let store = document.getElementById('storeSelector').value;
-        let week = document.getElementById('weekSelector').value;
-        if(!store || !week) return;
-        try {
-            let schedule = appData.records.filter(r => r.week === week);
-            await window.db.collection('stores').doc(store).collection('weeks').doc(week).set({ records: schedule }, {merge: true});
-            const s = document.getElementById('syncStatus');
-            s.innerHTML = '<div class="dot"></div><span>✅ 所有變更已儲存 (' + new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) + ')</span>';
-            s.className = "";
-            if(isManual) alert("💾 雲端儲存成功！");
-        } catch(e) { document.getElementById('syncStatus').innerText = "❌ 同步失敗：" + e.message; }
-    }
-
-    function pushToUndo(b) { 
-        undoStack.push({ btn:b, s:b.dataset.shift, h:b.dataset.hours, l:b.dataset.loc, n:b.dataset.note, ot:b.dataset.ot, warn:b.dataset.warn, supp:b.dataset.support, app:b.dataset.approval, reqOff:b.dataset.reqoff }); 
-        if(undoStack.length>30) undoStack.shift(); 
-    }
-    
-    function undoLastAction() { 
-        if(undoStack.length===0) return alert("沒動作可回上一步囉！"); 
-        let l = undoStack.pop(); 
-        l.btn.dataset.shift=l.s; l.btn.dataset.hours=l.h; l.btn.dataset.loc=l.l; l.btn.dataset.note=l.n; l.btn.dataset.ot=l.ot; l.btn.dataset.support=l.supp; l.btn.dataset.approval=l.app; l.btn.dataset.reqoff=l.reqOff;
-        syncUIToMemory(); renderTable(); triggerAutoSave(); 
-    }
-
-    function exportNativeImage() {
-        syncUIToMemory();
-        showLoading("📸 正在啟動高解析度原生繪圖引擎...");
-
-        setTimeout(() => {
-            try {
-                let store = document.getElementById('storeSelector').value;
-                let weekStr = document.getElementById('weekSelector').value;
-                let emps = [...appData.employees]; 
-                virtualRowNames.forEach(n => emps.push({name: n, role: '待補'}));
-
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
-                const W = 1400, startX = 80, gridW = W - startX * 2, colW = gridW / 8, rowH = 95, headerH = 95, numEmpRows = emps.length, numEmptyRows = 5; 
-                const gridH = headerH + (numEmpRows * rowH) + rowH + (numEmptyRows * rowH), startY = 240, H = startY + gridH + 120; 
-
-                canvas.width = W; canvas.height = H;
-                ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, W, H);
-
-                ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "#000000";
-                ctx.font = "900 48px 'Microsoft JhengHei', sans-serif"; ctx.fillText(`${store} 職員輪班表`, W / 2, 90);
-                
-                let startArr = currentWeekDates[0].split('/'); let endArr = currentWeekDates[6].split('/');
-                ctx.font = "bold 26px 'Microsoft JhengHei', sans-serif"; ctx.fillStyle = "#333333";
-                ctx.fillText(`${startArr[0]} 月 ${startArr[1]} 日 至 ${endArr[0]} 月 ${endArr[1]} 日`, W / 2, 160);
-
-                ctx.lineWidth = 3; ctx.strokeStyle = "#000000"; ctx.strokeRect(startX, startY, gridW, gridH);
-                ctx.lineWidth = 2; 
-                for(let i = 1; i < 8; i++) { ctx.beginPath(); ctx.moveTo(startX + i * colW, startY); ctx.lineTo(startX + i * colW, startY + gridH); ctx.stroke(); }
-                let currentY = startY + headerH;
-                while (currentY < startY + gridH) { ctx.beginPath(); ctx.moveTo(startX, currentY); ctx.lineTo(startX + gridW, currentY); ctx.stroke(); currentY += rowH; }
-
-                ctx.beginPath(); ctx.moveTo(startX, startY); ctx.lineTo(startX + colW, startY + headerH); ctx.lineWidth = 2; ctx.stroke();
-
-                ctx.font = "bold 20px 'Microsoft JhengHei', sans-serif"; ctx.fillStyle = "#000000"; ctx.textAlign = "right"; ctx.fillText("月/日", startX + colW - 15, startY + 30);
-                ctx.textAlign = "left"; ctx.fillText("姓名", startX + 15, startY + headerH - 30);
-
-                ctx.textAlign = "center";
-                for(let i = 0; i < 7; i++) {
-                    let cx = startX + (i + 1) * colW + colW / 2; let cy = startY + headerH / 2;
-                    ctx.font = "900 26px 'Microsoft JhengHei', sans-serif"; ctx.fillText(currentWeekDates[i], cx, cy - 12);
-                    ctx.font = "normal 20px 'Microsoft JhengHei', sans-serif"; ctx.fillText(dayNames[i], cx, cy + 20);
-                }
-
-                function drawRoundRect(x, y, w, h, r, color) {
-                    ctx.beginPath(); ctx.moveTo(x+r, y); ctx.lineTo(x+w-r, y); ctx.quadraticCurveTo(x+w, y, x+w, y+r);
-                    ctx.lineTo(x+w, y+h-r); ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h); ctx.lineTo(x+r, y+h);
-                    ctx.quadraticCurveTo(x, y+h, x, y+h-r); ctx.lineTo(x, y+r); ctx.quadraticCurveTo(x, y, x+r, y); ctx.closePath();
-                    ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.stroke();
-                }
-
-                let rowY = startY + headerH;
-                emps.forEach(emp => {
-                    let cy = rowY + rowH / 2;
-                    ctx.fillStyle = "#000000"; ctx.font = "900 26px 'Microsoft JhengHei', sans-serif"; 
-                    if(!emp.name.includes('待補')) ctx.fillText(emp.name, startX + colW / 2, cy);
-
-                    for(let i = 0; i < 7; i++) {
-                        let cx = startX + (i + 1) * colW + colW / 2;
-                        let rec = appData.records.find(r => r.name === emp.name && r.day === dayNames[i] && r.week === weekStr);
-                        let supportOutRec = null;
-
-                        if (!emp.name.includes('待補') && emp.role !== '店長') {
-                            supportOutRec = appData.allStoresRecords.find(r =>
-                                r.supportEmp === `${store}-${emp.name}` && r.day === dayNames[i] && r.week === weekStr && r.approvalStatus === 'approved'
-                            );
-                        }
-
-                        if (supportOutRec) {
-                            rec = { shift: supportOutRec.shift, location: `支援${supportOutRec._store}`, note: supportOutRec.note, actualHours: supportOutRec.actualHours, isOT: supportOutRec.isOT, supportEmp: '', approvalStatus: '' };
-                        } else if (!rec) {
-                            rec = {shift:'', location:'本店', note:'', actualHours:0, isOT:false, supportEmp:'', approvalStatus:'', requestOff:false};
-                        }
-                        
-                        let hasSubtext = (rec.note || (rec.location && rec.location !== '本店') || (rec.supportEmp && rec.approvalStatus === 'approved'));
-                        let textY = hasSubtext ? cy - 14 : cy;
-                        let hVal = parseFloat(rec.actualHours || 0);
-
-                        if (emp.name.includes('待補') && !rec.supportEmp && rec.shift && rec.shift !== '排休' && rec.shift !== '指休') {
-                            ctx.fillStyle = "#000000"; ctx.font = "900 30px 'Arial', 'Microsoft JhengHei', sans-serif"; 
-                            ctx.fillText(rec.shift.replace('-', ' / '), cx, cy);
-                            if (rec.note) {
-                                ctx.fillStyle = "#0088aa"; ctx.font = "bold 18px 'Microsoft JhengHei', sans-serif"; 
-                                ctx.fillText(rec.note, cx, cy + 22);
-                            }
-                            continue;
-                        }
-
-                        if (rec.shift === '指休') {
-                            drawRoundRect(cx - 35, textY - 24, 70, 48, 10, '#d93025'); 
-                            ctx.fillStyle = "#d93025"; ctx.font = "900 28px 'Microsoft JhengHei', sans-serif"; ctx.fillText("休", cx, textY + 2);
-                        } else if (rec.shift === '排休') {
-                            ctx.fillStyle = "#000000"; ctx.font = "900 28px 'Microsoft JhengHei', sans-serif"; ctx.fillText("休", cx, textY + 2);
-                        } else if (rec.shift) {
-                            ctx.font = "900 30px 'Arial', 'Microsoft JhengHei', sans-serif"; 
-                            if (rec.isOT) {
-                                ctx.fillStyle = "#d93025"; ctx.fillText(rec.shift.replace('-', ' / '), cx, textY);
-                            } else if (hVal > 8 && rec.shift.includes('-')) {
-                                let parts = rec.shift.split('-');
-                                if (parts.length === 2) {
-                                    ctx.fillStyle = "#000000"; ctx.textAlign = "right"; ctx.fillText(parts[0] + ' / ', cx, textY);
-                                    ctx.fillStyle = "#d93025"; ctx.textAlign = "left"; ctx.fillText(parts[1], cx, textY);
-                                    ctx.textAlign = "center"; 
-                                }
-                            } else {
-                                ctx.fillStyle = "#000000"; ctx.fillText(rec.shift.replace('-', ' / '), cx, textY);
-                            }
-                        }
-
-                        if (hasSubtext) {
-                            let subtextY = cy + 20; 
-                            if (emp.name.includes('待補') && rec.supportEmp && rec.approvalStatus === 'approved') {
-                                ctx.fillStyle = "#1a73e8"; ctx.font = "900 18px 'Microsoft JhengHei', sans-serif"; 
-                                ctx.fillText(rec.supportEmp.split('-')[1] || rec.supportEmp, cx, subtextY);
-                                subtextY += 22;
-                            } else {
-                                if (rec.location && rec.location !== '本店') {
-                                    ctx.fillStyle = "#e67e22"; ctx.font = "bold 18px 'Microsoft JhengHei', sans-serif"; 
-                                    ctx.fillText(rec.location, cx, subtextY); subtextY += 22; 
-                                }
-                            }
-                            if (rec.note) {
-                                ctx.fillStyle = "#0088aa"; ctx.font = "bold 18px 'Microsoft JhengHei', sans-serif"; 
-                                ctx.fillText(rec.note, cx, subtextY);
-                            }
-                        }
-                    }
-                    rowY += rowH;
-                });
-
-                let cyNote = rowY + rowH / 2;
-                ctx.fillStyle = "#000000"; ctx.font = "900 24px 'Microsoft JhengHei', sans-serif"; ctx.fillText("門市備註", startX + colW / 2, cyNote);
-
-                for(let i = 0; i < 7; i++) {
-                    let cx = startX + (i + 1) * colW + colW / 2;
-                    let rec = appData.records.find(r => r.name === '門市備註' && r.day === dayNames[i] && r.week === weekStr);
-                    if (rec && rec.note) {
-                        ctx.fillStyle = "#0088aa"; ctx.font = "bold 22px 'Microsoft JhengHei', sans-serif"; ctx.fillText(rec.note, cx, cyNote);
-                    }
-                }
-
-                ctx.textAlign = "left"; ctx.fillStyle = "#000000"; ctx.font = "bold 20px 'Microsoft JhengHei', sans-serif"; 
-                ctx.fillText("※每周五、六公佈下週排班表，若有變動者，請事先向店長反映，勿私自調動！", startX + 5, H - 40);
-
-                const img = document.getElementById('previewImg'); img.src = canvas.toDataURL("image/jpeg", 0.95);
-                document.getElementById('imagePreviewModal').style.display = 'flex';
-                document.getElementById('downloadImgBtn').onclick = () => { let a = document.createElement('a'); a.href = img.src; a.download = `${store}_排班表_${weekStr}.jpg`; a.click(); };
-                hideLoading();
-            } catch (err) { alert("產圖發生錯誤：" + err); hideLoading(); }
-        }, 100); 
-    }
-
-    function deleteVirtualRow(name) {
-        if(!confirm(`確定要刪除 ${name} 嗎？`)) return;
-        let week = document.getElementById('weekSelector').value;
-        appData.records = appData.records.filter(r => !(r.name === name && r.week === week));
-        virtualRowNames = virtualRowNames.filter(n => n !== name);
-        renderTable();
-        triggerAutoSave();
-    }
-
-    async function fetchAllStoreData() {
-        let store = document.getElementById('storeSelector').value;
-        let weekStr = document.getElementById('weekSelector').value;
-        if(!store || !weekStr) return;
-        localStorage.setItem('lastStore', store);
-        showLoading("同步各門市最新資料...");
-
-        appData.allStoresRecords = [];
-        appData.allStoresEmployees = {};
-        appData.currentWeekLogs = [];
-
-        try {
-            for (let s of appConfig.stores) {
-                let empSnap = await window.db.collection('stores').doc(s).collection('employees').get();
-                let emps = [];
-                empSnap.forEach(d => { if(d.data().status !== '離職') emps.push(d.id); });
-                appData.allStoresEmployees[s] = emps;
-
-                let weekSnap = await window.db.collection('stores').doc(s).collection('weeks').get();
-                weekSnap.forEach(docSnap => {
-                    if(docSnap.exists && docSnap.data().records) {
-                        docSnap.data().records.forEach(r => {
-                            appData.allStoresRecords.push({ ...r, _store: s, week: docSnap.id });
-                        });
-                    }
-                    if (s === store && docSnap.id === weekStr && docSnap.data().logs) {
-                        appData.currentWeekLogs = docSnap.data().logs;
-                    }
-                });
-            }
-
-            appData.records = appData.allStoresRecords.filter(r => r._store === store);
-
-            const empSnap = await window.db.collection('stores').doc(store).collection('employees').get();
-            appData.employees = [];
-            
-            let currentWeekRecords = appData.records.filter(r => r.week === weekStr);
-            let scheduledNames = currentWeekRecords.filter(r => (r.shift && r.shift.trim() !== '') || (r.note && r.note.trim() !== '') || r.requestOff).map(r => r.name);
-
-            empSnap.forEach(d => {
-                let e = d.data();
-                if(e.status !== '離職' || scheduledNames.includes(d.id)) {
-                    appData.employees.push({name: d.id, ...e});
-                }
-            });
-            appData.employees.sort((a,b) => (a.sortKey||0) - (b.sortKey||0));
-
-            virtualRowNames = currentWeekRecords.map(r => r.name).filter(n => n && n.startsWith('🆘')).filter((v,i,a) => a.indexOf(v)===i);
-
-            renderSupportDropdown();
-            renderTable();
-        } catch (e) {
-            alert("讀取資料失敗：" + e.message);
+        if (s === store && data.logs) {
+          appData.currentWeekLogs = data.logs;
         }
-        hideLoading();
+      }
     }
 
-    function renderSupportDropdown() {
-        let myStore = document.getElementById('storeSelector').value;
-        let html = `<option value="">-- 無 (單純空缺，顯示橘色警告) --</option>`;
-        for (let s in appData.allStoresEmployees) {
-            if (s !== myStore) {
-                html += `<optgroup label="[${s}]">`;
-                appData.allStoresEmployees[s].forEach(emp => {
-                    html += `<option value="${s}-${emp}">${emp}</option>`;
-                });
-                html += `</optgroup>`;
+    appData.records = appData.allStoresRecords.filter(r => r._store === store);
+
+    const empSnap = await window.db.collection('stores').doc(store).collection('employees').get();
+    appData.employees = [];
+    const currentWeekRecords = appData.records.filter(r => r.week === weekStr);
+    const scheduledNames = currentWeekRecords
+      .filter(r => (r.shift && r.shift.trim()) || (r.note && r.note.trim()) || r.requestOff)
+      .map(r => r.name);
+
+    empSnap.forEach(d => {
+      const e = d.data();
+      if (e.status !== '離職' || scheduledNames.includes(d.id)) {
+        appData.employees.push({ name: d.id, ...e });
+      }
+    });
+    appData.employees.sort((a,b) => (a.sortKey||0) - (b.sortKey||0));
+
+    virtualRowNames = currentWeekRecords
+      .map(r => r.name).filter(n => n && n.startsWith('🆘'))
+      .filter((v,i,a) => a.indexOf(v) === i);
+
+    renderSupportDropdown();
+    renderTable();
+  } catch (e) {
+    alert('讀取資料失敗：' + e.message);
+  }
+  hideLoading();
+}
+
+function renderSupportDropdown() {
+  const myStore = document.getElementById('storeSelector').value;
+  let html = `<option value="">-- 無 (單純空缺，顯示橘色警告) --</option>`;
+  for (const s in appData.allStoresEmployees) {
+    if (s !== myStore) {
+      html += `<optgroup label="[${s}]">`;
+      appData.allStoresEmployees[s].forEach(emp => { html += `<option value="${s}-${emp}">${emp}</option>`; });
+      html += `</optgroup>`;
+    }
+  }
+  const mSupp = document.getElementById('modalSupportEmp');
+  if (mSupp) mSupp.innerHTML = html;
+  let opts = `<option value="本店">本店</option>`;
+  (appConfig.stores || []).forEach(s => { if (s !== myStore) opts += `<option value="${s}">${s}</option>`; });
+  document.getElementById('modalLocation').innerHTML = opts;
+}
+
+function toggleApprovalStatusVis() {
+  const val = document.getElementById('modalSupportEmp').value;
+  const el  = document.getElementById('modalApprovalStatus');
+  if (el) el.style.display = val ? 'block' : 'none';
+}
+
+// ===== 畫筆模式事件（touch-action:none 已在 CSS 設定）=====
+document.addEventListener('mouseup',  () => { isDragging = false; });
+document.addEventListener('touchend', () => { isDragging = false; });
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('scheduleTable').addEventListener('touchmove', e => {
+    if (isPaintMode && isDragging) {
+      e.preventDefault();
+      const touch = e.touches[0];
+      const el  = document.elementFromPoint(touch.clientX, touch.clientY);
+      const btn = el ? el.closest('.cell-btn') : null;
+      if (btn) applyPaintToCell(btn, parseInt(btn.dataset.eidx));
+    }
+  }, { passive: false });
+});
+
+// ===== 表格渲染 =====
+function renderTable() {
+  const tbody   = document.getElementById('tableBody'); tbody.innerHTML = '';
+  const weekStr = document.getElementById('weekSelector').value;
+  currentWeekDates = getWeekDates(weekStr);
+  const myStore = document.getElementById('storeSelector').value;
+
+  const hRow = document.getElementById('headerRow');
+  let hHtml = '<th>員工</th>';
+  dayNames.forEach((d, i) => { hHtml += `<th><span class="date-text">${currentWeekDates[i]}</span>${d}</th>`; });
+  hHtml += '<th>統計</th>';
+  hRow.innerHTML = hHtml;
+
+  const emps = [...appData.employees];
+  virtualRowNames.forEach(n => emps.push({ name: n, role: '待補' }));
+
+  emps.forEach((emp, eIdx) => {
+    const tr = document.createElement('tr');
+    const isVirtual = emp.name.startsWith('🆘待補');
+    let empNameDisplay = emp.name;
+    if (isVirtual) empNameDisplay += ` <span style="color:#d93025;font-size:12px;cursor:pointer;" onclick="deleteVirtualRow('${emp.name}')">✖</span>`;
+    let roleDisplay = emp.role;
+    if (emp.status === '離職') roleDisplay += ' <span style="color:#d93025;font-size:11px;font-weight:bold;">(已離職)</span>';
+    tr.innerHTML = `<td><strong>${empNameDisplay}</strong><br><small>${roleDisplay}</small></td>`;
+
+    let consecDays = 0, prevEndTime = null;
+    let myShiftsThisWeek = [];
+    if (!isVirtual && emp.role !== '店長') {
+      myShiftsThisWeek = appData.allStoresRecords.filter(r =>
+        r.week === weekStr &&
+        ((r._store === myStore && r.name === emp.name) ||
+         (r.supportEmp === `${myStore}-${emp.name}` && r.approvalStatus === 'approved'))
+      );
+    }
+
+    dayNames.forEach(day => {
+      let rec = appData.records.find(r => r.name === emp.name && r.day === day && r.week === weekStr);
+      let supportOutRec = null, isSupportOut = false;
+
+      if (!isVirtual && emp.role !== '店長') {
+        supportOutRec = appData.allStoresRecords.find(r =>
+          r.supportEmp === `${myStore}-${emp.name}` && r.day === day && r.week === weekStr && r.approvalStatus === 'approved'
+        );
+      }
+
+      if (supportOutRec) {
+        rec = { shift: supportOutRec.shift, location: `支援${supportOutRec._store}`, note: supportOutRec.note, actualHours: supportOutRec.actualHours, isOT: supportOutRec.isOT, supportEmp: '', approvalStatus: '', requestOff: false };
+        isSupportOut = true;
+      } else if (!rec) {
+        rec = { shift:'', location:'本店', note:'', actualHours:'', isOT:false, supportEmp:'', approvalStatus:'', requestOff:false };
+      }
+
+      // 勞基法警示
+      const warnings = [];
+      if (!isVirtual && emp.role !== '店長') {
+        const globalRec = myShiftsThisWeek.find(r => r.day === day);
+        if (globalRec && globalRec.shift && globalRec.shift !== '排休' && globalRec.shift !== '指休') {
+          consecDays++;
+          if (consecDays >= 7) warnings.push('連上7天');
+          const m = globalRec.shift.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)/);
+          if (m) {
+            let sT = parseFloat(m[1]), eT = parseFloat(m[2]);
+            if (eT <= sT) eT += 24;
+            if (prevEndTime !== null && ((sT + 24) - prevEndTime < 11)) {
+              if (sT <= 11) warnings.push('晚接早');
+              else if (sT >= 20) warnings.push('早接夜');
+              else warnings.push('夜接晚');
             }
-        }
-        let mSupp = document.getElementById('modalSupportEmp');
-        if(mSupp) mSupp.innerHTML = html;
-        
-        let opts = `<option value="本店">本店</option>`;
-        (appConfig.stores || []).forEach(s => { if (s !== myStore) opts += `<option value="${s}">${s}</option>`; });
-        document.getElementById('modalLocation').innerHTML = opts;
-    }
+            prevEndTime = eT;
+          } else { prevEndTime = null; }
+        } else { consecDays = 0; prevEndTime = null; }
+      }
 
-    function toggleApprovalStatusVis() {
-        let val = document.getElementById('modalSupportEmp').value;
-        let el = document.getElementById('modalApprovalStatus');
-        if(el) el.style.display = val ? 'block' : 'none';
-    }
+      // 待審核徽章
+      let pendingBadges = '';
+      if (!isVirtual) {
+        appData.allStoresRecords
+          .filter(r => r.supportEmp === `${myStore}-${emp.name}` && r.day === day && r.approvalStatus === 'pending' && r.week === weekStr)
+          .forEach(req => {
+            const reqData = encodeURIComponent(JSON.stringify(req));
+            pendingBadges += `<div class="pending-badge" onclick="event.stopPropagation();openApprovalModal('${reqData}')">🔔 ${req._store} ${req.shift} 申請支援<br>(點擊審核)</div>`;
+          });
+      }
 
-    // 🌟 畫筆模式與拖曳核心事件 🌟
-    document.addEventListener('mouseup', () => { isDragging = false; });
-    document.addEventListener('touchend', () => { isDragging = false; });
-    
-    // 手機版觸控滑動連刷
-    document.addEventListener('DOMContentLoaded', () => {
-        document.getElementById('scheduleTable').addEventListener('touchmove', (e) => {
-            if(isPaintMode && isDragging) {
-                e.preventDefault();
-                let touch = e.touches[0];
-                let el = document.elementFromPoint(touch.clientX, touch.clientY);
-                let btn = el ? el.closest('.cell-btn') : null;
-                if(btn) {
-                    let idx = parseInt(btn.dataset.eidx);
-                    applyPaintToCell(btn, idx);
-                }
-            }
-        }, {passive: false});
+      const td = document.createElement('td');
+      const btn = document.createElement('button');
+      btn.className = 'cell-btn';
+      btn.dataset.emp = emp.name; btn.dataset.day = day; btn.dataset.shift = rec.shift;
+      btn.dataset.hours = rec.actualHours; btn.dataset.loc = rec.location; btn.dataset.note = rec.note;
+      btn.dataset.ot = rec.isOT; btn.dataset.warn = warnings.join('|');
+      btn.dataset.support = rec.supportEmp || ''; btn.dataset.approval = rec.approvalStatus || '';
+      btn.dataset.reqoff = rec.requestOff || 'false';
+      btn.dataset.eidx   = eIdx;
+      btn.dataset.badges = pendingBadges;
+      updateCellUI(btn, pendingBadges);
+
+      if (isSupportOut) {
+        btn.onclick = () => alert(`此班別為跨店支援 (前往 ${supportOutRec._store})。\n請由需求門市進行修改或取消！`);
+      } else {
+        btn.onmousedown = e => { if (isPaintMode) { e.preventDefault(); isDragging = true; applyPaintToCell(btn, eIdx); } };
+        btn.onmouseenter = () => { if (isPaintMode && isDragging) applyPaintToCell(btn, eIdx); };
+        btn.ontouchstart = () => { if (isPaintMode) { isDragging = true; applyPaintToCell(btn, eIdx); } };
+        btn.onclick = () => { if (!isPaintMode) handleCellClick(btn, eIdx); };
+      }
+      td.appendChild(btn); tr.appendChild(td);
     });
 
-    function renderTable() { 
-        let tbody = document.getElementById('tableBody'); tbody.innerHTML = ''; 
-        let weekStr = document.getElementById('weekSelector').value; currentWeekDates = getWeekDates(weekStr); 
-        let myStore = document.getElementById('storeSelector').value;
-        let hRow = document.getElementById('headerRow'); let hHtml = '<th>員工</th>'; 
-        dayNames.forEach((d, i) => { hHtml += `<th><span class="date-text">${currentWeekDates[i]}</span>${d}</th>`; }); 
-        hHtml += '<th>統計</th>'; hRow.innerHTML = hHtml; 
-        
-        let emps = [...appData.employees]; 
-        virtualRowNames.forEach(n => emps.push({name: n, role: '待補'})); 
-        
-        emps.forEach((emp, eIdx) => { 
-            let tr = document.createElement('tr'); 
-            let isVirtual = emp.name.startsWith('🆘待補');
-            let empNameDisplay = emp.name;
-            if(isVirtual) empNameDisplay += ` <span style="color:#d93025; font-size:12px; cursor:pointer;" onclick="deleteVirtualRow('${emp.name}')">✖</span>`;
-            let roleDisplay = emp.role;
-            if(emp.status === '離職') roleDisplay += ' <span style="color:#d93025; font-size:11px; font-weight:bold;">(已離職)</span>';
+    const sumTd = document.createElement('td');
+    sumTd.id = `sum-${eIdx}`; sumTd.className = 'summary-box';
+    tr.appendChild(sumTd); tbody.appendChild(tr);
+    updateSummary(eIdx, emp);
+  });
 
-            tr.innerHTML = `<td><strong>${empNameDisplay}</strong><br><small>${roleDisplay}</small></td>`; 
-            
-            let consecDays = 0;
-            let prevEndTime = null;
+  // 門市備註列
+  const nTr = document.createElement('tr');
+  nTr.innerHTML = `<td style="background:#fff3e0;"><strong>📝 備註</strong></td>`;
+  dayNames.forEach(day => {
+    const rec = appData.records.find(r => r.name === '門市備註' && r.day === day && r.week === weekStr);
+    nTr.innerHTML += `<td style="padding:0;background:#fff8e1;"><input type="text" class="daily-note-input" data-day="${day}" oninput="triggerAutoSave()" value="${rec ? rec.note : ''}" style="width:100%;height:55px;border:none;background:transparent;text-align:center;font-size:13px;"></td>`;
+  });
+  tbody.appendChild(nTr);
+  updateDailyTotals();
+}
 
-            let myShiftsThisWeek = [];
-            if (!isVirtual && emp.role !== '店長') {
-                myShiftsThisWeek = appData.allStoresRecords.filter(r => 
-                    r.week === weekStr && 
-                    ((r._store === myStore && r.name === emp.name) || 
-                     (r.supportEmp === `${myStore}-${emp.name}` && r.approvalStatus === 'approved'))
-                );
+function updateCellUI(btn, extraHtml = '') {
+  const s = btn.dataset.shift, h = btn.dataset.hours, l = btn.dataset.loc, n = btn.dataset.note;
+  const isOT = (btn.dataset.ot === 'true'), w = btn.dataset.warn;
+  const isVirtual = btn.dataset.emp.includes('待補');
+  const supportEmp = btn.dataset.support, approvalStatus = btn.dataset.approval;
+  const requestOff = btn.dataset.reqoff === 'true';
+  const hVal = parseFloat(h) || 0;
+  let shiftHtml = s || '+';
+
+  btn.classList.remove('unfilled-shift', 'zhi-xiu', 'pai-xiu', 'shift-night', 'shift-morning', 'conflict-alert');
+  const hasConflict = (s && s !== '排休' && s !== '指休' && requestOff);
+
+  if (isVirtual && !supportEmp && s && s !== '排休' && s !== '指休') {
+    btn.classList.add('unfilled-shift');
+  } else if (s === '排休' || s === '指休') {
+    shiftHtml = '休';
+    btn.classList.add(s === '指休' ? 'zhi-xiu' : 'pai-xiu');
+  } else if (s) {
+    if (isOT) shiftHtml = `<span class="ot-text">${s}</span>`;
+    else if (hVal > 8 && s.includes('-')) {
+      const p = s.split('-');
+      if (p.length === 2) shiftHtml = `${p[0]}-<span class="ot-text">${p[1]}</span>`;
+    }
+    const start = parseInt(s);
+    btn.classList.add(start >= 15 || start < 6 ? 'shift-night' : 'shift-morning');
+  }
+
+  let txt = shiftHtml;
+  if (h && h != appConfig.shiftHours[s] && s !== '排休' && s !== '指休') txt += `<br><small>(${Math.round(h)}h)</small>`;
+  if (isVirtual && supportEmp) {
+    const empNameOnly = supportEmp.split('-')[1] || supportEmp;
+    if (approvalStatus === 'pending') txt += `<br><small style="color:#d84315;font-weight:bold;">${empNameOnly}<br>(待審核)</small>`;
+    else if (approvalStatus === 'approved') txt += `<br><small style="color:#1a73e8;font-weight:900;">${empNameOnly}</small>`;
+  }
+  if (w) w.split('|').forEach(warn => { if (warn) txt += `<br><span class="warn-tag">⚠️ ${warn}</span>`; });
+  if (l && l !== '本店' && !isVirtual) txt += `<br><small style="color:#d93025;font-weight:800;">📍${l}</small>`;
+  if (n) txt += `<br><small style="color:#1a73e8;">${n}</small>`;
+  if (hasConflict) {
+    btn.classList.add('conflict-alert');
+    txt += `<br><span style="background:#d93025;color:white;padding:2px;border-radius:3px;font-size:11px;">⚠️ 畫休衝突</span>`;
+  } else if (requestOff) {
+    txt += `<br><span class="req-tag">🙋‍♀️ 想排休</span>`;
+  }
+  btn.innerHTML = txt + extraHtml;
+}
+
+// ===== 畫筆模式 =====
+function togglePaintMode() {
+  isPaintMode = !isPaintMode;
+  const tb  = document.getElementById('paintToolbar');
+  const btn = document.getElementById('btnPaint');
+  if (isPaintMode) {
+    tb.style.display = 'block'; btn.classList.add('active'); btn.innerText = '🛑 關閉畫筆';
+    renderPaintButtons();
+  } else {
+    tb.style.display = 'none'; btn.classList.remove('active'); btn.innerText = '🖌️ 畫筆'; paintShift = '';
+  }
+}
+function renderPaintButtons() {
+  let h = `<button class="cell-btn ${paintShift==='清空'?'paint-active-btn':''}" style="width:auto;padding:8px 12px;min-height:35px;margin-right:6px;background:#f1f3f4;" onclick="setPaintShift('清空')">🗑️ 清空</button>`;
+  (appConfig.shifts || []).forEach(s => {
+    const isOff = (s === '排休' || s === '指休');
+    h += `<button class="cell-btn ${isOff?'zhi-xiu':''} ${paintShift===s?'paint-active-btn':''}" style="width:auto;padding:8px 12px;min-height:35px;margin-right:6px;" onclick="setPaintShift('${s}')">${s}</button>`;
+  });
+  document.getElementById('paintButtons').innerHTML = h;
+}
+function setPaintShift(s) { paintShift = s; renderPaintButtons(); }
+
+function applyPaintToCell(btn, eIdx) {
+  if (!paintShift) { if (!isDragging) alert('請先在上方選擇畫筆班別！'); return; }
+  if (btn.dataset.shift === (paintShift === '清空' ? '' : paintShift)) return;
+  pushToUndo(btn);
+  const isVirtual = btn.dataset.emp.includes('待補');
+  if (paintShift === '清空') {
+    btn.dataset.shift = ''; btn.dataset.hours = 0; btn.dataset.ot = 'false'; btn.dataset.note = '';
+    if (isVirtual) { btn.dataset.support=''; btn.dataset.approval=''; }
+    else { btn.dataset.reqoff='false'; }
+  } else {
+    btn.dataset.shift = paintShift;
+    let h = appConfig.shiftHours[paintShift] || 0;
+    if (!h && paintShift !== '排休' && paintShift !== '指休') {
+      const m = paintShift.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)/);
+      if (m) { let sT=parseFloat(m[1]),eT=parseFloat(m[2]); if(eT<=sT) eT+=24; h=eT-sT; }
+    }
+    btn.dataset.hours = h; btn.dataset.ot = 'false';
+    if (!isVirtual) { btn.dataset.loc='本店'; btn.dataset.reqoff='false'; }
+  }
+  // 局部更新記憶體
+  _syncCellToMemory(btn);
+  updateCellUI(btn, btn.dataset.badges || '');
+  updateDailyTotals();
+  updateSummary(eIdx, appData.employees.find(e => e.name === btn.dataset.emp) || { name: btn.dataset.emp, role: '待補' });
+  triggerAutoSave();
+}
+
+// ===== Modal 操作 =====
+function handleCellClick(btn, eIdx) {
+  const isVirtual = btn.dataset.emp.includes('待補');
+  currentCell = btn;
+  document.getElementById('modalTitle').innerText = btn.dataset.emp;
+  document.getElementById('modalShift').value    = btn.dataset.shift;
+  document.getElementById('modalHours').value    = btn.dataset.hours;
+  document.getElementById('modalOvertime').checked = (btn.dataset.ot === 'true');
+  document.getElementById('modalLocation').value = isVirtual ? '本店' : (btn.dataset.loc || '本店');
+  document.getElementById('modalNote').value     = btn.dataset.note;
+  if (isVirtual) {
+    document.getElementById('modalLocGroup').style.display     = 'none';
+    document.getElementById('modalSupportGroup').style.display = 'block';
+    document.getElementById('modalSupportEmp').value           = btn.dataset.support || '';
+    document.getElementById('modalApprovalStatus').value       = btn.dataset.approval || 'pending';
+    document.getElementById('modalReqClearWrapper').style.display = 'none';
+    document.getElementById('modalConflictWarning').style.display = 'none';
+    toggleApprovalStatusVis();
+  } else {
+    document.getElementById('modalLocGroup').style.display     = 'block';
+    document.getElementById('modalSupportGroup').style.display = 'none';
+    const hasConflict = (btn.dataset.shift && btn.dataset.shift !== '排休' && btn.dataset.shift !== '指休' && btn.dataset.reqoff === 'true');
+    document.getElementById('modalConflictWarning').style.display = hasConflict ? 'block' : 'none';
+    const clearWrapper  = document.getElementById('modalReqClearWrapper');
+    const clearCheckbox = document.getElementById('modalClearReq');
+    if (btn.dataset.reqoff === 'true') { clearWrapper.style.display='flex'; clearCheckbox.checked=true; }
+    else { clearWrapper.style.display='none'; clearCheckbox.checked=false; }
+  }
+  renderQuickShifts();
+  document.getElementById('shiftModal').style.display = 'flex';
+}
+
+function renderQuickShifts() {
+  let h = `<button class="cell-btn" style="padding:10px;font-weight:bold;cursor:pointer;background:#f1f3f4;" onclick="clearModalShift()">🗑️ 清空</button>`;
+  (appConfig.shifts || []).forEach(s => {
+    const isOff = (s === '排休' || s === '指休');
+    h += `<button class="cell-btn ${isOff?'zhi-xiu':''}" style="padding:10px;font-weight:bold;cursor:pointer;" onclick="setModalShift('${s}')">${s}</button>`;
+  });
+  document.getElementById('quickShiftButtons').innerHTML = h;
+}
+function setModalShift(s) { document.getElementById('modalShift').value = s; autoFillHours(); }
+function clearModalShift() {
+  document.getElementById('modalShift').value = '';
+  document.getElementById('modalHours').value = '';
+  document.getElementById('modalOvertime').checked = false;
+  document.getElementById('modalLocation').value = '本店';
+  document.getElementById('modalNote').value = '';
+  document.getElementById('modalSupportEmp').value = '';
+  document.getElementById('modalApprovalStatus').value = 'pending';
+  toggleApprovalStatusVis();
+}
+
+function autoFillHours() {
+  const s = document.getElementById('modalShift').value.trim();
+  const t = document.getElementById('modalHours');
+  if (appConfig.shiftHours && appConfig.shiftHours[s]) { t.value = appConfig.shiftHours[s]; return; }
+  const m = s.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)/);
+  if (m) { let sT=parseFloat(m[1]),eT=parseFloat(m[2]); if(eT<=sT)eT+=24; t.value=eT-sT; }
+  else if (s==='排休'||s==='指休') t.value=0;
+}
+
+function applyShift() {
+  pushToUndo(currentCell);
+  const isVirtual = currentCell.dataset.emp.includes('待補');
+  currentCell.dataset.shift   = document.getElementById('modalShift').value;
+  currentCell.dataset.hours   = document.getElementById('modalHours').value;
+  currentCell.dataset.ot      = document.getElementById('modalOvertime').checked;
+  currentCell.dataset.note    = document.getElementById('modalNote').value;
+  if (isVirtual) {
+    currentCell.dataset.loc      = '本店';
+    currentCell.dataset.support  = document.getElementById('modalSupportEmp').value;
+    currentCell.dataset.approval = document.getElementById('modalApprovalStatus').value;
+  } else {
+    currentCell.dataset.loc = document.getElementById('modalLocation').value;
+    if (document.getElementById('modalReqClearWrapper').style.display !== 'none' && document.getElementById('modalClearReq').checked) {
+      currentCell.dataset.reqoff = 'false';
+    }
+  }
+  syncUIToMemory(); renderTable(); closeModal('shiftModal'); triggerAutoSave();
+}
+
+// ===== 統計 =====
+function updateDailyTotals() {
+  const sums = [0,0,0,0,0,0,0];
+  document.querySelectorAll('.cell-btn').forEach(b => {
+    const idx = dayNames.indexOf(b.dataset.day);
+    if (b.dataset.loc === '本店') sums[idx] += parseFloat(b.dataset.hours || 0);
+  });
+  sums.forEach((s, i) => document.getElementById(`dailyTotal-${i}`).innerText = Math.round(s));
+  document.getElementById('tableFoot').style.display = 'table-row-group';
+}
+
+function updateSummary(idx, emp) {
+  const t = document.getElementById(`sum-${idx}`); if (!t) return;
+  if (emp.name.includes('待補')) { t.innerHTML = '-'; return; }
+  const weekStr = document.getElementById('weekSelector').value;
+  const myStore = document.getElementById('storeSelector').value;
+  const activeMonths = [...new Set(currentWeekDates.map(d => d.split('/')[0]))];
+  let weekHours = 0, weekOffD = 0;
+  const monthStats = {};
+  activeMonths.forEach(m => monthStats[m] = { hours: 0, ot: 0, offD: 0 });
+
+  if (appData.allStoresRecords) {
+    appData.allStoresRecords.forEach(r => {
+      const isNative  = (r._store === myStore && r.name === emp.name);
+      const isSupport = (r.supportEmp === `${myStore}-${emp.name}` && r.approvalStatus === 'approved');
+      if (isNative) {
+        const hasSupportThatDay = appData.allStoresRecords.some(sr =>
+          sr.supportEmp === `${myStore}-${emp.name}` && sr.approvalStatus === 'approved' && sr.day === r.day && sr.week === r.week
+        );
+        if (hasSupportThatDay) return;
+      }
+      if (!isNative && !isSupport) return;
+      const h = parseFloat(r.actualHours || 0);
+      const isOffDay = (r.shift === '排休' || r.shift === '指休');
+      // 週統計
+      if (r.week === weekStr) {
+        weekHours += isOffDay ? 0 : h;
+        if (isOffDay) weekOffD++;
+      }
+      // 月統計：確認該 record 的日期屬於哪個月
+      const weekDates = getWeekDates(r.week);
+      const dayIdx    = dayNames.indexOf(r.day);
+      if (dayIdx !== -1 && weekDates[dayIdx]) {
+        const mo = weekDates[dayIdx].split('/')[0];
+        if (monthStats[mo]) {
+          if (isOffDay) monthStats[mo].offD++;
+          else {
+            monthStats[mo].hours += h;
+            if (r.isOT) monthStats[mo].ot += h;
+          }
+        }
+      }
+    });
+  }
+
+  let html = `<div>本週 <b>${Math.round(weekHours)}h</b> / 休${weekOffD}天</div>`;
+  activeMonths.forEach(m => {
+    const ms = monthStats[m];
+    html += `<div>${m}月 <b>${Math.round(ms.hours)}h</b>`;
+    if (ms.ot > 0) html += ` <span style="color:#d93025;">+OT${Math.round(ms.ot)}h</span>`;
+    html += ` / 休${ms.offD}天</div>`;
+    if (emp.wage) {
+      const pay = emp.role === '工讀' ? emp.wage * ms.hours : emp.wage;
+      html += `<div style="color:#1a73e8;">💰 ${Math.round(pay).toLocaleString()}</div>`;
+    }
+  });
+  t.innerHTML = html;
+}
+
+// ===== 記憶體同步 =====
+function syncUIToMemory() {
+  const week = document.getElementById('weekSelector').value;
+  document.querySelectorAll('.cell-btn').forEach(btn => _syncCellToMemory(btn, week));
+  document.querySelectorAll('.daily-note-input').forEach(inp => {
+    const day = inp.dataset.day, val = inp.value;
+    const idx = appData.records.findIndex(r => r.name === '門市備註' && r.day === day && r.week === week);
+    if (val) {
+      if (idx !== -1) appData.records[idx].note = val;
+      else appData.records.push({ week, day, name: '門市備註', shift: '', location: '', note: val, actualHours: 0, isOT: false });
+    } else { if (idx !== -1) appData.records.splice(idx, 1); }
+  });
+}
+
+function _syncCellToMemory(btn, week) {
+  if (!week) week = document.getElementById('weekSelector').value;
+  const idx  = appData.records.findIndex(r => r.name === btn.dataset.emp && r.day === btn.dataset.day && r.week === week);
+  const data = {
+    week, day: btn.dataset.day, name: btn.dataset.emp, shift: btn.dataset.shift || '',
+    location: btn.dataset.loc || '本店', note: btn.dataset.note || '',
+    actualHours: parseFloat(btn.dataset.hours || 0), isOT: btn.dataset.ot === 'true',
+    supportEmp: btn.dataset.support || '', approvalStatus: btn.dataset.approval || '',
+    requestOff: btn.dataset.reqoff === 'true'
+  };
+  const hasData = btn.dataset.shift || btn.dataset.note || btn.dataset.ot === 'true' || btn.dataset.support || btn.dataset.reqoff === 'true';
+  if (hasData) { if (idx !== -1) appData.records[idx] = data; else appData.records.push(data); }
+  else { if (idx !== -1) appData.records.splice(idx, 1); }
+}
+
+// ===== 虛擬待補行 =====
+function addVirtualRow() {
+  syncUIToMemory();
+  let n = 1;
+  while (virtualRowNames.includes('🆘待補' + n)) n++;
+  virtualRowNames.push('🆘待補' + n);
+  renderTable(); triggerAutoSave();
+}
+function deleteVirtualRow(name) {
+  if (!confirm(`確定要刪除 ${name} 嗎？`)) return;
+  const week = document.getElementById('weekSelector').value;
+  appData.records = appData.records.filter(r => !(r.name === name && r.week === week));
+  virtualRowNames = virtualRowNames.filter(n => n !== name);
+  renderTable(); triggerAutoSave();
+}
+
+// ===== 跨店支援審核 =====
+function openApprovalModal(encodedReq) {
+  const req = JSON.parse(decodeURIComponent(encodedReq));
+  document.getElementById('approvalReqData').value = encodedReq;
+  document.getElementById('approvalDesc').innerHTML =
+    `<strong>${req._store}</strong> 提出跨店支援請求：<br><br>` +
+    `<span style="color:#1a73e8;font-size:24px;font-weight:900;">${req.supportEmp.split('-')[1]}</span><br>` +
+    `於 <strong>${req.day} ${req.shift}</strong> 前往支援`;
+  document.getElementById('approvalModal').style.display = 'flex';
+}
+async function handleApproval(isApproved) {
+  const req = JSON.parse(decodeURIComponent(document.getElementById('approvalReqData').value));
+  showLoading('處理中...');
+  try {
+    const docRef = window.db.collection('stores').doc(req._store).collection('weeks').doc(req.week);
+    const snap   = await docRef.get();
+    if (snap.exists) {
+      const records = snap.data().records || [];
+      const idx = records.findIndex(r => r.name === req.name && r.day === req.day && r.shift === req.shift);
+      if (idx !== -1) {
+        if (isApproved) records[idx].approvalStatus = 'approved';
+        else { records[idx].supportEmp = ''; records[idx].approvalStatus = ''; }
+        await docRef.update({ records });
+        alert(isApproved ? '已同意支援！' : '已拒絕支援，對方格子已清空人員。');
+        closeModal('approvalModal'); fetchAllStoreData();
+      } else { alert('找不到該筆申請，可能已被刪除。'); closeModal('approvalModal'); hideLoading(); }
+    }
+  } catch (err) { alert('發生錯誤：' + err); hideLoading(); }
+}
+
+// ===== 產圖 (Canvas) =====
+function exportNativeImage() {
+  syncUIToMemory();
+  showLoading('📸 產圖中...');
+  setTimeout(() => {
+    try {
+      const store   = document.getElementById('storeSelector').value;
+      const weekStr = document.getElementById('weekSelector').value;
+      const emps    = [...appData.employees];
+      virtualRowNames.forEach(n => emps.push({ name: n, role: '待補' }));
+
+      const canvas = document.createElement('canvas');
+      const ctx    = canvas.getContext('2d');
+      const W = 1400, startX = 80, gridW = W - startX * 2, colW = gridW / 8;
+      const rowH = 95, headerH = 95, numEmptyRows = 5;
+      const gridH = headerH + (emps.length * rowH) + rowH + (numEmptyRows * rowH);
+      const startY = 240, H = startY + gridH + 120;
+      canvas.width = W; canvas.height = H;
+
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H);
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#000000';
+      ctx.font = "900 48px 'Microsoft JhengHei', sans-serif";
+      ctx.fillText(`${store} 職員輪班表`, W / 2, 90);
+
+      const [sm, sd] = currentWeekDates[0].split('/'), [em, ed] = currentWeekDates[6].split('/');
+      ctx.font = "bold 26px 'Microsoft JhengHei', sans-serif"; ctx.fillStyle = '#333333';
+      ctx.fillText(`${sm} 月 ${sd} 日 至 ${em} 月 ${ed} 日`, W / 2, 160);
+
+      ctx.lineWidth = 3; ctx.strokeStyle = '#000000'; ctx.strokeRect(startX, startY, gridW, gridH);
+      ctx.lineWidth = 2;
+      for (let i = 1; i < 8; i++) {
+        ctx.beginPath(); ctx.moveTo(startX + i * colW, startY); ctx.lineTo(startX + i * colW, startY + gridH); ctx.stroke();
+      }
+      let cY = startY + headerH;
+      while (cY < startY + gridH) { ctx.beginPath(); ctx.moveTo(startX, cY); ctx.lineTo(startX + gridW, cY); ctx.stroke(); cY += rowH; }
+
+      ctx.beginPath(); ctx.moveTo(startX, startY); ctx.lineTo(startX + colW, startY + headerH); ctx.lineWidth = 2; ctx.stroke();
+      ctx.font = "bold 20px 'Microsoft JhengHei', sans-serif"; ctx.fillStyle = '#000000';
+      ctx.textAlign = 'right'; ctx.fillText('月/日', startX + colW - 15, startY + 30);
+      ctx.textAlign = 'left';  ctx.fillText('姓名',  startX + 15, startY + headerH - 30);
+      ctx.textAlign = 'center';
+      for (let i = 0; i < 7; i++) {
+        const cx = startX + (i + 1) * colW + colW / 2, cy = startY + headerH / 2;
+        ctx.font = "900 26px 'Microsoft JhengHei', sans-serif"; ctx.fillText(currentWeekDates[i], cx, cy - 12);
+        ctx.font = "normal 20px 'Microsoft JhengHei', sans-serif"; ctx.fillText(dayNames[i], cx, cy + 20);
+      }
+
+      function drawRoundRect(x, y, w, h, r, color) {
+        ctx.beginPath(); ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+        ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h); ctx.lineTo(x+r,y+h);
+        ctx.quadraticCurveTo(x,y+h,x,y+h-r); ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y); ctx.closePath();
+        ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.stroke();
+      }
+
+      let rowY = startY + headerH;
+      emps.forEach(emp => {
+        const cy = rowY + rowH / 2;
+        ctx.fillStyle = '#000000'; ctx.font = "900 26px 'Microsoft JhengHei', sans-serif";
+        if (!emp.name.includes('待補')) ctx.fillText(emp.name, startX + colW / 2, cy);
+        for (let i = 0; i < 7; i++) {
+          const cx = startX + (i + 1) * colW + colW / 2;
+          let rec = appData.records.find(r => r.name === emp.name && r.day === dayNames[i] && r.week === weekStr);
+          let supportOutRec = null;
+          if (!emp.name.includes('待補') && emp.role !== '店長') {
+            supportOutRec = appData.allStoresRecords.find(r =>
+              r.supportEmp === `${store}-${emp.name}` && r.day === dayNames[i] && r.week === weekStr && r.approvalStatus === 'approved'
+            );
+          }
+          if (supportOutRec) {
+            rec = { shift: supportOutRec.shift, location: `支援${supportOutRec._store}`, note: supportOutRec.note, actualHours: supportOutRec.actualHours, isOT: supportOutRec.isOT, supportEmp: '', approvalStatus: '' };
+          } else if (!rec) {
+            rec = { shift:'', location:'本店', note:'', actualHours:0, isOT:false, supportEmp:'', approvalStatus:'', requestOff:false };
+          }
+          const hasSubtext = (rec.note || (rec.location && rec.location !== '本店') || (rec.supportEmp && rec.approvalStatus === 'approved'));
+          const textY = hasSubtext ? cy - 14 : cy;
+          const hVal  = parseFloat(rec.actualHours || 0);
+
+          if (emp.name.includes('待補') && !rec.supportEmp && rec.shift && rec.shift !== '排休' && rec.shift !== '指休') {
+            ctx.fillStyle = '#000000'; ctx.font = "900 30px 'Arial','Microsoft JhengHei',sans-serif";
+            ctx.fillText(rec.shift.replace('-', ' / '), cx, cy);
+            if (rec.note) { ctx.fillStyle = '#0088aa'; ctx.font = "bold 18px 'Microsoft JhengHei',sans-serif"; ctx.fillText(rec.note, cx, cy + 22); }
+            continue;
+          }
+          if (rec.shift === '指休') {
+            drawRoundRect(cx - 35, textY - 24, 70, 48, 10, '#d93025');
+            ctx.fillStyle = '#d93025'; ctx.font = "900 28px 'Microsoft JhengHei',sans-serif"; ctx.fillText('休', cx, textY + 2);
+          } else if (rec.shift === '排休') {
+            ctx.fillStyle = '#000000'; ctx.font = "900 28px 'Microsoft JhengHei',sans-serif"; ctx.fillText('休', cx, textY + 2);
+          } else if (rec.shift) {
+            ctx.font = "900 30px 'Arial','Microsoft JhengHei',sans-serif";
+            if (rec.isOT) { ctx.fillStyle = '#d93025'; ctx.fillText(rec.shift.replace('-', ' / '), cx, textY); }
+            else if (hVal > 8 && rec.shift.includes('-')) {
+              const parts = rec.shift.split('-');
+              if (parts.length === 2) {
+                ctx.fillStyle = '#000000'; ctx.textAlign = 'right'; ctx.fillText(parts[0] + ' / ', cx, textY);
+                ctx.fillStyle = '#d93025'; ctx.textAlign = 'left';  ctx.fillText(parts[1], cx, textY);
+                ctx.textAlign = 'center';
+              }
+            } else { ctx.fillStyle = '#000000'; ctx.fillText(rec.shift.replace('-', ' / '), cx, textY); }
+          }
+          if (hasSubtext) {
+            let subtextY = cy + 20;
+            if (emp.name.includes('待補') && rec.supportEmp && rec.approvalStatus === 'approved') {
+              ctx.fillStyle = '#1a73e8'; ctx.font = "900 18px 'Microsoft JhengHei',sans-serif";
+              ctx.fillText(rec.supportEmp.split('-')[1] || rec.supportEmp, cx, subtextY); subtextY += 22;
+            } else if (rec.location && rec.location !== '本店') {
+              ctx.fillStyle = '#e67e22'; ctx.font = "bold 18px 'Microsoft JhengHei',sans-serif";
+              ctx.fillText(rec.location, cx, subtextY); subtextY += 22;
             }
-
-            dayNames.forEach(day => { 
-                let rec = appData.records.find(r => r.name === emp.name && r.day === day && r.week === weekStr);
-                let supportOutRec = null;
-                let isSupportOut = false;
-
-                if (!isVirtual && emp.role !== '店長') {
-                    supportOutRec = appData.allStoresRecords.find(r =>
-                        r.supportEmp === `${myStore}-${emp.name}` &&
-                        r.day === day &&
-                        r.week === weekStr &&
-                        r.approvalStatus === 'approved'
-                    );
-                }
-
-                if (supportOutRec) {
-                    rec = { shift: supportOutRec.shift, location: `支援${supportOutRec._store}`, note: supportOutRec.note, actualHours: supportOutRec.actualHours, isOT: supportOutRec.isOT, supportEmp: '', approvalStatus: '', requestOff: false };
-                    isSupportOut = true;
-                } else if (!rec) {
-                    rec = {shift:'', location:'本店', note:'', actualHours:'', isOT:false, supportEmp:'', approvalStatus:'', requestOff:false};
-                }
-
-                let warnings = [];
-
-                if (!isVirtual && emp.role !== '店長') {
-                    let globalRec = myShiftsThisWeek.find(r => r.day === day);
-                    if (globalRec && globalRec.shift && globalRec.shift !== '排休' && globalRec.shift !== '指休') {
-                        consecDays++;
-                        if (consecDays >= 7) warnings.push('連上7天');
-
-                        let m = globalRec.shift.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)/);
-                        if (m) {
-                            let sT = parseFloat(m[1]), eT = parseFloat(m[2]);
-                            if (eT <= sT) eT += 24;
-                            if (prevEndTime !== null && ((sT + 24) - prevEndTime < 11)) {
-                                if (sT <= 11) warnings.push('晚接早');
-                                else if (sT >= 20) warnings.push('早接夜');
-                                else warnings.push('夜接晚');
-                            }
-                            prevEndTime = eT;
-                        } else prevEndTime = null;
-                    } else {
-                        consecDays = 0; prevEndTime = null;
-                    }
-                }
-
-                let pendingBadges = '';
-                if (!isVirtual) {
-                    let pendingReqs = appData.allStoresRecords.filter(r => 
-                        r.supportEmp === `${myStore}-${emp.name}` && r.day === day && r.approvalStatus === 'pending' && r.week === weekStr
-                    );
-                    pendingReqs.forEach(req => {
-                        let reqData = encodeURIComponent(JSON.stringify(req));
-                        pendingBadges += `<div class="pending-badge" onclick="event.stopPropagation(); openApprovalModal('${reqData}')">🔔 ${req._store} ${req.shift} 申請支援<br>(點擊審核)</div>`;
-                    });
-                }
-
-                let td = document.createElement('td'); let btn = document.createElement('button'); btn.className = 'cell-btn'; 
-                btn.dataset.emp = emp.name; btn.dataset.day = day; btn.dataset.shift = rec.shift; btn.dataset.hours = rec.actualHours; btn.dataset.loc = rec.location; btn.dataset.note = rec.note; btn.dataset.ot = rec.isOT; btn.dataset.warn = warnings.join('|');
-                btn.dataset.support = rec.supportEmp || ''; btn.dataset.approval = rec.approvalStatus || ''; btn.dataset.reqoff = rec.requestOff || 'false';
-                btn.dataset.eidx = eIdx; // 供畫筆更新統計使用
-                btn.dataset.badges = pendingBadges; // 供畫筆更新介面使用
-                
-                updateCellUI(btn, pendingBadges); 
-                
-                if (isSupportOut) {
-                    btn.onclick = () => alert(`此班別為跨店支援 (前往 ${supportOutRec._store})。\n請由需求門市進行修改或取消！`);
-                } else {
-                    // 🌟 畫筆模式的點擊與拖曳綁定
-                    btn.onmousedown = (e) => { if(isPaintMode) { e.preventDefault(); isDragging = true; applyPaintToCell(btn, eIdx); } };
-                    btn.onmouseenter = () => { if(isPaintMode && isDragging) applyPaintToCell(btn, eIdx); };
-                    btn.ontouchstart = () => { if(isPaintMode) { isDragging = true; applyPaintToCell(btn, eIdx); } };
-                    
-                    btn.onclick = () => { if(!isPaintMode) handleCellClick(btn, eIdx); };
-                }
-                
-                td.appendChild(btn); tr.appendChild(td); 
-            }); 
-            let sumTd = document.createElement('td'); sumTd.id = `sum-${eIdx}`; sumTd.className = 'summary-box'; tr.appendChild(sumTd); tbody.appendChild(tr); 
-            updateSummary(eIdx, emp); 
-        }); 
-        
-        let nTr = document.createElement('tr'); nTr.innerHTML = `<td style="background:#fff3e0;"><strong>📝 備註</strong></td>`; 
-        dayNames.forEach(day => { 
-            let rec = appData.records.find(r => r.name === '門市備註' && r.day === day && r.week === weekStr); 
-            nTr.innerHTML += `<td style="padding:0; background:#fff8e1;"><input type="text" class="daily-note-input" data-day="${day}" oninput="triggerAutoSave()" value="${rec?rec.note:''}" style="width:100%; height:55px; border:none; background:transparent; text-align:center;"></td>`; 
-        }); 
-        tbody.appendChild(nTr); 
-        updateDailyTotals(); 
-    }
-    
-    function updateCellUI(btn, extraHtml = '') { 
-        let s = btn.dataset.shift, h = btn.dataset.hours, l = btn.dataset.loc, n = btn.dataset.note, isOT = (btn.dataset.ot === 'true'), w = btn.dataset.warn; 
-        let isVirtual = btn.dataset.emp.includes('待補');
-        let supportEmp = btn.dataset.support;
-        let approvalStatus = btn.dataset.approval;
-        let requestOff = btn.dataset.reqoff === 'true';
-        let hVal = parseFloat(h) || 0;
-        let shiftHtml = s || '+'; 
-        
-        btn.classList.remove('unfilled-shift', 'zhi-xiu', 'pai-xiu', 'shift-night', 'shift-morning', 'conflict-alert');
-
-        let hasConflict = (s && s !== '排休' && s !== '指休' && requestOff);
-
-        if (isVirtual && !supportEmp && s && s !== '排休' && s !== '指休') {
-            btn.classList.add('unfilled-shift');
-        } else if (s === '排休' || s === '指休') {
-            shiftHtml = '休'; 
-            btn.classList.add(s === '指休' ? 'zhi-xiu' : 'pai-xiu');
-        } else if (s) {
-            if (isOT) shiftHtml = `<span class="ot-text">${s}</span>`;
-            else if (hVal > 8 && s.includes('-')) {
-                let p = s.split('-'); if (p.length === 2) shiftHtml = `${p[0]}-<span class="ot-text">${p[1]}</span>`;
-            }
-            let start = parseInt(s); if(start>=15||start<6) btn.classList.add('shift-night'); else btn.classList.add('shift-morning');
+            if (rec.note) { ctx.fillStyle = '#0088aa'; ctx.font = "bold 18px 'Microsoft JhengHei',sans-serif"; ctx.fillText(rec.note, cx, subtextY); }
+          }
         }
+        rowY += rowH;
+      });
 
-        let txt = shiftHtml;
-        if(h && h != appConfig.shiftHours[s] && s !== '排休' && s !== '指休') txt += `<br><small>(${Math.round(h)}h)</small>`; 
+      // 門市備註列
+      const cyNote = rowY + rowH / 2;
+      ctx.fillStyle = '#000000'; ctx.font = "900 24px 'Microsoft JhengHei',sans-serif"; ctx.fillText('門市備註', startX + colW / 2, cyNote);
+      for (let i = 0; i < 7; i++) {
+        const cx  = startX + (i + 1) * colW + colW / 2;
+        const rec = appData.records.find(r => r.name === '門市備註' && r.day === dayNames[i] && r.week === weekStr);
+        if (rec && rec.note) { ctx.fillStyle = '#0088aa'; ctx.font = "bold 22px 'Microsoft JhengHei',sans-serif"; ctx.fillText(rec.note, cx, cyNote); }
+      }
 
-        if (isVirtual && supportEmp) {
-            let empNameOnly = supportEmp.split('-')[1] || supportEmp;
-            if (approvalStatus === 'pending') txt += `<br><small style="color:#d84315; font-weight:bold;">${empNameOnly}<br>(待審核)</small>`;
-            else if (approvalStatus === 'approved') txt += `<br><small style="color:#1a73e8; font-weight:900;">${empNameOnly}</small>`;
-        }
+      ctx.textAlign = 'left'; ctx.fillStyle = '#000000'; ctx.font = "bold 20px 'Microsoft JhengHei',sans-serif";
+      ctx.fillText('※每周五、六公佈下週排班表，若有變動者，請事先向店長反映，勿私自調動！', startX + 5, H - 40);
 
-        if (w) { let wArr = w.split('|'); wArr.forEach(warn => { if(warn) txt += `<br><span class="warn-tag">⚠️ ${warn}</span>`; }); }
-        if (l && l !== '本店' && !isVirtual) txt += `<br><small style="color:#d93025; font-weight:800;">📍${l}</small>`; 
-        if (n) txt += `<br><small style="color:#1a73e8;">${n}</small>`; 
-        
-        if (hasConflict) {
-            btn.classList.add('conflict-alert');
-            txt += `<br><span style="background:#d93025;color:white;padding:2px;border-radius:3px;font-size:11px;">⚠️ 畫休衝突</span>`;
-        } else if (requestOff) {
-            txt += `<br><span class="req-tag">🙋‍♀️ 想排休</span>`;
-        }
-        
-        btn.innerHTML = txt + extraHtml; 
+      const img = document.getElementById('previewImg');
+      img.src = canvas.toDataURL('image/jpeg', 0.95);
+      document.getElementById('imagePreviewModal').style.display = 'flex';
+      document.getElementById('downloadImgBtn').onclick = () => {
+        const a = document.createElement('a');
+        a.href = img.src; a.download = `${store}_排班表_${weekStr}.jpg`; a.click();
+      };
+      hideLoading();
+    } catch (err) { alert('產圖發生錯誤：' + err); hideLoading(); }
+  }, 100);
+}
+
+// ===== 人員管理 =====
+function openEmpModal() {
+  localActiveEmps   = JSON.parse(JSON.stringify(appData.employees));
+  localDeletedNames = [];
+  renderEmpList();
+  document.getElementById('empModal').style.display = 'flex';
+}
+function renderEmpList() {
+  const list = document.getElementById('localEmpList');
+  list.innerHTML = '';
+  localActiveEmps.forEach((emp, i) => {
+    const div = document.createElement('div'); div.className = 'emp-row';
+    div.innerHTML =
+      `<span style="cursor:grab;color:#aaa;font-size:18px;">☰</span>` +
+      `<strong style="min-width:60px;">${emp.name}</strong>` +
+      `<select onchange="localActiveEmps[${i}].role=this.value" style="padding:6px;border-radius:4px;border:1px solid #ddd;">` +
+      ['工讀','正職','副店長','店長'].map(r => `<option ${emp.role===r?'selected':''}>${r}</option>`).join('') +
+      `</select>` +
+      `<input type="number" placeholder="時薪/月薪" value="${emp.wage||''}" onchange="localActiveEmps[${i}].wage=parseFloat(this.value)||0" style="width:90px;padding:6px;border-radius:4px;border:1px solid #ddd;">` +
+      `<button onclick="openTransferModal(${i})" style="background:#e67e22;color:white;padding:6px 10px;border-radius:6px;font-size:12px;">調店</button>` +
+      `<button onclick="localRemoveEmp(${i})" style="background:#d93025;color:white;padding:6px 10px;border-radius:6px;font-size:12px;">離職</button>`;
+    list.appendChild(div);
+  });
+}
+function localAddEmp() {
+  const name = document.getElementById('newEmpName').value.trim();
+  const role = document.getElementById('newEmpRole').value;
+  const wage = parseFloat(document.getElementById('newEmpWage').value) || 0;
+  if (!name) return alert('請輸入姓名！');
+  if (localActiveEmps.find(e => e.name === name)) return alert('已有同名員工！');
+  localActiveEmps.push({ name, role, wage, sortKey: localActiveEmps.length });
+  document.getElementById('newEmpName').value = '';
+  document.getElementById('newEmpWage').value = '';
+  renderEmpList();
+}
+function localRemoveEmp(i) {
+  if (!confirm(`確定要將 ${localActiveEmps[i].name} 設為離職？`)) return;
+  localDeletedNames.push(localActiveEmps[i].name);
+  localActiveEmps.splice(i, 1);
+  renderEmpList();
+}
+function openTransferModal(i) {
+  document.getElementById('transferEmpIdx').value = i;
+  const sel = document.getElementById('transferStoreSelect'); sel.innerHTML = '';
+  const myStore = document.getElementById('storeSelector').value;
+  (appConfig.stores || []).forEach(s => { if (s !== myStore) sel.innerHTML += `<option value="${s}">${s}</option>`; });
+  document.getElementById('transferModal').style.display = 'flex';
+}
+async function confirmTransfer() {
+  const i         = parseInt(document.getElementById('transferEmpIdx').value);
+  const targetStore = document.getElementById('transferStoreSelect').value;
+  const emp       = localActiveEmps[i];
+  if (!targetStore || !emp) return;
+  showLoading('調店中...');
+  try {
+    const myStore = document.getElementById('storeSelector').value;
+    await window.db.collection('stores').doc(myStore).collection('employees').doc(emp.name).update({ status: '離職' });
+    await window.db.collection('stores').doc(targetStore).collection('employees').doc(emp.name).set({ role: emp.role, wage: emp.wage || 0, sortKey: 999, status: '在職' });
+    localDeletedNames.push(emp.name); localActiveEmps.splice(i, 1); renderEmpList();
+    closeModal('transferModal'); hideLoading();
+    alert(`${emp.name} 已調往 ${targetStore}！`);
+  } catch (e) { alert('調店失敗：' + e.message); hideLoading(); }
+}
+async function batchSaveEmps() {
+  showLoading('儲存中...');
+  const myStore = document.getElementById('storeSelector').value;
+  try {
+    for (const name of localDeletedNames) {
+      await window.db.collection('stores').doc(myStore).collection('employees').doc(name).update({ status: '離職' });
     }
-
-    function openApprovalModal(encodedReq) {
-        let req = JSON.parse(decodeURIComponent(encodedReq));
-        document.getElementById('approvalReqData').value = encodedReq;
-        document.getElementById('approvalDesc').innerHTML = `<strong>${req._store}</strong> 提出跨店支援請求：<br><br><span style="color:#1a73e8; font-size:24px; font-weight:900;">${req.supportEmp.split('-')[1]}</span><br>於 <strong>${req.day} ${req.shift}</strong> 前往支援`;
-        document.getElementById('approvalModal').style.display = 'flex';
+    for (let i = 0; i < localActiveEmps.length; i++) {
+      const emp = localActiveEmps[i];
+      await window.db.collection('stores').doc(myStore).collection('employees').doc(emp.name).set(
+        { role: emp.role, wage: emp.wage || 0, sortKey: i, status: '在職' }, { merge: true }
+      );
     }
+    closeModal('empModal'); fetchAllStoreData(); hideLoading();
+    alert('✅ 人員資料已儲存！');
+  } catch (e) { alert('儲存失敗：' + e.message); hideLoading(); }
+}
 
-    async function handleApproval(isApproved) {
-        let req = JSON.parse(decodeURIComponent(document.getElementById('approvalReqData').value));
-        showLoading("處理中...");
-        try {
-            let requesterStore = req._store;
-            let week = req.week;
-            let docRef = window.db.collection('stores').doc(requesterStore).collection('weeks').doc(week);
-            let snap = await docRef.get();
-            if (snap.exists) {
-                let data = snap.data();
-                let records = data.records || [];
-                let idx = records.findIndex(r => r.name === req.name && r.day === req.day && r.shift === req.shift);
-                if (idx !== -1) {
-                    if (isApproved) {
-                        records[idx].approvalStatus = 'approved';
-                    } else {
-                        records[idx].supportEmp = '';
-                        records[idx].approvalStatus = '';
-                    }
-                    await docRef.update({ records: records });
-                    alert(isApproved ? "已同意支援！對方班表已生效。" : "已拒絕支援，對方格子已清空人員。");
-                    closeModal('approvalModal');
-                    fetchAllStoreData(); 
-                } else {
-                    alert("找不到該筆申請紀錄，可能已被對方刪除。"); closeModal('approvalModal'); hideLoading();
-                }
-            }
-        } catch (err) { alert("發生錯誤：" + err); hideLoading(); }
-    }
-    
-    function addVirtualRow() { syncUIToMemory(); let n = 1; while(virtualRowNames.includes('🆘待補'+n)) n++; virtualRowNames.push('🆘待補'+n); renderTable(); triggerAutoSave(); }
-    function autoFillHours() { let s = document.getElementById('modalShift').value.trim(); let t = document.getElementById('modalHours'); if(appConfig.shiftHours && appConfig.shiftHours[s]) { t.value = appConfig.shiftHours[s]; } else { let m = s.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)/); if(m) { let sT = parseFloat(m[1]), eT = parseFloat(m[2]); if(eT <= sT) eT += 24; let h = eT - sT; t.value = h; } else if(s==='排休'||s==='指休') t.value=0; } }
-    
-    function syncUIToMemory() { 
-        let week = document.getElementById('weekSelector').value; 
-        document.querySelectorAll('.cell-btn').forEach(btn => { 
-            let idx = appData.records.findIndex(r => r.name===btn.dataset.emp && r.day===btn.dataset.day && r.week===week); 
-            let data = { 
-                week: week, day: btn.dataset.day, name: btn.dataset.emp, shift: btn.dataset.shift || '', 
-                location: btn.dataset.loc || '本店', note: btn.dataset.note || '', actualHours: parseFloat(btn.dataset.hours || 0), isOT: btn.dataset.ot === 'true',
-                supportEmp: btn.dataset.support || '', approvalStatus: btn.dataset.approval || '', requestOff: btn.dataset.reqoff === 'true'
-            }; 
-            let hasData = btn.dataset.shift || btn.dataset.note || btn.dataset.ot === 'true' || btn.dataset.support || btn.dataset.reqoff === 'true';
-            if (hasData) { if (idx !== -1) appData.records[idx] = data; else appData.records.push(data); } 
-            else { if (idx !== -1) appData.records.splice(idx, 1); }
-        }); 
-        document.querySelectorAll('.daily-note-input').forEach(inp => {
-            let day = inp.dataset.day; let val = inp.value;
-            let idx = appData.records.findIndex(r => r.name==='門市備註' && r.day===day && r.week===week);
-            if (val) { if (idx !== -1) appData.records[idx].note = val; else appData.records.push({ week: week, day: day, name: '門市備註', shift: '', location: '', note: val, actualHours: 0, isOT: false }); }
-            else { if (idx !== -1) appData.records.splice(idx, 1); }
-        });
-    }
-    
-    // 🌟 新增：畫筆模式功能函式 🌟
-    function togglePaintMode() {
-        isPaintMode = !isPaintMode;
-        let tb = document.getElementById('paintToolbar');
-        let btn = document.querySelector('.btn-paint');
-        if(isPaintMode) {
-            tb.style.display = 'block';
-            btn.classList.add('active');
-            btn.innerText = '🛑 關閉畫筆';
-            renderPaintButtons();
-        } else {
-            tb.style.display = 'none';
-            btn.classList.remove('active');
-            btn.innerText = '🖌️ 畫筆模式';
-            paintShift = '';
-        }
-    }
+// ===== 畫休紀錄 =====
+function openLogModal() {
+  const logs = appData.currentWeekLogs || [];
+  const content = document.getElementById('logContent');
+  content.innerHTML = logs.length
+    ? [...logs].reverse().map(l => `<div style="padding:4px 0;border-bottom:1px solid #eee;">${l}</div>`).join('')
+    : '<div style="color:#aaa;text-align:center;">本週尚無畫休紀錄</div>';
+  document.getElementById('logModal').style.display = 'flex';
+}
 
-    function renderPaintButtons() {
-        let h = `<button class="cell-btn ${paintShift==='清空'?'paint-active-btn':''}" style="width:auto; padding:8px 15px; min-height:35px; margin-right:8px; background:#f1f3f4;" onclick="setPaintShift('清空')">🗑️ 清空</button>`;
-        (appConfig.shifts || []).forEach(s => {
-            let isActive = (paintShift === s);
-            let isOff = (s==='排休'||s==='指休');
-            h += `<button class="cell-btn ${isOff?'zhi-xiu':''} ${isActive?'paint-active-btn':''}" style="width:auto; padding:8px 15px; min-height:35px; margin-right:8px;" onclick="setPaintShift('${s}')">${s}</button>`;
-        });
-        document.getElementById('paintButtons').innerHTML = h;
-    }
-
-    function setPaintShift(s) {
-        paintShift = s;
-        renderPaintButtons();
-    }
-
-    function applyPaintToCell(btn, eIdx) {
-        if(!paintShift) { if(!isDragging) alert('請先在上方選擇畫筆班別！'); return; }
-        if(btn.dataset.shift === (paintShift === '清空' ? '' : paintShift)) return; 
-
-        pushToUndo(btn);
-        let isVirtual = btn.dataset.emp.includes('待補');
-
-        if (paintShift === '清空') {
-            btn.dataset.shift = '';
-            btn.dataset.hours = 0;
-            btn.dataset.ot = 'false';
-            btn.dataset.note = '';
-            if(isVirtual) { btn.dataset.support=''; btn.dataset.approval=''; }
-            else { btn.dataset.reqoff='false'; }
-        } else {
-            btn.dataset.shift = paintShift;
-            let h = appConfig.shiftHours[paintShift] || 0;
-            if(!h && paintShift !== '排休' && paintShift !== '指休') {
-                let m = paintShift.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)/);
-                if(m) { let sT = parseFloat(m[1]), eT = parseFloat(m[2]); if(eT <= sT) eT += 24; h = eT - sT; }
-            }
-            btn.dataset.hours = h;
-            btn.dataset.ot = 'false';
-            if(!isVirtual) { btn.dataset.loc = '本店'; btn.dataset.reqoff = 'false'; } // 畫筆塗過自動清除畫休標籤
-        }
-
-        // 局部更新記憶體
-        let week = document.getElementById('weekSelector').value;
-        let idx = appData.records.findIndex(r => r.name===btn.dataset.emp && r.day===btn.dataset.day && r.week===week);
-        let data = {
-            week: week, day: btn.dataset.day, name: btn.dataset.emp, shift: btn.dataset.shift || '',
-            location: btn.dataset.loc || '本店', note: btn.dataset.note || '', actualHours: parseFloat(btn.dataset.hours || 0), isOT: btn.dataset.ot === 'true',
-            supportEmp: btn.dataset.support || '', approvalStatus: btn.dataset.approval || '', requestOff: btn.dataset.reqoff === 'true'
-        };
-        
-        let hasData = btn.dataset.shift || btn.dataset.note || btn.dataset.ot === 'true' || btn.dataset.support || btn.dataset.reqoff === 'true';
-        if (hasData) { if (idx !== -1) appData.records[idx] = data; else appData.records.push(data); }
-        else { if (idx !== -1) appData.records.splice(idx, 1); }
-
-        // 局部更新單個按鈕畫面與統計，避免整個表格重刷影響連刷體驗
-        updateCellUI(btn, btn.dataset.badges || '');
-        updateDailyTotals();
-
-        let empObj = appData.employees.find(e => e.name === btn.dataset.emp) || {name: btn.dataset.emp, role: '待補'};
-        updateSummary(eIdx, empObj);
-
-        triggerAutoSave();
-    }
-
-    function handleCellClick(btn, eIdx) { 
-        let isVirtual = btn.dataset.emp.includes('待補');
-        if(!isPaintMode) { 
-            currentCell = btn; 
-            document.getElementById('modalTitle').innerText = btn.dataset.emp; 
-            document.getElementById('modalShift').value = btn.dataset.shift; 
-            document.getElementById('modalHours').value = btn.dataset.hours; 
-            document.getElementById('modalOvertime').checked = (btn.dataset.ot === 'true');
-            document.getElementById('modalLocation').value = isVirtual ? '本店' : (btn.dataset.loc || '本店'); 
-            document.getElementById('modalNote').value = btn.dataset.note; 
-
-            if(isVirtual) {
-                document.getElementById('modalLocGroup').style.display = 'none';
-                document.getElementById('modalSupportGroup').style.display = 'block';
-                document.getElementById('modalSupportEmp').value = btn.dataset.support || '';
-                document.getElementById('modalApprovalStatus').value = btn.dataset.approval || 'pending';
-                document.getElementById('modalReqClearWrapper').style.display = 'none';
-                document.getElementById('modalConflictWarning').style.display = 'none';
-                toggleApprovalStatusVis();
-            } else {
-                document.getElementById('modalLocGroup').style.display = 'block';
-                document.getElementById('modalSupportGroup').style.display = 'none';
-                
-                let hasConflict = (btn.dataset.shift && btn.dataset.shift !== '排休' && btn.dataset.shift !== '指休' && btn.dataset.reqoff === 'true');
-                document.getElementById('modalConflictWarning').style.display = hasConflict ? 'block' : 'none';
-
-                let clearWrapper = document.getElementById('modalReqClearWrapper');
-                let clearCheckbox = document.getElementById('modalClearReq');
-                if(btn.dataset.reqoff === 'true') {
-                    clearWrapper.style.display = 'flex';
-                    clearCheckbox.checked = true;
-                } else {
-                    clearWrapper.style.display = 'none';
-                    clearCheckbox.checked = false;
-                }
-            }
-            renderQuickShifts(); document.getElementById('shiftModal').style.display = 'flex'; 
-        } 
-    }
-    
-    function renderQuickShifts() { 
-        let h = `<button class="cell-btn" style="padding:10px; font-weight:bold; cursor:pointer; background:#f1f3f4;" onclick="clearModalShift()">🗑️ 清空</button>`; 
-        (appConfig.shifts || []).forEach(s => { let isOff = (s==='排休'||s==='指休'); h += `<button class="cell-btn ${isOff?'zhi-xiu':''}" style="padding:10px; font-weight:bold; cursor:pointer;" onclick="setModalShift('${s}')">${s}</button>`; }); 
-        document.getElementById('quickShiftButtons').innerHTML = h; 
-    }
-    function setModalShift(s) { document.getElementById('modalShift').value = s; autoFillHours(); }
-    function clearModalShift() { document.getElementById('modalShift').value = ''; document.getElementById('modalHours').value = ''; document.getElementById('modalOvertime').checked = false; document.getElementById('modalLocation').value = '本店'; document.getElementById('modalNote').value = ''; document.getElementById('modalSupportEmp').value = ''; document.getElementById('modalApprovalStatus').value = 'pending'; toggleApprovalStatusVis(); }
-    
-    function applyShift() { 
-        pushToUndo(currentCell);
-        let isVirtual = currentCell.dataset.emp.includes('待補');
-        currentCell.dataset.shift = document.getElementById('modalShift').value; 
-        currentCell.dataset.hours = document.getElementById('modalHours').value; 
-        currentCell.dataset.ot = document.getElementById('modalOvertime').checked;
-        currentCell.dataset.note = document.getElementById('modalNote').value; 
-        
-        if (isVirtual) {
-            currentCell.dataset.loc = '本店';
-            currentCell.dataset.support = document.getElementById('modalSupportEmp').value;
-            currentCell.dataset.approval = document.getElementById('modalApprovalStatus').value;
-        } else {
-            currentCell.dataset.loc = document.getElementById('modalLocation').value; 
-            if(document.getElementById('modalReqClearWrapper').style.display !== 'none' && document.getElementById('modalClearReq').checked) {
-                currentCell.dataset.reqoff = 'false';
-            }
-        }
-        syncUIToMemory(); renderTable(); closeModal('shiftModal'); triggerAutoSave(); 
-    }
-    
-    function updateDailyTotals() { let sums = [0,0,0,0,0,0,0]; document.querySelectorAll('.cell-btn').forEach(b => { let idx = dayNames.indexOf(b.dataset.day); if(b.dataset.loc === '本店') sums[idx] += parseFloat(b.dataset.hours || 0); }); sums.forEach((s, i) => document.getElementById(`dailyTotal-${i}`).innerText = Math.round(s)); document.getElementById('tableFoot').style.display = 'table-row-group'; }
-    
-    // 🌟 全新的精準跨月統計邏輯 🌟
-    function updateSummary(idx, emp) { 
-        let t = document.getElementById(`sum-${idx}`); if(!t) return; 
-        if (emp.name.includes('待補')) { t.innerHTML = '-'; return; }
-        
-        let weekStr = document.getElementById('weekSelector').value;
-        let myStore = document.getElementById('storeSelector').value;
-        
-        let activeMonths = [...new Set(currentWeekDates.map(d => d.split('/')[0]))];
-        let weekHours = 0, weekOffD = 0; 
-        
-        let monthStats = {};
-        activeMonths.forEach(m => monthStats[m] = { hours: 0, ot: 0, offD: 0 });
-        
-        if(appData.allStoresRecords) {
-            appData.allStoresRecords.forEach(r => { 
-                let isNative = (r._store === myStore && r.name === emp.name);
-                let isSupport = (r.supportEmp === `${myStore}-${emp.name}` && r.approvalStatus === 'approved');
-
-                if (isNative) {
-                    let hasSupportThatDay = appData.allStoresRecords.some(sr => sr.supportEmp === `${myStore}-${emp.name}` && sr.approvalStatus === 'approved' && sr.day === r.day && sr.week === r.week);
-                    if (hasSupportThatDay) return; 
-                }
-
-                if(isNative || isSupport) { 
-                    let hr = parseFloat(r.actualHours || 0);
-                    let ot = r.isOT ? hr : Math.max(0, hr - 8);
-                    
-                    let isCurrentWeek = (r.week === weekStr);
-                    
-                    let rWeekDates = getWeekDates(r.week);
-                    let dayIdx = dayNames.indexOf(r.day);
-                    let exactMonth = rWeekDates[dayIdx].split('/')[0];
-
-                    if (isCurrentWeek) {
-                        if (r.shift==='排休'||r.shift==='指休') weekOffD++;
-                        weekHours += hr;
-                    }
-                    
-                    if (activeMonths.includes(exactMonth)) {
-                        if (r.shift==='排休'||r.shift==='指休') monthStats[exactMonth].offD++;
-                        monthStats[exactMonth].hours += hr;
-                        monthStats[exactMonth].ot += ot;
-                    }
-                } 
-            }); 
-        }
-        
-        let info = appData.employees.find(e => e.name === emp.name) || {role:'待補', wage:0}; 
-        
-        if(info.role === '店長') {
-            t.innerHTML = `<span style="color:#1a73e8;font-weight:bold; font-size:15px;">店長</span><br><span style="color:#999">-</span>`; 
-        } else if(info.role === '正職' || info.role === '副店長') {
-            let warn = weekOffD < 2 ? `<span style="color:#d93025;font-weight:bold;">(未達2天)</span>` : `<span style="color:#34a853;">(達標)</span>`;
-            let otStr = activeMonths.map(m => `<span style="color:#666;">${m}月加班:</span> <span style="color:#d93025; font-weight:bold;">${Math.round(monthStats[m].ot)}h</span>`).join('<br>');
-            t.innerHTML = `週休:${Math.round(weekOffD)}天 ${warn}<br>${otStr}`; 
-        } else {
-            let monthStr = activeMonths.map(m => {
-                let mHr = Math.round(monthStats[m].hours);
-                let mWage = Math.round(monthStats[m].hours * info.wage);
-                return `<span style="color:#666;">${m}月時:</span> <strong>${mHr}h</strong><br><span style="font-size:10px; color:#1a73e8;">(估:$${mWage})</span>`;
-            }).join('<div style="border-top:1px dashed #ccc; margin:3px 0;"></div>'); 
-            t.innerHTML = `週時:${Math.round(weekHours)}h<br>${monthStr}`; 
-        }
-    }
-
-    function openLogModal() {
-        let contentDiv = document.getElementById('logContent');
-        contentDiv.innerHTML = '';
-        if(!appData.currentWeekLogs || appData.currentWeekLogs.length === 0) {
-            contentDiv.innerHTML = '<div style="text-align:center; padding:20px; color:#777;">本週目前沒有任何畫休異動紀錄喔！</div>';
-        } else {
-            let sortedLogs = [...appData.currentWeekLogs].reverse();
-            sortedLogs.forEach(log => {
-                contentDiv.innerHTML += `<div style="padding:8px 0; border-bottom:1px dashed #ddd;">${log}</div>`;
-            });
-        }
-        document.getElementById('logModal').style.display = 'flex';
-    }
-
-    function refreshStoreList() { let sel = document.getElementById('storeSelector'); sel.innerHTML = ''; (appConfig.stores || []).forEach(s => sel.innerHTML += `<option value="${s}">${s}</option>`); sel.value = localStorage.getItem('lastStore') || appConfig.stores[0] || ""; updateLocDropdowns(); }
-    function handleStoreChange() { updateLocDropdowns(); fetchAllStoreData(); }
-    function showLoading(t) { document.getElementById('loadingText').innerText = t; document.getElementById('loadingOverlay').style.display = 'flex'; }
-    function hideLoading() { document.getElementById('loadingOverlay').style.display = 'none'; }
-    function closeModal(id) { document.getElementById(id).style.display = 'none'; }
-    
-    function openEmpModal() { 
-        syncUIToMemory(); localActiveEmps = JSON.parse(JSON.stringify(appData.employees.filter(e => e.status !== '離職'))); localDeletedNames = []; 
-        renderLocalEmpTable(); document.getElementById('empModal').style.display = 'flex'; 
-    }
-    function renderLocalEmpTable() { 
-        let c = document.getElementById('localEmpList'); c.innerHTML = ''; 
-        localActiveEmps.forEach((e,i)=>{ 
-            let r=document.createElement('div'); r.className='emp-row'; 
-            r.innerHTML=`<div style="display:flex; flex-direction:column;"><button style="border:none; cursor:pointer;" onclick="localSwapEmp(${i},-1)" ${i===0?'disabled':''}>▲</button><button style="border:none; cursor:pointer;" onclick="localSwapEmp(${i},1)" ${i===localActiveEmps.length-1?'disabled':''}>▼</button></div>
-            <div style="width:75px; margin-left:10px;"><strong>${e.name}</strong></div>
-            <select id="edit-role-${i}" style="width:75px; padding:6px; font-size:12px; border:1px solid #ccc; border-radius:4px;">
-                <option value="工讀" ${e.role==='工讀'?'selected':''}>工讀</option>
-                <option value="正職" ${e.role==='正職'?'selected':''}>正職</option>
-                <option value="副店長" ${e.role==='副店長'?'selected':''}>副店長</option>
-                <option value="店長" ${e.role==='店長'?'selected':''}>店長</option>
-            </select>
-            <input type="number" id="edit-wage-${i}" value="${e.wage}" style="width:60px; padding:6px; font-size:13px; border:1px solid #ccc; border-radius:4px; margin-left:5px;">
-            <div style="margin-left:auto;">
-                <button onclick="openTransferModal(${i})" style="background:orange; color:white; border:none; border-radius:4px; padding:6px 10px; cursor:pointer;">調店</button>
-                <button onclick="localDelEmp(${i},'${e.name}')" style="background:red; color:white; border:none; border-radius:4px; padding:6px 10px; cursor:pointer;">刪除</button>
-            </div>`; 
-            c.appendChild(r); 
-        }); 
-    }
-    function localSwapEmp(i,d){ let t=i+d; if(t<0||t>=localActiveEmps.length)return; let tmp=localActiveEmps[i]; localActiveEmps[i]=localActiveEmps[t]; localActiveEmps[t]=tmp; renderLocalEmpTable(); }
-    function localAddEmp(){ let nI=document.getElementById('newEmpName'),wI=document.getElementById('newEmpWage'); let n=nI.value.trim(),r=document.getElementById('newEmpRole').value,w=wI.value; if(!n||!w)return; localActiveEmps.push({name:n,role:r,wage:w}); nI.value=''; wI.value=''; renderLocalEmpTable(); }
-    function localDelEmp(i,n){ if(confirm(`確定將 ${n} 設為離職?`)){ localDeletedNames.push(n); localActiveEmps.splice(i,1); renderLocalEmpTable(); } }
-    
-    function openTransferModal(i) {
-        document.getElementById('transferEmpIdx').value = i;
-        let currentStore = document.getElementById('storeSelector').value;
-        let opts = '';
-        appConfig.stores.forEach(s => { if (s !== currentStore) opts += `<option value="${s}">${s}</option>`; });
-        document.getElementById('transferStoreSelect').innerHTML = opts;
-        closeModal('empModal'); document.getElementById('transferModal').style.display = 'flex';
-    }
-    async function confirmTransfer() {
-        let i = document.getElementById('transferEmpIdx').value;
-        let tS = document.getElementById('transferStoreSelect').value;
-        let e = localActiveEmps[i];
-        if(!tS) return;
-        showLoading("跨店調度中...");
-        await window.db.collection('stores').doc(tS).collection('employees').doc(e.name).set({role:e.role,wage:e.wage,status:'在職',sortKey:999});
-        localDeletedNames.push(e.name); localActiveEmps.splice(i,1);
-        closeModal('transferModal'); hideLoading(); alert(`已將 ${e.name} 調至 ${tS}，請記得儲存人事異動。`);
-        document.getElementById('empModal').style.display = 'flex'; renderLocalEmpTable();
-    }
-
-    async function batchSaveEmps(){ 
-        let s=document.getElementById('storeSelector').value; showLoading("更新薪資與人事..."); 
-        for(let i=0;i<localActiveEmps.length;i++){ 
-            let e=localActiveEmps[i]; let newWage = document.getElementById(`edit-wage-${i}`).value; let newRole = document.getElementById(`edit-role-${i}`).value;
-            await window.db.collection('stores').doc(s).collection('employees').doc(e.name).set({role:newRole,wage:newWage,status:'在職',sortKey:i}, {merge:true}); 
-        } 
-        for(let n of localDeletedNames) await window.db.collection('stores').doc(s).collection('employees').doc(n).set({status:'離職'}, {merge:true}); 
-        closeModal('empModal'); fetchAllStoreData(); 
-    }
-
-    function openSysModal() { renderSysStoreItems(); renderSysShiftItems(); document.getElementById('sysModal').style.display = 'flex'; }
-    function renderSysStoreItems() { let h = ''; (appConfig.stores || []).forEach((s, i) => h += `<div style="display:flex; justify-content:space-between; padding:8px; border-bottom:1px solid #eee;"><span>🏪 ${s}</span><button onclick="delSysStore(${i})" style="background:red; color:white; padding:4px 8px; border:none; border-radius:4px; cursor:pointer;">刪除</button></div>`); document.getElementById('sysStoreList').innerHTML = h; }
-    function addSysStore() { let v = document.getElementById('newStoreInput').value.trim(); if(v) { if(!appConfig.stores) appConfig.stores=[]; appConfig.stores.push(v); document.getElementById('newStoreInput').value=''; renderSysStoreItems(); } }
-    function delSysStore(i) { appConfig.stores.splice(i,1); renderSysStoreItems(); }
-    function renderSysShiftItems() { let h = ''; (appConfig.shifts || []).forEach((s, i) => { let hr = appConfig.shiftHours[s] || 0; h += `<div style="display:flex; justify-content:space-between; padding:8px; border-bottom:1px solid #eee;"><span>⏰ ${s} (${hr}h)</span><button onclick="delSysShift(${i}, '${s}')" style="background:red; color:white; padding:4px 8px; border:none; border-radius:4px; cursor:pointer;">刪除</button></div>`; document.getElementById('sysShiftList').innerHTML = h; }); }
-    function addSysShift() { let n = document.getElementById('newShiftName').value.trim(); let hr = parseFloat(document.getElementById('newShiftHours').value) || 0; if(n) { if(!appConfig.shifts) appConfig.shifts=[]; if(!appConfig.shifts.includes(n)) appConfig.shifts.push(n); appConfig.shiftHours[n] = hr; renderSysShiftItems(); } }
-    function delSysShift(i, n) { appConfig.shifts.splice(i,1); delete appConfig.shiftHours[n]; renderSysShiftItems(); }
-    async function saveSysConfig() { showLoading("儲存系統設定..."); await window.db.collection('settings').doc('globalConfig').set(appConfig); refreshStoreList(); fetchAllStoreData(); closeModal('sysModal'); hideLoading(); }
-  </script>
+// ===== 系統設定 =====
+function openSysModal() {
+  renderSysStoreList(); renderSysShiftList();
+  document.getElementById('sysModal').style.display = 'flex';
+}
+function renderSysStoreList() {
+  const div = document.getElementById('sysStoreList'); div.innerHTML = '<label style="font-weight:bold;font-size:13px;color:#5f6368;">🏪 門市列表</label>';
+  (appConfig.stores || []).forEach((s, i) => {
+    div.innerHTML += `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #eee;">
+      <span style="flex:1;">${s}</span>
+      <button onclick="removeSysStore(${i})" style="background:#d93025;color:white;padding:4px 10px;border-radius:4px;font-size:12px;">刪除</button>
+    </div>`;
+  });
+}
+function renderSysShiftList() {
+  const div = document.getElementById('sysShiftList'); div.innerHTML = '<label style="font-weight:bold;font-size:13px;color:#5f6368;">🕐 班別設定</label>';
+  (appConfig.shifts || []).forEach((s, i) => {
+    const h = appConfig.shiftHours[s] || 0;
+    div.innerHTML += `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #eee;">
+      <span style="flex:1;">${s}</span><span style="color:#666;">${h}h</span>
+      <button onclick="removeSysShift(${i})" style="background:#d93025;color:white;padding:4px 10px;border-radius:4px;font-size:12px;">刪除</button>
+    </div>`;
+  });
+}
+function addSysStore() {
+  const n = document.getElementById('newStoreInput').value.trim();
+  if (!n) return;
+  if (!appConfig.stores.includes(n)) appConfig.stores.push(n);
+  document.getElementById('newStoreInput').value = '';
+  renderSysStoreList();
+}
+function removeSysStore(i) { appConfig.stores.splice(i, 1); renderSysStoreList(); }
+function addSysShift() {
+  const n = document.getElementById('newShiftName').value.trim();
+  const h = parseFloat(document.getElementById('newShiftHours').value) || 0;
+  if (!n) return;
+  if (!appConfig.shifts.includes(n)) appConfig.shifts.push(n);
+  appConfig.shiftHours[n] = h;
+  document.getElementById('newShiftName').value = ''; document.getElementById('newShiftHours').value = '';
+  renderSysShiftList();
+}
+function removeSysShift(i) {
+  const name = appConfig.shifts[i];
+  appConfig.shifts.splice(i, 1);
+  delete appConfig.shiftHours[name];
+  renderSysShiftList();
+}
+async function saveSysConfig() {
+  showLoading('儲存設定...');
+  try {
+    await window.db.collection('settings').doc('globalConfig').set(appConfig);
+    closeModal('sysModal'); hideLoading(); alert('✅ 設定已儲存！');
+    const sel = document.getElementById('storeSelector'); sel.innerHTML = '';
+    (appConfig.stores || []).forEach(s => sel.innerHTML += `<option value="${s}">${s}</option>`);
+  } catch (e) { alert('儲存失敗：' + e.message); hideLoading(); }
+}
+</script>
 </body>
 </html>
