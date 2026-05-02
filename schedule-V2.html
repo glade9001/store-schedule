@@ -1021,34 +1021,23 @@ async function fetchAllStoreData() {
 
   showLoading('讀取班表資料...');
   try {
-    // 計算當月週次範圍（統計用）
-    const yr = parseInt(weekStr.split('-W')[0]);
-    const wk = parseInt(weekStr.split('-W')[1]);
-    const weekDatesArr = getWeekDates(weekStr);
-    const months = [...new Set(weekDatesArr.map(d => {
-      const p = d.split('/');
-      return `${yr}-${p[0].padStart(2,'0')}`;
-    }))];
+    // ✅ 計算「今天實際所在月份」涵蓋的所有週次（不跟著班表週次走）
+    // 例：今天 4/30，查下週（5月）班表，仍讀 4 月的所有週次供月統計使用
+    const today = new Date();
+    const todayYr = today.getFullYear();
+    const todayMo = String(today.getMonth()+1).padStart(2,'0');
+    const currentMonthStr = `${todayYr}-${todayMo}`; // e.g. "2026-05"
 
-    // 收集當月所有週次
-    const monthWeeks = new Set([weekStr]);
-    // 往前掃最多8週找同月的
-    for(let i = 1; i <= 8; i++) {
-      let w2 = wk - i, y2 = yr;
-      if(w2 < 1) { y2--; w2 += 52; }
-      const ws = `${y2}-W${w2 < 10 ? '0'+w2 : w2}`;
-      const wDates = getWeekDates(ws);
-      const wMonths = [...new Set(wDates.map(d => { const p=d.split('/'); return `${y2}-${p[0].padStart(2,'0')}`; }))];
-      if(wMonths.some(m => months.includes(m))) monthWeeks.add(ws);
-      else break;
-    }
-    for(let i = 1; i <= 4; i++) {
-      let w2 = wk + i, y2 = yr;
-      if(w2 > 52) { y2++; w2 -= 52; }
-      const ws = `${y2}-W${w2 < 10 ? '0'+w2 : w2}`;
-      const wDates = getWeekDates(ws);
-      const wMonths = [...new Set(wDates.map(d => { const p=d.split('/'); return `${y2}-${p[0].padStart(2,'0')}`; }))];
-      if(wMonths.some(m => months.includes(m))) monthWeeks.add(ws);
+    // 收集今天所在月份的所有週次
+    const monthWeeks = new Set([weekStr]); // 當前班表週一定要讀（顯示用）
+    // 掃描今天所在月份的每一天，把涉及的週次全部收集起來
+    const daysInMonth = new Date(todayYr, today.getMonth()+1, 0).getDate();
+    for(let d = 1; d <= daysInMonth; d++) {
+      const dateObj = new Date(todayYr, today.getMonth(), d);
+      const yr2 = dateObj.getFullYear();
+      const first2 = new Date(yr2, 0, 1);
+      const w2 = Math.ceil((((dateObj - first2) / 86400000) + first2.getDay() + 1) / 7);
+      monthWeeks.add(`${yr2}-W${w2 < 10 ? '0'+w2 : w2}`);
     }
 
     // 平行讀取：本店員工 + 本週班表 + 跨店支援（其他店本週）+ displayName + 班別設定
@@ -1097,18 +1086,28 @@ async function fetchAllStoreData() {
           .catch(()=>{})
       );
     });
-    // 其他店員工名單 + 本週班表（跨店支援用）
+    // 其他店員工名單 + 本月所有週次班表（跨店支援用）
+    // ✅ 修正：doc(s) 讀其他店；同時讀本月每週而非只讀當週，確保月累計工時正確
     otherStores.forEach(s => {
       allFetches.push(
         window.db.collection('stores').doc(s).collection('employees').get()
           .then(snap => { const emps=[]; snap.forEach(d=>{if(!['離職','調走'].includes(d.data().status))emps.push(d.id);}); appData.allStoresEmployees[s]=emps; })
           .catch(()=>{})
       );
-      allFetches.push(
-        window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get()
-          .then(snap => { if(snap.exists && snap.data().records) snap.data().records.forEach(r => appData.allStoresRecords.push({...r,_store:s,week:weekStr})); })
-          .catch(()=>{})
-      );
+      // 讀其他店「本月所有週次」，只取有支援本店員工的記錄
+      [...monthWeeks].forEach(wk => {
+        allFetches.push(
+          window.db.collection('stores').doc(s).collection('weeks').doc(wk).get()
+            .then(snap => {
+              if(snap.exists && snap.data().records) {
+                snap.data().records
+                  .filter(r => r.supportEmp && r.supportEmp.startsWith(store + '-') && r.approvalStatus === 'approved')
+                  .forEach(r => appData.allStoresRecords.push({...r, _store:s, week:wk}));
+              }
+            })
+            .catch(()=>{})
+        );
+      });
     });
 
     await Promise.all(allFetches);
@@ -1805,23 +1804,27 @@ async function updateSummary(idx, emp) {
   });
 
   // ===== 各月份統計（逐月分開）=====
-  // monthStats: { "2026-04": { h, off, ot }, "2026-05": { h, off, ot } }
-  const monthStats = {};
-  weekMonths.forEach(m => { monthStats[m] = { h: 0, off: 0, ot: 0 }; });
+  // ✅ 修正：用今天的實際自然月（不跟著班表週次走）
+  // 例：今天 4/30，查下週（5月）班表，月統計仍顯示 4 月累計
+  const today = new Date();
+  const currentMonthKey = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
+
+  // monthStats 只統計「今天所在的自然月」
+  const monthStats = { [currentMonthKey]: { h: 0, off: 0, ot: 0 } };
 
   (appData.allStoresRecords || []).forEach(r => {
     if(!isEmpRecord(r, store, emp.name)) return;
     const month = getRecordMonth(r);
     if(!month) return;
-    // 只統計跟本週有交集的月份
-    if(!weekMonths.includes(month)) return;
+    // ✅ 只統計今天實際所在月份的記錄，每天個別用實際日期判斷
+    if(month !== currentMonthKey) return;
     const h = parseFloat(r.actualHours || 0);
     const isOff = (r.shift === '排休' || r.shift === '指休');
     if(isOff) {
-      monthStats[month].off++;
+      monthStats[currentMonthKey].off++;
     } else if(r.shift) {
-      monthStats[month].h += h;
-      if(r.isOT || h > 8) monthStats[month].ot += Math.max(0, h - 8);
+      monthStats[currentMonthKey].h += h;
+      if(r.isOT || h > 8) monthStats[currentMonthKey].ot += Math.max(0, h - 8);
     }
   });
 
@@ -1830,33 +1833,29 @@ async function updateSummary(idx, emp) {
   let html = '';
 
   if(isPartTime) {
-    // 工讀：本週工時 + 各月時數 + 估算薪資
+    // 工讀：本週工時 + 本月時數 + 估算薪資
     const wage = parseFloat(emp.wage || 0);
+    const ms = monthStats[currentMonthKey];
+    const mLabel = today.getMonth()+1 + '月';
+    const salary = Math.round(ms.h * wage);
+    const salColor = salary >= 18000 ? '#d93025' : '#34a853';
     html = `<div style="font-size:11px; line-height:1.8;">`;
     html += `<b>週時:${r10(wH)}h</b><br>`;
-    weekMonths.forEach(m => {
-      const ms = monthStats[m];
-      const mLabel = m.split('-')[1].replace(/^0/,'') + '月';
-      const salary = Math.round(ms.h * wage);
-      const salColor = salary >= 18000 ? '#d93025' : '#34a853';
-      html += `${mLabel}時: ${r10(ms.h)}h<br>`;
-      if(wage > 0) html += `<span style="color:${salColor};">(估:$${salary.toLocaleString()})</span><br>`;
-    });
+    html += `${mLabel}時: ${r10(ms.h)}h<br>`;
+    if(wage > 0) html += `<span style="color:${salColor};">(估:$${salary.toLocaleString()})</span><br>`;
     html += `</div>`;
 
   } else if(isFullTime) {
-    // 正職/店長：週休檢核 + 各月加班時數
+    // 正職/店長：週休檢核 + 本月加班時數
+    const ms = monthStats[currentMonthKey];
+    const mLabel = today.getMonth()+1 + '月';
     const offColor = wOff >= 2 ? '#34a853' : '#d93025';
     const offLabel = wOff >= 2 ? '達標' : '不足';
+    const otColor = ms.ot > 0 ? '#d93025' : '#64748b';
     html = `<div style="font-size:11px; line-height:1.8;">`;
     html += `<b>週休:${wOff}天 <span style="color:${offColor};">(${offLabel})</span></b><br>`;
-    weekMonths.forEach(m => {
-      const ms = monthStats[m];
-      const mLabel = m.split('-')[1].replace(/^0/,'') + '月';
-      const otColor = ms.ot > 0 ? '#d93025' : '#64748b';
-      html += `${mLabel}已休:${ms.off||0}天<br>`;
-      html += `${mLabel}加班: <span style="color:${otColor};font-weight:${ms.ot>0?900:400};">${r10(ms.ot)}h</span><br>`;
-    });
+    html += `${mLabel}已休:${ms.off||0}天<br>`;
+    html += `${mLabel}加班: <span style="color:${otColor};font-weight:${ms.ot>0?900:400};">${r10(ms.ot)}h</span><br>`;
     html += `</div>`;
 
   } else {
