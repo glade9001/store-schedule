@@ -839,12 +839,16 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       </div>
     </div>
 
-    <!-- 到職日 -->
+    <!-- 到職日（與特補休系統連動） -->
     <div class="form-field">
-      <label>到職日</label>
-      <input type="date" id="accountStartDate"
-        style="width:100%; padding:12px; border:1.5px solid var(--border); border-radius:10px; font-size:14px;">
-      <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">用於計算特休天數</div>
+      <label>到職日 <span style="color:var(--primary); font-size:10px;">(與特補休系統自動連動)</span></label>
+      <div style="display:flex; gap:8px;">
+        <input type="text" id="accountStartDate" readonly placeholder="尚未設定（點擊前往設定）"
+          style="width:100%; padding:12px; border:1.5px solid var(--border); border-radius:10px; font-size:14px; background:#f8fafc; cursor:pointer; color:var(--primary); font-weight:700;"
+          onclick="window.location.href='leave.html'">
+        <button onclick="window.location.href='leave.html'" style="background:var(--primary); color:white; border:none; border-radius:10px; padding:0 16px; font-weight:700; cursor:pointer; white-space:nowrap; font-size:13px;">前往特休系統</button>
+      </div>
+      <div style="font-size:11px; color:var(--text-muted); margin-top:6px;">⚠️ 統一由「特補休管理」系統計算與控制，點選跳轉修改</div>
     </div>
 
     <!-- 密碼 -->
