@@ -46,10 +46,16 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 #appShell.active{display:flex;}
 
 /* Header */
-.header{background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:white;padding:0 16px;height:var(--header-h);display:flex;align-items:center;gap:10px;flex-shrink:0;box-shadow:0 2px 12px rgba(26,115,232,0.3);}
+.header{background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:white;padding:0 16px;height:var(--header-h);display:flex;align-items:center;gap:10px;flex-shrink:0;box-shadow:0 2px 12px rgba(26,115,232,0.3); z-index:10;}
 .header-back{background:rgba(255,255,255,0.2);border:none;color:white;width:34px;height:34px;border-radius:10px;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
 .header-title{font-size:17px;font-weight:800;flex:1;}
 .header-badge{background:rgba(255,255,255,0.2);border-radius:8px;padding:4px 10px;font-size:13px;font-weight:700;}
+
+/* Store Selector Bar (Admin/Owner) */
+.store-bar { background: white; border-bottom: 1px solid var(--border); padding: 8px 14px; display: none; align-items: center; gap: 8px; flex-shrink: 0; }
+.store-bar label { font-size: 13px; font-weight: 800; color: var(--text-muted); white-space: nowrap; }
+.store-select { flex: 1; padding: 8px 12px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 14px; font-weight: 700; outline: none; background: #f8fafc; color: var(--primary); cursor: pointer; }
+.store-select:focus { border-color: var(--primary); }
 
 /* Tab Bar */
 .tab-bar{display:flex;background:white;border-bottom:1px solid var(--border);flex-shrink:0;}
@@ -73,7 +79,8 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 .emp-leave-header{display:flex;align-items:center;padding:14px 16px;gap:10px;}
 .emp-avatar{width:40px;height:40px;border-radius:12px;color:white;font-size:16px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
 .emp-leave-info{flex:1;}
-.emp-leave-name{font-size:15px;font-weight:800;}
+.emp-leave-name{font-size:15px;font-weight:800; margin-bottom:2px;}
+.emp-leave-name-sub{font-size:11px;color:var(--text-muted);font-weight:normal; margin-left:4px;}
 .emp-leave-role{font-size:11px;color:var(--text-muted);font-weight:600;}
 .leave-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;}
 .leave-chip{font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;}
@@ -150,7 +157,13 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
   <div class="header">
     <button class="header-back" onclick="handleBack()">←</button>
     <div class="header-title" id="headerTitle">🏖️ 特補休管理</div>
-    <div class="header-badge" id="headerBadge">--</div>
+    <div class="header-badge" id="headerBadge" style="display:none;">--</div>
+  </div>
+
+  <!-- ✅ 加盟主/系統管理員專用：門市切換列 -->
+  <div class="store-bar" id="storeBar">
+    <label>切換門市</label>
+    <select id="storeSelector" class="store-select" onchange="onStoreChange()"></select>
   </div>
 
   <!-- Tab：管理者看員工列表；員工直接看個人 -->
@@ -198,6 +211,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
     <div class="form-field">
       <label>員工姓名</label>
       <input type="text" id="hireDateEmpName" readonly style="background:#f1f3f4;">
+      <input type="hidden" id="hireDateEmpSysName"> <!-- 隱藏的系統名稱 -->
     </div>
     <div class="form-field">
       <label>到職日期</label>
@@ -270,9 +284,10 @@ let currentYear = new Date().getFullYear().toString();
 let empList = [];
 let leaveDataAll = {}; // { empName: { annualDays, usedAnnual, earnedComp, usedComp, hireDate } }
 let currentTab = 'overview';
-let currentViewEmp = null;  // 目前查看的員工（管理者點入）
+let currentViewEmp = null;  // 目前查看的員工（管理者點入），存放的是「系統名稱 (emp.name)」
 let empDetailMonth = '';    // 明細頁月份
 let currentEditLog = null;  // 目前正在編輯的紀錄
+let displayNameMap = {};    // { empName: displayName } ✅ 新增：用來轉換顯示姓名
 
 // ===== 權限判斷 =====
 const isAdmin   = () => ['owner','admin'].includes(currentUser?.permission);
@@ -290,6 +305,12 @@ function getCurrentYM(){ const d=new Date(); return `${d.getFullYear()}-${String
 function getMonthLabel(ym){ const[y,m]=ym.split('-'); return `${y}年${parseInt(m)}月`; }
 function getPrevYM(ym){ const[y,m]=ym.split('-').map(Number); if(m===1)return `${y-1}-12`; return `${y}-${String(m-1).padStart(2,'0')}`; }
 function getNextYM(ym){ const[y,m]=ym.split('-').map(Number); if(m===12)return `${y+1}-01`; return `${y}-${String(m+1).padStart(2,'0')}`; }
+
+// 取得顯示名稱
+function getDisplayName(empName) {
+  if (!empName) return empName;
+  return displayNameMap[empName] || empName;
+}
 
 function handleBack(){
   if(window.history.length>1) window.history.back();
@@ -329,8 +350,24 @@ window.onload = async () => {
     }catch(e){}
 
     currentStore = currentUser.store || appConfig.stores?.[0] || '';
-    document.getElementById('headerBadge').textContent = currentStore;
     document.getElementById('hireDateInput').max = new Date().toISOString().split('T')[0];
+
+    // ✅ 加盟主/系統管理員專屬：顯示門市選擇器
+    if (isAdmin()) {
+      const sel = document.getElementById('storeSelector');
+      sel.innerHTML = '';
+      (appConfig.stores || []).forEach(s => {
+        sel.innerHTML += `<option value="${s}">${s}</option>`;
+      });
+      const lastStore = localStorage.getItem('leaveAdminStore') || currentStore;
+      sel.value = lastStore;
+      currentStore = lastStore;
+      document.getElementById('storeBar').style.display = 'flex';
+      document.getElementById('headerBadge').style.display = 'none'; // 隱藏原本 Header 的單一門市 Badge
+    } else {
+      document.getElementById('headerBadge').textContent = currentStore;
+      document.getElementById('headerBadge').style.display = 'block';
+    }
 
     if(isManager()) {
       document.getElementById('tabBar').style.display = 'flex';
@@ -349,10 +386,19 @@ window.onload = async () => {
   }
 };
 
+// ✅ 當加盟主切換門市時觸發
+async function onStoreChange() {
+  const sel = document.getElementById('storeSelector');
+  currentStore = sel.value;
+  localStorage.setItem('leaveAdminStore', currentStore);
+  await loadAllEmpLeave();
+}
+
 // ===== 讀取所有員工特補休資料（管理者用）=====
 async function loadAllEmpLeave() {
-  showLoading('讀取員工特補休...');
+  showLoading(`讀取 ${currentStore} 特補休...`);
   try{
+    // 1. 取得該門市員工名單
     const empSnap = await window.db.collection('stores').doc(currentStore).collection('employees').get();
     empList = [];
     empSnap.forEach(d => {
@@ -360,6 +406,19 @@ async function loadAllEmpLeave() {
     });
     empList.sort((a,b) => (a.sortKey||0)-(b.sortKey||0));
 
+    // 2. 取得該門市帳號資料 (用來映射 displayName) ✅
+    displayNameMap = {};
+    const accSnap = await window.db.collection('account').where('store','==',currentStore).get().catch(()=>null);
+    if(accSnap) {
+      accSnap.forEach(d => {
+        const acc = d.data();
+        if(acc.empName && acc.displayName) {
+          displayNameMap[acc.empName] = acc.displayName;
+        }
+      });
+    }
+
+    // 3. 取得每個員工的特休額度
     leaveDataAll = {};
     await Promise.all(empList.map(emp =>
       window.db.collection('employees').doc(emp.name).collection('leaves').doc(currentYear).get()
@@ -400,6 +459,9 @@ function renderOverview() {
     const usedComp    = data?.usedComp    ?? 0;
     const remainComp  = Math.max(0, earnedComp - usedComp);
 
+    // ✅ 取得顯示名稱
+    const dName = getDisplayName(emp.name);
+
     const avatarColor = emp.role==='店長'
       ? 'linear-gradient(135deg,#9334e6,#6a1bb5)'
       : emp.role==='正職'
@@ -408,9 +470,9 @@ function renderOverview() {
 
     html += `<div class="emp-leave-card" onclick="openEmpDetail('${emp.name}')">
       <div class="emp-leave-header">
-        <div class="emp-avatar" style="background:${avatarColor};">${emp.name[0]}</div>
+        <div class="emp-avatar" style="background:${avatarColor};">${dName[0]}</div>
         <div class="emp-leave-info">
-          <div class="emp-leave-name">${emp.name}</div>
+          <div class="emp-leave-name">${dName}${dName !== emp.name ? `<span class="emp-leave-name-sub">(${emp.name})</span>` : ''}</div>
           <div class="emp-leave-role">${emp.role||''}</div>
           <div class="leave-chips">
             ${needSetup
@@ -582,7 +644,9 @@ async function openEmpDetail(empName) {
   const emp = empList.find(e=>e.name===empName);
   const data = leaveDataAll[empName];
 
-  document.getElementById('empDetailName').textContent = empName;
+  // ✅ 顯示名稱轉換
+  const dName = getDisplayName(empName);
+  document.getElementById('empDetailName').textContent = dName;
   document.getElementById('empDetailRole').textContent = emp?.role || '';
   document.getElementById('empDetailAddBtn').style.display = isManager() ? 'block' : 'none';
 
@@ -646,10 +710,12 @@ async function empDetailChangeMonth(offset) {
 
 // ===== 到職日 Modal =====
 function openHireDateModal(empName) {
-  document.getElementById('hireDateEmpName').value = empName;
+  const dName = getDisplayName(empName);
+  document.getElementById('hireDateEmpSysName').value = empName; // 隱藏欄位存系統名稱
+  document.getElementById('hireDateEmpName').value = dName; // 顯示欄位存顯示名稱
+  
   const data = leaveDataAll[empName];
   const inputEl = document.getElementById('hireDateInput');
-  // 綁定輸入改變事件
   inputEl.onchange = previewAnnualDays;
   inputEl.oninput = previewAnnualDays;
   
@@ -659,7 +725,7 @@ function openHireDateModal(empName) {
   } else {
     inputEl.value = '';
     document.getElementById('hireDatePreview').style.display = 'none';
-    document.getElementById('manualAnnualDays').value = 0; // 未建檔預設為 0
+    document.getElementById('manualAnnualDays').value = 0; 
   }
   openModal('hireDateModal');
 }
@@ -740,12 +806,12 @@ function previewAnnualDays() {
     `;
   }
   
-  // 自動帶入進位後的建議值到手動輸入框中
   manualInput.value = suggested; 
 }
 
 async function saveHireDate() {
-  const empName = document.getElementById('hireDateEmpName').value;
+  const empName = document.getElementById('hireDateEmpSysName').value; // ✅ 存回資料庫要用系統名稱
+  const dName = document.getElementById('hireDateEmpName').value;
   const hireDate = document.getElementById('hireDateInput').value;
   const annualDays = parseFloat(document.getElementById('manualAnnualDays').value || 0);
 
@@ -766,7 +832,6 @@ async function saveHireDate() {
       updatedAt: new Date().toISOString(),
     });
     
-    // 若年度天數大於 0 才寫入取得明細紀錄
     if (annualDays > 0) {
       const logRef = window.db.collection('employees').doc(empName).collection('leaveLog').doc(`${currentYear}-01`);
       await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
@@ -779,7 +844,7 @@ async function saveHireDate() {
     
     leaveDataAll[empName] = { ...existing, hireDate, annualDays, usedAnnual:existing.usedAnnual||0, earnedComp:existing.earnedComp||0, usedComp:existing.usedComp||0 };
     closeModal('hireDateModal');
-    showToast(`✅ ${empName} 到職日已設定，${currentYear}年特休 ${annualDays} 天`);
+    showToast(`✅ ${dName} 到職日已設定，${currentYear}年特休 ${annualDays} 天`);
     if(isManager()) { renderOverview(); await openEmpDetail(empName); }
     else renderMyDetail();
   }catch(e){ showToast('❌ 儲存失敗：'+e.message); }
@@ -790,7 +855,8 @@ async function saveHireDate() {
 function openAddLogModal() {
   if(!isManager()) return;
   currentEditLog = null;
-  document.getElementById('addLogTitle').textContent = `手動新增：${currentViewEmp}`;
+  const dName = getDisplayName(currentViewEmp); // ✅ 轉換顯示名稱
+  document.getElementById('addLogTitle').textContent = `手動新增：${dName}`;
   document.getElementById('addLogDate').value = getCurrentYM() + '-01';
   document.getElementById('addLogDays').value = '';
   document.getElementById('addLogNote').value = '';
@@ -805,7 +871,8 @@ function openEditLogModal(logStr) {
   if(!isManager()) return;
   const log = JSON.parse(decodeURIComponent(logStr));
   currentEditLog = log;
-  document.getElementById('addLogTitle').textContent = `編輯紀錄：${currentViewEmp}`;
+  const dName = getDisplayName(currentViewEmp); // ✅ 轉換顯示名稱
+  document.getElementById('addLogTitle').textContent = `編輯紀錄：${dName}`;
   document.getElementById('addLogType').value = log.type;
   document.getElementById('addLogDate').value = log.date;
   document.getElementById('addLogDays').value = log.days;
