@@ -161,6 +161,13 @@ th:first-child { background: #1557b0; z-index: 12; }
 .cell-btn.unfilled { background: #fff8e1 !important; border: 2px dashed var(--warn) !important; color: #e65100 !important; }
 .cell-btn.conflict { border: 2px solid var(--danger) !important; animation: conflict-blink 1.5s infinite; }
 .cell-btn.req-off-pending { box-shadow: inset 0 0 0 2px var(--primary); }
+/* ✅ 特休/補休專屬樣式（內建班別，不進系統設定）*/
+.cell-btn.annual-leave { color: #7c3aed !important; border: 2px solid #7c3aed !important; background: #f5f3ff !important; }
+.cell-btn.comp-leave   { color: #0891b2 !important; border: 2px solid #0891b2 !important; background: #ecfeff !important; }
+.quick-shift-btn.annual-leave { color: #7c3aed; border-color: #7c3aed; background: #f5f3ff; }
+.quick-shift-btn.comp-leave   { color: #0891b2; border-color: #0891b2; background: #ecfeff; }
+.paint-shift-btn.annual-leave { color: #7c3aed; border-color: #7c3aed; background: #f5f3ff; }
+.paint-shift-btn.comp-leave   { color: #0891b2; border-color: #0891b2; background: #ecfeff; }
 @keyframes conflict-blink { 0%,100%{border-color:var(--danger);} 50%{border-color:var(--warn);} }
 .ot-text { color: var(--danger); font-weight: 900; }
 .warn-tag { display: inline-block; background: #fce8e6; color: var(--danger); font-size: 10px; padding: 1px 4px; border-radius: 4px; margin-top: 2px; border: 1px solid var(--danger); }
@@ -844,6 +851,82 @@ function setSyncStatus(type, msg) {
   el.innerHTML = `<div class="sync-dot"></div><span>${msg}</span>`;
 }
 
+// ===== ✅ 特休/補休扣天數 =====
+// prevShift: 修改前的班別；newShift: 修改後的班別
+// 邏輯：
+//   舊=特休 → 新≠特休：回補 1 天 (annual_use 取消)
+//   舊=補休 → 新≠補休：回補 1 天 (comp_use 取消)
+//   舊≠特休 → 新=特休：扣 1 天 (annual_use)
+//   舊≠補休 → 新=補休：扣 1 天 (comp_use)
+//   其他：不動
+async function deductLeave(empName, day, weekStr, prevShift, newShift) {
+  const LEAVE_TYPES = ['特休','補休'];
+  const prevIsAnnual = prevShift === '特休';
+  const prevIsComp   = prevShift === '補休';
+  const newIsAnnual  = newShift  === '特休';
+  const newIsComp    = newShift  === '補休';
+
+  // 沒有異動不處理
+  if(prevIsAnnual === newIsAnnual && prevIsComp === newIsComp) return;
+
+  const year  = weekStr.split('-W')[0];
+  const dates = getWeekDates(weekStr);
+  const dIdx  = dayNames.indexOf(day);
+  if(dIdx < 0) return;
+  const dateStr = `${year}-${dates[dIdx].replace('/','-').padStart(4,'0')}`; // "YYYY-M/D" → "YYYY-MM-DD"
+  // 修正日期格式：dates[dIdx] 是 "M/D"，需補齊
+  const [m, d] = dates[dIdx].split('/');
+  const fullDate = `${year}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+  const ym = fullDate.slice(0, 7);
+
+  try {
+    const leaveRef = window.db.collection('employees').doc(empName).collection('leaves').doc(year);
+    const logRef   = window.db.collection('employees').doc(empName).collection('leaveLog').doc(ym);
+    const snap = await leaveRef.get();
+    const ld = snap.exists ? snap.data() : { annualDays:0, usedAnnual:0, earnedComp:0, usedComp:0 };
+    const savedBy = (typeof currentUser !== 'undefined') ? (currentUser.displayName || currentUser.empName || '') : '';
+
+    // 特休：從有到無 → 回補；從無到有 → 扣除
+    if(prevIsAnnual && !newIsAnnual) {
+      ld.usedAnnual = Math.max(0, (ld.usedAnnual||0) - 1);
+      await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
+        date: fullDate, type: 'annual_use_cancel', days: 1,
+        note: `${day} 特休取消（排班異動）`, savedBy
+      })}, { merge: true });
+    } else if(!prevIsAnnual && newIsAnnual) {
+      // 防呆：剩餘不足
+      const remain = (ld.annualDays||0) - (ld.usedAnnual||0);
+      if(remain < 1) { showToast(`⚠️ ${empName} 特休不足（剩餘 ${remain} 天）`); return; }
+      ld.usedAnnual = (ld.usedAnnual||0) + 1;
+      await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
+        date: fullDate, type: 'annual_use', days: 1,
+        note: `${day} 使用特休`, savedBy
+      })}, { merge: true });
+    }
+
+    // 補休：從有到無 → 回補；從無到有 → 扣除
+    if(prevIsComp && !newIsComp) {
+      ld.usedComp = Math.max(0, (ld.usedComp||0) - 1);
+      await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
+        date: fullDate, type: 'comp_use_cancel', days: 1,
+        note: `${day} 補休取消（排班異動）`, savedBy
+      })}, { merge: true });
+    } else if(!prevIsComp && newIsComp) {
+      const remain = (ld.earnedComp||0) - (ld.usedComp||0);
+      if(remain < 1) { showToast(`⚠️ ${empName} 補休不足（剩餘 ${remain} 天）`); return; }
+      ld.usedComp = (ld.usedComp||0) + 1;
+      await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
+        date: fullDate, type: 'comp_use', days: 1,
+        note: `${day} 使用補休`, savedBy
+      })}, { merge: true });
+    }
+
+    await leaveRef.set(ld, { merge: true });
+  } catch(e) {
+    console.warn('deductLeave 失敗（不影響排班）:', e.message);
+  }
+}
+
 // ===== 自動儲存 =====
 function triggerAutoSave() {
   setSyncStatus('syncing', '儲存中...');
@@ -1515,7 +1598,7 @@ function updateCellUI(btn, extraHtml='') {
   const isVirtual=btn.dataset.emp.startsWith('🆘');
   const hVal=parseFloat(h)||0;
 
-  btn.classList.remove('unfilled','zhi-xiu','pai-xiu','shift-night','shift-morning','conflict');
+  btn.classList.remove('unfilled','zhi-xiu','pai-xiu','shift-night','shift-morning','conflict','annual-leave','comp-leave');
 
   let txt='';
   if(isVirtual && !supportEmp && s && s!=='排休' && s!=='指休') {
@@ -1527,6 +1610,9 @@ function updateCellUI(btn, extraHtml='') {
 
   if(s==='指休') { txt='休'; btn.classList.add('zhi-xiu'); }
   else if(s==='排休') { txt='休'; btn.classList.add('pai-xiu'); }
+  // ✅ 特休/補休：專屬樣式，不走 shift-morning/night
+  else if(s==='特休') { txt='🏖️<br><small>特休</small>'; btn.classList.add('annual-leave'); }
+  else if(s==='補休') { txt='🗓️<br><small>補休</small>'; btn.classList.add('comp-leave'); }
   else if(s) {
     if(isOT) txt=`<span class="ot-text">${s}</span>`;
     else if(hVal>8 && s.includes('-')) {
@@ -1593,6 +1679,9 @@ function handleCellClick(btn, eIdx, isVirtual) {
 function renderQuickShiftBtns() {
   // 班別快捷（過濾掉「清空」，已有獨立按鈕）
   let h=`<button class="quick-shift-btn clear" onclick="clearModalShift()">🗑️ 清空</button>`;
+  // ✅ 內建班別：特休/補休（固定顯示，不進系統設定）
+  h+=`<button class="quick-shift-btn annual-leave" onclick="setModalShift('特休')">🏖️ 特休</button>`;
+  h+=`<button class="quick-shift-btn comp-leave"   onclick="setModalShift('補休')">🗓️ 補休</button>`;
   (appConfig.shifts||[]).filter(s=>s!=='清空').forEach(s => {
     const isOff=(s==='排休'||s==='指休');
     h+=`<button class="quick-shift-btn ${isOff?'off':''}" onclick="setModalShift('${s}')">${s}</button>`;
@@ -1626,12 +1715,13 @@ function autoFillHours() {
   if((appConfig.shiftHours||{})[s]) { t.value=(appConfig.shiftHours||{})[s]; return; }
   const m=s.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)/);
   if(m) { let sT=parseFloat(m[1]),eT=parseFloat(m[2]); if(eT<=sT) eT+=24; t.value=eT-sT; }
-  else if(s==='排休'||s==='指休') t.value=0;
+  else if(s==='排休'||s==='指休'||s==='特休'||s==='補休') t.value=0;
 }
 
 function applyShift() {
   pushToUndo(currentCell);
   const isVirtual=currentCell.dataset.emp.startsWith('🆘');
+  const prevShift = currentCell.dataset.shift; // 記錄原班別，供 deductLeave 判斷是否需回補
   currentCell.dataset.shift=document.getElementById('modalShift').value;
   currentCell.dataset.hours=document.getElementById('modalHours').value;
   currentCell.dataset.ot=document.getElementById('modalOT').checked;
@@ -1645,6 +1735,14 @@ function applyShift() {
     if(document.getElementById('clearReqWrap').style.display!=='none' && document.getElementById('clearReqCheck').checked) {
       currentCell.dataset.reqoff='false';
     }
+  }
+  // ✅ 特休/補休：扣天數（非虛擬行才扣）
+  if(!isVirtual) {
+    const newShift = currentCell.dataset.shift;
+    const empName  = currentCell.dataset.emp;
+    const day      = currentCell.dataset.day;
+    const weekStr  = document.getElementById('weekSelector').value;
+    deductLeave(empName, day, weekStr, prevShift, newShift);
   }
   syncUIToMemory();
   renderTable();
@@ -1686,6 +1784,9 @@ function togglePaintMode() {
 }
 function renderPaintBtns() {
   let h=`<button class="paint-shift-btn ${paintShift==='清空'?'active-paint':''}" onclick="setPaintShift('清空')">🗑️ 清空</button>`;
+  // ✅ 內建班別：特休/補休
+  h+=`<button class="paint-shift-btn annual-leave ${paintShift==='特休'?'active-paint':''}" onclick="setPaintShift('特休')">🏖️ 特休</button>`;
+  h+=`<button class="paint-shift-btn comp-leave ${paintShift==='補休'?'active-paint':''}" onclick="setPaintShift('補休')">🗓️ 補休</button>`;
   (appConfig.shifts||[]).filter(s=>s!=='清空').forEach(s=>{
     const isOff=(s==='排休'||s==='指休');
     h+=`<button class="paint-shift-btn ${isOff?'off-shift':''} ${paintShift===s?'active-paint':''}" onclick="setPaintShift('${s}')">${s}</button>`;
@@ -1699,6 +1800,7 @@ function applyPaintToCell(btn, eIdx) {
   if(btn.dataset.shift===target) return;
   pushToUndo(btn);
   const isVirtual=btn.dataset.emp.startsWith('🆘');
+  const prevShift = btn.dataset.shift; // 記錄原班別
   if(paintShift==='清空') {
     btn.dataset.shift=''; btn.dataset.hours=0; btn.dataset.ot='false'; btn.dataset.note='';
     if(isVirtual) { btn.dataset.support=''; btn.dataset.approval=''; }
@@ -1706,12 +1808,17 @@ function applyPaintToCell(btn, eIdx) {
   } else {
     btn.dataset.shift=paintShift;
     let h=(appConfig.shiftHours||{})[paintShift]||0;
-    if(!h && paintShift!=='排休' && paintShift!=='指休') {
+    if(!h && paintShift!=='排休' && paintShift!=='指休' && paintShift!=='特休' && paintShift!=='補休') {
       const m=paintShift.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)/);
       if(m) { let sT=parseFloat(m[1]),eT=parseFloat(m[2]); if(eT<=sT) eT+=24; h=eT-sT; }
     }
     btn.dataset.hours=h; btn.dataset.ot='false';
     if(!isVirtual) { btn.dataset.loc='本店'; btn.dataset.reqoff='false'; }
+  }
+  // ✅ 特休/補休：扣天數（非虛擬行才扣）
+  if(!isVirtual) {
+    const week = document.getElementById('weekSelector').value;
+    deductLeave(btn.dataset.emp, btn.dataset.day, week, prevShift, btn.dataset.shift||'');
   }
   // 局部更新記憶體
   const week=document.getElementById('weekSelector').value;
@@ -1832,8 +1939,27 @@ async function updateSummary(idx, emp) {
   const r10 = v => Math.round(v * 10) / 10;
   let html = '';
 
+  // ✅ 特補休剩餘（背景非同步讀取，顯示在統計欄底部）
+  const leaveHtmlId = `leave-sum-${idx}`;
+  // 先渲染 placeholder，背景讀取後填入
+  const leavePlaceholder = `<div id="${leaveHtmlId}" style="font-size:10px;color:#94a3b8;">--</div>`;
+  // 背景讀取（不阻塞表格渲染）
+  const yearStr = document.getElementById('weekSelector').value.split('-W')[0];
+  window.db.collection('employees').doc(emp.name).collection('leaves').doc(yearStr).get()
+    .then(snap => {
+      const el = document.getElementById(leaveHtmlId);
+      if(!el) return;
+      if(!snap.exists || !snap.data().hireDate) { el.innerHTML = '<span style="color:#94a3b8;">未建特休</span>'; return; }
+      const ld = snap.data();
+      const remainAnn  = Math.max(0, (ld.annualDays||0)  - (ld.usedAnnual||0));
+      const remainComp = Math.max(0, (ld.earnedComp||0) - (ld.usedComp||0));
+      el.innerHTML =
+        `<span style="color:#7c3aed;font-weight:700;">🏖️特${remainAnn}天</span>` +
+        `<span style="color:#0891b2;font-weight:700;margin-left:4px;">🗓️補${remainComp}天</span>`;
+    })
+    .catch(()=>{});
+
   if(isPartTime) {
-    // 工讀：本週工時 + 本月時數 + 估算薪資
     const wage = parseFloat(emp.wage || 0);
     const ms = monthStats[currentMonthKey];
     const mLabel = today.getMonth()+1 + '月';
@@ -1843,10 +1969,10 @@ async function updateSummary(idx, emp) {
     html += `<b>週時:${r10(wH)}h</b><br>`;
     html += `${mLabel}時: ${r10(ms.h)}h<br>`;
     if(wage > 0) html += `<span style="color:${salColor};">(估:$${salary.toLocaleString()})</span><br>`;
+    html += leavePlaceholder;
     html += `</div>`;
 
   } else if(isFullTime) {
-    // 正職/店長：週休檢核 + 本月加班時數
     const ms = monthStats[currentMonthKey];
     const mLabel = today.getMonth()+1 + '月';
     const offColor = wOff >= 2 ? '#34a853' : '#d93025';
@@ -1856,10 +1982,11 @@ async function updateSummary(idx, emp) {
     html += `<b>週休:${wOff}天 <span style="color:${offColor};">(${offLabel})</span></b><br>`;
     html += `${mLabel}已休:${ms.off||0}天<br>`;
     html += `${mLabel}加班: <span style="color:${otColor};font-weight:${ms.ot>0?900:400};">${r10(ms.ot)}h</span><br>`;
+    html += leavePlaceholder;
     html += `</div>`;
 
   } else {
-    html = `<div style="font-size:11px;">本週: ${r10(wH)}h</div>`;
+    html = `<div style="font-size:11px;">本週: ${r10(wH)}h<br>${leavePlaceholder}</div>`;
   }
   t.innerHTML = html;
 }
