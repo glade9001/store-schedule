@@ -1537,6 +1537,7 @@ function renderStatsArea() {
   }
 }
 
+// ===== 統計 =====
 async function loadStats() {
   renderStatsArea();
   const weekStr = getCurrentWeekString();
@@ -1581,39 +1582,44 @@ async function loadStats() {
 
     let monthHours = 0, monthOff = 0, monthOT = 0;
 
-    for (const ws of weeksToFetch) {
-      try {
-        const s2 = await window.db.collection('stores').doc(store).collection('weeks').doc(ws).get();
-        if(!s2.exists) continue;
-        const recs2 = (s2.data().records || []).filter(r => r.name === empName);
-        const wDates = getWeekDates(ws); 
+    // 🚀 優化 1：平行拉取所有週次的統計資料
+    const weekPromises = Array.from(weeksToFetch).map(ws => 
+      window.db.collection('stores').doc(store).collection('weeks').doc(ws).get()
+        .then(s2 => ({ ws, snap: s2 }))
+        .catch(e => { console.warn(`拉取 ${ws} 統計失敗`, e); return null; })
+    );
 
-        recs2.forEach(r => {
-          const dayIdx = ['週一','週二','週三','週四','週五','週六','週日'].indexOf(r.day);
-          if(dayIdx < 0) return;
+    const weekResults = await Promise.all(weekPromises);
 
-          const [recM] = wDates[dayIdx].split('/');
-          let recY = parseInt(ws.split('-W')[0]);
+    weekResults.forEach(res => {
+      if (!res || !res.snap.exists) return;
+      const { ws, snap: s2 } = res;
+      const recs2 = (s2.data().records || []).filter(r => r.name === empName);
+      const wDates = getWeekDates(ws); 
 
-          if (parseInt(recM) === 12 && parseInt(ws.split('-W')[1]) === 1) recY -= 1;
-          if (parseInt(recM) === 1 && parseInt(ws.split('-W')[1]) >= 52) recY += 1;
+      recs2.forEach(r => {
+        const dayIdx = ['週一','週二','週三','週四','週五','週六','週日'].indexOf(r.day);
+        if(dayIdx < 0) return;
 
-          const recMonthStr = `${recY}-${recM.padStart(2, '0')}`;
+        const [recM] = wDates[dayIdx].split('/');
+        let recY = parseInt(ws.split('-W')[0]);
 
-          if(recMonthStr === targetMonthStr) {
-            const h = parseFloat(r.actualHours || 0);
-            if(r.shift === '排休' || r.shift === '指休') {
-              monthOff++;
-            } else if(r.shift) {
-              monthHours += h;
-              if(r.isOT || h > 8) monthOT += Math.max(0, h - 8);
-            }
+        if (parseInt(recM) === 12 && parseInt(ws.split('-W')[1]) === 1) recY -= 1;
+        if (parseInt(recM) === 1 && parseInt(ws.split('-W')[1]) >= 52) recY += 1;
+
+        const recMonthStr = `${recY}-${recM.padStart(2, '0')}`;
+
+        if(recMonthStr === targetMonthStr) {
+          const h = parseFloat(r.actualHours || 0);
+          if(r.shift === '排休' || r.shift === '指休') {
+            monthOff++;
+          } else if(r.shift) {
+            monthHours += h;
+            if(r.isOT || h > 8) monthOT += Math.max(0, h - 8);
           }
-        });
-      } catch(e) {
-        console.error('撈取單週統計失敗:', e);
-      }
-    }
+        }
+      });
+    });
 
     if(isPartTime) {
       const whEl = document.getElementById('statWeekH');
@@ -1633,9 +1639,9 @@ async function loadStats() {
         otEl.style.color = otVal > 0 ? 'var(--danger)' : 'var(--text)';
       }
       const year = new Date().getFullYear().toString();
-      const empName = currentUser.empName || currentUser.displayName || '';
-      if(empName) {
-        window.db.collection('employees').doc(empName).collection('leaves').doc(year).get()
+      const empNameStr = currentUser.empName || currentUser.displayName || '';
+      if(empNameStr) {
+        window.db.collection('employees').doc(empNameStr).collection('leaves').doc(year).get()
           .then(snap => {
             if(!snap.exists || !snap.data().hireDate) {
               if(leaveEl) { leaveEl.textContent = '--'; leaveEl.style.color = 'var(--text-muted)'; }
@@ -1655,8 +1661,6 @@ async function loadStats() {
       } else {
         if(leaveEl) leaveEl.textContent = '--';
       }
-      const compEl = document.getElementById('statComp');
-      if(compEl) compEl.textContent = '--';
     }
   } catch(e) {
     console.error('統計載入失敗:', e);
@@ -1672,181 +1676,200 @@ async function loadPendingItems() {
   const storesToScan = currentUser.store ? [currentUser.store] : (appConfig.stores || []);
   const currentYear = new Date().getFullYear().toString();
 
+  // 🚀 優化 2：Timeout 阻斷機制 (設定 8 秒，超過直接放棄等待，確保畫面渲染)
+  const withTimeout = (promise, ms = 8000) => {
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), ms))
+    ]);
+  };
+
   try {
-    for(const store of storesToScan) {
+    // 包裝在 timeout 內執行
+    await withTimeout((async () => {
       
-      // ===== 只有「排班管理者(店長以上)」才看得到的系統提醒 =====
-      if (canSchedule()) {
-        // 1. 檢查排班審核與畫休衝突
-        for(const wk of [weekStr, nextWeek]) {
-          const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(wk).get();
-          if(snap.exists && snap.data().records) {
-            snap.data().records.forEach(r => {
-              if(r.approvalStatus === 'pending' && r.supportEmp) {
-                pending.push({ type: '跨店待審', desc: `${store}｜${r.name} 申請 ${r.day} 支援`, link: 'schedule-V2.html?mode=admin', color: 'var(--danger)' });
-              }
-              if(r.requestOff && r.shift && r.shift !== '排休' && r.shift !== '指休') {
-                pending.push({ type: '畫休衝突', desc: `${store}｜${r.name} 在 ${r.day} 有畫休衝突`, link: 'schedule-V2.html?mode=admin', color: 'var(--danger)' });
-              }
-            });
-          }
-        }
-
-        // 2. 檢查特休建檔 與 滿半年自動解鎖提醒
-        const empSnap = await window.db.collection('stores').doc(store).collection('employees').get();
-        const emps = [];
-        empSnap.forEach(d => {
-          if(!['離職','調走'].includes(d.data().status)) emps.push(d.id);
-        });
-
-        for(const empName of emps) {
-          const leaveSnap = await window.db.collection('employees').doc(empName).collection('leaves').doc(currentYear).get();
-          const leaveData = leaveSnap.exists ? leaveSnap.data() : null;
-
-          if(!leaveData || !leaveData.hireDate) {
-            pending.push({ 
-              type: '特休建檔', 
-              desc: `${store}｜請幫 ${empName} 設定到職日與本年度特休`,
-              link: 'leave.html', 
-              color: 'var(--warn)' 
-            });
-          } else {
-            const hireD = new Date(leaveData.hireDate);
-            const halfYearD = new Date(hireD);
-            halfYearD.setMonth(halfYearD.getMonth() + 6);
-            const today = new Date();
-
-            if (today >= halfYearD && (leaveData.annualDays || 0) === 0) {
-              pending.push({
-                type: '特休解鎖',
-                desc: `${store}｜${empName} 已滿半年，請手動發放特休`,
-                link: 'leave.html',
-                color: '#9334e6' 
-              });
-            }
-          }
-        }
+      // 🚀 優化 3：所有門市平行處理
+      const storePromises = storesToScan.map(async (store) => {
+        let storePending = [];
         
-        // 3. 薪資未送出提醒
-        const now = new Date();
-        const lastDay = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
-        const isLastWeek = now.getDate() > lastDay - 7;
-        if(isLastWeek) {
+        // 只有「排班管理者(店長以上)」才看得到的系統提醒
+        if (canSchedule()) {
+          // 平行拉取：本週班表、下週班表、該門市員工名單、本月薪資狀態
+          const weekPromises = [weekStr, nextWeek].map(wk => 
+            window.db.collection('stores').doc(store).collection('weeks').doc(wk).get().catch(() => null)
+          );
+          
+          const empSnapPromise = window.db.collection('stores').doc(store).collection('employees').get().catch(() => null);
+          
+          const now = new Date();
+          const lastDay = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+          const isLastWeek = now.getDate() > lastDay - 7;
           const ym = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-          try {
-            const salSnap = await window.db.collection('stores').doc(currentUser.store).collection('salary').doc(ym).get();
-            const status = salSnap.exists ? salSnap.data().status : 'draft';
-            if(status === 'draft') {
-              pending.push({
-                type: '薪資提醒',
-                desc: `${ym.replace('-','年')}月薪資尚未送出`,
-                link: 'salary.html',
-                color: 'var(--warn)'
+          const salaryPromise = isLastWeek 
+            ? window.db.collection('stores').doc(store).collection('salary').doc(ym).get().catch(() => null)
+            : Promise.resolve(null);
+
+          // 統一等待這間門市的基礎資料回來
+          const [weekSnaps, empSnap, salSnap] = await Promise.all([
+            Promise.all(weekPromises),
+            empSnapPromise,
+            salaryPromise
+          ]);
+
+          // 1. 檢查排班審核與畫休衝突
+          weekSnaps.forEach(snap => {
+            if (snap && snap.exists && snap.data().records) {
+              snap.data().records.forEach(r => {
+                if(r.approvalStatus === 'pending' && r.supportEmp) {
+                  storePending.push({ type: '跨店待審', desc: `${store}｜${r.name} 申請 ${r.day} 支援`, link: 'schedule-V2.html?mode=admin', color: 'var(--danger)' });
+                }
+                if(r.requestOff && r.shift && r.shift !== '排休' && r.shift !== '指休') {
+                  storePending.push({ type: '畫休衝突', desc: `${store}｜${r.name} 在 ${r.day} 有畫休衝突`, link: 'schedule-V2.html?mode=admin', color: 'var(--danger)' });
+                }
               });
             }
-          } catch(e) {}
+          });
+
+          // 2. 薪資未送出提醒
+          if(salSnap && salSnap.exists && salSnap.data().status === 'draft') {
+            storePending.push({
+              type: '薪資提醒',
+              desc: `${ym.replace('-','年')}月薪資尚未送出`,
+              link: 'salary.html',
+              color: 'var(--warn)'
+            });
+          }
+
+          // 3. 檢查特休建檔 (🚀 優化 4：將 foreach await 改為 Promise.all)
+          if (empSnap) {
+            const emps = [];
+            empSnap.forEach(d => {
+              if(!['離職','調走'].includes(d.data().status)) emps.push(d.id);
+            });
+
+            const leavePromises = emps.map(async (empName) => {
+              try {
+                const leaveSnap = await window.db.collection('employees').doc(empName).collection('leaves').doc(currentYear).get();
+                const leaveData = leaveSnap.exists ? leaveSnap.data() : null;
+
+                if(!leaveData || !leaveData.hireDate) {
+                  return { type: '特休建檔', desc: `${store}｜請幫 ${empName} 設定到職日與特休`, link: 'leave.html', color: 'var(--warn)' };
+                } else {
+                  const hireD = new Date(leaveData.hireDate);
+                  const halfYearD = new Date(hireD);
+                  halfYearD.setMonth(halfYearD.getMonth() + 6);
+                  const today = new Date();
+
+                  if (today >= halfYearD && (leaveData.annualDays || 0) === 0) {
+                    return { type: '特休解鎖', desc: `${store}｜${empName} 已滿半年，請發放特休`, link: 'leave.html', color: '#9334e6' };
+                  }
+                }
+              } catch (e) { return null; }
+              return null;
+            });
+
+            const leaveResults = await Promise.all(leavePromises);
+            leaveResults.forEach(res => { if(res) storePending.push(res); });
+          }
         }
-      }
-      // ===========================================
-    }
+        return storePending;
+      });
+
+      // 等待所有門市處理完畢
+      const allStoresResults = await Promise.all(storePromises);
+      allStoresResults.forEach(res => pending.push(...res));
+
+    })()); // 執行 Timeout
   } catch(e) {
-    console.error("讀取待處理事項失敗：", e);
+    console.warn("讀取管理員待辦事項超時或連線不穩：", e);
+    // 即使失敗也捕捉錯誤並繼續執行後面的畫面渲染
   }
 
-  // ✅ 代辦事項 + 公告橫幅（所有人都計算）
+  // ✅ 代辦事項 + 公告橫幅（同樣加上 Timeout 保護）
   try {
-    const today = new Date().toISOString().split('T')[0];
-    const empName = currentUser.empName || '';
-    const store   = currentUser.store || '';
-    const isManagerRole = canSchedule();
+    await withTimeout((async () => {
+      const today = new Date().toISOString().split('T')[0];
+      const empName = currentUser.empName || '';
+      const store   = currentUser.store || '';
+      const isManagerRole = canSchedule();
 
-    const [todoSnap, checkSnap] = await Promise.all([
-      window.db.collection('todos').where('deleted','==',false).get(),
-      window.db.collection('todoChecks').where('empName','==',empName).get()
-    ]);
+      const [todoSnap, checkSnap] = await Promise.all([
+        window.db.collection('todos').where('deleted','==',false).get(),
+        window.db.collection('todoChecks').where('empName','==',empName).get()
+      ]);
 
-    // checkKey 相容（週期型帶日期 key）
-    const myChecks = {};
-    checkSnap.forEach(d => {
-      const data=d.data();
-      if(data.checked){ myChecks[data.checkKey||data.todoId]=true; myChecks[data.todoId]=true; }
-    });
+      const myChecks = {};
+      checkSnap.forEach(d => {
+        const data=d.data();
+        if(data.checked){ myChecks[data.checkKey||data.todoId]=true; myChecks[data.todoId]=true; }
+      });
 
-    // 可見判斷（與 todo.html 同步，home 版不做週期計算，週期型只看 startDate）
-    const isTodoVisible = (t) => {
-      if(t.deleted) return false;
-      if(t.startDate && today < t.startDate) return false;
-      // 週期型：有 recurringEnd 且已過結束日則不顯示
-      if(t.isRecurring && t.recurringEnd && today > t.recurringEnd) return false;
-      // 非週期公告：截止日過了不顯示
-      if(t.type==='announcement' && !t.isRecurring && t.endDate && today > t.endDate) return false;
-      const tt = t.targetType;
-      if(tt==='self') return t.createdBy === empName;
-      if(tt==='all') return true;
-      if(tt==='store') return t.targetStore===store || (t.targetStores||[]).includes(store);
-      if(tt==='stores_manager') {
-        if(!isManagerRole) return false;
-        const s=t.targetStores||[];
-        return s.length===0 || s.includes(store) || t.targetStore===store;
+      const isTodoVisible = (t) => {
+        if(t.deleted) return false;
+        if(t.startDate && today < t.startDate) return false;
+        if(t.isRecurring && t.recurringEnd && today > t.recurringEnd) return false;
+        if(t.type==='announcement' && !t.isRecurring && t.endDate && today > t.endDate) return false;
+        const tt = t.targetType;
+        if(tt==='self') return t.createdBy === empName;
+        if(tt==='all') return true;
+        if(tt==='store') return t.targetStore===store || (t.targetStores||[]).includes(store);
+        if(tt==='stores_manager') {
+          if(!isManagerRole) return false;
+          const s=t.targetStores||[];
+          return s.length===0 || s.includes(store) || t.targetStore===store;
+        }
+        if(tt==='specific') return (t.targetEmps||[]).includes(empName);
+        return false;
+      };
+
+      const announcements = [], pendingTodos = [];
+      todoSnap.forEach(d => {
+        const t = { id:d.id, ...d.data() };
+        if(!isTodoVisible(t)) return;
+
+        if(t.type==='announcement') { announcements.push(t); return; }
+
+        let ck = t.id;
+        if(t.isRecurring) ck = `${t.id}__${today}`;
+        if(myChecks[ck] || myChecks[t.id]) return;
+        pendingTodos.push(t);
+      });
+
+      // 公告橫幅渲染
+      const bannerWrap = document.getElementById('announceBannerWrap');
+      const banner     = document.getElementById('announceBanner');
+      if(bannerWrap && banner) {
+        if(announcements.length > 0) {
+          bannerWrap.style.display = 'block';
+          banner.innerHTML = announcements.map(t => {
+            const days = t.endDate ? Math.ceil((new Date(t.endDate)-new Date())/86400000) : null;
+            const dlText = days===null ? '' : days<0 ? '已截止' : days===0 ? '今天截止' : `${days}天後截止`;
+            const urgent = days !== null && days <= 2;
+            return `<div onclick="window.location.href='todo.html'" style="
+              flex-shrink:0; min-width:200px; max-width:260px;
+              background:${urgent?'#fff3e0':'white'};
+              border:1.5px solid ${urgent?'var(--warn)':'var(--border)'};
+              border-radius:12px; padding:10px 12px; cursor:pointer;
+              box-shadow:0 1px 4px rgba(0,0,0,0.06);">
+              <div style="font-size:13px;font-weight:700;line-height:1.4;margin-bottom:4px;">${t.title}</div>
+              ${t.note?`<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">${t.note}</div>`:''}
+              ${dlText?`<div style="font-size:10px;font-weight:700;color:${urgent?'var(--warn)':'var(--text-muted)'};">📅 ${dlText}</div>`:''}
+            </div>`;
+          }).join('');
+        } else {
+          bannerWrap.style.display = 'none';
+        }
       }
-      if(tt==='specific') return (t.targetEmps||[]).includes(empName);
-      return false;
-    };
 
-    const announcements = [], pendingTodos = [];
-    todoSnap.forEach(d => {
-      const t = { id:d.id, ...d.data() };
-      if(!isTodoVisible(t)) return;
+      pendingTodos.forEach(t => {
+        pending.push({ type:'代辦', desc:t.title, link:'todo.html', color:'var(--primary)' });
+      });
+    })());
+  } catch(e) { console.warn("讀取公告與待辦超時：", e); }
 
-      // 公告：收集到橫幅
-      if(t.type==='announcement') { announcements.push(t); return; }
-
-      // 代辦：週期型 checkKey 帶今天日期，單次用 todoId
-      let ck = t.id;
-      if(t.isRecurring) {
-        // 簡化：用今天日期做 key，讓今天勾完的不再顯示
-        ck = `${t.id}__${today}`;
-      }
-      if(myChecks[ck] || myChecks[t.id]) return;
-      pendingTodos.push(t);
-
-    // 公告橫幅渲染
-    const bannerWrap = document.getElementById('announceBannerWrap');
-    const banner     = document.getElementById('announceBanner');
-    if(bannerWrap && banner) {
-      if(announcements.length > 0) {
-        bannerWrap.style.display = 'block';
-        banner.innerHTML = announcements.map(t => {
-          const days = t.endDate ? Math.ceil((new Date(t.endDate)-new Date())/86400000) : null;
-          const dlText = days===null ? '' : days<0 ? '已截止' : days===0 ? '今天截止' : `${days}天後截止`;
-          const urgent = days !== null && days <= 2;
-          return `<div onclick="window.location.href='todo.html'" style="
-            flex-shrink:0; min-width:200px; max-width:260px;
-            background:${urgent?'#fff3e0':'white'};
-            border:1.5px solid ${urgent?'var(--warn)':'var(--border)'};
-            border-radius:12px; padding:10px 12px; cursor:pointer;
-            box-shadow:0 1px 4px rgba(0,0,0,0.06);">
-            <div style="font-size:13px;font-weight:700;line-height:1.4;margin-bottom:4px;">${t.title}</div>
-            ${t.note?`<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">${t.note}</div>`:''}
-            ${dlText?`<div style="font-size:10px;font-weight:700;color:${urgent?'var(--warn)':'var(--text-muted)'};">📅 ${dlText}</div>`:''}
-          </div>`;
-        }).join('');
-      } else {
-        bannerWrap.style.display = 'none';
-      }
-    }
-
-    // 代辦加入 pending（每筆顯示標題）
-    pendingTodos.forEach(t => {
-      pending.push({ type:'代辦', desc:t.title, link:'todo.html', color:'var(--primary)' });
-    });
-
-  } catch(e) {}
-
-  // 渲染到畫面
+  // 確保無論如何都能順利渲染到畫面，UI不會卡死
   document.getElementById('pendingCount').textContent = pending.length + ' 件';
 
-  // 更新上方 badge
   const badge = document.getElementById('pendingBadgeBar');
   if(badge) {
     if(pending.length > 0) {
