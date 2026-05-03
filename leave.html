@@ -46,16 +46,10 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 #appShell.active{display:flex;}
 
 /* Header */
-.header{background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:white;padding:0 16px;height:var(--header-h);display:flex;align-items:center;gap:10px;flex-shrink:0;box-shadow:0 2px 12px rgba(26,115,232,0.3); z-index:10;}
-.header-back{background:rgba(255,255,255,0.2);border:none;color:white;width:34px;height:34px;border-radius:10px;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.header{background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:white;padding:0 16px;height:var(--header-h);display:flex;align-items:center;gap:10px;flex-shrink:0;box-shadow:0 2px 12px rgba(26,115,232,0.3);}
+.header-back{background:rgba(255,255,255,0.2);border:none;color:white;height:34px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0 12px;gap:4px;}
 .header-title{font-size:17px;font-weight:800;flex:1;}
 .header-badge{background:rgba(255,255,255,0.2);border-radius:8px;padding:4px 10px;font-size:13px;font-weight:700;}
-
-/* Store Selector Bar (Admin/Owner) */
-.store-bar { background: white; border-bottom: 1px solid var(--border); padding: 8px 14px; display: none; align-items: center; gap: 8px; flex-shrink: 0; }
-.store-bar label { font-size: 13px; font-weight: 800; color: var(--text-muted); white-space: nowrap; }
-.store-select { flex: 1; padding: 8px 12px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 14px; font-weight: 700; outline: none; background: #f8fafc; color: var(--primary); cursor: pointer; }
-.store-select:focus { border-color: var(--primary); }
 
 /* Tab Bar */
 .tab-bar{display:flex;background:white;border-bottom:1px solid var(--border);flex-shrink:0;}
@@ -79,8 +73,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 .emp-leave-header{display:flex;align-items:center;padding:14px 16px;gap:10px;}
 .emp-avatar{width:40px;height:40px;border-radius:12px;color:white;font-size:16px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
 .emp-leave-info{flex:1;}
-.emp-leave-name{font-size:15px;font-weight:800; margin-bottom:2px;}
-.emp-leave-name-sub{font-size:11px;color:var(--text-muted);font-weight:normal; margin-left:4px;}
+.emp-leave-name{font-size:15px;font-weight:800;}
 .emp-leave-role{font-size:11px;color:var(--text-muted);font-weight:600;}
 .leave-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;}
 .leave-chip{font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;}
@@ -155,15 +148,9 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 
 <div id="appShell">
   <div class="header">
-    <button class="header-back" onclick="handleBack()">←</button>
+    <button class="header-back" onclick="handleBack()">← 首頁</button>
     <div class="header-title" id="headerTitle">🏖️ 特補休管理</div>
-    <div class="header-badge" id="headerBadge" style="display:none;">--</div>
-  </div>
-
-  <!-- ✅ 加盟主/系統管理員專用：門市切換列 -->
-  <div class="store-bar" id="storeBar">
-    <label>切換門市</label>
-    <select id="storeSelector" class="store-select" onchange="onStoreChange()"></select>
+    <div class="header-badge" id="headerBadge">--</div>
   </div>
 
   <!-- Tab：管理者看員工列表；員工直接看個人 -->
@@ -195,7 +182,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
       <button class="detail-month-btn" onclick="empDetailChangeMonth(1)">›</button>
     </div>
     <div id="empDetailLogs"></div>
-    <!-- 店長以上：手動新增 -->
+    <!-- 加盟主以上：手動新增 -->
     <div id="empDetailAddBtn" style="display:none;margin-top:12px;">
       <button onclick="openAddLogModal()" class="modal-action" style="background:var(--accent);">➕ 手動新增紀錄</button>
     </div>
@@ -207,32 +194,22 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
   <div class="modal-box">
     <div class="modal-handle"></div>
     <div class="modal-title">📅 設定到職日</div>
-    <div class="modal-sub" id="hireDateModalSub">首次建檔需輸入到職日，系統將自動建議年度特休天數。</div>
+    <div class="modal-sub" id="hireDateModalSub">首次建檔需輸入到職日，系統將自動計算年度特休天數。</div>
     <div class="form-field">
       <label>員工姓名</label>
       <input type="text" id="hireDateEmpName" readonly style="background:#f1f3f4;">
-      <input type="hidden" id="hireDateEmpSysName"> <!-- 隱藏的系統名稱 -->
     </div>
     <div class="form-field">
       <label>到職日期</label>
       <input type="date" id="hireDateInput" max="">
     </div>
-    
-    <!-- 試算結果預覽 -->
     <div id="hireDatePreview" style="background:#e8f0fe;border-radius:10px;padding:12px;font-size:13px;line-height:1.8;margin-bottom:8px;display:none;"></div>
-    
-    <!-- 永遠顯示的手動設定輸入框 -->
-    <div class="form-field" id="manualDaysWrap" style="margin-top:8px;">
-      <label style="color:var(--primary); font-size:12px;">👉 手動設定本年度特休天數</label>
-      <input type="number" id="manualAnnualDays" min="0" step="0.5" style="border-color:var(--primary); background:#f0f4ff; font-size:16px; font-weight:900;">
-      <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">若未滿半年可先輸入 0，滿半年時系統首頁將跳出通知提醒您進來修改。</div>
-    </div>
-    <button class="modal-action" onclick="saveHireDate()">確認建檔 / 儲存修改</button>
+    <button class="modal-action" onclick="saveHireDate()">確認建檔</button>
     <button class="modal-cancel" onclick="closeModal('hireDateModal')">取消</button>
   </div>
 </div>
 
-<!-- ===== 手動新增/編輯紀錄 Modal（店長以上）===== -->
+<!-- ===== 手動新增特休 Modal（加盟主以上）===== -->
 <div class="modal-overlay" id="addLogModal" onclick="if(event.target===this)closeModal('addLogModal')">
   <div class="modal-box">
     <div class="modal-handle"></div>
@@ -259,15 +236,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
       <input type="text" id="addLogNote" placeholder="例：年度特休發放、國定假日補休...">
     </div>
     <div id="addLogWarn" style="display:none;background:#fce8e6;border-radius:8px;padding:10px;font-size:13px;color:var(--danger);margin-bottom:8px;font-weight:600;"></div>
-    
-    <!-- 遞延特休 SOP 提示 -->
-    <div style="font-size:11px; color:var(--text-muted); background:#f8fafc; padding:10px; border-radius:8px; margin-bottom:12px; line-height:1.6;">
-      💡 <b>遞延特休操作提示：</b><br>
-      若需結轉去年未休完的特休至今年，請選擇「特休 — 取得」，日期填寫今年的 1/1，並於備註註明「去年度遞延特休」。
-    </div>
-
-    <button class="modal-action" id="saveLogBtn" onclick="saveLog()">確認新增</button>
-    <button id="deleteLogBtn" style="width:100%;padding:10px;background:#fce8e6;color:var(--danger);border:none;border-radius:12px;font-size:14px;font-weight:800;cursor:pointer;margin-top:8px;display:none;" onclick="deleteLog()">🗑️ 刪除此紀錄</button>
+    <button class="modal-action" onclick="saveAddLog()">確認新增</button>
     <button class="modal-cancel" onclick="closeModal('addLogModal')">取消</button>
   </div>
 </div>
@@ -283,11 +252,15 @@ let currentStore = '';
 let currentYear = new Date().getFullYear().toString();
 let empList = [];
 let leaveDataAll = {}; // { empName: { annualDays, usedAnnual, earnedComp, usedComp, hireDate } }
+let displayNameMap = {}; // { empName: displayName }
+
+// ✅ 取得顯示名字（有 displayName 用新名，否則用原名）
+function getDisplayName(empName) {
+  return displayNameMap[empName] || empName;
+}
 let currentTab = 'overview';
-let currentViewEmp = null;  // 目前查看的員工（管理者點入），存放的是「系統名稱 (emp.name)」
+let currentViewEmp = null;  // 目前查看的員工（管理者點入）
 let empDetailMonth = '';    // 明細頁月份
-let currentEditLog = null;  // 目前正在編輯的紀錄
-let displayNameMap = {};    // { empName: displayName } ✅ 新增：用來轉換顯示姓名
 
 // ===== 權限判斷 =====
 const isAdmin   = () => ['owner','admin'].includes(currentUser?.permission);
@@ -306,15 +279,37 @@ function getMonthLabel(ym){ const[y,m]=ym.split('-'); return `${y}年${parseInt(
 function getPrevYM(ym){ const[y,m]=ym.split('-').map(Number); if(m===1)return `${y-1}-12`; return `${y}-${String(m-1).padStart(2,'0')}`; }
 function getNextYM(ym){ const[y,m]=ym.split('-').map(Number); if(m===12)return `${y+1}-01`; return `${y}-${String(m+1).padStart(2,'0')}`; }
 
-// 取得顯示名稱
-function getDisplayName(empName) {
-  if (!empName) return empName;
-  return displayNameMap[empName] || empName;
-}
-
 function handleBack(){
   if(window.history.length>1) window.history.back();
   else window.location.href='home.html';
+}
+
+// ===== 勞基法特休計算 =====
+// 到職日 → 該曆年可休天數
+// 採曆年制：以「到職日到當年 12/31 的年資」計算當年度比例天數
+function calcAnnualDays(hireDate, year) {
+  if(!hireDate) return 0;
+  const hire = new Date(hireDate);
+  const yearEnd = new Date(parseInt(year), 11, 31); // 當年 12/31
+  // 以年資計算：到職日到當年 12/31 共幾年幾個月
+  let years = yearEnd.getFullYear() - hire.getFullYear();
+  let months = yearEnd.getMonth() - hire.getMonth();
+  if(yearEnd.getDate() < hire.getDate()) months--;
+  if(months < 0){ years--; months+=12; }
+  const totalMonths = years * 12 + months;
+
+  // 若尚未到職（到職日在當年之後）→ 0 天
+  if(hire > yearEnd) return 0;
+
+  if(totalMonths < 6)  return 0;
+  if(totalMonths < 12) return 3;
+  if(totalMonths < 24) return 7;
+  if(totalMonths < 36) return 10;
+  if(totalMonths < 60) return 14;
+  if(totalMonths < 120) return 15;
+  // 滿 10 年：每年 +1，上限 30
+  const extraYears = Math.floor(totalMonths / 12) - 10;
+  return Math.min(30, 15 + extraYears + 1);
 }
 
 // ===== Tab 切換 =====
@@ -350,29 +345,15 @@ window.onload = async () => {
     }catch(e){}
 
     currentStore = currentUser.store || appConfig.stores?.[0] || '';
+    document.getElementById('headerBadge').textContent = currentStore;
     document.getElementById('hireDateInput').max = new Date().toISOString().split('T')[0];
 
-    // ✅ 加盟主/系統管理員專屬：顯示門市選擇器
-    if (isAdmin()) {
-      const sel = document.getElementById('storeSelector');
-      sel.innerHTML = '';
-      (appConfig.stores || []).forEach(s => {
-        sel.innerHTML += `<option value="${s}">${s}</option>`;
-      });
-      const lastStore = localStorage.getItem('leaveAdminStore') || currentStore;
-      sel.value = lastStore;
-      currentStore = lastStore;
-      document.getElementById('storeBar').style.display = 'flex';
-      document.getElementById('headerBadge').style.display = 'none'; // 隱藏原本 Header 的單一門市 Badge
-    } else {
-      document.getElementById('headerBadge').textContent = currentStore;
-      document.getElementById('headerBadge').style.display = 'block';
-    }
-
+    // 管理者：顯示 tab，讀所有員工；員工：直接看個人
     if(isManager()) {
       document.getElementById('tabBar').style.display = 'flex';
       await loadAllEmpLeave();
     } else {
+      // 員工：隱藏 tab，直接顯示個人總覽+明細
       document.getElementById('tabBar').style.display = 'none';
       empDetailMonth = getCurrentYM();
       await loadMyLeave();
@@ -386,39 +367,28 @@ window.onload = async () => {
   }
 };
 
-// ✅ 當加盟主切換門市時觸發
-async function onStoreChange() {
-  const sel = document.getElementById('storeSelector');
-  currentStore = sel.value;
-  localStorage.setItem('leaveAdminStore', currentStore);
-  await loadAllEmpLeave();
-}
-
 // ===== 讀取所有員工特補休資料（管理者用）=====
 async function loadAllEmpLeave() {
-  showLoading(`讀取 ${currentStore} 特補休...`);
+  showLoading('讀取員工特補休...');
   try{
-    // 1. 取得該門市員工名單
-    const empSnap = await window.db.collection('stores').doc(currentStore).collection('employees').get();
+    const [empSnap, accSnap] = await Promise.all([
+      window.db.collection('stores').doc(currentStore).collection('employees').get(),
+      window.db.collection('account').where('store','==',currentStore).get().catch(()=>null)
+    ]);
+
     empList = [];
     empSnap.forEach(d => {
       if(!['離職','調走'].includes(d.data().status)) empList.push({ name:d.id, ...d.data() });
     });
     empList.sort((a,b) => (a.sortKey||0)-(b.sortKey||0));
 
-    // 2. 取得該門市帳號資料 (用來映射 displayName) ✅
+    // ✅ 建立 displayName 對應表
     displayNameMap = {};
-    const accSnap = await window.db.collection('account').where('store','==',currentStore).get().catch(()=>null);
-    if(accSnap) {
-      accSnap.forEach(d => {
-        const acc = d.data();
-        if(acc.empName && acc.displayName) {
-          displayNameMap[acc.empName] = acc.displayName;
-        }
-      });
-    }
+    if(accSnap) accSnap.forEach(d => {
+      const acc = d.data();
+      if(acc.empName && acc.displayName) displayNameMap[acc.empName] = acc.displayName;
+    });
 
-    // 3. 取得每個員工的特休額度
     leaveDataAll = {};
     await Promise.all(empList.map(emp =>
       window.db.collection('employees').doc(emp.name).collection('leaves').doc(currentYear).get()
@@ -459,9 +429,6 @@ function renderOverview() {
     const usedComp    = data?.usedComp    ?? 0;
     const remainComp  = Math.max(0, earnedComp - usedComp);
 
-    // ✅ 取得顯示名稱
-    const dName = getDisplayName(emp.name);
-
     const avatarColor = emp.role==='店長'
       ? 'linear-gradient(135deg,#9334e6,#6a1bb5)'
       : emp.role==='正職'
@@ -470,9 +437,9 @@ function renderOverview() {
 
     html += `<div class="emp-leave-card" onclick="openEmpDetail('${emp.name}')">
       <div class="emp-leave-header">
-        <div class="emp-avatar" style="background:${avatarColor};">${dName[0]}</div>
+        <div class="emp-avatar" style="background:${avatarColor};">${getDisplayName(emp.name)[0]}</div>
         <div class="emp-leave-info">
-          <div class="emp-leave-name">${dName}${dName !== emp.name ? `<span class="emp-leave-name-sub">(${emp.name})</span>` : ''}</div>
+          <div class="emp-leave-name">${getDisplayName(emp.name)}</div>
           <div class="emp-leave-role">${emp.role||''}</div>
           <div class="leave-chips">
             ${needSetup
@@ -497,6 +464,7 @@ function renderMyDetail() {
   const el = document.getElementById('mainContent');
 
   if(!data || !data.hireDate) {
+    // 未建檔
     el.innerHTML = `
       <div class="setup-card">
         <div class="setup-card-title">⚠️ 尚未建立特補休資料</div>
@@ -519,8 +487,10 @@ function renderMyDetail() {
   const annPct = annualDays > 0 ? Math.round(usedAnnual/annualDays*100) : 0;
   const compPct = earnedComp > 0 ? Math.round(usedComp/earnedComp*100) : 0;
 
+  // 月份切換限制
   const now = new Date();
   const minYM = `${now.getFullYear()}-01`;
+  // 1-2 月可看前一年
   const canViewLastYear = (now.getMonth() + 1) <= 2;
   const limitYM = canViewLastYear ? `${now.getFullYear()-1}-01` : minYM;
   const maxYM = getCurrentYM();
@@ -576,6 +546,7 @@ function renderMyDetail() {
   loadDetailLogs(empName, empDetailMonth, 'myDetailLogs');
 }
 
+// ===== 月份切換（個人）=====
 function myDetailChangeMonth(offset) {
   const now = new Date();
   const canViewLastYear = (now.getMonth()+1) <= 2;
@@ -590,6 +561,7 @@ function myDetailChangeMonth(offset) {
   loadDetailLogs(currentUser.empName, empDetailMonth, 'myDetailLogs');
 }
 
+// ===== 讀取月份明細 =====
 async function loadDetailLogs(empName, ym, targetElId) {
   const el = document.getElementById(targetElId);
   if(!el) return;
@@ -601,6 +573,7 @@ async function loadDetailLogs(empName, ym, targetElId) {
       el.innerHTML = `<div class="empty-state" style="padding:20px 0;"><div style="font-size:32px;margin-bottom:8px;">📭</div><div>本月無紀錄</div></div>`;
       return;
     }
+    // 依日期排序（新到舊）
     const sorted = [...logs].sort((a,b) => (b.date||'').localeCompare(a.date||''));
     el.innerHTML = sorted.map(log => renderLogItem(log)).join('');
   }catch(e){
@@ -620,9 +593,9 @@ function renderLogItem(log) {
   };
   const t = typeMap[log.type] || { label:log.type, cls:'earn', sign:'+' };
   const isEncash = log.type?.includes('encash');
-  const valStr = isEncash ? `$${(log.amount||0).toLocaleString()}` : `${t.sign}${log.days}天`;
-
-  const logStr = encodeURIComponent(JSON.stringify(log));
+  const valStr = isEncash
+    ? `$${(log.amount||0).toLocaleString()}`
+    : `${t.sign}${log.days}天`;
 
   return `<div class="log-item">
     <div class="log-item-header">
@@ -631,10 +604,7 @@ function renderLogItem(log) {
       <span class="log-days ${t.cls}">${valStr}</span>
     </div>
     ${log.note ? `<div class="log-note">📝 ${log.note}</div>` : ''}
-    <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-top:4px;">
-      ${log.savedBy ? `<div class="log-note" style="margin-top:0;">👤 ${log.savedBy}</div>` : '<div></div>'}
-      ${isManager() ? `<button onclick="openEditLogModal('${logStr}')" style="background:none;border:none;color:var(--primary);font-size:12px;font-weight:700;cursor:pointer;padding:4px 0;">✏️ 編輯</button>` : ''}
-    </div>
+    ${log.savedBy ? `<div class="log-note" style="margin-top:2px;">👤 ${log.savedBy}</div>` : ''}
   </div>`;
 }
 
@@ -644,12 +614,11 @@ async function openEmpDetail(empName) {
   const emp = empList.find(e=>e.name===empName);
   const data = leaveDataAll[empName];
 
-  // ✅ 顯示名稱轉換
-  const dName = getDisplayName(empName);
-  document.getElementById('empDetailName').textContent = dName;
+  document.getElementById('empDetailName').textContent = getDisplayName(empName);
   document.getElementById('empDetailRole').textContent = emp?.role || '';
-  document.getElementById('empDetailAddBtn').style.display = isManager() ? 'block' : 'none';
+  document.getElementById('empDetailAddBtn').style.display = isAdmin() ? 'block' : 'none';
 
+  // 未建檔
   if(!data || !data.hireDate) {
     document.getElementById('empDetailSummary').innerHTML = `
       <div class="setup-card">
@@ -685,8 +654,11 @@ async function openEmpDetail(empName) {
       <span>到職日：<b>${data.hireDate}</b></span>
       <span style="margin-left:auto;">已用特休：<b style="color:var(--danger);">${usedAnnual}天</b>　已用補休：<b style="color:var(--danger);">${usedComp}天</b></span>
     </div>
-    ${isManager() ? `<button onclick="openHireDateModal('${empName}')" style="background:#f1f3f4;color:var(--text-muted);border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;margin-bottom:8px;">✏️ 設定 / 修改年度特休</button>` : ''}`;
+    ${isManager() ? `<button onclick="openHireDateModal('${empName}')" style="background:#f1f3f4;color:var(--text-muted);border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;margin-bottom:8px;">✏️ 修改到職日</button>` : ''}`;
 
+  // 月份切換
+  const now = new Date();
+  const canViewLastYear = (now.getMonth()+1) <= 2;
   const defaultM = getCurrentYM();
   empDetailMonth = defaultM;
   document.getElementById('empDetailMonthLabel').textContent = getMonthLabel(empDetailMonth);
@@ -694,6 +666,7 @@ async function openEmpDetail(empName) {
   openModal('empDetailModal');
 }
 
+// ===== 員工明細 Modal 月份切換 =====
 async function empDetailChangeMonth(offset) {
   const now = new Date();
   const canViewLastYear = (now.getMonth()+1) <= 2;
@@ -710,114 +683,39 @@ async function empDetailChangeMonth(offset) {
 
 // ===== 到職日 Modal =====
 function openHireDateModal(empName) {
-  const dName = getDisplayName(empName);
-  document.getElementById('hireDateEmpSysName').value = empName; // 隱藏欄位存系統名稱
-  document.getElementById('hireDateEmpName').value = dName; // 顯示欄位存顯示名稱
-  
+  document.getElementById('hireDateEmpName').value = empName;
   const data = leaveDataAll[empName];
-  const inputEl = document.getElementById('hireDateInput');
-  inputEl.onchange = previewAnnualDays;
-  inputEl.oninput = previewAnnualDays;
-  
-  if(data?.hireDate) {
-    inputEl.value = data.hireDate;
-    previewAnnualDays(); 
-  } else {
-    inputEl.value = '';
-    document.getElementById('hireDatePreview').style.display = 'none';
-    document.getElementById('manualAnnualDays').value = 0; 
-  }
+  if(data?.hireDate) document.getElementById('hireDateInput').value = data.hireDate;
+  else document.getElementById('hireDateInput').value = '';
+  document.getElementById('hireDatePreview').style.display = 'none';
+  document.getElementById('hireDateInput').oninput = previewAnnualDays;
   openModal('hireDateModal');
 }
 
 function previewAnnualDays() {
-  const hireDateStr = document.getElementById('hireDateInput').value;
+  const hireDate = document.getElementById('hireDateInput').value;
+  if(!hireDate){ document.getElementById('hireDatePreview').style.display='none'; return; }
+  const days = calcAnnualDays(hireDate, currentYear);
+  const hire = new Date(hireDate);
+  const now = new Date();
+  let years = now.getFullYear() - hire.getFullYear();
+  let months = now.getMonth() - hire.getMonth();
+  if(months < 0){ years--; months+=12; }
   const el = document.getElementById('hireDatePreview');
-  const manualInput = document.getElementById('manualAnnualDays');
-
-  if(!hireDateStr){ el.style.display='none'; return; }
-
-  const hire = new Date(hireDateStr);
-  const targetY = parseInt(currentYear);
-  const yearStart = new Date(targetY, 0, 1);
-  const yearEnd = new Date(targetY, 11, 31);
-
-  function getTier(years) {
-    if (years === 0.5) return 3;
-    if (years === 1) return 7;
-    if (years === 2) return 10;
-    if (years === 3 || years === 4) return 14;
-    if (years >= 5 && years < 10) return 15;
-    if (years >= 10) return Math.min(30, 15 + (years - 9));
-    return 0;
-  }
-
-  let totalDays = 0;
-  let detailTexts = [];
-  let lateYearHint = '';
-
-  const ageY = targetY - hire.getFullYear();
-  const tiersToCheck = [0.5, ageY - 1, ageY, ageY + 1].filter(y => y >= 0.5);
-  const uniqueTiers = [...new Set(tiersToCheck)].sort((a,b)=>a-b);
-
-  uniqueTiers.forEach(tier => {
-    let startD = new Date(hire);
-    if (tier === 0.5) startD.setMonth(startD.getMonth() + 6);
-    else startD.setFullYear(startD.getFullYear() + tier);
-
-    let endD = new Date(startD);
-    if (tier === 0.5) endD.setMonth(endD.getMonth() + 6);
-    else endD.setFullYear(endD.getFullYear() + 1);
-    endD.setDate(endD.getDate() - 1);
-
-    let overlapStart = startD > yearStart ? startD : yearStart;
-    let overlapEnd = endD < yearEnd ? endD : yearEnd;
-
-    if (overlapStart <= overlapEnd) {
-      let overlapDays = Math.round((overlapEnd - overlapStart) / 86400000) + 1;
-      let daysInTier = Math.round((endD - startD) / 86400000) + 1;
-      let tierDays = getTier(tier);
-      
-      let portion = (tierDays * overlapDays / daysInTier);
-      let label = tier === 0.5 ? '滿半年(3天)' : `滿${tier}年(${tierDays}天)`;
-      detailTexts.push(`・${label}：涵蓋 ${overlapDays} 天，折算 <b style="color:var(--primary);">${portion.toFixed(2)}</b> 天`);
-      totalDays += portion;
-
-      if (startD.getFullYear() === targetY && startD.getMonth() >= 9) {
-        lateYearHint = `<div style="font-size:11px;color:#c0392b;margin-top:4px;font-weight:700;">💡 提醒：該員工取得特休距年底未滿3個月，若依規定可延至隔年，請於年底確認未休完天數，並於隔年1/1使用「手動新增」結轉。</div>`;
-      }
-    }
-  });
-
-  let suggested = Math.ceil(totalDays); 
-
   el.style.display = 'block';
-  if (suggested === 0) {
-    el.innerHTML = `<div style="font-weight:800;color:var(--danger);">⚠️ 該員工今年度尚未滿半年，依法無特休。<br><span style="font-size:11px;color:var(--text-muted);">滿半年時，系統首頁將會跳出通知提醒您進來手動發放。</span></div>`;
-  } else {
-    el.innerHTML = `
-      <div style="font-weight:800;color:var(--primary);margin-bottom:4px;">📊 曆年制比例算法（${targetY}年度）</div>
-      ${detailTexts.join('<br>')}
-      <div style="margin-top:6px;padding-top:6px;border-top:1px dashed #abc4ff;font-weight:700;">
-        法規合計：<span style="color:#e65100;font-size:15px;">${totalDays.toFixed(2)}</span> 天 ➔ 
-        進位：<span style="color:var(--primary);font-size:16px;font-weight:900;">${suggested}</span> 天
-      </div>
-      ${lateYearHint}
-    `;
-  }
-  
-  manualInput.value = suggested; 
+  el.innerHTML = `
+    年資：約 ${years} 年 ${months} 個月<br>
+    ${currentYear} 年度特休：<b style="color:var(--primary);font-size:16px;">${days} 天</b><br>
+    <span style="font-size:11px;color:var(--text-muted);">（依勞基法曆年制計算到 ${currentYear}/12/31）</span>`;
 }
 
 async function saveHireDate() {
-  const empName = document.getElementById('hireDateEmpSysName').value; // ✅ 存回資料庫要用系統名稱
-  const dName = document.getElementById('hireDateEmpName').value;
+  const empName = document.getElementById('hireDateEmpName').value;
   const hireDate = document.getElementById('hireDateInput').value;
-  const annualDays = parseFloat(document.getElementById('manualAnnualDays').value || 0);
-
   if(!hireDate){ showToast('⚠️ 請輸入到職日'); return; }
   showLoading('儲存中...');
   try{
+    const annualDays = calcAnnualDays(hireDate, currentYear);
     const leaveRef = window.db.collection('employees').doc(empName).collection('leaves').doc(currentYear);
     const snap = await leaveRef.get();
     const existing = snap.exists ? snap.data() : {};
@@ -831,54 +729,33 @@ async function saveHireDate() {
       store: currentStore,
       updatedAt: new Date().toISOString(),
     });
-    
-    if (annualDays > 0) {
+    // 寫入年度特休取得紀錄（若為首次建檔）
+    if(!existing.hireDate) {
       const logRef = window.db.collection('employees').doc(empName).collection('leaveLog').doc(`${currentYear}-01`);
       await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
         date: `${currentYear}-01-01`, type: 'annual_earn', days: annualDays,
         note: `${currentYear} 年度特休發放（到職日：${hireDate}）`,
-        savedBy: currentUser.displayName || currentUser.empName,
-        id: Date.now().toString()
+        savedBy: currentUser.displayName || currentUser.empName
       })}, { merge: true });
     }
-    
     leaveDataAll[empName] = { ...existing, hireDate, annualDays, usedAnnual:existing.usedAnnual||0, earnedComp:existing.earnedComp||0, usedComp:existing.usedComp||0 };
     closeModal('hireDateModal');
-    showToast(`✅ ${dName} 到職日已設定，${currentYear}年特休 ${annualDays} 天`);
+    showToast(`✅ ${empName} 到職日已設定，${currentYear}年特休 ${annualDays} 天`);
+    // 更新畫面
     if(isManager()) { renderOverview(); await openEmpDetail(empName); }
     else renderMyDetail();
   }catch(e){ showToast('❌ 儲存失敗：'+e.message); }
   hideLoading();
 }
 
-// ===== 手動新增/編輯紀錄 Modal（店長以上）=====
+// ===== 手動新增紀錄 Modal（加盟主以上）=====
 function openAddLogModal() {
-  if(!isManager()) return;
-  currentEditLog = null;
-  const dName = getDisplayName(currentViewEmp); // ✅ 轉換顯示名稱
-  document.getElementById('addLogTitle').textContent = `手動新增：${dName}`;
+  if(!isAdmin()) return;
+  document.getElementById('addLogTitle').textContent = `手動新增：${currentViewEmp}`;
   document.getElementById('addLogDate').value = getCurrentYM() + '-01';
   document.getElementById('addLogDays').value = '';
   document.getElementById('addLogNote').value = '';
   document.getElementById('addLogWarn').style.display = 'none';
-  document.getElementById('saveLogBtn').textContent = '確認新增';
-  document.getElementById('deleteLogBtn').style.display = 'none';
-  onAddLogTypeChange();
-  openModal('addLogModal');
-}
-
-function openEditLogModal(logStr) {
-  if(!isManager()) return;
-  const log = JSON.parse(decodeURIComponent(logStr));
-  currentEditLog = log;
-  const dName = getDisplayName(currentViewEmp); // ✅ 轉換顯示名稱
-  document.getElementById('addLogTitle').textContent = `編輯紀錄：${dName}`;
-  document.getElementById('addLogType').value = log.type;
-  document.getElementById('addLogDate').value = log.date;
-  document.getElementById('addLogDays').value = log.days;
-  document.getElementById('addLogNote').value = log.note || '';
-  document.getElementById('saveLogBtn').textContent = '💾 儲存修改';
-  document.getElementById('deleteLogBtn').style.display = 'block';
   onAddLogTypeChange();
   openModal('addLogModal');
 }
@@ -901,8 +778,8 @@ function onAddLogTypeChange() {
   }
 }
 
-async function saveLog() {
-  if(!isManager()) return;
+async function saveAddLog() {
+  if(!isAdmin()) return;
   const empName = currentViewEmp;
   const type  = document.getElementById('addLogType').value;
   const date  = document.getElementById('addLogDate').value;
@@ -911,134 +788,47 @@ async function saveLog() {
   if(!date){ showToast('⚠️ 請選擇日期'); return; }
   if(days <= 0){ showToast('⚠️ 天數必須大於 0'); return; }
 
+  // 防呆：使用不能超過剩餘
   const data = leaveDataAll[empName] || {};
-  let remainAnn = Math.max(0,(data.annualDays||0)-(data.usedAnnual||0));
-  let remainComp = Math.max(0,(data.earnedComp||0)-(data.usedComp||0));
-  
-  if(currentEditLog) {
-    if(currentEditLog.type === 'annual_use') remainAnn += currentEditLog.days;
-    if(currentEditLog.type === 'comp_use') remainComp += currentEditLog.days;
+  if(type === 'annual_use') {
+    const remain = Math.max(0,(data.annualDays||0)-(data.usedAnnual||0));
+    if(days > remain){ showToast(`⚠️ 剩餘特休僅 ${remain} 天，無法使用 ${days} 天`); return; }
   }
-
-  if(type === 'annual_use' && days > remainAnn){ showToast(`⚠️ 剩餘特休僅 ${remainAnn} 天，無法使用 ${days} 天`); return; }
-  if(type === 'comp_use' && days > remainComp){ showToast(`⚠️ 剩餘補休僅 ${remainComp} 天，無法使用 ${days} 天`); return; }
+  if(type === 'comp_use') {
+    const remain = Math.max(0,(data.earnedComp||0)-(data.usedComp||0));
+    if(days > remain){ showToast(`⚠️ 剩餘補休僅 ${remain} 天，無法使用 ${days} 天`); return; }
+  }
 
   showLoading('儲存中...');
   try{
-    const ym = date.slice(0, 7); 
+    const ym = date.slice(0, 7); // "YYYY-MM"
     const year = date.slice(0, 4);
-    
-    const newLog = {
+    const logRef  = window.db.collection('employees').doc(empName).collection('leaveLog').doc(ym);
+    const leaveRef = window.db.collection('employees').doc(empName).collection('leaves').doc(year);
+
+    // 寫入明細
+    await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
       date, type, days, note: note || '',
-      savedBy: currentUser.displayName || currentUser.empName,
-      id: currentEditLog ? (currentEditLog.id || Date.now().toString()) : Date.now().toString()
-    };
+      savedBy: currentUser.displayName || currentUser.empName
+    })}, { merge: true });
 
-    if (currentEditLog) {
-      const oldYm = currentEditLog.date.slice(0, 7);
-      const oldYear = currentEditLog.date.slice(0, 4);
-      
-      await window.db.collection('employees').doc(empName).collection('leaveLog').doc(oldYm).update({
-        records: firebase.firestore.FieldValue.arrayRemove(currentEditLog)
-      });
+    // 更新總帳
+    const snap = await leaveRef.get();
+    const ld = snap.exists ? snap.data() : { annualDays:0, usedAnnual:0, earnedComp:0, usedComp:0 };
+    if(type === 'annual_earn') ld.annualDays  = (ld.annualDays  || 0) + days;
+    if(type === 'annual_use')  ld.usedAnnual  = (ld.usedAnnual  || 0) + days;
+    if(type === 'comp_earn')   ld.earnedComp  = (ld.earnedComp  || 0) + days;
+    if(type === 'comp_use')    ld.usedComp    = (ld.usedComp    || 0) + days;
+    ld.store = currentStore;
+    ld.updatedAt = new Date().toISOString();
+    await leaveRef.set(ld, { merge: true });
 
-      if (oldYear !== year) {
-        const oldLeaveRef = window.db.collection('employees').doc(empName).collection('leaves').doc(oldYear);
-        const oldSnap = await oldLeaveRef.get();
-        let oldLd = oldSnap.exists ? oldSnap.data() : { annualDays:0, usedAnnual:0, earnedComp:0, usedComp:0 };
-        if(currentEditLog.type === 'annual_earn') oldLd.annualDays  = Math.max(0, (oldLd.annualDays  || 0) - currentEditLog.days);
-        if(currentEditLog.type === 'annual_use')  oldLd.usedAnnual  = Math.max(0, (oldLd.usedAnnual  || 0) - currentEditLog.days);
-        if(currentEditLog.type === 'comp_earn')   oldLd.earnedComp  = Math.max(0, (oldLd.earnedComp  || 0) - currentEditLog.days);
-        if(currentEditLog.type === 'comp_use')    oldLd.usedComp    = Math.max(0, (oldLd.usedComp    || 0) - currentEditLog.days);
-        await oldLeaveRef.set(oldLd, { merge: true });
-
-        const newLeaveRef = window.db.collection('employees').doc(empName).collection('leaves').doc(year);
-        const newSnap = await newLeaveRef.get();
-        let newLd = newSnap.exists ? newSnap.data() : { annualDays:0, usedAnnual:0, earnedComp:0, usedComp:0 };
-        if(type === 'annual_earn') newLd.annualDays  = (newLd.annualDays  || 0) + days;
-        if(type === 'annual_use')  newLd.usedAnnual  = (newLd.usedAnnual  || 0) + days;
-        if(type === 'comp_earn')   newLd.earnedComp  = (newLd.earnedComp  || 0) + days;
-        if(type === 'comp_use')    newLd.usedComp    = (newLd.usedComp    || 0) + days;
-        newLd.updatedAt = new Date().toISOString();
-        await newLeaveRef.set(newLd, { merge: true });
-
-        if(year === currentYear) leaveDataAll[empName] = newLd;
-        if(oldYear === currentYear) leaveDataAll[empName] = oldLd;
-
-      } else {
-        const leaveRef = window.db.collection('employees').doc(empName).collection('leaves').doc(year);
-        const snap = await leaveRef.get();
-        let ld = snap.exists ? snap.data() : { annualDays:0, usedAnnual:0, earnedComp:0, usedComp:0 };
-        
-        if(currentEditLog.type === 'annual_earn') ld.annualDays  = Math.max(0, (ld.annualDays  || 0) - currentEditLog.days);
-        if(currentEditLog.type === 'annual_use')  ld.usedAnnual  = Math.max(0, (ld.usedAnnual  || 0) - currentEditLog.days);
-        if(currentEditLog.type === 'comp_earn')   ld.earnedComp  = Math.max(0, (ld.earnedComp  || 0) - currentEditLog.days);
-        if(currentEditLog.type === 'comp_use')    ld.usedComp    = Math.max(0, (ld.usedComp    || 0) - currentEditLog.days);
-        
-        if(type === 'annual_earn') ld.annualDays  = (ld.annualDays  || 0) + days;
-        if(type === 'annual_use')  ld.usedAnnual  = (ld.usedAnnual  || 0) + days;
-        if(type === 'comp_earn')   ld.earnedComp  = (ld.earnedComp  || 0) + days;
-        if(type === 'comp_use')    ld.usedComp    = (ld.usedComp    || 0) + days;
-        
-        ld.updatedAt = new Date().toISOString();
-        await leaveRef.set(ld, { merge: true });
-        if(year === currentYear) leaveDataAll[empName] = ld;
-      }
-    } else {
-      const leaveRef = window.db.collection('employees').doc(empName).collection('leaves').doc(year);
-      const snap = await leaveRef.get();
-      let ld = snap.exists ? snap.data() : { annualDays:0, usedAnnual:0, earnedComp:0, usedComp:0 };
-      if(type === 'annual_earn') ld.annualDays  = (ld.annualDays  || 0) + days;
-      if(type === 'annual_use')  ld.usedAnnual  = (ld.usedAnnual  || 0) + days;
-      if(type === 'comp_earn')   ld.earnedComp  = (ld.earnedComp  || 0) + days;
-      if(type === 'comp_use')    ld.usedComp    = (ld.usedComp    || 0) + days;
-      ld.updatedAt = new Date().toISOString();
-      await leaveRef.set(ld, { merge: true });
-      if(year === currentYear) leaveDataAll[empName] = ld;
-    }
-
-    const logRef = window.db.collection('employees').doc(empName).collection('leaveLog').doc(ym);
-    await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion(newLog) }, { merge: true });
-
+    leaveDataAll[empName] = ld;
     closeModal('addLogModal');
-    showToast(currentEditLog ? '✅ 已更新紀錄' : '✅ 已新增紀錄');
+    showToast('✅ 已新增紀錄');
+    // 刷新 Modal 內容
     await openEmpDetail(empName);
-  }catch(e){ showToast('❌ 失敗：'+e.message); console.error(e); }
-  hideLoading();
-}
-
-async function deleteLog() {
-  if(!currentEditLog) return;
-  if(!confirm('確定要刪除此筆紀錄嗎？此操作無法復原。')) return;
-
-  showLoading('刪除中...');
-  const empName = currentViewEmp;
-  try {
-    const oldYm = currentEditLog.date.slice(0, 7);
-    const oldYear = currentEditLog.date.slice(0, 4);
-    const oldLogRef = window.db.collection('employees').doc(empName).collection('leaveLog').doc(oldYm);
-    const oldLeaveRef = window.db.collection('employees').doc(empName).collection('leaves').doc(oldYear);
-
-    await oldLogRef.update({
-      records: firebase.firestore.FieldValue.arrayRemove(currentEditLog)
-    });
-
-    const oldSnap = await oldLeaveRef.get();
-    let oldLd = oldSnap.exists ? oldSnap.data() : { annualDays:0, usedAnnual:0, earnedComp:0, usedComp:0 };
-    if(currentEditLog.type === 'annual_earn') oldLd.annualDays  = Math.max(0, (oldLd.annualDays  || 0) - currentEditLog.days);
-    if(currentEditLog.type === 'annual_use')  oldLd.usedAnnual  = Math.max(0, (oldLd.usedAnnual  || 0) - currentEditLog.days);
-    if(currentEditLog.type === 'comp_earn')   oldLd.earnedComp  = Math.max(0, (oldLd.earnedComp  || 0) - currentEditLog.days);
-    if(currentEditLog.type === 'comp_use')    oldLd.usedComp    = Math.max(0, (oldLd.usedComp    || 0) - currentEditLog.days);
-    await oldLeaveRef.set(oldLd, { merge: true });
-    
-    if(oldYear === currentYear) leaveDataAll[empName] = oldLd;
-
-    closeModal('addLogModal');
-    showToast('✅ 紀錄已刪除');
-    await openEmpDetail(empName);
-  } catch(e) {
-    showToast('❌ 刪除失敗：' + e.message);
-  }
+  }catch(e){ showToast('❌ 失敗：'+e.message); }
   hideLoading();
 }
 </script>
