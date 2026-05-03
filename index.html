@@ -369,29 +369,21 @@ let isPaintMode = false, paintShift = '', isDragging = false;
 
 // ===== 新系統轉移對話框邏輯 =====
 function showMigrationModal() {
-  document.getElementById('migrationModal').style.display = 'flex';
+  const modal = document.getElementById('migrationModal');
+  if (modal) modal.style.display = 'flex';
 }
 function closeMigrationModal() {
-  document.getElementById('migrationModal').style.display = 'none';
+  const modal = document.getElementById('migrationModal');
+  if (modal) modal.style.display = 'none';
 }
 
-// ===== 更多選單 =====
-function toggleMoreMenu() {
-  document.getElementById('moreMenu').classList.toggle('open');
-}
-function closeMoreMenu() {
-  document.getElementById('moreMenu').classList.remove('open');
-}
-// 點外部關閉
-document.addEventListener('click', e => {
-  if (!e.target.closest('.more-menu-wrap')) closeMoreMenu();
+// 🔥 使用獨立的事件監聽，保證絕對會執行，不怕被 utils.js 覆蓋
+document.addEventListener('DOMContentLoaded', () => {
+  showMigrationModal();
 });
 
 // ===== 初始化 =====
 window.onload = async () => {
-  // --- 載入頁面即顯示轉移通知對話框 ---
-  showMigrationModal();
-
   showLoading('正在連線雲端庫...');
   document.getElementById('weekSelector').value = getNextWeekString();
   try {
