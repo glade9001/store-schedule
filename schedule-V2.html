@@ -1192,14 +1192,16 @@ async function fetchAllStoreData() {
           })
           .catch(()=>{})
       );
-      // 讀其他店「本月所有週次」，只取有支援本店員工的記錄
+      // 讀其他店「本月所有週次」，只取有支援本店員工的記錄（含 pending + approved）
       [...monthWeeks].forEach(wk => {
         allFetches.push(
           window.db.collection('stores').doc(s).collection('weeks').doc(wk).get()
             .then(snap => {
               if(snap.exists && snap.data().records) {
                 snap.data().records
-                  .filter(r => r.supportEmp && r.supportEmp.startsWith(store + '-') && r.approvalStatus === 'approved')
+                  // ✅ 同時讀 pending（待審核徽章用）和 approved（跨店支援顯示用）
+                  .filter(r => r.supportEmp && r.supportEmp.startsWith(store + '-') &&
+                    (r.approvalStatus === 'approved' || r.approvalStatus === 'pending'))
                   .forEach(r => appData.allStoresRecords.push({...r, _store:s, week:wk}));
               }
             })
