@@ -1008,6 +1008,12 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       <input type="text" id="sysNewStore" placeholder="新增門市名稱" style="flex:1; padding:10px; border:1.5px solid var(--border); border-radius:10px; font-size:14px;">
       <button onclick="addSysStore()" style="background:var(--accent); color:white; border:none; border-radius:10px; padding:10px 16px; font-weight:700; cursor:pointer;">新增</button>
     </div>
+    <!-- ✅ 角色預覽（只對 admin 顯示）-->
+    <div id="sysRolePreviewSection" style="display:none; border-top:1px solid var(--border); padding-top:14px; margin-bottom:14px;">
+      <div class="card-title">🎭 角色預覽</div>
+      <div style="font-size:13px; color:var(--text-muted); margin-bottom:10px;">以員工視角體驗介面，方便確認員工看到的內容。</div>
+      <button onclick="closeModal('sysConfigModal'); openRolePreviewModal();" style="width:100%; padding:12px; background:linear-gradient(135deg,#9334e6,#6a1bb5); color:white; border:none; border-radius:12px; font-size:14px; font-weight:800; cursor:pointer;">🎭 開啟角色預覽</button>
+    </div>
     <button class="save-btn" onclick="saveSysConfig()">💾 儲存系統設定</button>
     <button class="cancel-btn" onclick="closeModal('sysConfigModal')">取消</button>
   </div>
@@ -1356,9 +1362,8 @@ async function initApp() {
   document.getElementById('profileStoreText').textContent = currentUser.store ? currentUser.store : '全門市';
 
   // ===== 根據權限調整 UI =====
-  if(canApprove()) {
-    document.getElementById('pendingCard').style.display = 'block';
-  }
+  // 待處理卡片：所有人都顯示（員工看代辦，管理者看排班/薪資/特休等）
+  document.getElementById('pendingCard').style.display = 'block';
 
   renderQuickBtns();
 
@@ -1919,7 +1924,9 @@ async function loadPendingItems() {
   // 確保無論如何都能順利渲染到畫面，UI不會卡死
   document.getElementById('pendingCount').textContent = pending.length + ' 件';
 
+  const pendingCard = document.getElementById('pendingCard');
   const badge = document.getElementById('pendingBadgeBar');
+
   if(badge) {
     if(pending.length > 0) {
       badge.style.display = 'flex';
@@ -1931,8 +1938,10 @@ async function loadPendingItems() {
 
   const el = document.getElementById('pendingList');
   if(pending.length === 0) {
-    el.innerHTML = `<div style="text-align:center; color:var(--text-muted); font-size:13px; padding:16px 0;">✅ 暫無待處理事項</div>`;
+    // 無待處理：隱藏整個卡片（不顯示空白「暫無待處理」）
+    if(pendingCard) pendingCard.style.display = 'none';
   } else {
+    if(pendingCard) pendingCard.style.display = 'block';
     el.innerHTML = pending.map(p => `
       <div class="notice-item" ${p.link ? `style="cursor:pointer;" onclick="window.location.href='${p.link}'"` : ''}>
         <div class="notice-dot" style="background:${p.color};"></div>
@@ -1982,7 +1991,7 @@ function renderQuickBtns() {
     <button class="func-btn purple" onclick="window.location.href='todo.html'">
       <div class="func-icon">🗒️</div><div class="func-label">代辦事項</div>
     </button>
-    <button class="func-btn purple" onclick="window.location.href='leave.html'">
+    <button class="func-btn purple" onclick="window.location.href='leave.html?mode=self'">
       <div class="func-icon">🏖️</div><div class="func-label">特休補休</div>
     </button>`;
 
@@ -2020,7 +2029,7 @@ function renderQuickBtns() {
     <button class="func-btn green" onclick="loadEmpMgmtPage()">
       <div class="func-icon">👥</div><div class="func-label">員工管理</div>
     </button>
-    <button class="func-btn purple" onclick="window.location.href='leave.html'">
+    <button class="func-btn purple" onclick="window.location.href='leave.html?mode=mgmt'">
       <div class="func-icon">📆</div><div class="func-label">假勤管理</div>
     </button>`;
 
@@ -2031,16 +2040,13 @@ function renderQuickBtns() {
     </button>`;
   }
 
-  // 角色預覽（只有店長可用，加盟主/admin 不需要）
-  if(isManagerOnly()) {
+  // 系統設定（店長以上都可以開，admin 有完整功能）
+  if(canSchedule()) {
     mgmtBtns += `
-    <button class="func-btn purple" onclick="openRolePreviewModal()">
-      <div class="func-icon">🎭</div><div class="func-label">角色預覽</div>
+    <button class="func-btn gray" onclick="openSysConfigModal()">
+      <div class="func-icon">⚙️</div><div class="func-label">系統設定</div>
     </button>`;
   }
-
-  // 系統設定（admin only）
-  if(canSysConfig()) {
     mgmtBtns += `
     <button class="func-btn gray" onclick="openSysConfigModal()">
       <div class="func-icon">⚙️</div><div class="func-label">系統設定</div>
@@ -2698,6 +2704,10 @@ async function openSysConfigModal() {
       <button onclick="removeSysStore('${s}')" style="background:none; border:1px solid var(--danger); color:var(--danger); border-radius:6px; padding:4px 10px; font-size:11px; font-weight:700; cursor:pointer;">刪除</button>
     </div>`;
   });
+  // ✅ 角色預覽：只對 admin 顯示
+  const rpSection = document.getElementById('sysRolePreviewSection');
+  if(rpSection) rpSection.style.display = canSysConfig() ? 'block' : 'none';
+
   document.getElementById('sysNewStore').value = '';
   openModal('sysConfigModal');
 }
