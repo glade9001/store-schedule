@@ -482,13 +482,14 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       <!-- 統計卡片（依角色動態渲染）-->
       <div id="statsArea"></div>
 
-      <!-- 快速功能 -->
-      <div class="card">
-        <div class="card-title">⚡ 快速功能</div>
-        <div class="quick-grid" id="quickGrid"></div>
+      <!-- 待處理 badge（有待處理時才顯示，點擊跳到待處理區塊）-->
+      <div id="pendingBadgeBar" style="display:none; background:linear-gradient(135deg,#fce8e6,#fef2f2); border:1.5px solid var(--danger); border-radius:12px; padding:10px 14px; margin-bottom:12px; cursor:pointer; display:none; align-items:center; gap:10px;" onclick="document.getElementById('pendingCard').scrollIntoView({behavior:'smooth'})">
+        <div style="font-size:18px;">🔔</div>
+        <div style="flex:1; font-size:13px; font-weight:800; color:var(--danger);">有 <span id="pendingBadgeCount">0</span> 件待處理事項</div>
+        <div style="color:var(--danger); font-size:16px; font-weight:900;">›</div>
       </div>
 
-      <!-- 我的班表 -->
+      <!-- 我的班表（上移到統計欄下方）-->
       <div class="card">
         <div class="section-header">
           <div class="section-title">📅 我的班表</div>
@@ -505,7 +506,13 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
         </div>
       </div>
 
-      <!-- 待處理事項 (管理者才顯示) -->
+      <!-- 快速功能 -->
+      <div class="card">
+        <div class="card-title">⚡ 快速功能</div>
+        <div class="quick-grid" id="quickGrid"></div>
+      </div>
+
+      <!-- 待處理事項（管理者才顯示，含薪資提醒）-->
       <div class="card" id="pendingCard" style="display:none;">
         <div class="section-header">
           <div class="section-title">🔔 待處理事項</div>
@@ -513,19 +520,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
         </div>
         <div id="pendingList">
           <div style="text-align:center; color:var(--text-muted); font-size:13px; padding:20px 0;">暫無待處理</div>
-        </div>
-      </div>
-
-      <!-- 薪資未送出提示（最後一週才顯示）-->
-      <div id="salaryReminderCard" style="display:none;" class="card" onclick="window.location.href='salary.html'"
-        style="background:linear-gradient(135deg,#fff3e0,#ffe0b2); border:1.5px solid #ffcc80; cursor:pointer;">
-        <div style="display:flex; align-items:center; gap:12px;">
-          <div style="font-size:28px;">⚠️</div>
-          <div>
-            <div style="font-size:14px; font-weight:800; color:#e65100;">本月薪資尚未送出</div>
-            <div style="font-size:12px; color:#bf360c; margin-top:2px;">點此前往薪資管理系統送出</div>
-          </div>
-          <div style="margin-left:auto; font-size:20px; color:#e65100;">›</div>
         </div>
       </div>
     </div>
@@ -1290,14 +1284,13 @@ async function initApp() {
 
   // ===== 根據權限調整 UI =====
 
-  // 待處理事項（店長以上才顯示）
+  // 待處理事項（店長以上顯示卡片）
   if(canApprove()) {
     document.getElementById('pendingCard').style.display = 'block';
   }
 
   // 動態渲染快速功能按鈕
   renderQuickBtns();
-  checkSalaryReminder();
 
   // 帳號管理選單文字
   if(canManageEmployee()) {
@@ -1321,8 +1314,8 @@ async function initApp() {
   await loadTodayShifts();
   // 載入統計
   loadStats();
-  // 若店長以上，載入待處理
-  if(canApprove()) loadPendingItems();
+  // 載入待處理（所有人都呼叫，內容依權限過濾）
+  loadPendingItems();
 
   document.getElementById('appShell').classList.add('active');
   hideLoading();
@@ -1676,71 +1669,17 @@ async function loadPendingItems() {
   const currentYear = new Date().getFullYear().toString();
 
   try {
-    const myStore = currentUser.store || '';
-    const allStores = appConfig.stores || [];
-
     for(const store of storesToScan) {
-      // 1a. 畫休衝突：掃本店 weeks
+      // 1. 檢查排班審核與畫休衝突
       for(const wk of [weekStr, nextWeek]) {
         const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(wk).get();
         if(snap.exists && snap.data().records) {
-          const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
-          const weekDates = getWeekDates(wk);
           snap.data().records.forEach(r => {
-            const dIdx = dayNames.indexOf(r.day);
-            const dateStr = dIdx >= 0 ? `${weekDates[dIdx]}(${r.day})` : r.day;
-            if(r.requestOff && r.shift && r.shift !== '排休' && r.shift !== '指休') {
-              pending.push({ type: '畫休衝突', desc: `${store}｜${r.name} 在 ${dateStr} 有畫休衝突`, link: 'schedule-V2.html?mode=admin', color: 'var(--danger)' });
+            if(r.approvalStatus === 'pending' && r.supportEmp) {
+              pending.push({ type: '跨店待審', desc: `${store}｜${r.name} 申請 ${r.day} 支援`, link: 'schedule-V2.html?mode=admin', color: 'var(--danger)' });
             }
-          });
-        }
-      }
-
-      // 1b. 跨店待審：掃「其他門市」的 weeks，找 supportEmp 指向本店的 pending 記錄
-      // 例：聯鑫的 weeks 裡有 supportEmp='美德-玲' pending → 美德店長首頁要顯示
-      const otherStores = allStores.filter(s => s !== store);
-      for(const otherStore of otherStores) {
-        for(const wk of [weekStr, nextWeek]) {
-          const snap = await window.db.collection('stores').doc(otherStore).collection('weeks').doc(wk).get();
-          if(snap.exists && snap.data().records) {
-            const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
-            const weekDates = getWeekDates(wk);
-            snap.data().records.forEach(r => {
-              // 只看 supportEmp 指向本店的 pending 記錄
-              if(r.approvalStatus === 'pending' && r.supportEmp && r.supportEmp.startsWith(store + '-')) {
-                const dIdx = dayNames.indexOf(r.day);
-                const dateStr = dIdx >= 0 ? `${weekDates[dIdx]}(${r.day})` : r.day;
-                const empName = r.supportEmp.split('-')[1] || r.supportEmp;
-                pending.push({
-                  type: '跨店待審',
-                  desc: `${otherStore} 申請 ${empName} 於 ${dateStr} 支援`,
-                  link: 'schedule-V2.html?mode=admin',
-                  color: 'var(--danger)'
-                });
-              }
-            });
-          }
-        }
-      }
-
-      // 1c. 待對方審核：掃「本店」的 weeks，找 supportEmp 指向其他門市的 pending 記錄
-      // 例：美德的 weeks 裡有 supportEmp='聯鑫-玲' pending → 美德店長首頁提醒「請提醒聯鑫審核」
-      for(const wk of [weekStr, nextWeek]) {
-        const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(wk).get();
-        if(snap.exists && snap.data().records) {
-          const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
-          const weekDates = getWeekDates(wk);
-          snap.data().records.forEach(r => {
-            if(r.approvalStatus === 'pending' && r.supportEmp && !r.supportEmp.startsWith(store + '-')) {
-              const dIdx = dayNames.indexOf(r.day);
-              const dateStr = dIdx >= 0 ? `${weekDates[dIdx]}(${r.day})` : r.day;
-              const [targetStore, empName] = r.supportEmp.split('-');
-              pending.push({
-                type: '待對方審核',
-                desc: `請提醒 ${targetStore} 店長審核 ${empName} 於 ${dateStr} 的支援申請`,
-                link: 'schedule-V2.html?mode=admin',
-                color: 'var(--warn)'
-              });
+            if(r.requestOff && r.shift && r.shift !== '排休' && r.shift !== '指休') {
+              pending.push({ type: '畫休衝突', desc: `${store}｜${r.name} 在 ${r.day} 有畫休衝突`, link: 'schedule-V2.html?mode=admin', color: 'var(--danger)' });
             }
           });
         }
@@ -1770,8 +1709,42 @@ async function loadPendingItems() {
     console.error("讀取待處理事項失敗：", e);
   }
 
+  // ✅ 薪資未送出提醒（原本獨立卡片，現在併入待處理）
+  if(canSchedule()) {
+    const now = new Date();
+    const lastDay = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+    const isLastWeek = now.getDate() > lastDay - 7;
+    if(isLastWeek) {
+      const ym = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+      try {
+        const salSnap = await window.db.collection('stores').doc(currentUser.store).collection('salary').doc(ym).get();
+        const status = salSnap.exists ? salSnap.data().status : 'draft';
+        if(status === 'draft') {
+          pending.push({
+            type: '薪資提醒',
+            desc: `${ym.replace('-','年')}月薪資尚未送出`,
+            link: 'salary.html',
+            color: 'var(--warn)'
+          });
+        }
+      } catch(e) {}
+    }
+  }
+
   // 渲染到畫面
   document.getElementById('pendingCount').textContent = pending.length + ' 件';
+
+  // ✅ 更新上方 badge
+  const badge = document.getElementById('pendingBadgeBar');
+  if(badge) {
+    if(pending.length > 0) {
+      badge.style.display = 'flex';
+      document.getElementById('pendingBadgeCount').textContent = pending.length;
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+
   const el = document.getElementById('pendingList');
   if(pending.length === 0) {
     el.innerHTML = `<div style="text-align:center; color:var(--text-muted); font-size:13px; padding:16px 0;">✅ 暫無待處理事項</div>`;
@@ -1805,31 +1778,6 @@ function switchPage(name) {
 }
 
 // ===== 快速功能按鈕動態渲染 =====
-async function checkSalaryReminder() {
-  const card = document.getElementById('salaryReminderCard');
-  if(!card) return;
-  // 只對店長顯示
-  if(!canSchedule() || canApprove()) { card.style.display='none'; return; }
-  const store = currentUser.store;
-  if(!store) { card.style.display='none'; return; }
-
-  // 判斷是否為本月最後一週（第4週以後）
-  const now = new Date();
-  const lastDay = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
-  const isLastWeek = now.getDate() > lastDay - 7;
-  if(!isLastWeek) { card.style.display='none'; return; }
-
-  // 查本月薪資狀態
-  const ym = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-  try {
-    const snap = await window.db.collection('stores').doc(store).collection('salary').doc(ym).get();
-    const status = snap.exists ? snap.data().status : 'draft';
-    card.style.display = (status === 'draft') ? 'block' : 'none';
-  } catch(e) {
-    card.style.display='none';
-  }
-}
-
 function renderQuickBtns() {
   const grid = document.getElementById('quickGrid');
   if(!grid) return;
