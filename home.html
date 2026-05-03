@@ -1723,6 +1723,29 @@ async function loadPendingItems() {
         }
       }
 
+      // 1c. 待對方審核：掃「本店」的 weeks，找 supportEmp 指向其他門市的 pending 記錄
+      // 例：美德的 weeks 裡有 supportEmp='聯鑫-玲' pending → 美德店長首頁提醒「請提醒聯鑫審核」
+      for(const wk of [weekStr, nextWeek]) {
+        const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(wk).get();
+        if(snap.exists && snap.data().records) {
+          const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
+          const weekDates = getWeekDates(wk);
+          snap.data().records.forEach(r => {
+            if(r.approvalStatus === 'pending' && r.supportEmp && !r.supportEmp.startsWith(store + '-')) {
+              const dIdx = dayNames.indexOf(r.day);
+              const dateStr = dIdx >= 0 ? `${weekDates[dIdx]}(${r.day})` : r.day;
+              const [targetStore, empName] = r.supportEmp.split('-');
+              pending.push({
+                type: '待對方審核',
+                desc: `請提醒 ${targetStore} 店長審核 ${empName} 於 ${dateStr} 的支援申請`,
+                link: 'schedule-V2.html?mode=admin',
+                color: 'var(--warn)'
+              });
+            }
+          });
+        }
+      }
+
       // 2. 檢查特休是否尚未建檔 (到職日未填或今年額度未確認)
       const empSnap = await window.db.collection('stores').doc(store).collection('employees').get();
       const emps = [];
