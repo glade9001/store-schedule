@@ -52,8 +52,9 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 .content{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 0 90px;}
 
 /* 月曆條 */
-.calendar-bar{background:white;border-bottom:1px solid var(--border);flex-shrink:0;overflow:hidden;transition:max-height 0.3s ease;max-height:260px;}
+.calendar-bar{background:white;border-bottom:1px solid var(--border);flex-shrink:0;overflow:hidden;transition:max-height 0.35s ease;}
 .calendar-bar.collapsed{max-height:44px;}
+.calendar-bar:not(.collapsed){max-height:420px;}
 .calendar-toggle{display:flex;align-items:center;padding:10px 16px;cursor:pointer;gap:8px;user-select:none;}
 .cal-month-nav{display:flex;align-items:center;gap:8px;flex:1;}
 .cal-nav-btn{background:none;border:none;color:var(--primary);font-size:18px;cursor:pointer;padding:0 4px;font-weight:700;}
@@ -758,7 +759,20 @@ async function updateTgtPreview(){
   if(!prev||!names)return;
   if(selTarget==='self'){prev.classList.remove('show');return;}
   if(selTarget==='all'){prev.classList.add('show');names.textContent='全體員工';return;}
-  if(selTarget==='stores_manager'){prev.classList.add('show');names.textContent='各門市店長';return;}
+  if(selTarget==='stores_manager'){
+    // ✅ 從 account 讀取實際店長名字
+    const stores=selStores.length>0?selStores:(appConfig.stores||[]);
+    try{
+      const accSnap=await window.db.collection('account').where('permission','==','manager').get();
+      const mgrs=[];
+      accSnap.forEach(d=>{
+        const a=d.data();
+        if(stores.includes(a.store)){mgrs.push(getDN(a.empName)||a.displayName||a.empName||'');}
+      });
+      if(mgrs.length>0){prev.classList.add('show');names.textContent=mgrs.join('、');return;}
+    }catch(e){}
+    prev.classList.add('show');names.textContent='各門市店長';return;
+  }
   const stores=selTarget==='store'?(selStores.length>0?selStores:[myStore()]):[myStore()];
   let ns=[];
   if(selTarget==='specific'){ns=selPersons.map(n=>getDN(n));}
@@ -813,6 +827,19 @@ async function saveTodo(){
 // 月曆
 function toggleCal(){document.getElementById('calBar').classList.toggle('collapsed');}
 function changeCalMonth(o){calM+=o;if(calM>11){calM=0;calY++;}if(calM<0){calM=11;calY--;}renderCal();}
+
+let longPressTimer=null;
+function calDayLongPress(ds){
+  longPressTimer=setTimeout(()=>{
+    longPressTimer=null;
+    // 長按某天 → 開啟新增 Modal 並帶入日期
+    openAddModal();
+    document.getElementById('fStart').value=ds;
+    showToast(`📅 已選擇 ${dateLbl(ds)}，填入開始日期`);
+  },500);
+}
+function calDayLongPressCancel(){if(longPressTimer){clearTimeout(longPressTimer);longPressTimer=null;}}
+
 function renderCal(){
   document.getElementById('calLabel').textContent=`${calY}年${calM+1}月`;
   const hdr=document.getElementById('calHdr'),days=document.getElementById('calDays');
@@ -823,17 +850,41 @@ function renderCal(){
   allTodos.filter(t=>visible(t)).forEach(t=>{
     const add=(ds,type)=>{if(!events[ds])events[ds]=new Set();events[ds].add(type);};
     if(t.isRecurring){
-      const n=calcNext(t);
-      if(n){const ds=`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`;add(ds,t.type==='announcement'?'announce':'recurring');}
+      // 掃描本月所有週，找出所有觸發日
+      const firstDay=new Date(calY,calM,1);
+      const lastDay=new Date(calY,calM+1,0);
+      if(t.recurringType==='weekly'||t.recurringType==='monthly'){
+        // 只掃一次本月的觸發
+        let cur=new Date(firstDay);
+        while(cur<=lastDay){
+          const n=calcNext(t,cur);
+          if(!n||n>lastDay)break;
+          const ds=`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`;
+          add(ds,t.type==='announcement'?'announce':'recurring');
+          cur=new Date(n);cur.setDate(cur.getDate()+1);
+          if(t.recurringType==='monthly')break; // 每月只有一次
+        }
+      } else if(t.recurringType==='custom'){
+        const iv=parseInt(t.recurringInterval||7);
+        const start=t.startDate?new Date(t.startDate):firstDay;
+        let cur=new Date(start);
+        while(cur<firstDay)cur.setDate(cur.getDate()+iv);
+        while(cur<=lastDay){
+          const ds=`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}-${String(cur.getDate()).padStart(2,'0')}`;
+          add(ds,t.type==='announcement'?'announce':'recurring');
+          cur.setDate(cur.getDate()+iv);
+        }
+      }
     } else {
-      if(t.type==='announcement'&&t.endDate&&t.endDate.startsWith(`${calY}-${String(calM+1).padStart(2,'0')}`))add(t.endDate,'announce');
-      if(t.startDate&&t.startDate.startsWith(`${calY}-${String(calM+1).padStart(2,'0')}`))add(t.startDate,t.type==='announcement'?'announce':'task');
+      const mo=`${calY}-${String(calM+1).padStart(2,'0')}`;
+      if(t.type==='announcement'&&t.endDate&&t.endDate.startsWith(mo))add(t.endDate,'announce');
+      if(t.startDate&&t.startDate.startsWith(mo))add(t.startDate,t.type==='announcement'?'announce':'task');
     }
   });
   const firstDow=new Date(calY,calM,1).getDay();
   const dim=new Date(calY,calM+1,0).getDate();
   const prev=new Date(calY,calM,0).getDate();
-  const off=(firstDow+6)%7;
+  const off=(firstDow+6)%7; // 週一為第一天
   let html='';
   for(let i=off-1;i>=0;i--)html+=`<div class="cal-day other-month">${prev-i}</div>`;
   for(let d=1;d<=dim;d++){
@@ -841,13 +892,22 @@ function renderCal(){
     const isT=ds===today,isSel=ds===selCalDate;
     const ev=events[ds]?[...events[ds]]:[];
     const dots=ev.map(t=>`<div class="cal-dot ${t}"></div>`).join('');
-    html+=`<div class="cal-day${isT?' today':''}${isSel?' selected':''}" onclick="selDate('${ds}')">${d}${ev.length?`<div class="cal-dots">${dots}</div>`:''}</div>`;
+    // 長按新增代辦
+    html+=`<div class="cal-day${isT?' today':''}${isSel?' selected':''}"
+      onclick="selDate('${ds}')"
+      onmousedown="calDayLongPress('${ds}')" onmouseup="calDayLongPressCancel()" onmouseleave="calDayLongPressCancel()"
+      ontouchstart="calDayLongPress('${ds}')" ontouchend="calDayLongPressCancel()" ontouchmove="calDayLongPressCancel()">
+      ${d}${ev.length?`<div class="cal-dots">${dots}</div>`:''}
+    </div>`;
   }
-  const rem=(7-(off+dim)%7)%7;
+  // ✅ 補滿最後一週，確保 6 行全部顯示（避免最後一週被切掉）
+  const totalCells=off+dim;
+  const rem=totalCells%7===0?0:7-(totalCells%7);
   for(let d=1;d<=rem;d++)html+=`<div class="cal-day other-month">${d}</div>`;
   days.innerHTML=html;
 }
 function selDate(ds){
+  if(longPressTimer)return; // 長按中不觸發選擇
   selCalDate=(selCalDate===ds)?null:ds;
   if(selCalDate&&document.getElementById('calBar').classList.contains('collapsed'))document.getElementById('calBar').classList.remove('collapsed');
   renderAll();
