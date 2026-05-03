@@ -2937,7 +2937,18 @@ async function confirmRolePreview() {
   const bannerRole = document.getElementById('previewBannerRole');
   if(banner) { banner.classList.add('show'); bannerRole.textContent = ROLE_PREVIEW_LABELS[role]; }
 
-  await initApp();
+  try {
+    await Promise.race([
+      initApp(),
+      new Promise(res => setTimeout(res, 8000))
+    ]);
+  } catch(e) {
+    console.warn('預覽模式 initApp 失敗:', e);
+  } finally {
+    // 無論如何確保 loading 關閉、首頁顯示
+    document.getElementById('appShell').classList.add('active');
+    hideLoading();
+  }
 }
 
 function restoreRealRole() {
@@ -2956,7 +2967,9 @@ function restoreRealRole() {
   const banner = document.getElementById('previewBanner');
   if(banner) banner.classList.remove('show');
 
-  initApp();
+  Promise.race([initApp(), new Promise(res=>setTimeout(res,8000))])
+    .catch(()=>{})
+    .finally(()=>{ document.getElementById('appShell').classList.add('active'); hideLoading(); });
 }
 
 // ===== 薪資頁面跳轉 =====
