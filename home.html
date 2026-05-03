@@ -1986,9 +1986,11 @@ async function openAccountModal(empName, store) {
   document.getElementById('accountPasswordConfirm').value = '';
   document.getElementById('accountDisplayName').value = empName;
   document.getElementById('accountUsername').value = '';
-  document.getElementById('accountStartDate').value = '';
+  
+  // 先顯示讀取中，避免空白
+  document.getElementById('accountStartDate').value = '讀取中...';
 
-  // 載入該門市員工名單到連動下拉選單
+  // 1. 載入該門市員工名單到連動下拉選單
   try {
     const empSnap = await window.db.collection('stores').doc(store).collection('employees').get();
     let empOpts = '<option value="">-- 選擇排班系統員工 --</option>';
@@ -2001,7 +2003,20 @@ async function openAccountModal(empName, store) {
     document.getElementById('accountEmpName').value = empName;
   } catch(e) {}
 
-  // 權限選項（依操作者權限）
+  // 2. 跨系統讀取「特補休系統」的到職日
+  const currentYear = new Date().getFullYear().toString();
+  try {
+    const leaveSnap = await window.db.collection('employees').doc(empName).collection('leaves').doc(currentYear).get();
+    if(leaveSnap.exists && leaveSnap.data().hireDate) {
+      document.getElementById('accountStartDate').value = leaveSnap.data().hireDate;
+    } else {
+      document.getElementById('accountStartDate').value = '';
+    }
+  } catch(e) {
+    document.getElementById('accountStartDate').value = '';
+  }
+
+  // 3. 權限選項（依操作者權限）
   const permSel = document.getElementById('accountPermission');
   const p = currentUser.permission;
   let opts = `<option value="employee">👤 員工</option><option value="manager">🏪 店長</option>`;
@@ -2009,18 +2024,18 @@ async function openAccountModal(empName, store) {
   if(p === 'admin') opts += `<option value="admin">⚙️ 系統管理者</option>`;
   permSel.innerHTML = opts;
 
-  // 嘗試讀取現有帳號
+  // 4. 嘗試讀取現有帳號資訊
   try {
     const snap = await window.db.collection('account').where('empName','==',empName).where('store','==',store).limit(1).get();
     if(!snap.empty) {
       const d = snap.docs[0];
       const accData = d.data();
-      const uid = accData.ID || ''; // 登入帳號（B28213）
+      const uid = accData.ID || ''; 
       document.getElementById('accountUsername').value = uid;
       document.getElementById('accountDisplayName').value = accData.displayName || empName || '';
-      document.getElementById('accountStartDate').value = accData.startDate || '';
       document.getElementById('accountRole').value = accData.role || 'employee';
       permSel.value = accData.permission || 'employee';
+      
       // 連動狀態
       if(accData.linked === false) {
         document.getElementById('linkTypeNew').checked = true;
@@ -2035,7 +2050,6 @@ async function openAccountModal(empName, store) {
       document.getElementById('linkTypeLinked').checked = true;
       toggleLinkType();
       permSel.value = 'employee';
-      // 從 employees 讀取現有 role
       try {
         const empDocSnap = await window.db.collection('stores').doc(store).collection('employees').doc(empName).get();
         if(empDocSnap.exists) {
