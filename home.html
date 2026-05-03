@@ -510,8 +510,17 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       <!-- 統計卡片（依角色動態渲染）-->
       <div id="statsArea"></div>
 
-      <!-- 待處理 badge（有待處理時才顯示，點擊跳到待處理區塊）-->
-      <div id="pendingBadgeBar" style="display:none; background:linear-gradient(135deg,#fce8e6,#fef2f2); border:1.5px solid var(--danger); border-radius:12px; padding:10px 14px; margin-bottom:12px; cursor:pointer; display:none; align-items:center; gap:10px;" onclick="document.getElementById('pendingCard').scrollIntoView({behavior:'smooth'})">
+      <!-- 公告橫幅（可橫向滑動，有公告才顯示）-->
+      <div id="announceBannerWrap" style="display:none; margin-bottom:10px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+          <div style="font-size:11px; font-weight:800; color:var(--text-muted); letter-spacing:0.5px;">📢 公告事項</div>
+          <div style="font-size:11px; color:var(--primary); font-weight:700; cursor:pointer;" onclick="window.location.href='todo.html'">查看全部 →</div>
+        </div>
+        <div id="announceBanner" style="display:flex; gap:10px; overflow-x:auto; padding-bottom:4px; -webkit-overflow-scrolling:touch; scrollbar-width:none;"></div>
+      </div>
+
+      <!-- 待處理 badge（有待處理時才顯示，公告橫幅下方）-->
+      <div id="pendingBadgeBar" style="display:none; background:linear-gradient(135deg,#fce8e6,#fef2f2); border:1.5px solid var(--danger); border-radius:12px; padding:10px 14px; margin-bottom:12px; cursor:pointer; align-items:center; gap:10px;" onclick="document.getElementById('pendingCard').scrollIntoView({behavior:'smooth'})">
         <div style="font-size:18px;">🔔</div>
         <div style="flex:1; font-size:13px; font-weight:800; color:var(--danger);">有 <span id="pendingBadgeCount">0</span> 件待處理事項</div>
         <div style="color:var(--danger); font-size:16px; font-weight:900;">›</div>
@@ -1744,7 +1753,7 @@ async function loadPendingItems() {
     console.error("讀取待處理事項失敗：", e);
   }
 
-  // ✅ 代辦事項未完成件數（所有人都會計算，依據對每個人的可見度去抓取）
+  // ✅ 代辦事項 + 公告橫幅（所有人都計算）
   try {
     const today = new Date().toISOString().split('T')[0];
     const empName = currentUser.empName || '';
@@ -1756,38 +1765,82 @@ async function loadPendingItems() {
       window.db.collection('todoChecks').where('empName','==',empName).get()
     ]);
 
+    // checkKey 相容（週期型帶日期 key）
     const myChecks = {};
-    checkSnap.forEach(d => { const data=d.data(); if(data.checked) myChecks[data.todoId]=true; });
-
-    let todoCnt = 0;
-    todoSnap.forEach(d => {
-      const t = { id:d.id, ...d.data() };
-      if(t.type !== 'task' || t.isRecurring) return; // 只算一般代辦
-      if(myChecks[t.id]) return;                     // 已勾選完成
-      if(t.startDate && today < t.startDate) return; // 尚未開始顯示
-      if(t.endDate   && today > t.endDate)   return; // 已過截止
-      
-      // 指派對象判斷 (與 todo 系統完全同步)
-      const tt = t.targetType;
-      if(tt === 'self' && t.createdBy !== empName) return;
-      if(tt === 'store' && t.targetStore !== store && !(t.targetStores||[]).includes(store)) return;
-      if(tt === 'stores_manager') {
-         if(!isManagerRole) return; // 不是店長就看不到
-         if((t.targetStores||[]).length > 0 && !(t.targetStores||[]).includes(store) && t.targetStore !== store) return;
-      }
-      if(tt === 'specific' && !(t.targetEmps||[]).includes(empName)) return;
-      
-      todoCnt++;
+    checkSnap.forEach(d => {
+      const data=d.data();
+      if(data.checked){ myChecks[data.checkKey||data.todoId]=true; myChecks[data.todoId]=true; }
     });
 
-    if(todoCnt > 0) {
-      pending.push({
-        type: '代辦事項',
-        desc: `您有 ${todoCnt} 件待完成的代辦`,
-        link: 'todo.html',
-        color: 'var(--warn)'
-      });
+    // 可見判斷（與 todo.html 同步，home 版不做週期計算，週期型只看 startDate）
+    const isTodoVisible = (t) => {
+      if(t.deleted) return false;
+      if(t.startDate && today < t.startDate) return false;
+      // 週期型：有 recurringEnd 且已過結束日則不顯示
+      if(t.isRecurring && t.recurringEnd && today > t.recurringEnd) return false;
+      // 非週期公告：截止日過了不顯示
+      if(t.type==='announcement' && !t.isRecurring && t.endDate && today > t.endDate) return false;
+      const tt = t.targetType;
+      if(tt==='self') return t.createdBy === empName;
+      if(tt==='all') return true;
+      if(tt==='store') return t.targetStore===store || (t.targetStores||[]).includes(store);
+      if(tt==='stores_manager') {
+        if(!isManagerRole) return false;
+        const s=t.targetStores||[];
+        return s.length===0 || s.includes(store) || t.targetStore===store;
+      }
+      if(tt==='specific') return (t.targetEmps||[]).includes(empName);
+      return false;
+    };
+
+    const announcements = [], pendingTodos = [];
+    todoSnap.forEach(d => {
+      const t = { id:d.id, ...d.data() };
+      if(!isTodoVisible(t)) return;
+
+      // 公告：收集到橫幅
+      if(t.type==='announcement') { announcements.push(t); return; }
+
+      // 代辦：週期型 checkKey 帶今天日期，單次用 todoId
+      let ck = t.id;
+      if(t.isRecurring) {
+        // 簡化：用今天日期做 key，讓今天勾完的不再顯示
+        ck = `${t.id}__${today}`;
+      }
+      if(myChecks[ck] || myChecks[t.id]) return;
+      pendingTodos.push(t);
+
+    // 公告橫幅渲染
+    const bannerWrap = document.getElementById('announceBannerWrap');
+    const banner     = document.getElementById('announceBanner');
+    if(bannerWrap && banner) {
+      if(announcements.length > 0) {
+        bannerWrap.style.display = 'block';
+        banner.innerHTML = announcements.map(t => {
+          const days = t.endDate ? Math.ceil((new Date(t.endDate)-new Date())/86400000) : null;
+          const dlText = days===null ? '' : days<0 ? '已截止' : days===0 ? '今天截止' : `${days}天後截止`;
+          const urgent = days !== null && days <= 2;
+          return `<div onclick="window.location.href='todo.html'" style="
+            flex-shrink:0; min-width:200px; max-width:260px;
+            background:${urgent?'#fff3e0':'white'};
+            border:1.5px solid ${urgent?'var(--warn)':'var(--border)'};
+            border-radius:12px; padding:10px 12px; cursor:pointer;
+            box-shadow:0 1px 4px rgba(0,0,0,0.06);">
+            <div style="font-size:13px;font-weight:700;line-height:1.4;margin-bottom:4px;">${t.title}</div>
+            ${t.note?`<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">${t.note}</div>`:''}
+            ${dlText?`<div style="font-size:10px;font-weight:700;color:${urgent?'var(--warn)':'var(--text-muted)'};">📅 ${dlText}</div>`:''}
+          </div>`;
+        }).join('');
+      } else {
+        bannerWrap.style.display = 'none';
+      }
     }
+
+    // 代辦加入 pending（每筆顯示標題）
+    pendingTodos.forEach(t => {
+      pending.push({ type:'代辦', desc:t.title, link:'todo.html', color:'var(--primary)' });
+    });
+
   } catch(e) {}
 
   // 渲染到畫面
@@ -1903,11 +1956,13 @@ function renderQuickBtns() {
     </button>`;
   }
 
-  // 角色預覽（店長以上）
-  mgmtBtns += `
+  // 角色預覽（只有店長可用，加盟主/admin 不需要）
+  if(isManagerOnly()) {
+    mgmtBtns += `
     <button class="func-btn purple" onclick="openRolePreviewModal()">
       <div class="func-icon">🎭</div><div class="func-label">角色預覽</div>
     </button>`;
+  }
 
   // 系統設定（admin only）
   if(canSysConfig()) {
@@ -2055,7 +2110,7 @@ function loadProfilePage() {
   if(storeConfigItem) storeConfigItem.style.display = canSchedule() ? 'flex' : 'none';
   const realPerm = realUser ? realUser.permission : currentUser.permission;
   const rolePreviewItem = document.getElementById('menuRolePreview');
-  if(rolePreviewItem) rolePreviewItem.style.display = realPerm === 'admin' ? 'flex' : 'none';
+  if(rolePreviewItem) rolePreviewItem.style.display = (realPerm === 'manager') ? 'flex' : 'none';
   const rpSub = document.getElementById('menuRolePreviewSub');
   if(rpSub) rpSub.textContent = previewRole ? `目前：${ROLE_PREVIEW_LABELS[previewRole]}` : '以不同角色體驗介面';
 }
