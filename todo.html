@@ -435,12 +435,19 @@ window.onload = async () => {
 async function loadTodos() {
   showLoading('載入代辦事項...');
   try{
+    // ✅ 只用單一 where，不加 orderBy，避免需要 composite index 導致讀取失敗
     const snap = await window.db.collection('todos')
       .where('deleted','==',false)
-      .orderBy('createdAt','desc')
       .get();
     allTodos = [];
     snap.forEach(d => allTodos.push({ id:d.id, ...d.data() }));
+
+    // ✅ 前端依建立時間排序（新到舊），serverTimestamp 可能為 null 則排最後
+    allTodos.sort((a, b) => {
+      const ta = a.createdAt?.toDate?.()?.getTime() ?? 0;
+      const tb = b.createdAt?.toDate?.()?.getTime() ?? 0;
+      return tb - ta;
+    });
 
     const checkSnap = await window.db.collection('todoChecks')
       .where('empName','==',myName()).get();
