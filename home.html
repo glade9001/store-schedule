@@ -1875,7 +1875,7 @@ function renderQuickBtns() {
     <button class="func-btn blue" onclick="showWip('劃休系統')">
       <div class="func-icon">📝</div><div class="func-label">劃休申請</div>
     </button>
-    <button class="func-btn gray" onclick="openAccountModal()">
+    <button class="func-btn gray" onclick="switchPage('profile')">
       <div class="func-icon">👤</div><div class="func-label">帳號管理</div>
     </button>`;
 
@@ -1940,9 +1940,6 @@ function setFuncSectionState(key, open) {
   grid.classList.toggle('collapsed', !open);
   if(arrow) arrow.classList.toggle('open', open);
 }
-
-// 帳號管理 Modal（原 switchPage('profile') 的功能）
-function openAccountModal() { switchPage('profile'); }
 
 function goToSchedule() { window.location.href = 'schedule-V2.html'; }
 function goToEmployee() { switchPage('employee'); }
