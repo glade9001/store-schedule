@@ -1224,7 +1224,12 @@ window.onload = async () => {
     if(savedUser) {
       try {
         currentUser = JSON.parse(savedUser);
-        await initApp();
+        await initApp().catch(e => {
+          console.error('initApp 失敗:', e);
+          // initApp 拋錯時確保 loading 關閉、顯示首頁（已有 appShell）
+          document.getElementById('appShell').classList.add('active');
+          hideLoading();
+        });
       } catch(e) {
         localStorage.removeItem('currentUser');
         sessionStorage.removeItem('currentUser');
@@ -1266,7 +1271,10 @@ async function doLogin() {
 
   showLoading('驗證身分中...');
   try {
-    const snap = await window.db.collection('account').where('ID', '==', username).limit(1).get();
+    const snap = await Promise.race([
+      window.db.collection('account').where('ID', '==', username).limit(1).get(),
+      new Promise((_,rej) => setTimeout(() => rej(new Error('連線逾時，請確認網路後重試')), 8000))
+    ]);
     if(snap.empty) {
       hideLoading();
       errEl.textContent = '❌ 帳號不存在';
@@ -1381,12 +1389,12 @@ async function initApp() {
   const storeConfigItem = document.getElementById('menuStoreConfig');
   if(storeConfigItem) storeConfigItem.style.display = canSchedule() ? 'flex' : 'none';
 
-  // ✅ 班表讀取加 timeout，最多等 5 秒，卡住不影響整頁顯示
+  // ✅ 班表讀取加 timeout + catch，任何錯誤都不影響整頁顯示
   await Promise.race([
-    loadTodayShifts(),
+    loadTodayShifts().catch(() => {}),
     new Promise(res => setTimeout(res, 5000))
   ]);
-  loadStats();
+  loadStats().catch(() => {});
   loadPendingItems();
 
   document.getElementById('appShell').classList.add('active');
@@ -1462,11 +1470,11 @@ async function loadMySchedule() {
 
   try {
     const withTimeout = (p, ms=5000) =>
-      Promise.race([p, new Promise((_,rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+      Promise.race([p, new Promise(res => setTimeout(() => res(null), ms))]);
 
     const snap = await withTimeout(
       window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get()
-    ).catch(() => null);
+    );
     const data = snap?.exists ? snap.data() : {};
     const records = data.records || [];
     const myRecs = records.filter(r => r.name === empName);
@@ -1474,7 +1482,7 @@ async function loadMySchedule() {
     if(weekStr === thisWeekStr) {
       const nextSnap = await withTimeout(
         window.db.collection('stores').doc(store).collection('weeks').doc(nextWeekStr).get()
-      ).catch(() => null);
+      );
       const nextData = nextSnap?.exists ? nextSnap.data() : {};
       homeCanGoNext = nextData.published || isAutoPublishedHome(nextWeekStr);
       if(nextBtn) nextBtn.style.opacity = homeCanGoNext ? '1' : '0.3';
@@ -1603,8 +1611,11 @@ async function loadStats() {
   if(!store || !empName) return;
 
   try {
-    const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get();
-    const records = (snap.exists && snap.data().records) ? snap.data().records : [];
+    const snap = await Promise.race([
+      window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get(),
+      new Promise(res => setTimeout(() => res(null), 6000))
+    ]);
+    const records = (snap?.exists && snap.data().records) ? snap.data().records : [];
     const myRecs = records.filter(r => r.name === empName);
     const workDays = myRecs.filter(r => r.shift && r.shift !== '排休' && r.shift !== '指休').length;
     const weekHours = myRecs.reduce((s, r) => {
@@ -1643,7 +1654,10 @@ async function loadStats() {
         .catch(e => { console.warn(`拉取 ${ws} 統計失敗`, e); return null; })
     );
 
-    const weekResults = await Promise.all(weekPromises);
+    const weekResults = await Promise.race([
+      Promise.all(weekPromises),
+      new Promise(res => setTimeout(() => res([]), 6000))
+    ]);
 
     weekResults.forEach(res => {
       if (!res || !res.snap.exists) return;
