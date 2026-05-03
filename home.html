@@ -1681,12 +1681,17 @@ async function loadPendingItems() {
       for(const wk of [weekStr, nextWeek]) {
         const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(wk).get();
         if(snap.exists && snap.data().records) {
+          // ✅ 用週次算出實際日期，方便識別是哪一天
+          const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
+          const weekDates = getWeekDates(wk); // ['5/4','5/5',...]
           snap.data().records.forEach(r => {
+            const dIdx = dayNames.indexOf(r.day);
+            const dateStr = dIdx >= 0 ? `${weekDates[dIdx]}(${r.day})` : r.day;
             if(r.approvalStatus === 'pending' && r.supportEmp) {
-              pending.push({ type: '跨店待審', desc: `${store}｜${r.name} 申請 ${r.day} 支援`, link: 'schedule-V2.html?mode=admin', color: 'var(--danger)' });
+              pending.push({ type: '跨店待審', desc: `${store}｜${r.name} 申請 ${dateStr} 支援`, link: 'schedule-V2.html?mode=admin', color: 'var(--danger)' });
             }
             if(r.requestOff && r.shift && r.shift !== '排休' && r.shift !== '指休') {
-              pending.push({ type: '畫休衝突', desc: `${store}｜${r.name} 在 ${r.day} 有畫休衝突`, link: 'schedule-V2.html?mode=admin', color: 'var(--danger)' });
+              pending.push({ type: '畫休衝突', desc: `${store}｜${r.name} 在 ${dateStr} 有畫休衝突`, link: 'schedule-V2.html?mode=admin', color: 'var(--danger)' });
             }
           });
         }
