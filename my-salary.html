@@ -175,7 +175,11 @@ function calcTotal(rec){
     const extraH=parseFloat(rec.extraHours||0);
     const holidayH=parseFloat(rec.holidayHours||0);
     const roleBonus=parseFloat(rec.roleBonus||0);
-    return Math.round(wage*(totalH+extraH)+wage*holidayH+roleBonus);
+    // 計算應發總額
+    const gross = Math.round(wage*(totalH+extraH)+wage*holidayH+roleBonus);
+    // 計算代扣(勞健保、勞退)
+    const deduct = parseFloat(rec.laborInsurance || 0) + parseFloat(rec.healthInsurance || 0) + parseFloat(rec.dependentInsurance || 0) + parseFloat(rec.laborPension || 0);
+    return gross - deduct;
   }else{
     const base=parseFloat(rec.baseSalary||0);
     const attend=parseFloat(rec.fullAttendBonus||0);
@@ -340,10 +344,12 @@ async function loadMySalary(){
       if(parseFloat(rec.otherBonus||0)>0) detailHtml+=`<div class="salary-row"><span class="salary-row-label">其他津貼</span><span class="salary-row-val">$${parseFloat(rec.otherBonus).toLocaleString()}</span></div>`;
       if(otPay>0) detailHtml+=`<div class="salary-row"><span class="salary-row-label">加班費（${rec.otHours}h）</span><span class="salary-row-val" style="color:var(--accent);">+$${otPay.toLocaleString()}</span></div>`;
       if(lateDeduct>0) detailHtml+=`<div class="salary-row"><span class="salary-row-label">遲到扣款（${rec.lateMinutes}分）</span><span class="salary-row-val salary-deduct">-$${lateDeduct.toLocaleString()}</span></div>`;
-      if(laborIns>0) detailHtml+=`<div class="salary-row"><span class="salary-row-label salary-deduct">勞保費</span><span class="salary-row-val salary-deduct">-$${laborIns.toLocaleString()}</span></div>`;
-      if(healthIns>0) detailHtml+=`<div class="salary-row"><span class="salary-row-label salary-deduct">健保費${rec.hasDependent?'(含眷)':''}</span><span class="salary-row-val salary-deduct">-$${healthIns.toLocaleString()}</span></div>`;
-      if(pension>0) detailHtml+=`<div class="salary-row"><span class="salary-row-label salary-deduct">勞退自提</span><span class="salary-row-val salary-deduct">-$${pension.toLocaleString()}</span></div>`;
     }
+
+    // 將勞健保移到 if / else 的外面，這樣工讀生跟正職都會顯示扣款明細
+    if(laborIns>0) detailHtml+=`<div class="salary-row"><span class="salary-row-label salary-deduct">勞保費</span><span class="salary-row-val salary-deduct">-$${laborIns.toLocaleString()}</span></div>`;
+    if(healthIns>0) detailHtml+=`<div class="salary-row"><span class="salary-row-label salary-deduct">健保費${rec.hasDependent?'(含眷)':''}</span><span class="salary-row-val salary-deduct">-$${healthIns.toLocaleString()}</span></div>`;
+    if(pension>0) detailHtml+=`<div class="salary-row"><span class="salary-row-label salary-deduct">勞退自提</span><span class="salary-row-val salary-deduct">-$${pension.toLocaleString()}</span></div>`;
 
     // 月曆
     const calHtml=renderCalendar(empName,role,cy,cm);
