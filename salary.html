@@ -197,6 +197,54 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 </div>
 
 
+<!-- ===== 員工薪資編輯 Modal ===== -->
+<div class="modal-overlay" id="empEditModal" onclick="if(event.target===this)closeEmpModal()">
+  <div class="modal-box" style="max-height:92vh; border-radius:22px 22px 0 0;">
+    <div class="modal-handle"></div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
+      <div style="flex:1;">
+        <div class="modal-title" id="empModalTitle" style="margin-bottom:0;"></div>
+        <div style="font-size:12px;color:var(--text-muted);font-weight:600;" id="empModalRole"></div>
+      </div>
+      <div style="font-size:20px;font-weight:900;color:var(--primary);" id="empModalTotal"></div>
+      <button onclick="closeEmpModal()" style="background:#f1f3f4;border:none;border-radius:10px;padding:6px 10px;font-size:14px;cursor:pointer;">✕</button>
+    </div>
+    <div id="empModalBody" style="margin-top:10px;"></div>
+  </div>
+</div>
+
+<!-- ===== 特休/補休折現 Modal ===== -->
+<div class="modal-overlay" id="encashModal" onclick="if(event.target===this)closeModal('encashModal')">
+  <div class="modal-box" style="max-height:70vh;">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="encashModalTitle">折現</div>
+    <div id="encashModalDesc" style="font-size:13px;line-height:1.8;background:#f8fafc;border-radius:8px;padding:12px;margin-bottom:14px;"></div>
+    <div class="salary-row">
+      <span class="salary-row-label">折現天數</span>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <input id="encashDays" type="number" min="0" class="salary-input" style="width:80px;">
+        <span style="font-size:12px;color:var(--text-muted);">天</span>
+      </div>
+    </div>
+    <div class="salary-total-row">
+      <span class="salary-total-label">折現金額</span>
+      <span class="salary-total-val" id="encashModalAmount">$0</span>
+    </div>
+    <button id="encashConfirmBtn" class="modal-action" style="margin-top:16px;">確認折現</button>
+    <button onclick="closeModal('encashModal')" class="modal-cancel">取消</button>
+  </div>
+</div>
+
+<!-- ===== 管理責任獎金明細 Modal ===== -->
+<div class="modal-overlay" id="mgmtDetailModal" onclick="if(event.target===this)closeModal('mgmtDetailModal')">
+  <div class="modal-box" style="max-height:70vh;">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="mgmtDetailTitle">管理責任獎金明細</div>
+    <div id="mgmtDetailBody"></div>
+    <button onclick="closeModal('mgmtDetailModal')" class="modal-cancel">關閉</button>
+  </div>
+</div>
+
 <!-- ===== 薪資單 Modal ===== -->
 <div class="modal-overlay" id="payslipModal" onclick="if(event.target===this)closeModal('payslipModal')">
   <div class="modal-box" style="max-height:90vh;">
@@ -343,7 +391,149 @@ let currentUser = null;
 let appConfig = { stores: [] };
 let currentMonth = ''; // YYYY-MM
 let currentStore = '';
-let salaryData = {}; // { status, records: [{empName, role, ...}] }
+let leaveDataMap = {}; // { empName: { annualDays, usedAnnual, earnedComp, usedComp } }
+
+// ===== 讀取當月員工特補休資料 =====
+async function loadLeaveData() {
+  const year = currentMonth.split('-')[0];
+  leaveDataMap = {};
+  try {
+    await Promise.all(empList.map(emp =>
+      window.db.collection('employees').doc(emp.name).collection('leaves').doc(year).get()
+        .then(snap => { if(snap.exists) leaveDataMap[emp.name] = snap.data(); })
+        .catch(() => {})
+    ));
+  } catch(e) { console.warn('特補休讀取失敗:', e); }
+}
+
+// ===== 確認補休發放（打勾按鈕）=====
+async function confirmCompEarned(empName) {
+  const rec = getSalaryRecord(empName);
+  const emp = empList.find(e => e.name === empName);
+  if(!rec || !emp) return;
+  const days = parseFloat(rec.holidayDays ?? detectHolidayWork(empName, currentMonth).length);
+  if(days <= 0) { showToast('⚠️ 國定假日時數為 0，無需發補休'); return; }
+  if(rec.compConfirmed) {
+    if(!confirm(`取消 ${empName} 本月 ${days} 天補休發放？`)) return;
+  } else {
+    if(!confirm(`確認發放 ${empName} 本月 ${days} 天補休？\n將寫入補休紀錄。`)) return;
+  }
+  const newVal = !rec.compConfirmed;
+  showLoading(newVal ? '發放補休中...' : '取消補休中...');
+  try {
+    const year = currentMonth.split('-')[0];
+    const leaveRef = window.db.collection('employees').doc(empName).collection('leaves').doc(year);
+    const logRef   = window.db.collection('employees').doc(empName).collection('leaveLog').doc(currentMonth);
+    const snap = await leaveRef.get();
+    const leaveData = snap.exists ? snap.data() : { annualDays:0, usedAnnual:0, earnedComp:0, usedComp:0 };
+    if(newVal) {
+      leaveData.earnedComp = (leaveData.earnedComp || 0) + days;
+      await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
+        date: currentMonth + '-01', type: 'comp_earn', days,
+        note: `${currentMonth.replace('-','年')}月薪資結算發放`, savedBy: currentUser.displayName || currentUser.empName
+      })}, { merge: true });
+    } else {
+      leaveData.earnedComp = Math.max(0, (leaveData.earnedComp || 0) - days);
+      await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
+        date: currentMonth + '-01', type: 'comp_cancel', days,
+        note: `${currentMonth.replace('-','年')}月薪資結算取消`, savedBy: currentUser.displayName || currentUser.empName
+      })}, { merge: true });
+    }
+    await leaveRef.set(leaveData, { merge: true });
+    rec.compConfirmed = newVal;
+    leaveDataMap[empName] = leaveData;
+    // 重新開啟 Modal 刷新顯示
+    openEmpModal(empName);
+    showToast(newVal ? `✅ 已發放 ${empName} ${days} 天補休` : `已取消補休發放`);
+  } catch(e) { showToast('❌ 失敗：' + e.message); }
+  hideLoading();
+}
+
+// ===== 特休/補休折現（加盟主以上）=====
+function openEncashModal(empName, type) {
+  if(!canApprove()) return;
+  const leaveInfo = leaveDataMap[empName] || {};
+  const year = currentMonth.split('-')[0];
+  const rec = getSalaryRecord(empName) || {};
+  const emp = empList.find(e => e.name === empName) || {};
+  const remain = type === 'annual'
+    ? ((leaveInfo.annualDays||0) - (leaveInfo.usedAnnual||0))
+    : ((leaveInfo.earnedComp||0) - (leaveInfo.usedComp||0));
+  const label = type === 'annual' ? '特休' : '補休';
+  const dailyRate = Math.round((parseFloat(rec.baseSalary||0) + parseFloat(rec.fullAttendBonus||0)) / 30);
+
+  document.getElementById('encashModalTitle').textContent = `${empName} ${label}折現`;
+  document.getElementById('encashModalDesc').innerHTML =
+    `剩餘${label}：<b>${remain}</b> 天<br>折現日薪（底薪+全勤÷30）：<b>$${dailyRate.toLocaleString()}</b>/天<br>` +
+    `折現金額 = 剩餘天數 × 日薪 = <b>$${(remain * dailyRate).toLocaleString()}</b>`;
+  document.getElementById('encashDays').value = remain;
+  document.getElementById('encashDays').max = remain;
+  document.getElementById('encashModalAmount').textContent = `$${(remain * dailyRate).toLocaleString()}`;
+  document.getElementById('encashDays').oninput = function() {
+    document.getElementById('encashModalAmount').textContent = `$${(parseInt(this.value||0) * dailyRate).toLocaleString()}`;
+  };
+  document.getElementById('encashConfirmBtn').onclick = () => doEncash(empName, type, remain, dailyRate);
+  openModal('encashModal');
+}
+
+async function doEncash(empName, type, maxDays, dailyRate) {
+  const days = parseInt(document.getElementById('encashDays').value || 0);
+  if(days <= 0 || days > maxDays) { showToast('⚠️ 請確認折現天數'); return; }
+  if(!confirm(`確認將 ${empName} ${days} 天${type==='annual'?'特休':'補休'}折現 $${(days*dailyRate).toLocaleString()}？\n折現後剩餘天數歸零。`)) return;
+  showLoading('處理折現中...');
+  try {
+    const year = currentMonth.split('-')[0];
+    const leaveRef = window.db.collection('employees').doc(empName).collection('leaves').doc(year);
+    const logRef   = window.db.collection('employees').doc(empName).collection('leaveLog').doc(currentMonth);
+    const snap = await leaveRef.get();
+    const leaveData = snap.exists ? snap.data() : {};
+    if(type === 'annual') leaveData.usedAnnual = (leaveData.annualDays || 0); // 全部折現等同用完
+    else leaveData.usedComp = leaveData.earnedComp || 0;
+    await leaveRef.set(leaveData, { merge: true });
+    await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
+      date: currentMonth + '-31', type: type === 'annual' ? 'annual_encash' : 'comp_encash',
+      days, amount: days * dailyRate,
+      note: `年度折現 $${(days*dailyRate).toLocaleString()}`, savedBy: currentUser.displayName || currentUser.empName
+    })}, { merge: true });
+    // 在薪資單記錄折現金額
+    let rec = getSalaryRecord(empName);
+    if(!rec) { rec = buildDefaultRecord(empList.find(e=>e.name===empName)); salaryData.records.push(rec); }
+    if(type === 'annual') rec.annualLeaveEncash = (rec.annualLeaveEncash||0) + days * dailyRate;
+    else rec.compLeaveEncash = (rec.compLeaveEncash||0) + days * dailyRate;
+    leaveDataMap[empName] = leaveData;
+    closeModal('encashModal');
+    openEmpModal(empName);
+    showToast(`✅ 已完成${type==='annual'?'特休':'補休'}折現 $${(days*dailyRate).toLocaleString()}`);
+    triggerAutoSave();
+  } catch(e) { showToast('❌ 失敗：' + e.message); }
+  hideLoading();
+}
+
+// ===== 管理責任獎金明細 Modal（店長以上才能看）=====
+function openMgmtDetailModal(empName) {
+  if(!canSchedule()) return; // 員工點沒反應
+  const rec = getSalaryRecord(empName) || {};
+  const [y, m] = currentMonth.split('-').map(Number);
+  document.getElementById('mgmtDetailTitle').textContent = `${empName} · ${y}年${m}月 管理責任獎金`;
+  const items = [
+    { key:'mgmtOps',     label:'營運獎勵' },
+    { key:'mgmtQuality', label:'品保獎勵' },
+    { key:'mgmtKPI',     label:'營運指標獎勵' },
+    { key:'mgmtAccount', label:'帳務獎勵' },
+    { key:'mgmtLeader',  label:'卓越領導獎勵' },
+  ];
+  const total = items.reduce((s,i) => s + parseFloat(rec[i.key]||0), 0);
+  document.getElementById('mgmtDetailBody').innerHTML = items.map(i =>
+    `<div class="salary-row">
+      <span class="salary-row-label">${i.label}</span>
+      <span class="salary-row-val">$${parseFloat(rec[i.key]||0).toLocaleString()}</span>
+    </div>`
+  ).join('') + `<div class="salary-total-row"><span class="salary-total-label">合計</span><span class="salary-total-val">$${total.toLocaleString()}</span></div>`;
+  openModal('mgmtDetailModal');
+}
+
+// canSchedule 在 schedule-V2.html 有定義，salary.html 補上相同邏輯
+function canSchedule() { return ['manager','owner','admin'].includes(currentUser?.permission); }
 let empList = []; // 員工資料
 let scheduleData = {}; // 排班記錄（當月）
 let prevSalaryData = {}; // 上月薪資（預設用）
@@ -1208,6 +1398,7 @@ async function loadSalaryData() {
 
     updateStatusBadge();
     renderMonthInfo();
+    await loadLeaveData(); // ✅ 讀取特補休資料
     renderEmpList();
     renderBottomAction();
   } catch(e) {
@@ -1341,7 +1532,7 @@ function renderEmpList() {
     const total = calcTotal(rec);
     const isOpen = expandedCards.has(emp.name);
     return `<div class="emp-salary-card" id="card-${idx}">
-      <div class="emp-salary-header" onclick="toggleCard('${emp.name}', ${idx})">
+      <div class="emp-salary-header" onclick="openEmpModal('${emp.name}')">
         <div class="emp-salary-avatar" style="background:${emp.role===ROLE_MANAGER?'linear-gradient(135deg,#9334e6,#6a1bb5)':emp.role===ROLE_FULL?'linear-gradient(135deg,#34a853,#1e7e34)':'linear-gradient(135deg,#1a73e8,#0d47a1)'};">
           ${emp.name[0]}
         </div>
@@ -1350,22 +1541,84 @@ function renderEmpList() {
           <div class="emp-salary-role">${currentMonth.replace('-','年')}月 薪資</div>
         </div>
         <div class="emp-salary-total">$${total.toLocaleString()}</div>
-        <div class="emp-salary-arrow ${isOpen?'open':''}" id="arrow-${idx}">›</div>
-      </div>
-      <div class="emp-salary-body ${isOpen?'open':''}" id="body-${idx}">
-        ${renderSalaryForm(emp, rec, idx, readonly)}
+        <div style="font-size:18px;color:var(--text-muted);">›</div>
       </div>
     </div>`;
   }).join('');
 }
 
-function toggleCard(empName, idx) {
-  if(expandedCards.has(empName)) expandedCards.delete(empName);
-  else expandedCards.add(empName);
-  const body = document.getElementById(`body-${idx}`);
-  const arrow = document.getElementById(`arrow-${idx}`);
-  body.classList.toggle('open');
-  arrow.classList.toggle('open');
+// ===== 員工薪資編輯 Modal =====
+let currentEmpModal = null; // 目前開啟的員工名稱
+
+function openEmpModal(empName) {
+  currentEmpModal = empName;
+  const emp = empList.find(e => e.name === empName);
+  if(!emp) return;
+  let rec = getSalaryRecord(empName) || buildDefaultRecord(emp);
+  if(!getSalaryRecord(empName)) salaryData.records.push(rec);
+
+  const readonly = isReadonly();
+  const total = calcTotal(rec);
+
+  // Header
+  document.getElementById('empModalTitle').textContent = empName;
+  document.getElementById('empModalRole').textContent = `${emp.role||''} · ${currentMonth.replace('-','年')}月`;
+  document.getElementById('empModalTotal').textContent = `$${total.toLocaleString()}`;
+
+  // 表單內容
+  document.getElementById('empModalBody').innerHTML = renderSalaryForm(emp, rec, 0, readonly);
+
+  openModal('empEditModal');
+}
+
+function closeEmpModal() {
+  closeModal('empEditModal');
+  currentEmpModal = null;
+}
+
+// 在 Modal 內更新欄位時，同步卡片總額
+function updateFieldModal(empName, key, val) {
+  let rec = getSalaryRecord(empName);
+  const emp = empList.find(e => e.name === empName);
+  if(!rec) { rec = buildDefaultRecord(emp); salaryData.records.push(rec); }
+  rec[key] = parseFloat(val) || 0;
+  const total = calcTotal(rec);
+  // 更新 Modal 標題總額
+  const el = document.getElementById('empModalTotal');
+  if(el) el.textContent = `$${total.toLocaleString()}`;
+  // 更新卡片列表總額
+  const cards = document.querySelectorAll('.emp-salary-card');
+  cards.forEach(card => {
+    const nameEl = card.querySelector('.emp-salary-name');
+    if(nameEl && nameEl.textContent.startsWith(empName)) {
+      const totalEl = card.querySelector('.emp-salary-total');
+      if(totalEl) totalEl.textContent = `$${total.toLocaleString()}`;
+    }
+  });
+  // 重新計算衍生欄位（費率/扣款/加班費）
+  if(['lateMinutes','otHours','baseSalary','fullAttendBase','fullAttendBonus','otBase'].includes(key)) {
+    const rate = hourlyRate(rec);
+    const otRate = parseFloat(rec.otBase || 0) > 0 ? parseFloat(rec.otBase) : rate;
+    const rateEl = document.getElementById(`rate-0`);
+    const lateEl = document.getElementById(`lateDeduct-0`);
+    const otEl = document.getElementById(`otPay-0`);
+    const otBaseEl = document.getElementById(`otBase-0`);
+    if(rateEl) rateEl.textContent = `$${rate.toFixed(1)}/hr`;
+    if(lateEl) lateEl.textContent = `-$${Math.round(rate/60*(rec.lateMinutes||0)).toLocaleString()}`;
+    if(otEl) otEl.textContent = `+$${Math.ceil(otRate*(rec.otHours||0)*1.34).toLocaleString()}`;
+    if(otBaseEl) otBaseEl.textContent = `$${Math.ceil(otRate).toLocaleString()}/hr`;
+  }
+  const totalEl = document.getElementById('total-0');
+  if(totalEl) totalEl.textContent = `$${total.toLocaleString()}`;
+  const subtotalEl = document.getElementById('subtotal-0');
+  if(subtotalEl) {
+    const role = rec.role;
+    let subtotal = 0;
+    if(role === ROLE_FULL) subtotal = parseFloat(rec.baseSalary||0)+parseFloat(rec.fullAttendBonus||0)+parseFloat(rec.roleBonus||0);
+    else if(role === ROLE_MANAGER) subtotal = parseFloat(rec.baseSalary||0)+parseFloat(rec.fullAttendBonus||0)+['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+parseFloat(rec[k]||0),0);
+    subtotalEl.textContent = `$${subtotal.toLocaleString()}`;
+  }
+  triggerAutoSave();
 }
 
 function getSalaryRecord(empName) {
@@ -1461,41 +1714,154 @@ function buildDefaultRecord(emp) {
 }
 
 function renderSalaryForm(emp, rec, idx, readonly) {
-  const ro = readonly ? 'readonly' : '';
-  const roClass = readonly ? 'readonly-tag' : '';
-  const fmtVal = v => parseFloat(v||0) === 0 ? '' : `$${parseFloat(v||0).toLocaleString()}`;
-  const inp = (key, val, label) => readonly
-    ? `<div class="salary-row"><span class="salary-row-label">${label}</span><span class="salary-row-val">${fmtVal(val)}</span></div>`
-    : `<div class="salary-row"><span class="salary-row-label">${label}</span><input class="salary-input" type="number" value="${parseFloat(val||0)||''}" placeholder="0" onchange="updateField('${emp.name}','${key}',this.value,${idx})"></div>`;
-  const inpNum = (key, val, label, unit='') => readonly
-    ? `<div class="salary-row"><span class="salary-row-label">${label}</span><span class="salary-row-val">${parseFloat(val||0)||''}${parseFloat(val||0)?unit:''}</span></div>`
-    : `<div class="salary-row"><span class="salary-row-label">${label}</span><input class="salary-input" type="number" value="${parseFloat(val||0)||''}" placeholder="0" onchange="updateField('${emp.name}','${key}',this.value,${idx})" style="width:90px;">${unit?`<span style="font-size:12px;color:var(--text-muted);margin-left:4px;">${unit}</span>`:''}</div>`;
+  const ro = readonly;
+  // 自動撈取值（從排班/計算，供 input 旁邊顯示原值）
+  const { totalH, otH: autoOtH } = calcEmpHours(emp.name);
+  const autoOtHours = autoOtH;
+  const workedHolidays = detectHolidayWork(emp.name, currentMonth);
+  const autoHolidayDays = workedHolidays.length;
+  const rate = emp.role !== ROLE_PART ? hourlyRate(rec) : 0;
+  const autoOtBase = Math.ceil(rate);
+
+  // 取得特補休資料（從 leaveData 全域變數，若有的話）
+  const leaveInfo = (typeof leaveDataMap !== 'undefined' && leaveDataMap[emp.name]) || {};
+  const annualDays   = leaveInfo.annualDays   ?? '--';
+  const usedAnnual   = leaveInfo.usedAnnual   ?? '--';
+  const remainAnnual = (typeof annualDays === 'number' && typeof usedAnnual === 'number') ? annualDays - usedAnnual : '--';
+  const earnedComp   = leaveInfo.earnedComp   ?? '--';
+  const usedComp     = leaveInfo.usedComp     ?? '--';
+  const remainComp   = (typeof earnedComp === 'number' && typeof usedComp === 'number') ? earnedComp - usedComp : '--';
+
+  // inp：金額欄，有原值時顯示淡灰原值方便復原
+  const inp = (key, val, label, autoVal) => {
+    const hasOverride = autoVal !== undefined && parseFloat(val||0) !== parseFloat(autoVal||0) && parseFloat(autoVal||0) !== 0;
+    const hintHtml = hasOverride ? `<span style="color:#94a3b8;font-size:11px;margin-left:4px;">(原:${autoVal})</span>` : '';
+    if(ro) return `<div class="salary-row"><span class="salary-row-label">${label}</span><span class="salary-row-val">${parseFloat(val||0)>0?`$${parseFloat(val||0).toLocaleString()}`:'-'}</span></div>`;
+    return `<div class="salary-row">
+      <span class="salary-row-label">${label}${hintHtml}</span>
+      <input class="salary-input" type="number" value="${parseFloat(val||0)||''}" placeholder="0"
+        onchange="updateFieldModal('${emp.name}','${key}',this.value)">
+    </div>`;
+  };
+
+  // inpNum：數字欄（工時/分鐘），有自動撈取值時顯示淡灰原值
+  const inpNum = (key, val, label, unit, autoVal) => {
+    const hasOverride = autoVal !== undefined && parseFloat(val||0) !== parseFloat(autoVal||0) && parseFloat(autoVal||0) !== 0;
+    const hintHtml = hasOverride ? `<span style="color:#94a3b8;font-size:11px;margin-left:4px;">(自動:${autoVal}${unit})</span>` : '';
+    if(ro) return `<div class="salary-row"><span class="salary-row-label">${label}</span><span class="salary-row-val">${parseFloat(val||0)||'-'}${parseFloat(val||0)?unit:''}</span></div>`;
+    return `<div class="salary-row">
+      <span class="salary-row-label">${label}${hintHtml}</span>
+      <div style="display:flex;align-items:center;gap:4px;">
+        <input class="salary-input" type="number" value="${parseFloat(val||0)||''}" placeholder="0"
+          onchange="updateFieldModal('${emp.name}','${key}',this.value)" style="width:90px;">
+        ${unit?`<span style="font-size:12px;color:var(--text-muted);">${unit}</span>`:''}
+      </div>
+    </div>`;
+  };
 
   const total = calcTotal(rec);
-  const rate = emp.role !== ROLE_PART ? hourlyRate(rec) : 0;
 
+  // ===== 考勤欄（右欄，所有職位共用）=====
+  // 「國定假日時數」旁邊加打勾按鈕（國定假日上班已確認 → 寫入補休紀錄）
+  const compChecked = rec.compConfirmed || false;
+  const holidayDaysVal = parseFloat(rec.holidayDays ?? autoHolidayDays);
+  const holidayDaysOverride = parseFloat(rec.holidayDays ?? 0) !== autoHolidayDays && autoHolidayDays > 0;
+
+  const attendSection = `
+    <div class="salary-section" style="background:#f0f4ff;border-radius:10px;padding:10px 12px;margin-top:10px;">
+      <div class="salary-section-title" style="color:#1a73e8;">📋 考勤</div>
+      <div class="salary-row">
+        <span class="salary-row-label">年度特休天數</span>
+        <span class="salary-row-val">${annualDays}天</span>
+      </div>
+      <div class="salary-row">
+        <span class="salary-row-label">已用特休天數</span>
+        <span class="salary-row-val">${usedAnnual}天</span>
+      </div>
+      <div class="salary-row">
+        <span class="salary-row-label">剩餘特休天數</span>
+        <span class="salary-row-val" style="color:${typeof remainAnnual==='number'&&remainAnnual>0?'var(--accent)':'var(--text-muted)'};">${remainAnnual}天</span>
+      </div>
+      <div class="salary-row">
+        <span class="salary-row-label">剩餘補休天數</span>
+        <span class="salary-row-val" style="color:${typeof remainComp==='number'&&remainComp>0?'var(--accent)':'var(--text-muted)'};">${remainComp}天</span>
+      </div>
+      <div style="border-top:1px solid #e2e8f0;margin:6px 0;"></div>
+      ${inpNum('otHours', rec.otHours, '平日加班時數', 'h', autoOtHours)}
+      <div class="salary-row">
+        <span class="salary-row-label">
+          國定假日時數
+          ${holidayDaysOverride?`<span style="color:#94a3b8;font-size:11px;">(自動:${autoHolidayDays}天)</span>`:''}
+        </span>
+        <div style="display:flex;align-items:center;gap:6px;">
+          ${ro
+            ? `<span class="salary-row-val">${holidayDaysVal}天</span>`
+            : `<input class="salary-input" type="number" value="${holidayDaysVal||''}" placeholder="0"
+                onchange="updateFieldModal('${emp.name}','holidayDays',this.value)" style="width:70px;">`
+          }
+          ${!ro ? `<button onclick="confirmCompEarned('${emp.name}')" title="確認補休發放"
+            style="background:${compChecked?'var(--accent)':'#f1f3f4'};color:${compChecked?'white':'var(--text-muted)'};border:none;border-radius:8px;padding:6px 10px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;">
+            ${compChecked?'✅ 已發補休':'☐ 發補休'}
+          </button>` : (compChecked?`<span style="color:var(--accent);font-size:12px;font-weight:700;">✅已發</span>`:'')}
+        </div>
+      </div>
+      ${inpNum('lateMinutes', rec.lateMinutes, '遲到分鐘數', 'min')}
+      <div class="salary-row">
+        <span class="salary-row-label">加班費計算基礎
+          ${emp.role!==ROLE_PART&&parseFloat(rec.otBase||0)!==autoOtBase&&autoOtBase>0?`<span style="color:#94a3b8;font-size:11px;">(自動:$${autoOtBase})</span>`:''}
+        </span>
+        <span class="salary-row-val" style="font-size:12px;">$${autoOtBase}/hr</span>
+      </div>
+      ${emp.role === ROLE_PART ? `
+      <div class="salary-row">
+        <span class="salary-row-label">本月工讀時數 <span style="font-size:10px;background:#e8f0fe;color:var(--primary);padding:1px 4px;border-radius:3px;">自動</span></span>
+        <span class="salary-row-val">${totalH}h</span>
+      </div>` : ''}
+      <div style="border-top:1px solid #e2e8f0;margin:6px 0;"></div>
+      <div class="salary-row">
+        <span class="salary-row-label">公司提撥退休金</span>
+        ${ro
+          ? `<span class="salary-row-val">$${Math.round((parseFloat(rec.baseSalary||0)+parseFloat(rec.fullAttendBonus||0))*0.06).toLocaleString()}</span>`
+          : `<input class="salary-input" type="number" value="${parseFloat(rec.companyPension||Math.round((parseFloat(rec.baseSalary||0)+parseFloat(rec.fullAttendBonus||0))*0.06))||''}" placeholder="0"
+              onchange="updateFieldModal('${emp.name}','companyPension',this.value)" style="width:90px;">`
+        }
+      </div>
+      <div class="salary-row">
+        <span class="salary-row-label">當月提撥退休金</span>
+        ${ro
+          ? `<span class="salary-row-val">$${(rec.monthlyPension||0).toLocaleString()}</span>`
+          : `<input class="salary-input" type="number" value="${rec.monthlyPension||''}" placeholder="0"
+              onchange="updateFieldModal('${emp.name}','monthlyPension',this.value)" style="width:90px;">`
+        }
+      </div>
+      ${canApprove() && !ro ? `
+      <div style="border-top:1px solid #e2e8f0;margin:6px 0;"></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button onclick="openEncashModal('${emp.name}','annual')"
+          style="flex:1;padding:8px;background:#fff3e0;color:#e65100;border:1px solid #ffcc80;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer;">
+          🎫 特休折現
+        </button>
+        <button onclick="openEncashModal('${emp.name}','comp')"
+          style="flex:1;padding:8px;background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer;">
+          🗓️ 補休折現
+        </button>
+      </div>` : ''}
+    </div>`;
+
+  // ===== 工讀 =====
   if(emp.role === ROLE_PART) {
-    const { totalH } = calcEmpHours(emp.name);
     const extraH = parseFloat(rec.extraHours || 0);
     const holidayH = parseFloat(rec.holidayHours || 0);
     const wage = parseFloat(rec.wage || 0);
     const holidays = getMonthHolidays(currentMonth);
-
     const holidayNote = holidays.length > 0
-      ? holidays.map(h => {
-          const wd = ['日','一','二','三','四','五','六'][new Date(h.date).getDay()];
-          const [hy,hm,hd] = h.date.split('-').map(Number);
-          return `${hm}/${hd}(${wd})${h.name}`;
-        }).join('、')
+      ? holidays.map(h => { const wd=['日','一','二','三','四','五','六'][new Date(h.date).getDay()]; const [hy,hm,hd]=h.date.split('-').map(Number); return `${hm}/${hd}(${wd})${h.name}`; }).join('、')
       : '本月無國定假日';
-
     const holidayHint = holidayH > 0
-      ? `<div style="font-size:11px;color:#c0392b;font-weight:700;margin-top:4px;">💡 額外加給：${holidayH}h × $${wage} = $${Math.round(holidayH * wage).toLocaleString()}（第一倍已含在一般工時）</div>`
+      ? `<div style="font-size:11px;color:#c0392b;font-weight:700;margin-top:4px;">💡 額外加給：${holidayH}h × $${wage} = $${Math.round(holidayH*wage).toLocaleString()}（第一倍已含在一般工時）</div>`
       : `<div style="font-size:11px;color:#94a3b8;margin-top:4px;">已從排班自動帶入，可手動修正</div>`;
-
-    const normalPay = Math.round((totalH + extraH) * wage);
+    const normalPay = Math.round((totalH+extraH)*wage);
     const gross = calcGross(rec);
-
     return `
       <div class="salary-section">
         <div class="salary-section-title">基本資訊</div>
@@ -1504,142 +1870,137 @@ function renderSalaryForm(emp, rec, idx, readonly) {
           <span class="salary-row-label">系統計算工時 <span class="readonly-tag">自動</span></span>
           <span class="salary-row-val">${totalH} h <span style="font-size:10px;color:#94a3b8;">不含國定假日</span></span>
         </div>
-        ${inpNum('extraHours', rec.extraHours ?? 0, '其他工時', 'h')}
-        ${inp('roleBonus', rec.roleBonus ?? 0, '職務津貼')}
+        ${inpNum('extraHours', rec.extraHours??0, '其他工時', 'h')}
+        ${inp('roleBonus', rec.roleBonus??0, '職務津貼')}
       </div>
       <div class="salary-section">
         <div class="salary-section-title">國定假日加班</div>
-        <div style="font-size:11px;color:#c0392b;background:#fef9f9;border-radius:8px;padding:8px 10px;margin-bottom:8px;">
-          🎌 ${holidayNote}
-        </div>
+        <div style="font-size:11px;color:#c0392b;background:#fef9f9;border-radius:8px;padding:8px 10px;margin-bottom:8px;">🎌 ${holidayNote}</div>
         ${inpNum('holidayHours', rec.holidayHours, '國定假日出勤時數', 'h')}
         ${holidayHint}
       </div>
-      
       <div class="salary-section" style="background:#f0fdf4;border-radius:10px;padding:10px 12px;">
         <div class="salary-section-title" style="color:#166534;">應發小計</div>
         <div class="salary-row">
           <span class="salary-row-label">時薪×工時+津貼+國假加給</span>
-          <span class="salary-row-val" style="font-weight:900;color:#16a34a;" id="grossSub-${idx}">
-            $${gross.toLocaleString()}
-          </span>
+          <span class="salary-row-val" style="font-weight:900;color:#16a34a;" id="grossSub-0">$${gross.toLocaleString()}</span>
         </div>
       </div>
-      
-      ${renderInsuranceSection(emp.name, rec, idx)}
-      
+      ${renderInsuranceSection(emp.name, rec, 0)}
       <div class="salary-total-row">
         <span class="salary-total-label">本月實發薪資</span>
-        <span class="salary-total-val" id="total-${idx}">$${total.toLocaleString()}</span>
+        <span class="salary-total-val" id="total-0">$${total.toLocaleString()}</span>
       </div>
       <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.8;">
         一般：(${totalH}${extraH>0?`+${extraH}其他`:''}h) × $${wage} = $${normalPay.toLocaleString()}
-        ${parseFloat(rec.roleBonus||0)>0 ? `<br>職務津貼：$${parseFloat(rec.roleBonus).toLocaleString()}` : ''}
-        ${holidayH>0 ? `<br>國假額外加給：${holidayH}h × $${wage} = $${Math.round(holidayH * wage).toLocaleString()}` : ''}
+        ${parseFloat(rec.roleBonus||0)>0?`<br>職務津貼：$${parseFloat(rec.roleBonus).toLocaleString()}`:''}
+        ${holidayH>0?`<br>國假額外加給：${holidayH}h × $${wage} = $${Math.round(holidayH*wage).toLocaleString()}`:''}
       </div>
+      ${attendSection}
       ${renderCalendar(emp.name, emp.role)}`;
 
+  // ===== 正職 =====
   } else if(emp.role === ROLE_FULL) {
     return `
-      ${renderLeaveSection(emp.name, rec, idx, readonly)}
+      ${renderLeaveSection(emp.name, rec, 0, readonly)}
       <div class="salary-section">
         <div class="salary-section-title">底薪與津貼</div>
         ${inp('baseSalary', rec.baseSalary, '底薪')}
         <div style="background:#f8fafc;border-radius:8px;padding:8px 10px;margin:4px 0;">
-          ${inp('fullAttendBase', rec.fullAttendBase ?? rec.fullAttendBonus ?? 0, '全勤基準額')}
+          ${inp('fullAttendBase', rec.fullAttendBase??rec.fullAttendBonus??0, '全勤基準額')}
           <div style="font-size:10px;color:#94a3b8;margin-top:2px;">⚠️ 僅用於計算加班費/遲到費率，不計入薪資</div>
         </div>
         ${inp('fullAttendBonus', rec.fullAttendBonus, '本月全勤獎金')}
         ${inp('roleBonus', rec.roleBonus, '職務津貼')}
         <div class="salary-row" style="border-top:2px solid var(--border);margin-top:6px;">
           <span class="salary-row-label" style="font-weight:800;">小計</span>
-          <span class="salary-row-val" style="font-weight:900;color:var(--primary);" id="subtotal-${idx}">
-            $${(parseFloat(rec.baseSalary||0)+parseFloat(rec.fullAttendBonus||0)+parseFloat(rec.roleBonus||0)).toLocaleString()}
-          </span>
+          <span class="salary-row-val" style="font-weight:900;color:var(--primary);" id="subtotal-0">$${(parseFloat(rec.baseSalary||0)+parseFloat(rec.fullAttendBonus||0)+parseFloat(rec.roleBonus||0)).toLocaleString()}</span>
         </div>
       </div>
       <div class="salary-section">
         <div class="salary-section-title">其他項目</div>
-        ${inp('otherBonus', rec.otherBonus ?? 0, '其他獎金/津貼')}
+        ${inp('otherBonus', rec.otherBonus??0, '其他獎金/津貼')}
       </div>
       <div class="salary-section" style="background:#f0fdf4;border-radius:10px;padding:10px 12px;">
         <div class="salary-section-title" style="color:#166534;">應發小計</div>
         <div class="salary-row">
           <span class="salary-row-label">底薪+全勤+津貼+其他+加班-遲到</span>
-          <span class="salary-row-val" style="font-weight:900;color:#16a34a;">
-            $${(parseFloat(rec.baseSalary||0)+parseFloat(rec.fullAttendBonus||0)+parseFloat(rec.roleBonus||0)+parseFloat(rec.otherBonus||0)+Math.ceil(hourlyRate(rec)*(rec.otHours||0)*1.34)-Math.round(hourlyRate(rec)/60*(rec.lateMinutes||0))).toLocaleString()}
-          </span>
+          <span class="salary-row-val" style="font-weight:900;color:#16a34a;">$${(parseFloat(rec.baseSalary||0)+parseFloat(rec.fullAttendBonus||0)+parseFloat(rec.roleBonus||0)+parseFloat(rec.otherBonus||0)+Math.ceil(hourlyRate(rec)*(rec.otHours||0)*1.34)-Math.round(hourlyRate(rec)/60*(rec.lateMinutes||0))).toLocaleString()}</span>
         </div>
       </div>
       <div class="salary-section">
         <div class="salary-section-title">加減項</div>
-        <div class="salary-row"><span class="salary-row-label">加班費率</span><span class="salary-row-val" style="font-size:12px;" id="rate-${idx}">$${rate.toFixed(1)}/hr</span></div>
+        <div class="salary-row"><span class="salary-row-label">加班費率</span><span class="salary-row-val" style="font-size:12px;" id="rate-0">$${rate.toFixed(1)}/hr</span></div>
         ${inpNum('lateMinutes', rec.lateMinutes, '遲到分鐘', 'min')}
-        <div class="salary-row"><span class="salary-row-label">遲到扣款 <span style="font-size:10px;color:var(--text-muted);">費率/60×分</span></span><span class="salary-row-val" style="color:var(--danger);" id="lateDeduct-${idx}">-$${Math.round(rate/60*(rec.lateMinutes||0)).toLocaleString()}</span></div>
-        ${inpNum('otHours', rec.otHours, '加班時數', 'h')}
-        <div class="salary-row"><span class="salary-row-label">加班費 <span style="font-size:10px;color:var(--text-muted);">費率×時×1.34</span></span><span class="salary-row-val" style="color:var(--accent);" id="otPay-${idx}">+$${Math.ceil(rate*(rec.otHours||0)*1.34).toLocaleString()}</span></div>
+        <div class="salary-row"><span class="salary-row-label">遲到扣款</span><span class="salary-row-val" style="color:var(--danger);" id="lateDeduct-0">-$${Math.round(rate/60*(rec.lateMinutes||0)).toLocaleString()}</span></div>
+        ${inpNum('otHours', rec.otHours, '加班時數', 'h', autoOtHours)}
+        <div class="salary-row"><span class="salary-row-label">加班費</span><span class="salary-row-val" style="color:var(--accent);" id="otPay-0">+$${Math.ceil(rate*(rec.otHours||0)*1.34).toLocaleString()}</span></div>
       </div>
-      ${renderInsuranceSection(emp.name, rec, idx)}
+      ${renderInsuranceSection(emp.name, rec, 0)}
       <div class="salary-total-row">
         <span class="salary-total-label">本月實發薪資</span>
-        <span class="salary-total-val" id="total-${idx}">$${total.toLocaleString()}</span>
+        <span class="salary-total-val" id="total-0">$${total.toLocaleString()}</span>
       </div>
+      ${attendSection}
       ${renderCalendar(emp.name, emp.role)}`;
-  } else { // 店長
+
+  // ===== 店長 =====
+  } else {
+    const mgmtTotal = ['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+parseFloat(rec[k]||0),0);
     return `
-      ${renderLeaveSection(emp.name, rec, idx, readonly)}
+      ${renderLeaveSection(emp.name, rec, 0, readonly)}
       <div class="salary-section">
         <div class="salary-section-title">底薪與獎金</div>
         ${inp('baseSalary', rec.baseSalary, '底薪')}
         <div style="background:#f8fafc;border-radius:8px;padding:8px 10px;margin:4px 0;">
-          ${inp('fullAttendBase', rec.fullAttendBase ?? rec.fullAttendBonus ?? 0, '全勤基準額')}
+          ${inp('fullAttendBase', rec.fullAttendBase??rec.fullAttendBonus??0, '全勤基準額')}
           <div style="font-size:10px;color:#94a3b8;margin-top:2px;">⚠️ 僅用於計算加班費/遲到費率，不計入薪資</div>
         </div>
         ${inp('fullAttendBonus', rec.fullAttendBonus, '本月全勤獎金')}
-        ${inp('mgmtOps', rec.mgmtOps, '營運獎勵')}
-        ${inp('mgmtQuality', rec.mgmtQuality, '品保獎勵')}
-        ${inp('mgmtKPI', rec.mgmtKPI, '營運指標獎勵')}
-        ${inp('mgmtAccount', rec.mgmtAccount, '帳務獎勵')}
-        ${inp('mgmtLeader', rec.mgmtLeader, '卓越領導獎勵')}
+        <!-- 管理責任獎金：可點明細 -->
+        <div class="salary-row">
+          <span class="salary-row-label">管理責任獎金
+            ${canSchedule() ? `<button onclick="openMgmtDetailModal('${emp.name}')"
+              style="background:#ede7f6;color:#6a1bb5;border:none;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:800;cursor:pointer;margin-left:6px;">明細</button>` : ''}
+          </span>
+          <span class="salary-row-val" id="mgmtTotal-0">$${mgmtTotal.toLocaleString()}</span>
+        </div>
+        ${inp('mgmtOps', rec.mgmtOps, '　└ 營運獎勵')}
+        ${inp('mgmtQuality', rec.mgmtQuality, '　└ 品保獎勵')}
+        ${inp('mgmtKPI', rec.mgmtKPI, '　└ 營運指標獎勵')}
+        ${inp('mgmtAccount', rec.mgmtAccount, '　└ 帳務獎勵')}
+        ${inp('mgmtLeader', rec.mgmtLeader, '　└ 卓越領導獎勵')}
         <div class="salary-row" style="border-top:2px solid var(--border);margin-top:6px;">
           <span class="salary-row-label" style="font-weight:800;">小計</span>
-          <span class="salary-row-val" style="font-weight:900;color:var(--primary);">
-            $${(parseFloat(rec.baseSalary||0)+parseFloat(rec.fullAttendBonus||0)+
-               ['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+parseFloat(rec[k]||0),0)
-               ).toLocaleString()}
-          </span>
+          <span class="salary-row-val" style="font-weight:900;color:var(--primary);" id="subtotal-0">$${(parseFloat(rec.baseSalary||0)+parseFloat(rec.fullAttendBonus||0)+mgmtTotal).toLocaleString()}</span>
         </div>
       </div>
       <div class="salary-section">
         <div class="salary-section-title">加減項</div>
-        <div class="salary-row"><span class="salary-row-label">加班費率</span><span class="salary-row-val" style="font-size:12px;" id="rate-${idx}">$${rate.toFixed(1)}/hr</span></div>
+        <div class="salary-row"><span class="salary-row-label">加班費率</span><span class="salary-row-val" style="font-size:12px;" id="rate-0">$${rate.toFixed(1)}/hr</span></div>
         ${inpNum('lateMinutes', rec.lateMinutes, '遲到分鐘', 'min')}
-        <div class="salary-row"><span class="salary-row-label">遲到扣款 <span style="font-size:10px;color:var(--text-muted);">費率/60×分</span></span><span class="salary-row-val" style="color:var(--danger);" id="lateDeduct-${idx}">-$${Math.round(rate/60*(rec.lateMinutes||0)).toLocaleString()}</span></div>
-        ${inpNum('otHours', rec.otHours, '加班時數', 'h')}
-        <div class="salary-row"><span class="salary-row-label">加班費 <span style="font-size:10px;color:var(--text-muted);">費率×時×1.34</span></span><span class="salary-row-val" style="color:var(--accent);" id="otPay-${idx}">+$${Math.ceil(rate*(rec.otHours||0)*1.34).toLocaleString()}</span></div>
+        <div class="salary-row"><span class="salary-row-label">遲到扣款</span><span class="salary-row-val" style="color:var(--danger);" id="lateDeduct-0">-$${Math.round(rate/60*(rec.lateMinutes||0)).toLocaleString()}</span></div>
+        ${inpNum('otHours', rec.otHours, '加班時數', 'h', autoOtHours)}
+        <div class="salary-row"><span class="salary-row-label">加班費</span><span class="salary-row-val" style="color:var(--accent);" id="otPay-0">+$${Math.ceil(rate*(rec.otHours||0)*1.34).toLocaleString()}</span></div>
       </div>
       <div class="salary-section">
         <div class="salary-section-title">其他項目</div>
-        ${inp('performance', rec.performance ?? 0, '績效獎金')}
-        ${inp('otherBonus', rec.otherBonus ?? 0, '其他獎金/津貼')}
+        ${inp('performance', rec.performance??0, '績效獎金')}
+        ${inp('otherBonus', rec.otherBonus??0, '其他獎金/津貼')}
       </div>
       <div class="salary-section" style="background:#f0fdf4;border-radius:10px;padding:10px 12px;">
         <div class="salary-section-title" style="color:#166534;">應發小計</div>
         <div class="salary-row">
           <span class="salary-row-label">底薪+全勤+獎金+績效+其他+加班-遲到</span>
-          <span class="salary-row-val" style="font-weight:900;color:#16a34a;">
-            $${(parseFloat(rec.baseSalary||0)+parseFloat(rec.fullAttendBonus||0)+
-               ['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+parseFloat(rec[k]||0),0)+
-               parseFloat(rec.performance||0)+parseFloat(rec.otherBonus||0)+
-               Math.ceil(hourlyRate(rec)*(rec.otHours||0)*1.34)-Math.round(hourlyRate(rec)/60*(rec.lateMinutes||0))).toLocaleString()}
-          </span>
+          <span class="salary-row-val" style="font-weight:900;color:#16a34a;" id="grossSub-0">$${(parseFloat(rec.baseSalary||0)+parseFloat(rec.fullAttendBonus||0)+mgmtTotal+parseFloat(rec.performance||0)+parseFloat(rec.otherBonus||0)+Math.ceil(hourlyRate(rec)*(rec.otHours||0)*1.34)-Math.round(hourlyRate(rec)/60*(rec.lateMinutes||0))).toLocaleString()}</span>
         </div>
       </div>
-      ${renderInsuranceSection(emp.name, rec, idx)}
+      ${renderInsuranceSection(emp.name, rec, 0)}
       <div class="salary-total-row">
         <span class="salary-total-label">本月實發薪資</span>
-        <span class="salary-total-val" id="total-${idx}">$${total.toLocaleString()}</span>
+        <span class="salary-total-val" id="total-0">$${total.toLocaleString()}</span>
       </div>
+      ${attendSection}
       ${renderCalendar(emp.name, emp.role)}`;
   }
 }
@@ -1929,74 +2290,11 @@ async function autoSaveDraft() {
   }
 }
 
-// ===== 更新欄位 =====
+// updateField 保留（供薪資單 Modal 內部舊有邏輯使用）
+// 新版 Modal 使用 updateFieldModal，但 renderInsuranceSection 仍傳 idx=0 給 updateField
 function updateField(empName, key, val, cardIdx) {
-  let rec = getSalaryRecord(empName);
-  const emp = empList.find(e => e.name === empName);
-  if(!rec) {
-    rec = buildDefaultRecord(emp);
-    salaryData.records.push(rec);
-  }
-  rec[key] = parseFloat(val) || 0;
-  // 更新總額顯示
-  const total = calcTotal(rec);
-  const totalEl = document.getElementById(`total-${cardIdx}`);
-  if(totalEl) totalEl.textContent = `$${total.toLocaleString()}`;
-  // 更新卡片標題總額
-  const card = document.getElementById(`card-${cardIdx}`);
-  if(card) {
-    const totalSpan = card.querySelector('.emp-salary-total');
-    if(totalSpan) totalSpan.textContent = `$${total.toLocaleString()}`;
-  }
-  // 重新計算衍生欄位（費率/扣款/加班費）
-  // 即時更新費率相關
-  if(['lateMinutes','otHours','baseSalary','fullAttendBase','fullAttendBonus','otBase'].includes(key)) {
-    const rate = hourlyRate(rec);
-    const otRate = parseFloat(rec.otBase || 0) > 0 ? parseFloat(rec.otBase) : rate;
-    const rateEl = document.getElementById(`rate-${cardIdx}`);
-    const lateEl = document.getElementById(`lateDeduct-${cardIdx}`);
-    const otEl = document.getElementById(`otPay-${cardIdx}`);
-    const otBaseEl = document.getElementById(`otBase-${cardIdx}`);
-    if(rateEl) rateEl.textContent = `$${rate.toFixed(1)}/hr`;
-    if(lateEl) lateEl.textContent = `-$${Math.round(rate/60*(rec.lateMinutes||0)).toLocaleString()}`;
-    if(otEl) otEl.textContent = `+$${Math.ceil(otRate*(rec.otHours||0)*1.34).toLocaleString()}`;
-    if(otBaseEl) otBaseEl.textContent = `$${Math.ceil(otRate).toLocaleString()}/hr`;
-  }
-  // 即時更新小計
-  const subtotalEl = document.getElementById(`subtotal-${cardIdx}`);
-  if(subtotalEl) {
-    const role = rec.role;
-    let subtotal = 0;
-    if(role === ROLE_FULL) {
-      subtotal = parseFloat(rec.baseSalary||0) + parseFloat(rec.fullAttendBonus||0) + parseFloat(rec.roleBonus||0);
-    } else if(role === ROLE_MANAGER) {
-      subtotal = parseFloat(rec.baseSalary||0) + parseFloat(rec.fullAttendBonus||0) +
-        ['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+parseFloat(rec[k]||0),0);
-    }
-    subtotalEl.textContent = `$${subtotal.toLocaleString()}`;
-  }
- // 即時更新應發小計
-  const grossSubEl = document.getElementById(`grossSub-${cardIdx}`);
-  if(grossSubEl) {
-    const role = rec.role;
-    let gross = 0;
-    if(role === ROLE_PART) {
-      gross = calcGross(rec);
-    } else {
-      const otRate2 = parseFloat(rec.otBase||0) > 0 ? parseFloat(rec.otBase) : hourlyRate(rec);
-      const otPay = Math.ceil(otRate2*(rec.otHours||0)*1.34);
-      const lateDeduct = Math.round(hourlyRate(rec)/60*(rec.lateMinutes||0));
-      if(role === ROLE_FULL) {
-        gross = parseFloat(rec.baseSalary||0)+parseFloat(rec.fullAttendBonus||0)+parseFloat(rec.roleBonus||0)+parseFloat(rec.otherBonus||0)+otPay-lateDeduct;
-      } else if(role === ROLE_MANAGER) {
-        const mgmt = ['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+parseFloat(rec[k]||0),0);
-        gross = parseFloat(rec.baseSalary||0)+parseFloat(rec.fullAttendBonus||0)+mgmt+parseFloat(rec.performance||0)+parseFloat(rec.otherBonus||0)+otPay-lateDeduct;
-      }
-    }
-    grossSubEl.textContent = `$${gross.toLocaleString()}`;
-  }
-  // 觸發自動儲存
-  triggerAutoSave();
+  // 統一呼叫 updateFieldModal（Modal 版）
+  updateFieldModal(empName, key, val);
 }
 
 // ===== 底部按鈕 =====
