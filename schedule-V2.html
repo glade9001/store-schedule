@@ -216,15 +216,6 @@ th:first-child { background: #1557b0; z-index: 12; }
 }
 .schedule-img-wrap { background: white; border-radius: var(--radius); overflow-x: auto; overflow-y: hidden; border: 1px solid var(--border); margin-bottom: 14px; -webkit-overflow-scrolling: touch; }
 .schedule-img-wrap canvas { display: block; max-width: 100%; height: auto; }
-.req-off-card { background: white; border-radius: var(--radius); padding: 16px; border: 1px solid var(--border); }
-.req-off-title { font-size: 14px; font-weight: 800; margin-bottom: 12px; }
-.req-day-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
-.req-day-row:last-child { border-bottom: none; }
-.req-day-name { font-size: 14px; font-weight: 700; flex: 1; }
-.req-day-shift { font-size: 12px; color: var(--text-muted); }
-.req-toggle { padding: 6px 14px; border-radius: 8px; border: 1.5px solid var(--border); background: white; font-size: 12px; font-weight: 700; cursor: pointer; }
-.req-toggle.active { background: var(--primary); color: white; border-color: var(--primary); }
-.locked-msg { font-size: 12px; color: var(--danger); font-weight: 600; text-align: center; padding: 8px; }
 
 /* ===== BOTTOM NAV ===== */
 .bottom-nav {
@@ -280,7 +271,6 @@ th:first-child { background: #1557b0; z-index: 12; }
     <button class="header-back" onclick="window.location.href='home.html'">←</button>
     <div class="header-title" id="appTitle">📅 班表管理</div>
     <div class="header-store-badge" id="headerStoreBadge">--</div>
-    <!-- 管理者/店長才顯示發布按鈕 -->
     <button class="publish-btn" id="publishBtn" style="display:none;" onclick="togglePublish()">
       <span id="publishBtnIcon">🚀</span>
       <span id="publishBtnText">發布</span>
@@ -293,7 +283,6 @@ th:first-child { background: #1557b0; z-index: 12; }
     <!-- ===== 管理者/店長 視角 ===== -->
     <div id="adminView" style="display:none; flex-direction:column; height:100%;">
 
-      <!-- 週次 + 門市選擇 -->
       <div class="week-bar">
         <div class="week-nav-btns">
           <button class="week-btn" onclick="changeWeek(-1)">‹ 上週</button>
@@ -309,12 +298,10 @@ th:first-child { background: #1557b0; z-index: 12; }
         </div>
       </div>
 
-      <!-- 唯讀提示（店長看其他門市時顯示）-->
       <div id="readonlyBanner" style="display:none; background:#fff3e0; border-bottom:2px solid var(--warn); padding:8px 14px; align-items:center; gap:8px; font-size:13px; font-weight:700; color:#e65100; flex-shrink:0;">
         👁️ 目前為查閱模式，僅本店班表可編輯
       </div>
 
-      <!-- 工具列 -->
       <div class="tool-bar" id="adminToolBar">
         <button class="tool-btn paint" id="paintModeBtn" onclick="togglePaintMode()">🖌️ 畫筆</button>
         <button class="tool-btn undo" onclick="undoLastAction()">↩️ 上一步</button>
@@ -324,13 +311,11 @@ th:first-child { background: #1557b0; z-index: 12; }
         <button class="tool-btn log" onclick="openLogModal()">📜 畫休紀錄</button>
       </div>
 
-      <!-- 畫筆選色列 -->
       <div class="paint-bar" id="paintBar">
         <span class="paint-bar-label">🖌️ 選擇班別：</span>
         <div id="paintBtns"></div>
       </div>
 
-      <!-- 班表 -->
       <div class="table-wrap">
         <table id="scheduleTable">
           <thead><tr id="headerRow">
@@ -355,27 +340,23 @@ th:first-child { background: #1557b0; z-index: 12; }
     <div id="empView" style="display:none; flex-direction:column;">
       <div class="emp-view">
 
-        <!-- 發布狀態 -->
         <div class="publish-info-card" id="publishInfoCard" style="display:none;">
           <div class="publish-info-title" id="publishInfoTitle">📅 本週班表</div>
           <div class="publish-info-time" id="publishInfoTime"></div>
         </div>
 
-        <!-- 未發布提示 -->
         <div class="not-published-card" id="notPublishedCard" style="display:none;">
           <div style="font-size:40px; margin-bottom:10px;">🔒</div>
           <div style="font-size:16px; font-weight:900; margin-bottom:6px;">班表尚未發布</div>
           <div style="font-size:13px; color:var(--text-muted);">每週五 00:00 自動發布下週班表<br>或由店長手動發布</div>
         </div>
 
-        <!-- 週次切換（員工版） -->
         <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
           <button class="week-btn" onclick="empChangeWeek(-1)" style="background:white; border:1.5px solid var(--border);">‹</button>
           <div style="flex:1; text-align:center; font-size:14px; font-weight:800;" id="empWeekLabel">--</div>
           <button class="week-btn" onclick="empChangeWeek(1)" style="background:white; border:1.5px solid var(--border);">›</button>
         </div>
 
-        <!-- 班表圖片 -->
         <div class="schedule-img-wrap" id="scheduleImgWrap" style="display:none;">
           <canvas id="scheduleCanvas" style="width:100%; display:block;"></canvas>
         </div>
@@ -479,14 +460,6 @@ th:first-child { background: #1557b0; z-index: 12; }
   </div>
 </div>
 
-<!-- EXPORT CONTAINER -->
-<div id="exportContainer">
-  <h1 id="exportTitle" style="text-align:center; font-size:44px; font-weight:900; margin-bottom:8px; letter-spacing:3px;"></h1>
-  <p id="exportDates" style="text-align:center; font-size:22px; color:#333; margin-bottom:20px; font-weight:bold;"></p>
-  <table id="exportTable"><thead id="exportHeader"></thead><tbody id="exportBody"></tbody></table>
-  <p style="text-align:left; font-size:18px; font-weight:bold; margin-top:12px;">※每周五、六公佈下週排班表，若有變動者，請事先向店長反映，勿私自調動！</p>
-</div>
-
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 
@@ -494,7 +467,7 @@ th:first-child { background: #1557b0; z-index: 12; }
 // ===== 全域狀態 =====
 let currentUser = null;
 let appConfig = { stores: [], shifts: [], shiftHours: {} };
-let appData = { employees: [], records: [], allStoresRecords: [], allStoresEmployees: {} };
+let appData = { employees: [], records: [], allStoresRecords: [], allStoresEmployees: {}, displayNameMap: {} };
 let currentWeekDates = [];
 let virtualRowNames = [];
 let undoStack = [];
@@ -697,10 +670,8 @@ window.onload = async () => {
     }
 
     document.getElementById('appShell').classList.add('active');
-    updateHeaderInfo();
     const isPreview = sessionStorage.getItem('isPreviewMode') === '1';
-    const pb = document.getElementById('previewBanner');
-    if(pb) pb.classList.toggle('show', isPreview);
+    const pb = document.getElementById('readonlyBanner'); 
     hideLoading();
   } catch(e) {
     hideLoading();
@@ -1268,13 +1239,39 @@ async function loadEmpView() {
   const imgWrap = document.getElementById('scheduleImgWrap');
 
   try {
-    const [weekSnap, empSnap] = await Promise.all([
+    // ✅ 新增：取得所有帳號資料供 displayNameMap 轉換（尤其是跨店支援）
+    const [weekSnap, empSnap, accSnap] = await Promise.all([
       window.db.collection('stores').doc(store).collection('weeks').doc(empWeekStr).get(),
-      window.db.collection('stores').doc(store).collection('employees').get()
+      window.db.collection('stores').doc(store).collection('employees').get(),
+      window.db.collection('account').get().catch(()=>null)
     ]);
+
+    appData.displayNameMap = {};
+    if (accSnap) {
+      accSnap.forEach(d => {
+        const acc = d.data();
+        if (acc.empName && acc.displayName) appData.displayNameMap[acc.empName] = acc.displayName;
+      });
+    }
+
+    // ✅ 新增：為了讓跨店支援也能顯示在圖片上，撈取其他門市有支援本店的資料
+    let allStoresRecs = [];
+    const otherStores = (appConfig.stores || []).filter(s => s !== store);
+    const fetchOthers = otherStores.map(s => 
+      window.db.collection('stores').doc(s).collection('weeks').doc(empWeekStr).get()
+        .then(snap => {
+          if (snap.exists && snap.data().records) {
+            snap.data().records.filter(r => r.supportEmp && r.supportEmp.startsWith(`${store}-`) && r.approvalStatus === 'approved')
+              .forEach(r => allStoresRecs.push({ ...r, _store: s, week: empWeekStr }));
+          }
+        }).catch(() => {})
+    );
+    await Promise.all(fetchOthers);
 
     const data = weekSnap.exists ? weekSnap.data() : {};
     const records = data.records || [];
+    records.forEach(r => allStoresRecs.push({ ...r, _store: store, week: empWeekStr })); // 把本店也存進去供共用函數讀取
+
     const published = data.published || false;
     const publishedAt = data.publishedAt || null;
     const isVisible = published || isAutoPublished(empWeekStr);
@@ -1297,7 +1294,11 @@ async function loadEmpView() {
       empSnap.forEach(d => { if(!['離職','調走'].includes(d.data().status)) emps.push({ name: d.id, ...d.data() }); });
       emps.sort((a,b) => (a.sortKey||0) - (b.sortKey||0));
 
-      renderEmpCanvas(store, empWeekStr, records, emps);
+      // ✅ 新增：將「待補/支援」虛擬人員加入 emps 陣列，這樣畫圖函式才會畫出這些空缺
+      const virtualNames = [...new Set(records.map(r => r.name).filter(n => n && n.startsWith('🆘')))];
+      virtualNames.forEach(n => emps.push({ name: n, role: '待補' }));
+
+      renderEmpCanvas(store, empWeekStr, records, emps, allStoresRecs);
     } else {
       infoCard.style.display = 'none';
       notPubCard.style.display = 'block';
@@ -1312,69 +1313,15 @@ async function loadEmpView() {
   hideLoading();
 }
 
-function renderEmpCanvas(store, weekStr, records, emps) {
+// 傳遞 allStoresRecs 以顯示支援門市
+function renderEmpCanvas(store, weekStr, records, emps, allStoresRecs) {
   const canvas = document.getElementById('scheduleCanvas');
   const dates = getWeekDates(weekStr);
-  drawScheduleCanvas(canvas, store, weekStr, records, emps, dates, []);
+  drawScheduleCanvas(canvas, store, weekStr, records, emps, dates, allStoresRecs);
   canvas.style.maxWidth = '100%';
   canvas.style.height = 'auto';
 }
 
-function renderReqOffSection(records) {
-  const el = document.getElementById('reqDayList');
-  const locked = isWeekLocked(empWeekStr);
-  document.getElementById('lockedMsg').style.display = locked ? 'block' : 'none';
-
-  el.innerHTML = dayNames.map(day => {
-    const rec = records.find(r => r.name === currentUser.empName && r.day === day) || {};
-    const shift = rec.shift || '';
-    const hasShift = shift && shift !== '';
-    const isOff = shift === '排休' || shift === '指休';
-    const reqOff = rec.requestOff || false;
-    const canToggle = !locked && !hasShift;
-
-    return `<div class="req-day-row">
-      <div class="req-day-name">${day}</div>
-      <div class="req-day-shift">${isOff ? '休假' : (shift || '未排班')}</div>
-      ${canToggle
-        ? `<button class="req-toggle ${reqOff?'active':''}" onclick="toggleReqOff('${day}', ${reqOff})">${reqOff?'✅ 已申請':'申請排休'}</button>`
-        : `<span style="font-size:12px; color:var(--text-muted);">${hasShift ? '已排班' : (locked ? '已鎖定' : '')}</span>`
-      }
-    </div>`;
-  }).join('');
-}
-
-async function toggleReqOff(day, current) {
-  const store = currentUser.store;
-  const weekStr = empWeekStr;
-  const empName = currentUser.empName;
-  if(!confirm(current ? `取消 ${day} 的排休申請？` : `申請 ${day} 排休？`)) return;
-
-  showLoading('更新中...');
-  try {
-    const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get();
-    let records = (snap.exists && snap.data().records) ? snap.data().records : [];
-    const idx = records.findIndex(r => r.name === empName && r.day === day && r.week === weekStr);
-    const newVal = !current;
-    if(idx !== -1) records[idx].requestOff = newVal;
-    else records.push({ week: weekStr, day, name: empName, shift: '', location: '本店', note: '', requestOff: newVal });
-
-    const now = new Date();
-    const timeStr = `${now.getMonth()+1}/${now.getDate()} ${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`;
-    const logMsg = `[${timeStr}] ${currentUser.displayName} 對 ${day} ${newVal?'提出申請':'取消申請'}`;
-
-    await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).set({
-      records,
-      logs: firebase.firestore.FieldValue.arrayUnion(logMsg)
-    }, { merge: true });
-
-    showToast(newVal ? `✅ 已申請 ${day} 排休` : `已取消 ${day} 排休申請`);
-    await loadEmpView();
-  } catch(e) {
-    showToast('❌ 失敗：' + e.message);
-  }
-  hideLoading();
-}
 
 // ===== 渲染班表（管理者）=====
 function renderSupportDropdown() {
@@ -1428,8 +1375,6 @@ function renderTable() {
     return [yr, months[0]];
   })();
   const monthKey = `${wy}-${String(parseInt(wm)).padStart(2,'0')}`;
-  const minLeave = parseInt(appConfig.minLeaveDays || 8);
-  const holidayCount = Object.keys(TW_HOLIDAYS_SCHED).filter(k => k.startsWith(monthKey)).length;
   hRow.innerHTML += `<th style="min-width:110px;">本週統計</th>`;
 
   const emps = [...appData.employees];
@@ -2093,6 +2038,26 @@ function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, al
     dayNames.forEach((day, i) => {
       const cx = margin + nameColW + i * dataColW + dataColW / 2;
       let rec = records.find(r => r.name === emp.name && r.day === day) || {};
+      
+      // ✅ 跨店支援判斷 (非待補人員)
+      if (!emp.name.startsWith('🆘')) {
+        const supportOutRec = (allStoresRecs || []).find(r =>
+          r.supportEmp === `${store}-${emp.name}` && r.day === day && r.week === weekStr && r.approvalStatus === 'approved'
+        );
+        if (supportOutRec) {
+          rec = {
+            shift: supportOutRec.shift,
+            location: `支援${supportOutRec._store}`,
+            note: supportOutRec.note,
+            actualHours: supportOutRec.actualHours,
+            isOT: supportOutRec.isOT,
+            supportEmp: '',
+            approvalStatus: '',
+            requestOff: false
+          };
+        }
+      }
+
       const shift = rec.shift || '';
       const note = rec.note || '';
       const loc = (rec.location && rec.location !== '本店') ? rec.location : '';
