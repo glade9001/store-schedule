@@ -392,6 +392,12 @@ let appConfig = { stores: [] };
 let currentMonth = ''; // YYYY-MM
 let currentStore = '';
 let leaveDataMap = {}; // { empName: { annualDays, usedAnnual, earnedComp, usedComp } }
+let displayNameMap = {}; // { empName: displayName }
+
+// ✅ 取得顯示名字（有 displayName 用新名，否則用原名）
+function getDisplayName(empName) {
+  return displayNameMap[empName] || empName;
+}
 
 // ===== 讀取當月員工特補休資料 =====
 async function loadLeaveData() {
@@ -1353,12 +1359,20 @@ async function loadSalaryData() {
   expandedCards.clear();
 
   try {
-    // 平行讀取：員工名單、當月薪資、上月薪資
-    const [empSnap, salSnap, prevSalSnap] = await Promise.all([
+    // 平行讀取：員工名單、當月薪資、上月薪資、displayName
+    const [empSnap, salSnap, prevSalSnap, accSnap] = await Promise.all([
       window.db.collection('stores').doc(currentStore).collection('employees').get(),
       window.db.collection('stores').doc(currentStore).collection('salary').doc(currentMonth).get(),
-      window.db.collection('stores').doc(currentStore).collection('salary').doc(getPrevMonth(currentMonth)).get()
+      window.db.collection('stores').doc(currentStore).collection('salary').doc(getPrevMonth(currentMonth)).get(),
+      window.db.collection('account').where('store','==',currentStore).get().catch(()=>null)
     ]);
+
+    // ✅ displayName 對應表
+    displayNameMap = {};
+    if(accSnap) accSnap.forEach(d => {
+      const acc = d.data();
+      if(acc.empName && acc.displayName) displayNameMap[acc.empName] = acc.displayName;
+    });
 
     // 員工名單
     empList = [];
@@ -1534,10 +1548,10 @@ function renderEmpList() {
     return `<div class="emp-salary-card" id="card-${idx}">
       <div class="emp-salary-header" onclick="openEmpModal('${emp.name}')">
         <div class="emp-salary-avatar" style="background:${emp.role===ROLE_MANAGER?'linear-gradient(135deg,#9334e6,#6a1bb5)':emp.role===ROLE_FULL?'linear-gradient(135deg,#34a853,#1e7e34)':'linear-gradient(135deg,#1a73e8,#0d47a1)'};">
-          ${emp.name[0]}
+          ${getDisplayName(emp.name)[0]}
         </div>
         <div class="emp-salary-info">
-          <div class="emp-salary-name">${emp.name} <span style="font-size:11px;background:#f1f3f4;padding:2px 6px;border-radius:4px;font-weight:600;">${emp.role||''}</span></div>
+          <div class="emp-salary-name">${getDisplayName(emp.name)} <span style="font-size:11px;background:#f1f3f4;padding:2px 6px;border-radius:4px;font-weight:600;">${emp.role||''}</span></div>
           <div class="emp-salary-role">${currentMonth.replace('-','年')}月 薪資</div>
         </div>
         <div class="emp-salary-total">$${total.toLocaleString()}</div>
@@ -1561,7 +1575,7 @@ function openEmpModal(empName) {
   const total = calcTotal(rec);
 
   // Header
-  document.getElementById('empModalTitle').textContent = empName;
+  document.getElementById('empModalTitle').textContent = getDisplayName(empName);
   document.getElementById('empModalRole').textContent = `${emp.role||''} · ${currentMonth.replace('-','年')}月`;
   document.getElementById('empModalTotal').textContent = `$${total.toLocaleString()}`;
 
