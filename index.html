@@ -96,6 +96,66 @@ th:first-child { background-color: #185abc; z-index: 12; }
 .warn-tag { display: inline-block; background: #fce8e6; color: #d93025; font-weight: bold; font-size: 11px; padding: 2px 4px; border-radius: 4px; margin-top: 3px; border: 1px solid #d93025; }
 .req-tag  { display: inline-block; background: #e8f0fe; color: #1a73e8; font-weight: bold; font-size: 11px; padding: 2px 4px; border-radius: 4px; margin-top: 3px; border: 1px solid #1a73e8; }
 .pending-badge { display: block; background: #fef08a; border: 2px solid #fbc02d; color: #d84315; font-size: 12px; font-weight: bold; border-radius: 6px; padding: 6px; margin-top: 6px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.2); animation: pulse 1.5s infinite; line-height: 1.3; }
+
+/* ===== 新系統轉移對話框 ===== */
+#migrationModal {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(32, 33, 36, 0.85);
+  z-index: 1000001; /* 確保在最上層 */
+  justify-content: center;
+  align-items: center;
+}
+#migrationModal .modal-content {
+  background: white;
+  width: 90%;
+  max-width: 400px;
+  padding: 30px 25px;
+  border-radius: 15px;
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.4);
+  text-align: center;
+}
+#migrationModal h3 {
+  color: #1a73e8;
+  margin-bottom: 15px;
+  font-size: 20px;
+  font-weight: 900;
+}
+#migrationModal p {
+  font-size: 15px;
+  color: #3c4043;
+  margin-bottom: 25px;
+  line-height: 1.5;
+}
+#migrationModal .btn-group {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+#migrationModal .btn-primary {
+  background: #1a73e8;
+  color: white;
+  padding: 14px;
+  border-radius: 10px;
+  font-size: 16px;
+  font-weight: bold;
+  border: none;
+  cursor: pointer;
+}
+#migrationModal .btn-secondary {
+  background: #f1f3f4;
+  color: #5f6368;
+  padding: 12px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: bold;
+  border: none;
+  cursor: pointer;
+}
 </style>
 </head>
 <body>
@@ -287,7 +347,17 @@ th:first-child { background-color: #185abc; z-index: 12; }
   </div>
 </div>
 
-<!-- ✅ exportContainer 已移除（改用 Canvas 直接產圖，不需要 DOM 元素） -->
+<!-- ===== 新系統轉移對話框 ===== -->
+<div id="migrationModal">
+  <div class="modal-content">
+    <h3>🚀 系統升級通知</h3>
+    <p>新版門市排班神器已上線！<br>擁有更流暢的體驗與強大功能，<br>請移轉至新系統進行排班。</p>
+    <div class="btn-group">
+      <button class="btn-primary" onclick="window.location.href='https://glade9001.github.io/store-schedule/home.html'">✨ 進入新系統排班</button>
+      <button class="btn-secondary" onclick="closeMigrationModal()">繼續用舊系統排班</button>
+    </div>
+  </div>
+</div>
 
 <script>
 let appConfig = { stores: [], shifts: ['排休', '指休'], shiftHours: {} };
@@ -296,6 +366,14 @@ let currentWeekDates = [], virtualRowNames = [], localActiveEmps = [], localDele
 let undoStack = [];
 let currentCell = null, autoSaveTimer = null;
 let isPaintMode = false, paintShift = '', isDragging = false;
+
+// ===== 新系統轉移對話框邏輯 =====
+function showMigrationModal() {
+  document.getElementById('migrationModal').style.display = 'flex';
+}
+function closeMigrationModal() {
+  document.getElementById('migrationModal').style.display = 'none';
+}
 
 // ===== 更多選單 =====
 function toggleMoreMenu() {
@@ -311,6 +389,9 @@ document.addEventListener('click', e => {
 
 // ===== 初始化 =====
 window.onload = async () => {
+  // --- 載入頁面即顯示轉移通知對話框 ---
+  showMigrationModal();
+
   showLoading('正在連線雲端庫...');
   document.getElementById('weekSelector').value = getNextWeekString();
   try {
