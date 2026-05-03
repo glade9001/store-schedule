@@ -117,7 +117,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 
 /* ===== PAGE CONTAINER ===== */
 .page-container {
-  flex: 1; overflow-y: auto; padding: 16px 16px calc(var(--nav-h) + 16px);
+  flex: 1; overflow-y: auto; padding: 16px 16px 32px;
   scroll-behavior: smooth;
 }
 
@@ -181,21 +181,55 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 .stat-val { font-size: 26px; font-weight: 900; color: var(--primary); line-height: 1; }
 .stat-label { font-size: 11px; color: var(--text-muted); margin-top: 4px; font-weight: 600; }
 
-/* ===== QUICK ACTIONS ===== */
-.quick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.quick-btn {
-  background: var(--card); border-radius: 14px; padding: 18px 14px; text-align: center;
-  border: 1.5px solid var(--border); cursor: pointer; transition: all 0.15s;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+/* ===== QUICK ACTIONS - 3欄小格 ===== */
+.func-section { margin-bottom:10px; }
+.func-section-header {
+  display:flex; align-items:center; gap:8px; padding:4px 0 8px;
+  cursor:pointer; user-select:none;
 }
-.quick-btn:active { transform: scale(0.96); box-shadow: none; }
-.quick-btn .q-icon { font-size: 28px; margin-bottom: 8px; }
-.quick-btn .q-label { font-size: 13px; font-weight: 700; color: var(--text); }
-.quick-btn .q-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
-.quick-btn.primary { background: linear-gradient(135deg,#1a73e8,#1557b0); border-color: transparent; }
-.quick-btn.primary .q-label, .quick-btn.primary .q-sub { color: white; }
-.quick-btn.green { background: linear-gradient(135deg,#34a853,#1e7e34); border-color: transparent; }
-.quick-btn.green .q-label, .quick-btn.green .q-sub { color: white; }
+.func-section-title { font-size:11px; font-weight:800; color:var(--text-muted); letter-spacing:0.5px; text-transform:uppercase; flex:1; }
+.func-section-arrow { font-size:11px; color:var(--text-muted); transition:transform 0.25s; }
+.func-section-arrow.open { transform:rotate(90deg); }
+.func-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; overflow:hidden; transition:max-height 0.3s ease, opacity 0.25s; }
+.func-grid.collapsed { max-height:0; opacity:0; pointer-events:none; }
+.func-grid.expanded  { max-height:600px; opacity:1; }
+
+.func-btn {
+  border-radius:12px; padding:12px 6px 10px; text-align:center;
+  border:none; cursor:pointer; transition:all 0.15s;
+  box-shadow:0 2px 8px rgba(0,0,0,0.07); display:flex; flex-direction:column; align-items:center; gap:5px;
+}
+.func-btn:active { transform:scale(0.94); box-shadow:none; }
+.func-icon { font-size:24px; line-height:1; }
+.func-label { font-size:11px; font-weight:700; line-height:1.2; }
+
+/* 色系 */
+.func-btn.blue   { background:linear-gradient(135deg,#e8f0fe,#d2e3fc); }
+.func-btn.blue .func-label { color:#1557b0; }
+.func-btn.blue-dark { background:linear-gradient(135deg,#1a73e8,#1557b0); }
+.func-btn.blue-dark .func-label { color:white; }
+.func-btn.green  { background:linear-gradient(135deg,#e8f5e9,#c8e6c9); }
+.func-btn.green .func-label { color:#1b5e20; }
+.func-btn.purple { background:linear-gradient(135deg,#f3e8ff,#e9d5ff); }
+.func-btn.purple .func-label { color:#6b21a8; }
+.func-btn.orange { background:linear-gradient(135deg,#fff3e0,#ffe0b2); }
+.func-btn.orange .func-label { color:#b45309; }
+.func-btn.orange-dark { background:linear-gradient(135deg,#e67e22,#d35400); }
+.func-btn.orange-dark .func-label { color:white; }
+.func-btn.gray   { background:linear-gradient(135deg,#f1f3f4,#e8eaed); }
+.func-btn.gray .func-label { color:#3c4043; }
+
+/* 舊版相容（班表預覽等仍用 card）*/
+.quick-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.quick-btn { background:var(--card); border-radius:14px; padding:18px 14px; text-align:center; border:1.5px solid var(--border); cursor:pointer; transition:all 0.15s; box-shadow:0 2px 10px rgba(0,0,0,0.05); }
+.quick-btn:active { transform:scale(0.96); box-shadow:none; }
+.quick-btn .q-icon { font-size:28px; margin-bottom:8px; }
+.quick-btn .q-label { font-size:13px; font-weight:700; color:var(--text); }
+.quick-btn .q-sub { font-size:11px; color:var(--text-muted); margin-top:2px; }
+.quick-btn.primary { background:linear-gradient(135deg,#1a73e8,#1557b0); border-color:transparent; }
+.quick-btn.primary .q-label,.quick-btn.primary .q-sub { color:white; }
+.quick-btn.green { background:linear-gradient(135deg,#34a853,#1e7e34); border-color:transparent; }
+.quick-btn.green .q-label,.quick-btn.green .q-sub { color:white; }
 
 /* ===== TODAY SCHEDULE ===== */
 .shift-item {
@@ -228,14 +262,8 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 .notice-text { font-size: 13px; line-height: 1.5; }
 .notice-time { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 
-/* ===== BOTTOM NAV ===== */
-.bottom-nav {
-  position: fixed; bottom: 0; left: 0; right: 0; height: var(--nav-h);
-  background: white; border-top: 1px solid var(--border);
-  display: flex; align-items: center; justify-content: space-around;
-  box-shadow: 0 -4px 20px rgba(0,0,0,0.08); z-index: 1000;
-  padding-bottom: env(safe-area-inset-bottom);
-}
+/* ===== BOTTOM NAV - 已停用，改為首頁按鈕 ===== */
+.bottom-nav { display:none !important; }
 .nav-item {
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 3px; cursor: pointer; padding: 6px 0; border: none; background: none;
@@ -482,21 +510,11 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       <!-- 統計卡片（依角色動態渲染）-->
       <div id="statsArea"></div>
 
-      <!-- 待處理 badge（有待處理時才顯示）-->
-      <div id="pendingBadgeBar" style="display:none; background:linear-gradient(135deg,#fce8e6,#fef2f2); border:1.5px solid var(--danger); border-radius:12px; padding:10px 14px; margin-bottom:8px; cursor:pointer; align-items:center; gap:10px;" onclick="document.getElementById('pendingCard').scrollIntoView({behavior:'smooth'})">
+      <!-- 待處理 badge（有待處理時才顯示，點擊跳到待處理區塊）-->
+      <div id="pendingBadgeBar" style="display:none; background:linear-gradient(135deg,#fce8e6,#fef2f2); border:1.5px solid var(--danger); border-radius:12px; padding:10px 14px; margin-bottom:12px; cursor:pointer; display:none; align-items:center; gap:10px;" onclick="document.getElementById('pendingCard').scrollIntoView({behavior:'smooth'})">
         <div style="font-size:18px;">🔔</div>
         <div style="flex:1; font-size:13px; font-weight:800; color:var(--danger);">有 <span id="pendingBadgeCount">0</span> 件待處理事項</div>
         <div style="color:var(--danger); font-size:16px; font-weight:900;">›</div>
-      </div>
-
-      <!-- 公告橫幅（可橫向滑動）-->
-      <div id="announceBannerWrap" style="display:none; margin-bottom:12px;">
-        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
-          <div style="font-size:11px; font-weight:800; color:var(--text-muted); letter-spacing:0.5px;">📢 公告事項</div>
-          <div style="font-size:11px; color:var(--primary); font-weight:700; cursor:pointer;" onclick="window.location.href='todo.html'">查看全部 →</div>
-        </div>
-        <div id="announceBanner" style="display:flex; gap:10px; overflow-x:auto; padding-bottom:4px; -webkit-overflow-scrolling:touch; scrollbar-width:none;">
-        </div>
       </div>
 
       <!-- 我的班表（上移到統計欄下方）-->
@@ -516,10 +534,25 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
         </div>
       </div>
 
-      <!-- 快速功能 -->
-      <div class="card">
-        <div class="card-title">⚡ 快速功能</div>
-        <div class="quick-grid" id="quickGrid"></div>
+      <!-- 常用功能 + 管理功能（分區塊）-->
+      <div class="card" style="padding:16px 16px 12px;">
+        <!-- 常用功能：所有人都有 -->
+        <div class="func-section">
+          <div class="func-section-header" onclick="toggleFuncSection('personal')">
+            <div class="func-section-title">常用功能</div>
+            <span class="func-section-arrow open" id="arrow-personal">›</span>
+          </div>
+          <div class="func-grid expanded" id="grid-personal" id="quickGrid"></div>
+        </div>
+
+        <!-- 管理功能：店長以上才顯示 -->
+        <div class="func-section" id="mgmtSection" style="display:none; border-top:1px solid var(--border); padding-top:10px; margin-top:4px;">
+          <div class="func-section-header" onclick="toggleFuncSection('mgmt')">
+            <div class="func-section-title">管理功能</div>
+            <span class="func-section-arrow open" id="arrow-mgmt">›</span>
+          </div>
+          <div class="func-grid expanded" id="grid-mgmt"></div>
+        </div>
       </div>
 
       <!-- 待處理事項（管理者才顯示，含薪資提醒）-->
@@ -1714,7 +1747,7 @@ async function loadPendingItems() {
     console.error("讀取待處理事項失敗：", e);
   }
 
-  // ✅ 代辦事項：顯示每筆標題 + 公告抓出來做橫幅
+  // ✅ 代辦事項未完成件數（所有人都會計算，依據對每個人的可見度去抓取）
   try {
     const today = new Date().toISOString().split('T')[0];
     const empName = currentUser.empName || '';
@@ -1727,91 +1760,37 @@ async function loadPendingItems() {
     ]);
 
     const myChecks = {};
-    // checkKey 帶日期（週期型），也要支援舊的 todoId key
-    checkSnap.forEach(d => {
-      const data=d.data();
-      if(data.checked){
-        myChecks[data.checkKey||data.todoId]=true;
-        myChecks[data.todoId]=true; // 相容舊資料
-      }
-    });
+    checkSnap.forEach(d => { const data=d.data(); if(data.checked) myChecks[data.todoId]=true; });
 
-    const pendingTodos = []; // 待辦標題清單
-    const announcements = []; // 公告橫幅清單
-
+    let todoCnt = 0;
     todoSnap.forEach(d => {
       const t = { id:d.id, ...d.data() };
-      if(t.deleted) return;
-      if(t.startDate && today < t.startDate) return;
-
-      // 指派對象判斷
+      if(t.type !== 'task' || t.isRecurring) return; // 只算一般代辦
+      if(myChecks[t.id]) return;                     // 已勾選完成
+      if(t.startDate && today < t.startDate) return; // 尚未開始顯示
+      if(t.endDate   && today > t.endDate)   return; // 已過截止
+      
+      // 指派對象判斷 (與 todo 系統完全同步)
       const tt = t.targetType;
-      if(tt==='self' && t.createdBy!==empName) return;
-      if(tt==='store' && t.targetStore!==store && !(t.targetStores||[]).includes(store)) return;
-      if(tt==='stores_manager'){
-        if(!isManagerRole) return;
-        if((t.targetStores||[]).length>0 && !(t.targetStores||[]).includes(store) && t.targetStore!==store) return;
+      if(tt === 'self' && t.createdBy !== empName) return;
+      if(tt === 'store' && t.targetStore !== store && !(t.targetStores||[]).includes(store)) return;
+      if(tt === 'stores_manager') {
+         if(!isManagerRole) return; // 不是店長就看不到
+         if((t.targetStores||[]).length > 0 && !(t.targetStores||[]).includes(store) && t.targetStore !== store) return;
       }
-      if(tt==='specific' && !(t.targetEmps||[]).includes(empName)) return;
-
-      // 公告：收集到橫幅（截止日未過）
-      if(t.type==='announcement'){
-        if(t.endDate && today > t.endDate) return;
-        announcements.push(t);
-        return;
-      }
-
-      // 一般代辦：未完成才顯示
-      if(t.isRecurring){
-        // 週期：用 nextStr 計算 checkKey
-        const recurringTypes = ['weekly','monthly','custom'];
-        if(!recurringTypes.includes(t.recurringType)) return;
-        // 簡化版：週期代辦直接顯示
-        if(myChecks[t.id]) return;
-      } else {
-        if(t.endDate && today > t.endDate) return;
-        if(myChecks[t.id]) return;
-      }
-      pendingTodos.push(t);
+      if(tt === 'specific' && !(t.targetEmps||[]).includes(empName)) return;
+      
+      todoCnt++;
     });
 
-    // 公告橫幅渲染
-    const bannerWrap = document.getElementById('announceBannerWrap');
-    const banner     = document.getElementById('announceBanner');
-    if(bannerWrap && banner){
-      if(announcements.length > 0){
-        bannerWrap.style.display = 'block';
-        banner.innerHTML = announcements.map(t => {
-          const days = t.endDate ? Math.ceil((new Date(t.endDate)-new Date())/86400000) : null;
-          const dlText = days===null?'' : days<0?'已截止' : days===0?'今截止' : `${days}天後`;
-          const urgent = days!==null && days<=2;
-          return `<div onclick="window.location.href='todo.html'" style="
-            flex-shrink:0; min-width:200px; max-width:260px;
-            background:${urgent?'#fff3e0':'white'};
-            border:1.5px solid ${urgent?'#e67e22':'#e2e8f0'};
-            border-radius:12px; padding:10px 12px; cursor:pointer;
-            box-shadow:0 1px 4px rgba(0,0,0,0.06);">
-            <div style="font-size:13px;font-weight:700;line-height:1.4;margin-bottom:4px;">${t.title}</div>
-            ${t.note?`<div style="font-size:11px;color:#64748b;margin-bottom:4px;">${t.note}</div>`:''}
-            ${dlText?`<div style="font-size:10px;font-weight:700;color:${urgent?'#e67e22':'#64748b'};">📅 ${dlText}</div>`:''}
-          </div>`;
-        }).join('');
-      } else {
-        bannerWrap.style.display = 'none';
-      }
-    }
-
-    // 待辦加入 pending 清單（每筆顯示標題）
-    pendingTodos.forEach(t => {
+    if(todoCnt > 0) {
       pending.push({
-        type: '代辦',
-        desc: t.title,
+        type: '代辦事項',
+        desc: `您有 ${todoCnt} 件待完成的代辦`,
         link: 'todo.html',
-        color: 'var(--primary)',
-        isTodo: true
+        color: 'var(--warn)'
       });
-    });
-
+    }
   } catch(e) {}
 
   // 渲染到畫面
@@ -1861,74 +1840,109 @@ function switchPage(name) {
 
 // ===== 快速功能按鈕動態渲染 =====
 function renderQuickBtns() {
-  const grid = document.getElementById('quickGrid');
-  if(!grid) return;
-  const isManager = canSchedule(); 
+  const personal = document.getElementById('grid-personal');
+  const mgmt     = document.getElementById('grid-mgmt');
+  const mgmtSec  = document.getElementById('mgmtSection');
+  if(!personal) return;
 
-  if(isManager) {
-    grid.innerHTML = `
-      <div class="quick-btn primary" onclick="window.location.href='schedule-V2.html'">
-        <div class="q-icon">📅</div>
-        <div class="q-label">查看班表</div>
-        <div class="q-sub">查閱本週班表</div>
-      </div>
-      <div class="quick-btn" style="background:linear-gradient(135deg,#e67e22,#d35400);border-color:transparent;" onclick="window.location.href='schedule-V2.html?mode=admin'">
-        <div class="q-icon">📋</div>
-        <div class="q-label" style="color:white;">排班管理</div>
-        <div class="q-sub" style="color:rgba(255,255,255,0.8);">${canViewAllStores()?'全門市':'本店'}排班</div>
-      </div>
-      <div class="quick-btn green" onclick="switchPage('employee')">
-        <div class="q-icon">👥</div>
-        <div class="q-label">員工管理</div>
-        <div class="q-sub">${canViewAllStores()?'全門市':'本店'}帳號</div>
-      </div>
-      <div class="quick-btn" style="background:linear-gradient(135deg,#1a73e8,#1557b0);border-color:transparent;" onclick="showWip('劃休系統')">
-        <div class="q-icon">📝</div>
-        <div class="q-label" style="color:white;">劃休系統</div>
-        <div class="q-sub" style="color:rgba(255,255,255,0.8);">申請排休</div>
-      </div>
-      <div class="quick-btn" onclick="window.location.href='salary.html'">
-        <div class="q-icon">📋</div>
-        <div class="q-label">薪資管理</div>
-        <div class="q-sub">${canViewAllSalary()?'全門市':'本店'}薪資</div>
-      </div>
-      ${currentUser.empName ? `
-      <div class="quick-btn" onclick="window.location.href='my-salary.html'">
-        <div class="q-icon">💰</div>
-        <div class="q-label">查看薪資</div>
-        <div class="q-sub">我的薪資</div>
-      </div>` : ''}
-      <div class="quick-btn" onclick="switchPage('profile')">
-        <div class="q-icon">👤</div>
-        <div class="q-label">個人資料</div>
-        <div class="q-sub">帳號設定</div>
-      </div>
-    `;
-  } else {
-    grid.innerHTML = `
-      <div class="quick-btn primary" onclick="window.location.href='schedule-V2.html'">
-        <div class="q-icon">📅</div>
-        <div class="q-label">查看班表</div>
-        <div class="q-sub">本店本週</div>
-      </div>
-      <div class="quick-btn" style="background:linear-gradient(135deg,#1a73e8,#1557b0);border-color:transparent;" onclick="showWip('劃休系統')">
-        <div class="q-icon">📝</div>
-        <div class="q-label" style="color:white;">劃休系統</div>
-        <div class="q-sub" style="color:rgba(255,255,255,0.8);">申請排休</div>
-      </div>
-      <div class="quick-btn" onclick="window.location.href='my-salary.html'">
-        <div class="q-icon">💰</div>
-        <div class="q-label">查看薪資</div>
-        <div class="q-sub">我的薪資</div>
-      </div>
-      <div class="quick-btn" onclick="switchPage('profile')">
-        <div class="q-icon">👤</div>
-        <div class="q-label">個人資料</div>
-        <div class="q-sub">帳號設定</div>
-      </div>
-    `;
+  // 折疊狀態記憶
+  const pState = localStorage.getItem('funcSection-personal') !== 'collapsed';
+  const mState = localStorage.getItem('funcSection-mgmt')     !== 'collapsed';
+  setFuncSectionState('personal', pState);
+  setFuncSectionState('mgmt', mState);
+
+  // ===== 常用功能（所有人）=====
+  const hasEmpName = !!currentUser.empName;
+  let personalBtns = `
+    <button class="func-btn blue-dark" onclick="window.location.href='schedule-V2.html'">
+      <div class="func-icon">📅</div><div class="func-label">查看班表</div>
+    </button>
+    <button class="func-btn purple" onclick="window.location.href='todo.html'">
+      <div class="func-icon">🗒️</div><div class="func-label">代辦事項</div>
+    </button>
+    <button class="func-btn purple" onclick="window.location.href='leave.html'">
+      <div class="func-icon">🏖️</div><div class="func-label">特休補休</div>
+    </button>`;
+
+  if(hasEmpName) {
+    personalBtns += `
+    <button class="func-btn orange" onclick="window.location.href='my-salary.html'">
+      <div class="func-icon">💰</div><div class="func-label">我的薪資</div>
+    </button>`;
   }
+
+  personalBtns += `
+    <button class="func-btn blue" onclick="showWip('劃休系統')">
+      <div class="func-icon">📝</div><div class="func-label">劃休申請</div>
+    </button>
+    <button class="func-btn gray" onclick="openAccountModal()">
+      <div class="func-icon">👤</div><div class="func-label">帳號管理</div>
+    </button>`;
+
+  personal.innerHTML = personalBtns;
+
+  // ===== 管理功能（店長以上）=====
+  if(!canSchedule()) {
+    mgmtSec.style.display = 'none';
+    return;
+  }
+  mgmtSec.style.display = 'block';
+
+  let mgmtBtns = `
+    <button class="func-btn blue-dark" onclick="window.location.href='schedule-V2.html?mode=admin'">
+      <div class="func-icon">📋</div><div class="func-label">排班管理</div>
+    </button>
+    <button class="func-btn orange-dark" onclick="window.location.href='salary.html'">
+      <div class="func-icon">💳</div><div class="func-label">薪資管理</div>
+    </button>
+    <button class="func-btn green" onclick="switchPage('employee')">
+      <div class="func-icon">👥</div><div class="func-label">員工管理</div>
+    </button>`;
+
+  if(canSchedule()) {
+    mgmtBtns += `
+    <button class="func-btn blue" onclick="openStoreConfigModal()">
+      <div class="func-icon">🔧</div><div class="func-label">門市設定</div>
+    </button>`;
+  }
+
+  // 角色預覽（店長以上）
+  mgmtBtns += `
+    <button class="func-btn purple" onclick="openRolePreviewModal()">
+      <div class="func-icon">🎭</div><div class="func-label">角色預覽</div>
+    </button>`;
+
+  // 系統設定（admin only）
+  if(canSysConfig()) {
+    mgmtBtns += `
+    <button class="func-btn gray" onclick="openSysConfigModal()">
+      <div class="func-icon">⚙️</div><div class="func-label">系統設定</div>
+    </button>`;
+  }
+
+  mgmt.innerHTML = mgmtBtns;
 }
+
+// 折疊/展開
+function toggleFuncSection(key) {
+  const grid  = document.getElementById(`grid-${key}`);
+  const arrow = document.getElementById(`arrow-${key}`);
+  if(!grid) return;
+  const isOpen = grid.classList.contains('expanded');
+  setFuncSectionState(key, !isOpen);
+  localStorage.setItem(`funcSection-${key}`, isOpen ? 'collapsed' : 'expanded');
+}
+function setFuncSectionState(key, open) {
+  const grid  = document.getElementById(`grid-${key}`);
+  const arrow = document.getElementById(`arrow-${key}`);
+  if(!grid) return;
+  grid.classList.toggle('expanded',  open);
+  grid.classList.toggle('collapsed', !open);
+  if(arrow) arrow.classList.toggle('open', open);
+}
+
+// 帳號管理 Modal（原 switchPage('profile') 的功能）
+function openAccountModal() { switchPage('profile'); }
 
 function goToSchedule() { window.location.href = 'schedule-V2.html'; }
 function goToEmployee() { switchPage('employee'); }
