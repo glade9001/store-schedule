@@ -44,7 +44,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 
 /* Header */
 .header{background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:white;padding:0 16px;height:var(--header-h);display:flex;align-items:center;gap:10px;flex-shrink:0;box-shadow:0 2px 12px rgba(26,115,232,0.25);z-index:100;}
-.header-back{background:rgba(255,255,255,0.18);border:none;color:white;width:34px;height:34px;border-radius:10px;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.header-back{background:rgba(255,255,255,0.18);border:none;color:white;height:34px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0 12px;gap:4px;}
 .header-title{font-size:17px;font-weight:800;flex:1;}
 .header-add-btn{background:rgba(255,255,255,0.18);border:none;color:white;width:36px;height:36px;border-radius:50%;font-size:22px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background 0.15s;}
 .header-add-btn:active{background:rgba(255,255,255,0.35);}
@@ -199,7 +199,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 
 <div id="appShell">
   <div class="header">
-    <button class="header-back" onclick="handleBack()">←</button>
+    <button class="header-back" onclick="handleBack()">← 首頁</button>
     <div class="header-title">🗒️ 代辦事項</div>
     <button class="header-add-btn" id="headerAddBtn" onclick="openAddModal()" style="display:none;">＋</button>
   </div>
