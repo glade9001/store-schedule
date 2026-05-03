@@ -182,7 +182,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
       <button class="detail-month-btn" onclick="empDetailChangeMonth(1)">›</button>
     </div>
     <div id="empDetailLogs"></div>
-    <!-- 加盟主以上：手動新增 -->
+    <!-- 店長以上：手動新增 -->
     <div id="empDetailAddBtn" style="display:none;margin-top:12px;">
       <button onclick="openAddLogModal()" class="modal-action" style="background:var(--accent);">➕ 手動新增紀錄</button>
     </div>
@@ -215,7 +215,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
   </div>
 </div>
 
-<!-- ===== 手動新增特休 Modal（加盟主以上）===== -->
+<!-- ===== 手動新增/編輯紀錄 Modal（店長以上）===== -->
 <div class="modal-overlay" id="addLogModal" onclick="if(event.target===this)closeModal('addLogModal')">
   <div class="modal-box">
     <div class="modal-handle"></div>
@@ -249,7 +249,8 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
       若需結轉去年未休完的特休至今年，請選擇「特休 — 取得」，日期填寫今年的 1/1，並於備註註明「去年度遞延特休」。
     </div>
 
-    <button class="modal-action" onclick="saveAddLog()">確認新增</button>
+    <button class="modal-action" id="saveLogBtn" onclick="saveLog()">確認新增</button>
+    <button id="deleteLogBtn" style="width:100%;padding:10px;background:#fce8e6;color:var(--danger);border:none;border-radius:12px;font-size:14px;font-weight:800;cursor:pointer;margin-top:8px;display:none;" onclick="deleteLog()">🗑️ 刪除此紀錄</button>
     <button class="modal-cancel" onclick="closeModal('addLogModal')">取消</button>
   </div>
 </div>
@@ -268,6 +269,7 @@ let leaveDataAll = {}; // { empName: { annualDays, usedAnnual, earnedComp, usedC
 let currentTab = 'overview';
 let currentViewEmp = null;  // 目前查看的員工（管理者點入）
 let empDetailMonth = '';    // 明細頁月份
+let currentEditLog = null;  // 目前正在編輯的紀錄
 
 // ===== 權限判斷 =====
 const isAdmin   = () => ['owner','admin'].includes(currentUser?.permission);
@@ -565,6 +567,9 @@ function renderLogItem(log) {
     ? `$${(log.amount||0).toLocaleString()}`
     : `${t.sign}${log.days}天`;
 
+  // 避免文字內容造成 JSON.parse 錯誤
+  const logStr = encodeURIComponent(JSON.stringify(log));
+
   return `<div class="log-item">
     <div class="log-item-header">
       <span class="log-type-badge ${t.cls}">${t.label}</span>
@@ -572,7 +577,10 @@ function renderLogItem(log) {
       <span class="log-days ${t.cls}">${valStr}</span>
     </div>
     ${log.note ? `<div class="log-note">📝 ${log.note}</div>` : ''}
-    ${log.savedBy ? `<div class="log-note" style="margin-top:2px;">👤 ${log.savedBy}</div>` : ''}
+    <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-top:4px;">
+      ${log.savedBy ? `<div class="log-note" style="margin-top:0;">👤 ${log.savedBy}</div>` : '<div></div>'}
+      ${isManager() ? `<button onclick="openEditLogModal('${logStr}')" style="background:none;border:none;color:var(--primary);font-size:12px;font-weight:700;cursor:pointer;padding:4px 0;">✏️ 編輯</button>` : ''}
+    </div>
   </div>`;
 }
 
@@ -584,7 +592,7 @@ async function openEmpDetail(empName) {
 
   document.getElementById('empDetailName').textContent = empName;
   document.getElementById('empDetailRole').textContent = emp?.role || '';
-  document.getElementById('empDetailAddBtn').style.display = isAdmin() ? 'block' : 'none';
+  document.getElementById('empDetailAddBtn').style.display = isManager() ? 'block' : 'none';
 
   // 未建檔
   if(!data || !data.hireDate) {
@@ -733,7 +741,7 @@ function previewAnnualDays() {
     }
   });
 
-  // 👇 公司規則：直接進位到個位數 (Math.ceil 無條件進位)
+  // 公司規則：直接進位到個位數 (Math.ceil 無條件進位)
   let suggested = Math.ceil(totalDays); 
 
   el.style.display = 'block';
@@ -779,7 +787,8 @@ async function saveHireDate() {
     await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
       date: `${currentYear}-01-01`, type: 'annual_earn', days: annualDays,
       note: `${currentYear} 年度特休發放（到職日：${hireDate}）`,
-      savedBy: currentUser.displayName || currentUser.empName
+      savedBy: currentUser.displayName || currentUser.empName,
+      id: Date.now().toString()
     })}, { merge: true });
     
     leaveDataAll[empName] = { ...existing, hireDate, annualDays, usedAnnual:existing.usedAnnual||0, earnedComp:existing.earnedComp||0, usedComp:existing.usedComp||0 };
@@ -792,14 +801,32 @@ async function saveHireDate() {
   hideLoading();
 }
 
-// ===== 手動新增紀錄 Modal（加盟主以上）=====
+// ===== 手動新增/編輯紀錄 Modal（店長以上）=====
 function openAddLogModal() {
-  if(!isAdmin()) return;
+  if(!isManager()) return;
+  currentEditLog = null;
   document.getElementById('addLogTitle').textContent = `手動新增：${currentViewEmp}`;
   document.getElementById('addLogDate').value = getCurrentYM() + '-01';
   document.getElementById('addLogDays').value = '';
   document.getElementById('addLogNote').value = '';
   document.getElementById('addLogWarn').style.display = 'none';
+  document.getElementById('saveLogBtn').textContent = '確認新增';
+  document.getElementById('deleteLogBtn').style.display = 'none';
+  onAddLogTypeChange();
+  openModal('addLogModal');
+}
+
+function openEditLogModal(logStr) {
+  if(!isManager()) return;
+  const log = JSON.parse(decodeURIComponent(logStr));
+  currentEditLog = log;
+  document.getElementById('addLogTitle').textContent = `編輯紀錄：${currentViewEmp}`;
+  document.getElementById('addLogType').value = log.type;
+  document.getElementById('addLogDate').value = log.date;
+  document.getElementById('addLogDays').value = log.days;
+  document.getElementById('addLogNote').value = log.note || '';
+  document.getElementById('saveLogBtn').textContent = '💾 儲存修改';
+  document.getElementById('deleteLogBtn').style.display = 'block';
   onAddLogTypeChange();
   openModal('addLogModal');
 }
@@ -822,8 +849,8 @@ function onAddLogTypeChange() {
   }
 }
 
-async function saveAddLog() {
-  if(!isAdmin()) return;
+async function saveLog() {
+  if(!isManager()) return;
   const empName = currentViewEmp;
   const type  = document.getElementById('addLogType').value;
   const date  = document.getElementById('addLogDate').value;
@@ -834,45 +861,143 @@ async function saveAddLog() {
 
   // 防呆：使用不能超過剩餘
   const data = leaveDataAll[empName] || {};
-  if(type === 'annual_use') {
-    const remain = Math.max(0,(data.annualDays||0)-(data.usedAnnual||0));
-    if(days > remain){ showToast(`⚠️ 剩餘特休僅 ${remain} 天，無法使用 ${days} 天`); return; }
+  let remainAnn = Math.max(0,(data.annualDays||0)-(data.usedAnnual||0));
+  let remainComp = Math.max(0,(data.earnedComp||0)-(data.usedComp||0));
+  
+  // 如果是編輯模式，先把原本扣掉的天數加回來做驗證
+  if(currentEditLog) {
+    if(currentEditLog.type === 'annual_use') remainAnn += currentEditLog.days;
+    if(currentEditLog.type === 'comp_use') remainComp += currentEditLog.days;
   }
-  if(type === 'comp_use') {
-    const remain = Math.max(0,(data.earnedComp||0)-(data.usedComp||0));
-    if(days > remain){ showToast(`⚠️ 剩餘補休僅 ${remain} 天，無法使用 ${days} 天`); return; }
-  }
+
+  if(type === 'annual_use' && days > remainAnn){ showToast(`⚠️ 剩餘特休僅 ${remainAnn} 天，無法使用 ${days} 天`); return; }
+  if(type === 'comp_use' && days > remainComp){ showToast(`⚠️ 剩餘補休僅 ${remainComp} 天，無法使用 ${days} 天`); return; }
 
   showLoading('儲存中...');
   try{
     const ym = date.slice(0, 7); // "YYYY-MM"
     const year = date.slice(0, 4);
-    const logRef  = window.db.collection('employees').doc(empName).collection('leaveLog').doc(ym);
-    const leaveRef = window.db.collection('employees').doc(empName).collection('leaves').doc(year);
-
-    // 寫入明細
-    await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
+    
+    const newLog = {
       date, type, days, note: note || '',
-      savedBy: currentUser.displayName || currentUser.empName
-    })}, { merge: true });
+      savedBy: currentUser.displayName || currentUser.empName,
+      id: currentEditLog ? (currentEditLog.id || Date.now().toString()) : Date.now().toString()
+    };
 
-    // 更新總帳
-    const snap = await leaveRef.get();
-    const ld = snap.exists ? snap.data() : { annualDays:0, usedAnnual:0, earnedComp:0, usedComp:0 };
-    if(type === 'annual_earn') ld.annualDays  = (ld.annualDays  || 0) + days;
-    if(type === 'annual_use')  ld.usedAnnual  = (ld.usedAnnual  || 0) + days;
-    if(type === 'comp_earn')   ld.earnedComp  = (ld.earnedComp  || 0) + days;
-    if(type === 'comp_use')    ld.usedComp    = (ld.usedComp    || 0) + days;
-    ld.store = currentStore;
-    ld.updatedAt = new Date().toISOString();
-    await leaveRef.set(ld, { merge: true });
+    if (currentEditLog) {
+      // ===== 編輯模式 =====
+      const oldYm = currentEditLog.date.slice(0, 7);
+      const oldYear = currentEditLog.date.slice(0, 4);
+      
+      // 1. 從舊的月份移除舊紀錄
+      await window.db.collection('employees').doc(empName).collection('leaveLog').doc(oldYm).update({
+        records: firebase.firestore.FieldValue.arrayRemove(currentEditLog)
+      });
 
-    leaveDataAll[empName] = ld;
+      // 2. 處理總帳更新
+      if (oldYear !== year) {
+        // 如果跨年編輯，先扣回舊年份的總帳，再加到新年份
+        const oldLeaveRef = window.db.collection('employees').doc(empName).collection('leaves').doc(oldYear);
+        const oldSnap = await oldLeaveRef.get();
+        let oldLd = oldSnap.exists ? oldSnap.data() : { annualDays:0, usedAnnual:0, earnedComp:0, usedComp:0 };
+        if(currentEditLog.type === 'annual_earn') oldLd.annualDays  = Math.max(0, (oldLd.annualDays  || 0) - currentEditLog.days);
+        if(currentEditLog.type === 'annual_use')  oldLd.usedAnnual  = Math.max(0, (oldLd.usedAnnual  || 0) - currentEditLog.days);
+        if(currentEditLog.type === 'comp_earn')   oldLd.earnedComp  = Math.max(0, (oldLd.earnedComp  || 0) - currentEditLog.days);
+        if(currentEditLog.type === 'comp_use')    oldLd.usedComp    = Math.max(0, (oldLd.usedComp    || 0) - currentEditLog.days);
+        await oldLeaveRef.set(oldLd, { merge: true });
+
+        const newLeaveRef = window.db.collection('employees').doc(empName).collection('leaves').doc(year);
+        const newSnap = await newLeaveRef.get();
+        let newLd = newSnap.exists ? newSnap.data() : { annualDays:0, usedAnnual:0, earnedComp:0, usedComp:0 };
+        if(type === 'annual_earn') newLd.annualDays  = (newLd.annualDays  || 0) + days;
+        if(type === 'annual_use')  newLd.usedAnnual  = (newLd.usedAnnual  || 0) + days;
+        if(type === 'comp_earn')   newLd.earnedComp  = (newLd.earnedComp  || 0) + days;
+        if(type === 'comp_use')    newLd.usedComp    = (newLd.usedComp    || 0) + days;
+        newLd.updatedAt = new Date().toISOString();
+        await newLeaveRef.set(newLd, { merge: true });
+
+        if(year === currentYear) leaveDataAll[empName] = newLd;
+        if(oldYear === currentYear) leaveDataAll[empName] = oldLd;
+
+      } else {
+        // 沒有跨年的編輯，直接在同一年份先扣除舊的，再加入新的
+        const leaveRef = window.db.collection('employees').doc(empName).collection('leaves').doc(year);
+        const snap = await leaveRef.get();
+        let ld = snap.exists ? snap.data() : { annualDays:0, usedAnnual:0, earnedComp:0, usedComp:0 };
+        
+        if(currentEditLog.type === 'annual_earn') ld.annualDays  = Math.max(0, (ld.annualDays  || 0) - currentEditLog.days);
+        if(currentEditLog.type === 'annual_use')  ld.usedAnnual  = Math.max(0, (ld.usedAnnual  || 0) - currentEditLog.days);
+        if(currentEditLog.type === 'comp_earn')   ld.earnedComp  = Math.max(0, (ld.earnedComp  || 0) - currentEditLog.days);
+        if(currentEditLog.type === 'comp_use')    ld.usedComp    = Math.max(0, (ld.usedComp    || 0) - currentEditLog.days);
+        
+        if(type === 'annual_earn') ld.annualDays  = (ld.annualDays  || 0) + days;
+        if(type === 'annual_use')  ld.usedAnnual  = (ld.usedAnnual  || 0) + days;
+        if(type === 'comp_earn')   ld.earnedComp  = (ld.earnedComp  || 0) + days;
+        if(type === 'comp_use')    ld.usedComp    = (ld.usedComp    || 0) + days;
+        
+        ld.updatedAt = new Date().toISOString();
+        await leaveRef.set(ld, { merge: true });
+        if(year === currentYear) leaveDataAll[empName] = ld;
+      }
+    } else {
+      // ===== 純新增模式 =====
+      const leaveRef = window.db.collection('employees').doc(empName).collection('leaves').doc(year);
+      const snap = await leaveRef.get();
+      let ld = snap.exists ? snap.data() : { annualDays:0, usedAnnual:0, earnedComp:0, usedComp:0 };
+      if(type === 'annual_earn') ld.annualDays  = (ld.annualDays  || 0) + days;
+      if(type === 'annual_use')  ld.usedAnnual  = (ld.usedAnnual  || 0) + days;
+      if(type === 'comp_earn')   ld.earnedComp  = (ld.earnedComp  || 0) + days;
+      if(type === 'comp_use')    ld.usedComp    = (ld.usedComp    || 0) + days;
+      ld.updatedAt = new Date().toISOString();
+      await leaveRef.set(ld, { merge: true });
+      if(year === currentYear) leaveDataAll[empName] = ld;
+    }
+
+    // 將新紀錄寫入新月份
+    const logRef = window.db.collection('employees').doc(empName).collection('leaveLog').doc(ym);
+    await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion(newLog) }, { merge: true });
+
     closeModal('addLogModal');
-    showToast('✅ 已新增紀錄');
-    // 刷新 Modal 內容
+    showToast(currentEditLog ? '✅ 已更新紀錄' : '✅ 已新增紀錄');
     await openEmpDetail(empName);
-  }catch(e){ showToast('❌ 失敗：'+e.message); }
+  }catch(e){ showToast('❌ 失敗：'+e.message); console.error(e); }
+  hideLoading();
+}
+
+async function deleteLog() {
+  if(!currentEditLog) return;
+  if(!confirm('確定要刪除此筆紀錄嗎？此操作無法復原。')) return;
+
+  showLoading('刪除中...');
+  const empName = currentViewEmp;
+  try {
+    const oldYm = currentEditLog.date.slice(0, 7);
+    const oldYear = currentEditLog.date.slice(0, 4);
+    const oldLogRef = window.db.collection('employees').doc(empName).collection('leaveLog').doc(oldYm);
+    const oldLeaveRef = window.db.collection('employees').doc(empName).collection('leaves').doc(oldYear);
+
+    // 1. 移除明細
+    await oldLogRef.update({
+      records: firebase.firestore.FieldValue.arrayRemove(currentEditLog)
+    });
+
+    // 2. 扣回總帳
+    const oldSnap = await oldLeaveRef.get();
+    let oldLd = oldSnap.exists ? oldSnap.data() : { annualDays:0, usedAnnual:0, earnedComp:0, usedComp:0 };
+    if(currentEditLog.type === 'annual_earn') oldLd.annualDays  = Math.max(0, (oldLd.annualDays  || 0) - currentEditLog.days);
+    if(currentEditLog.type === 'annual_use')  oldLd.usedAnnual  = Math.max(0, (oldLd.usedAnnual  || 0) - currentEditLog.days);
+    if(currentEditLog.type === 'comp_earn')   oldLd.earnedComp  = Math.max(0, (oldLd.earnedComp  || 0) - currentEditLog.days);
+    if(currentEditLog.type === 'comp_use')    oldLd.usedComp    = Math.max(0, (oldLd.usedComp    || 0) - currentEditLog.days);
+    await oldLeaveRef.set(oldLd, { merge: true });
+    
+    if(oldYear === currentYear) leaveDataAll[empName] = oldLd;
+
+    closeModal('addLogModal');
+    showToast('✅ 紀錄已刪除');
+    await openEmpDetail(empName);
+  } catch(e) {
+    showToast('❌ 刪除失敗：' + e.message);
+  }
   hideLoading();
 }
 </script>
