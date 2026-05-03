@@ -1612,7 +1612,7 @@ async function loadStats() {
   }
 }
 
-// ===== 待處理事項（店長以上）=====
+// ===== 待處理事項（店長以上 + 員工自身代辦）=====
 async function loadPendingItems() {
   const weekStr = getCurrentWeekString();
   const nextWeek = getNextWeekString();
@@ -1623,66 +1623,91 @@ async function loadPendingItems() {
 
   try {
     for(const store of storesToScan) {
-      // 1. 檢查排班審核與畫休衝突
-      for(const wk of [weekStr, nextWeek]) {
-        const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(wk).get();
-        if(snap.exists && snap.data().records) {
-          snap.data().records.forEach(r => {
-            if(r.approvalStatus === 'pending' && r.supportEmp) {
-              pending.push({ type: '跨店待審', desc: `${store}｜${r.name} 申請 ${r.day} 支援`, link: 'schedule-V2.html?mode=admin', color: 'var(--danger)' });
-            }
-            if(r.requestOff && r.shift && r.shift !== '排休' && r.shift !== '指休') {
-              pending.push({ type: '畫休衝突', desc: `${store}｜${r.name} 在 ${r.day} 有畫休衝突`, link: 'schedule-V2.html?mode=admin', color: 'var(--danger)' });
-            }
-          });
-        }
-      }
-
-      // 2. 檢查特休建檔 與 滿半年自動解鎖提醒
-      const empSnap = await window.db.collection('stores').doc(store).collection('employees').get();
-      const emps = [];
-      empSnap.forEach(d => {
-        if(!['離職','調走'].includes(d.data().status)) emps.push(d.id);
-      });
-
-      for(const empName of emps) {
-        const leaveSnap = await window.db.collection('employees').doc(empName).collection('leaves').doc(currentYear).get();
-        const leaveData = leaveSnap.exists ? leaveSnap.data() : null;
-
-        if(!leaveData || !leaveData.hireDate) {
-          pending.push({ 
-            type: '特休建檔', 
-            desc: `${store}｜請幫 ${empName} 設定到職日與本年度特休`,
-            link: 'leave.html', 
-            color: 'var(--warn)' 
-          });
-        } else {
-          // 檢查是否剛滿半年，且特休總額還是 0
-          const hireD = new Date(leaveData.hireDate);
-          const halfYearD = new Date(hireD);
-          halfYearD.setMonth(halfYearD.getMonth() + 6);
-          const today = new Date();
-
-          if (today >= halfYearD && (leaveData.annualDays || 0) === 0) {
-            pending.push({
-              type: '特休解鎖',
-              desc: `${store}｜${empName} 已滿半年，請至系統手動發放特休`,
-              link: 'leave.html',
-              color: '#9334e6' // 醒目的紫色
+      
+      // ===== 只有「排班管理者(店長以上)」才看得到的系統提醒 =====
+      if (canSchedule()) {
+        // 1. 檢查排班審核與畫休衝突
+        for(const wk of [weekStr, nextWeek]) {
+          const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(wk).get();
+          if(snap.exists && snap.data().records) {
+            snap.data().records.forEach(r => {
+              if(r.approvalStatus === 'pending' && r.supportEmp) {
+                pending.push({ type: '跨店待審', desc: `${store}｜${r.name} 申請 ${r.day} 支援`, link: 'schedule-V2.html?mode=admin', color: 'var(--danger)' });
+              }
+              if(r.requestOff && r.shift && r.shift !== '排休' && r.shift !== '指休') {
+                pending.push({ type: '畫休衝突', desc: `${store}｜${r.name} 在 ${r.day} 有畫休衝突`, link: 'schedule-V2.html?mode=admin', color: 'var(--danger)' });
+              }
             });
           }
         }
+
+        // 2. 檢查特休建檔 與 滿半年自動解鎖提醒
+        const empSnap = await window.db.collection('stores').doc(store).collection('employees').get();
+        const emps = [];
+        empSnap.forEach(d => {
+          if(!['離職','調走'].includes(d.data().status)) emps.push(d.id);
+        });
+
+        for(const empName of emps) {
+          const leaveSnap = await window.db.collection('employees').doc(empName).collection('leaves').doc(currentYear).get();
+          const leaveData = leaveSnap.exists ? leaveSnap.data() : null;
+
+          if(!leaveData || !leaveData.hireDate) {
+            pending.push({ 
+              type: '特休建檔', 
+              desc: `${store}｜請幫 ${empName} 設定到職日與本年度特休`,
+              link: 'leave.html', 
+              color: 'var(--warn)' 
+            });
+          } else {
+            const hireD = new Date(leaveData.hireDate);
+            const halfYearD = new Date(hireD);
+            halfYearD.setMonth(halfYearD.getMonth() + 6);
+            const today = new Date();
+
+            if (today >= halfYearD && (leaveData.annualDays || 0) === 0) {
+              pending.push({
+                type: '特休解鎖',
+                desc: `${store}｜${empName} 已滿半年，請手動發放特休`,
+                link: 'leave.html',
+                color: '#9334e6' 
+              });
+            }
+          }
+        }
+        
+        // 3. 薪資未送出提醒
+        const now = new Date();
+        const lastDay = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+        const isLastWeek = now.getDate() > lastDay - 7;
+        if(isLastWeek) {
+          const ym = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+          try {
+            const salSnap = await window.db.collection('stores').doc(currentUser.store).collection('salary').doc(ym).get();
+            const status = salSnap.exists ? salSnap.data().status : 'draft';
+            if(status === 'draft') {
+              pending.push({
+                type: '薪資提醒',
+                desc: `${ym.replace('-','年')}月薪資尚未送出`,
+                link: 'salary.html',
+                color: 'var(--warn)'
+              });
+            }
+          } catch(e) {}
+        }
       }
+      // ===========================================
     }
   } catch(e) {
     console.error("讀取待處理事項失敗：", e);
   }
 
-  // ✅ 代辦事項未完成件數（所有人都計算）
+  // ✅ 代辦事項未完成件數（所有人都會計算，依據對每個人的可見度去抓取）
   try {
     const today = new Date().toISOString().split('T')[0];
     const empName = currentUser.empName || '';
     const store   = currentUser.store || '';
+    const isManagerRole = canSchedule();
 
     const [todoSnap, checkSnap] = await Promise.all([
       window.db.collection('todos').where('deleted','==',false).get(),
@@ -1696,15 +1721,20 @@ async function loadPendingItems() {
     todoSnap.forEach(d => {
       const t = { id:d.id, ...d.data() };
       if(t.type !== 'task' || t.isRecurring) return; // 只算一般代辦
-      if(myChecks[t.id]) return;                      // 已勾選完成
-      if(t.startDate && today < t.startDate) return;  // 尚未開始顯示
-      if(t.endDate   && today > t.endDate)   return;  // 已過截止
-      // 指派對象判斷
+      if(myChecks[t.id]) return;                     // 已勾選完成
+      if(t.startDate && today < t.startDate) return; // 尚未開始顯示
+      if(t.endDate   && today > t.endDate)   return; // 已過截止
+      
+      // 指派對象判斷 (與 todo 系統完全同步)
       const tt = t.targetType;
-      if(tt === 'self'     && t.createdBy !== empName) return;
-      if(tt === 'store'    && t.targetStore !== store && !(t.targetStores||[]).includes(store)) return;
-      if(tt === 'stores_manager' && !['manager','owner','admin'].includes(currentUser.permission)) return;
+      if(tt === 'self' && t.createdBy !== empName) return;
+      if(tt === 'store' && t.targetStore !== store && !(t.targetStores||[]).includes(store)) return;
+      if(tt === 'stores_manager') {
+         if(!isManagerRole) return; // 不是店長就看不到
+         if((t.targetStores||[]).length > 0 && !(t.targetStores||[]).includes(store) && t.targetStore !== store) return;
+      }
       if(tt === 'specific' && !(t.targetEmps||[]).includes(empName)) return;
+      
       todoCnt++;
     });
 
@@ -1718,32 +1748,10 @@ async function loadPendingItems() {
     }
   } catch(e) {}
 
-  // ✅ 薪資未送出提醒（原本獨立卡片，現在併入待處理）
-  if(canSchedule()) {
-    const now = new Date();
-    const lastDay = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
-    const isLastWeek = now.getDate() > lastDay - 7;
-    if(isLastWeek) {
-      const ym = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-      try {
-        const salSnap = await window.db.collection('stores').doc(currentUser.store).collection('salary').doc(ym).get();
-        const status = salSnap.exists ? salSnap.data().status : 'draft';
-        if(status === 'draft') {
-          pending.push({
-            type: '薪資提醒',
-            desc: `${ym.replace('-','年')}月薪資尚未送出`,
-            link: 'salary.html',
-            color: 'var(--warn)'
-          });
-        }
-      } catch(e) {}
-    }
-  }
-
   // 渲染到畫面
   document.getElementById('pendingCount').textContent = pending.length + ' 件';
 
-  // ✅ 更新上方 badge
+  // 更新上方 badge
   const badge = document.getElementById('pendingBadgeBar');
   if(badge) {
     if(pending.length > 0) {
