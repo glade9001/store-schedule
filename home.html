@@ -613,19 +613,11 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
           </div>
           <div class="menu-item-arrow">›</div>
         </div>
-        <div class="menu-item" onclick="showWip('特休管理')">
-          <div class="menu-item-icon" style="background:#e6f4ea;">🏖️</div>
+        <div class="menu-item" onclick="window.location.href='leave.html'">
+          <div class="menu-item-icon" style="background:#f3e8ff;">🏖️</div>
           <div class="menu-item-text">
-            <div class="menu-item-title">特休紀錄</div>
-            <div class="menu-item-sub">查看特休餘額與使用紀錄</div>
-          </div>
-          <div class="menu-item-arrow">›</div>
-        </div>
-        <div class="menu-item" onclick="showWip('補休管理')">
-          <div class="menu-item-icon" style="background:#fef7e0;">🔄</div>
-          <div class="menu-item-text">
-            <div class="menu-item-title">補休管理</div>
-            <div class="menu-item-sub">補休時數查詢與申請</div>
+            <div class="menu-item-title">特休 / 補休</div>
+            <div class="menu-item-sub">餘額查詢、使用紀錄與明細</div>
           </div>
           <div class="menu-item-arrow">›</div>
         </div>
@@ -1507,7 +1499,7 @@ function renderStatsArea() {
   } else {
     el.innerHTML = `
       <div class="stats-row">
-        <div class="stat-card" onclick="showWip('特休補休管理')">
+        <div class="stat-card" onclick="window.location.href='leave.html'" style="cursor:pointer;">
           <div class="stat-icon">🏖️</div>
           <div class="stat-val" id="statLeave" style="font-size:20px;">--</div>
           <div class="stat-label" id="statLeaveLabel">特休剩餘 (天)</div>
@@ -1638,8 +1630,30 @@ async function loadStats() {
         otEl.textContent = otVal;
         otEl.style.color = otVal > 0 ? 'var(--danger)' : 'var(--text)';
       }
-      // 特休補休待後續開發，顯示 --
-      if(leaveEl) leaveEl.textContent = '--';
+      // ✅ 從 Firestore 讀取真實特補休剩餘天數
+      const year = new Date().getFullYear().toString();
+      const empName = currentUser.empName || currentUser.displayName || '';
+      if(empName) {
+        window.db.collection('employees').doc(empName).collection('leaves').doc(year).get()
+          .then(snap => {
+            if(!snap.exists || !snap.data().hireDate) {
+              if(leaveEl) { leaveEl.textContent = '--'; leaveEl.style.color = 'var(--text-muted)'; }
+              return;
+            }
+            const ld = snap.data();
+            const remainAnn  = Math.max(0, (ld.annualDays||0)  - (ld.usedAnnual||0));
+            const remainComp = Math.max(0, (ld.earnedComp||0) - (ld.usedComp||0));
+            if(leaveEl) {
+              leaveEl.textContent = remainAnn;
+              leaveEl.style.color = remainAnn > 0 ? '#7c3aed' : 'var(--text-muted)';
+            }
+            const labelEl = document.getElementById('statLeaveLabel');
+            if(labelEl) labelEl.textContent = `特休剩餘 / 補休 ${remainComp} 天`;
+          })
+          .catch(() => { if(leaveEl) leaveEl.textContent = '--'; });
+      } else {
+        if(leaveEl) leaveEl.textContent = '--';
+      }
       const compEl = document.getElementById('statComp');
       if(compEl) compEl.textContent = '--';
     }
