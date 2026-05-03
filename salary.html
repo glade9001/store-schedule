@@ -2476,8 +2476,20 @@ window.onload = async () => {
 
     document.getElementById('appShell').classList.add('active');
     updateHeaderInfo();
-    // 預覽模式提示
-    const isPreview = sessionStorage.getItem('isPreviewMode') === '1';
+    // ✅ 預覽模式：需同時滿足 sessionStorage 有 isPreviewMode=1
+    // 且 sessionStorage 的 currentUser permission 與 localStorage 不同
+    let isPreview = false;
+    if(sessionStorage.getItem('isPreviewMode') === '1') {
+      const realStr  = localStorage.getItem('currentUser');
+      const sessStr  = sessionStorage.getItem('currentUser');
+      if(realStr && sessStr) {
+        try {
+          const real = JSON.parse(realStr);
+          const sess = JSON.parse(sessStr);
+          isPreview = real.permission !== sess.permission;
+        } catch(e) {}
+      }
+    }
     const previewBanner = document.getElementById('salaryPreviewBanner');
     if(previewBanner) previewBanner.style.display = isPreview ? 'block' : 'none';
     hideLoading();
