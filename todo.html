@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="莉學商行">
+<link rel="apple-touch-icon" href="icon-192.svg">
+<meta name="theme-color" content="#1a73e8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>🗒️ 代辦事項</title>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyAmVwq-Wny1KMRGNSdOnBEJ_A-3HmTO-hM",
+    authDomain: "store-schedule-3b056.firebaseapp.com",
+    projectId: "store-schedule-3b056",
+    storageBucket: "store-schedule-3b056.firebasestorage.app",
+    messagingSenderId: "296522693619",
+    appId: "1:296522693619:web:f90ec5d666c7a4a5943086"
+  };
+  firebase.initializeApp(firebaseConfig);
+  window.db = firebase.firestore();
+</script>
+<style>
+*,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
+:root {
+  --primary:#1a73e8; --primary-dark:#1557b0; --accent:#34a853;
+  --danger:#d93025; --warn:#f9ab00; --purple:#9334e6;
+  --bg:#f0f4ff; --text:#1e293b; --text-muted:#64748b; --border:#e2e8f0;
+  --header-h:56px; --radius:14px;
+}
+html,body { height:100%; overflow:hidden; background:var(--bg); font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif; color:var(--text); }
+
+/* Loading */
+#loadingOverlay { display:flex; position:fixed; inset:0; background:linear-gradient(135deg,#1a73e8,#0d47a1); z-index:99999; flex-direction:column; justify-content:center; align-items:center; color:white; transition:opacity 0.4s; }
+#loadingOverlay.hidden { opacity:0; pointer-events:none; }
+.spinner { width:40px; height:40px; border:4px solid rgba(255,255,255,0.3); border-top-color:white; border-radius:50%; animation:spin 0.8s linear infinite; margin-bottom:16px; }
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* App Shell */
+#appShell { display:none; flex-direction:column; height:100%; }
+#appShell.active { display:flex; }
+
+/* Header */
+.header { background:linear-gradient(135deg,var(--primary),var(--primary-dark)); color:white; padding:0 16px; height:var(--header-h); display:flex; align-items:center; gap:10px; flex-shrink:0; box-shadow:0 2px 12px rgba(26,115,232,0.3); }
+.header-back { background:rgba(255,255,255,0.2); border:none; color:white; width:34px; height:34px; border-radius:10px; font-size:18px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.header-title { font-size:17px; font-weight:800; flex:1; }
+.header-add { background:rgba(255,255,255,0.2); border:none; color:white; border-radius:10px; padding:6px 14px; font-size:14px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px; }
+.header-add:active { background:rgba(255,255,255,0.35); }
+
+/* Content */
+.content { flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; padding:14px 14px 80px; }
+
+/* Section */
+.section-label { font-size:11px; font-weight:800; color:var(--text-muted); letter-spacing:0.5px; margin:16px 0 8px; text-transform:uppercase; }
+.section-label:first-child { margin-top:0; }
+
+/* Todo Item */
+.todo-item {
+  background:white; border-radius:12px; padding:12px 14px;
+  margin-bottom:8px; box-shadow:0 1px 6px rgba(0,0,0,0.06);
+  display:flex; align-items:flex-start; gap:10px; cursor:pointer;
+  transition:opacity 0.2s;
+}
+.todo-item.checked { opacity:0.45; }
+.todo-item.announcement { border-left:4px solid var(--primary); }
+.todo-item.recurring { border-left:4px solid var(--purple); }
+.todo-checkbox {
+  width:22px; height:22px; border-radius:6px; border:2px solid var(--border);
+  flex-shrink:0; display:flex; align-items:center; justify-content:center;
+  font-size:13px; transition:all 0.2s; margin-top:1px;
+}
+.todo-checkbox.checked { background:var(--accent); border-color:var(--accent); color:white; }
+.todo-checkbox.no-check { background:#f1f3f4; border-color:#e2e8f0; color:var(--text-muted); font-size:11px; cursor:default; }
+.todo-body { flex:1; min-width:0; }
+.todo-title { font-size:14px; font-weight:700; line-height:1.4; }
+.todo-note { font-size:12px; color:var(--text-muted); margin-top:3px; }
+.todo-meta { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-top:5px; }
+.todo-tag { font-size:10px; font-weight:700; padding:2px 7px; border-radius:5px; }
+.todo-tag.store { background:#e8f0fe; color:var(--primary); }
+.todo-tag.person { background:#f3e8ff; color:var(--purple); }
+.todo-tag.deadline { background:#fce8e6; color:var(--danger); }
+.todo-tag.deadline.soon { animation:pulse 1.5s infinite; }
+.todo-tag.recurring-tag { background:#ede7f6; color:var(--purple); }
+@keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.6;} }
+.todo-persons { font-size:10px; color:var(--text-muted); margin-top:3px; }
+.todo-arrow { color:var(--text-muted); font-size:16px; flex-shrink:0; align-self:center; }
+
+/* Empty */
+.empty-state { text-align:center; padding:30px 20px; color:var(--text-muted); }
+.empty-icon { font-size:40px; margin-bottom:10px; }
+
+/* 折疊區 */
+.collapse-header { display:flex; align-items:center; gap:8px; cursor:pointer; padding:6px 0; }
+.collapse-icon { font-size:12px; transition:transform 0.2s; }
+.collapse-icon.open { transform:rotate(90deg); }
+
+/* Modal */
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:9000; display:flex; align-items:flex-end; justify-content:center; opacity:0; pointer-events:none; transition:opacity 0.3s; }
+.modal-overlay.active { opacity:1; pointer-events:all; }
+.modal-box { background:white; border-radius:22px 22px 0 0; width:100%; max-width:480px; padding:20px 20px 32px; max-height:90vh; overflow-y:auto; animation:slideUp 0.3s cubic-bezier(0.34,1.56,0.64,1); }
+@keyframes slideUp { from{transform:translateY(100%);} to{transform:translateY(0);} }
+.modal-handle { width:36px; height:4px; background:#e2e8f0; border-radius:2px; margin:0 auto 16px; }
+.modal-title { font-size:17px; font-weight:900; margin-bottom:14px; }
+.form-field { margin-bottom:14px; }
+.form-field label { display:block; font-size:11px; font-weight:700; color:var(--text-muted); margin-bottom:5px; letter-spacing:0.3px; }
+.form-field input,.form-field select,.form-field textarea {
+  width:100%; padding:10px 12px; border:1.5px solid var(--border);
+  border-radius:10px; font-size:14px; font-weight:600; outline:none; background:#f8fafc;
+  font-family:inherit;
+}
+.form-field input:focus,.form-field select:focus,.form-field textarea:focus { border-color:var(--primary); background:white; }
+.form-field textarea { resize:none; height:72px; }
+.modal-action { width:100%; padding:14px; background:var(--primary); color:white; border:none; border-radius:12px; font-size:15px; font-weight:800; cursor:pointer; margin-top:8px; }
+.modal-cancel { width:100%; padding:10px; background:none; border:none; color:var(--text-muted); font-size:14px; cursor:pointer; margin-top:6px; }
+
+/* Type Toggle */
+.type-toggle { display:flex; gap:8px; margin-bottom:14px; }
+.type-btn { flex:1; padding:10px; border:1.5px solid var(--border); border-radius:10px; background:white; font-size:13px; font-weight:700; cursor:pointer; text-align:center; color:var(--text-muted); }
+.type-btn.active { border-color:var(--primary); background:#e8f0fe; color:var(--primary); }
+
+/* Target chips */
+.target-chips { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
+.target-chip { padding:6px 12px; border-radius:8px; border:1.5px solid var(--border); background:white; font-size:12px; font-weight:700; cursor:pointer; color:var(--text-muted); }
+.target-chip.active { border-color:var(--primary); background:#e8f0fe; color:var(--primary); }
+
+/* Person list */
+.person-list { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+.person-chip { padding:5px 10px; border-radius:8px; border:1.5px solid var(--border); background:white; font-size:12px; font-weight:700; cursor:pointer; }
+.person-chip.selected { border-color:var(--purple); background:#f3e8ff; color:var(--purple); }
+
+/* Toast */
+.toast { position:fixed; bottom:80px; left:50%; transform:translateX(-50%) translateY(20px); background:#1e293b; color:white; padding:10px 20px; border-radius:20px; font-size:13px; font-weight:700; z-index:9999; opacity:0; transition:all 0.3s; pointer-events:none; white-space:nowrap; }
+.toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+
+/* Detail Modal 操作按鈕 */
+.detail-actions { display:flex; gap:8px; margin-top:14px; }
+.detail-btn { flex:1; padding:10px; border:none; border-radius:10px; font-size:13px; font-weight:700; cursor:pointer; }
+.detail-btn.edit { background:#e8f0fe; color:var(--primary); }
+.detail-btn.delete { background:#fce8e6; color:var(--danger); }
+</style>
+</head>
+<body>
+<div id="loadingOverlay"><div class="spinner"></div><div id="loadingText">載入代辦事項...</div></div>
+
+<div id="appShell">
+  <div class="header">
+    <button class="header-back" onclick="handleBack()">←</button>
+    <div class="header-title">🗒️ 代辦事項</div>
+    <button class="header-add" onclick="openAddModal()">＋ 新增</button>
+  </div>
+  <div class="content" id="mainContent">
+    <div class="empty-state"><div class="spinner" style="border-top-color:var(--primary);border-color:var(--border);margin:0 auto 10px;"></div></div>
+  </div>
+</div>
+
+<!-- ===== 新增/編輯 Modal ===== -->
+<div class="modal-overlay" id="addModal" onclick="if(event.target===this)closeModal('addModal')">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="addModalTitle">新增代辦</div>
+
+    <!-- 類型切換 -->
+    <div class="type-toggle" id="typeToggle">
+      <button class="type-btn active" id="typeTask" onclick="setType('task')">☐ 一般代辦</button>
+      <button class="type-btn" id="typeAnnouncement" onclick="setType('announcement')">📢 公告事項</button>
+    </div>
+
+    <div class="form-field">
+      <label>標題 *</label>
+      <input type="text" id="fTitle" placeholder="代辦事項標題">
+    </div>
+    <div class="form-field">
+      <label>備註說明</label>
+      <textarea id="fNote" placeholder="詳細說明（選填）"></textarea>
+    </div>
+
+    <!-- 時間區間 -->
+    <div class="form-row" style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+      <div class="form-field" style="margin-bottom:0;">
+        <label>開始顯示日</label>
+        <input type="date" id="fStartDate">
+      </div>
+      <div class="form-field" style="margin-bottom:0;" id="endDateGroup">
+        <label>截止日</label>
+        <input type="date" id="fEndDate">
+      </div>
+    </div>
+    <div style="margin-bottom:14px;"></div>
+
+    <!-- 週期設定 -->
+    <div class="form-field" id="recurringGroup">
+      <label>
+        <input type="checkbox" id="fIsRecurring" onchange="toggleRecurring()" style="margin-right:6px;">
+        週期型
+      </label>
+      <div id="recurringOptions" style="display:none; margin-top:10px; background:#f8fafc; border-radius:10px; padding:12px;">
+        <div class="form-field" style="margin-bottom:10px;">
+          <label>週期類型</label>
+          <select id="fRecurringType" onchange="onRecurringTypeChange()">
+            <option value="weekly">每週</option>
+            <option value="monthly">每月</option>
+            <option value="custom">自訂間隔</option>
+          </select>
+        </div>
+        <div class="form-field" style="margin-bottom:10px;" id="recurringDayGroup">
+          <label id="recurringDayLabel">星期幾</label>
+          <select id="fRecurringDay">
+            <option value="1">週一</option><option value="2">週二</option>
+            <option value="3">週三</option><option value="4">週四</option>
+            <option value="5">週五</option><option value="6">週六</option>
+            <option value="7">週日</option>
+          </select>
+        </div>
+        <div class="form-field" style="margin-bottom:10px; display:none;" id="recurringIntervalGroup">
+          <label>每隔幾天</label>
+          <input type="number" id="fRecurringInterval" min="1" value="7" placeholder="天數">
+        </div>
+        <div class="form-field" style="margin-bottom:0;">
+          <label>週期結束日（選填）</label>
+          <input type="date" id="fRecurringEnd">
+        </div>
+      </div>
+    </div>
+
+    <!-- 指派對象（店長以上才顯示）-->
+    <div id="targetGroup" style="display:none;">
+      <div class="form-field">
+        <label>指派對象</label>
+        <div class="target-chips" id="targetChips"></div>
+      </div>
+
+      <!-- 門市選擇（加盟主跨門市）-->
+      <div class="form-field" id="storeSelectGroup" style="display:none;">
+        <label>選擇門市</label>
+        <div class="target-chips" id="storeChips"></div>
+      </div>
+
+      <!-- 特定人員選擇 -->
+      <div class="form-field" id="personSelectGroup" style="display:none;">
+        <label>選擇人員</label>
+        <div class="person-list" id="personChips"></div>
+      </div>
+    </div>
+
+    <button class="modal-action" onclick="saveTodo()">確認新增</button>
+    <button class="modal-cancel" onclick="closeModal('addModal')">取消</button>
+  </div>
+</div>
+
+<!-- ===== 詳細檢視 Modal ===== -->
+<div class="modal-overlay" id="detailModal" onclick="if(event.target===this)closeModal('detailModal')">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div id="detailContent"></div>
+    <div class="detail-actions" id="detailActions"></div>
+    <button class="modal-cancel" onclick="closeModal('detailModal')">關閉</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ===== 全域狀態 =====
+let currentUser = null;
+let appConfig = { stores: [], shifts: [] };
+let allTodos = [];        // 從 Firestore 讀取的原始資料
+let myChecks = {};        // { todoId: true }
+let displayNameMap = {};  // { empName: displayName }
+let empListCache = {};    // { store: [empName,...] }
+let editingId = null;     // 編輯模式的 todoId
+let currentType = 'task';
+let selectedTargetType = 'self';
+let selectedStores = [];
+let selectedPersons = [];
+let doneCollapsed = true;
+
+// ===== 權限 =====
+const isAdmin   = () => ['owner','admin'].includes(currentUser?.permission);
+const isManager = () => ['manager','owner','admin'].includes(currentUser?.permission);
+const myStore   = () => currentUser?.store || '';
+const myName    = () => currentUser?.empName || '';
+const myDisplay = () => displayNameMap[myName()] || myName();
+
+// ===== 工具 =====
+function showLoading(msg){ document.getElementById('loadingText').textContent=msg||'載入中...'; const ov=document.getElementById('loadingOverlay'); ov.classList.remove('hidden'); ov.style.display='flex'; }
+function hideLoading(){ document.getElementById('loadingOverlay').classList.add('hidden'); setTimeout(()=>{ document.getElementById('loadingOverlay').style.display='none'; },400); }
+function showToast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2500); }
+function openModal(id){ document.getElementById(id).classList.add('active'); }
+function closeModal(id){ document.getElementById(id).classList.remove('active'); }
+function getDisplayName(empName){ return displayNameMap[empName] || empName; }
+function handleBack(){ if(window.history.length>1) window.history.back(); else window.location.href='home.html'; }
+function todayStr(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function dateLabel(str){ if(!str) return ''; const[y,m,d]=str.split('-'); return `${parseInt(m)}/${parseInt(d)}`; }
+function daysUntil(str){ if(!str) return null; const t=new Date(str); t.setHours(23,59,59); return Math.ceil((t-new Date())/86400000); }
+
+// ===== 勞基法週期計算 =====
+// 給定一個週期型 todo，計算「今天開始往後最近一次觸發日」
+function calcNextOccurrence(todo) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const start = todo.startDate ? new Date(todo.startDate) : today;
+  const end   = todo.recurringEnd ? new Date(todo.recurringEnd) : null;
+  if(end && today > end) return null; // 已超過結束日
+
+  if(todo.recurringType === 'weekly') {
+    // 每週幾：找本週或下週的對應星期
+    const targetDay = parseInt(todo.recurringDay || 1); // 1=週一 7=週日
+    const todayDow = today.getDay() === 0 ? 7 : today.getDay(); // 轉成 1-7
+    let diff = targetDay - todayDow;
+    if(diff < 0) diff += 7;
+    const next = new Date(today); next.setDate(today.getDate() + diff);
+    if(next < start) { next.setDate(next.getDate() + 7); }
+    return end && next > end ? null : next;
+  }
+  if(todo.recurringType === 'monthly') {
+    const targetDate = parseInt(todo.recurringDay || 1);
+    const next = new Date(today.getFullYear(), today.getMonth(), targetDate);
+    if(next < today) next.setMonth(next.getMonth() + 1);
+    if(next < start) next.setMonth(next.getMonth() + 1);
+    return end && next > end ? null : next;
+  }
+  if(todo.recurringType === 'custom') {
+    const interval = parseInt(todo.recurringInterval || 7);
+    let cur = new Date(start);
+    while(cur < today) cur.setDate(cur.getDate() + interval);
+    return end && cur > end ? null : cur;
+  }
+  return null;
+}
+
+// ===== 判斷 todo 是否對「我」可見 =====
+function isVisibleToMe(todo) {
+  const today = todayStr();
+  // 顯示區間判斷
+  if(todo.startDate && today < todo.startDate) return false;
+  // 週期型：用 calcNextOccurrence 判斷是否有下一次
+  if(todo.isRecurring) {
+    const next = calcNextOccurrence(todo);
+    return next !== null;
+  }
+  // 公告型：截止日過了就消失（除非被刪）
+  if(todo.type === 'announcement' && todo.endDate && today > todo.endDate) return false;
+  if(todo.deleted) return false;
+
+  // 指派對象判斷
+  const tt = todo.targetType;
+  if(tt === 'self') return todo.createdBy === myName() || todo.createdByDisplay === myDisplay();
+  if(tt === 'all') return true;
+  if(tt === 'store') return (todo.targetStore === myStore()) || (todo.targetStores||[]).includes(myStore());
+  if(tt === 'stores_manager') return isManager() && ((todo.targetStores||[]).includes(myStore()) || todo.targetStore === myStore());
+  if(tt === 'specific') return (todo.targetEmps||[]).includes(myName());
+  return false;
+}
+
+// ===== 初始化 =====
+window.onload = async () => {
+  showLoading('驗證登入狀態...');
+  const saved = localStorage.getItem('currentUser') || sessionStorage.getItem('currentUser');
+  if(!saved){ window.location.replace('home.html'); return; }
+  try{ currentUser = JSON.parse(saved); } catch(e){ window.location.replace('home.html'); return; }
+
+  showLoading('載入設定...');
+  try{
+    const cached = localStorage.getItem('appConfig');
+    if(cached) try{ appConfig=JSON.parse(cached); }catch(e){}
+    try{
+      const snap = await Promise.race([
+        window.db.collection('settings').doc('globalConfig').get(),
+        new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')),5000))
+      ]);
+      if(snap.exists){ appConfig=snap.data(); localStorage.setItem('appConfig',JSON.stringify(appConfig)); }
+    }catch(e){}
+
+    // 讀 displayName
+    const accSnap = await window.db.collection('account').where('store','==',myStore()).get().catch(()=>null);
+    if(accSnap) accSnap.forEach(d=>{ const a=d.data(); if(a.empName&&a.displayName) displayNameMap[a.empName]=a.displayName; });
+
+    await loadTodos();
+    document.getElementById('appShell').classList.add('active');
+    hideLoading();
+  }catch(e){ hideLoading(); alert('載入失敗：'+e.message); }
+};
+
+// ===== 讀取 todos =====
+async function loadTodos() {
+  showLoading('載入代辦事項...');
+  try{
+    // 讀所有可能與我有關的 todos
+    const snap = await window.db.collection('todos')
+      .where('deleted','==',false)
+      .orderBy('createdAt','desc')
+      .get();
+    allTodos = [];
+    snap.forEach(d => allTodos.push({ id:d.id, ...d.data() }));
+
+    // 讀個人勾選狀態
+    const checkSnap = await window.db.collection('todoChecks')
+      .where('empName','==',myName()).get();
+    myChecks = {};
+    checkSnap.forEach(d=>{ const data=d.data(); if(data.checked) myChecks[data.todoId]=true; });
+
+    renderAll();
+  }catch(e){ showToast('讀取失敗：'+e.message); }
+  hideLoading();
+}
+
+// ===== 渲染主頁面 =====
+function renderAll() {
+  const el = document.getElementById('mainContent');
+  const today = todayStr();
+
+  // 篩選可見的 todos
+  const visible = allTodos.filter(t => isVisibleToMe(t) && !t.deleted);
+
+  // 分類
+  const myTasks      = visible.filter(t => t.type==='task' && !t.isRecurring && !myChecks[t.id]);
+  const announcements= visible.filter(t => t.type==='announcement' && !t.isRecurring);
+  const recurring    = visible.filter(t => t.isRecurring);
+  const done         = visible.filter(t => t.type==='task' && !t.isRecurring && myChecks[t.id]);
+
+  // 公告依截止日排序（無截止日排最後）
+  announcements.sort((a,b) => {
+    if(!a.endDate && !b.endDate) return 0;
+    if(!a.endDate) return 1;
+    if(!b.endDate) return -1;
+    return a.endDate.localeCompare(b.endDate);
+  });
+  // 週期依下次觸發日排序
+  recurring.sort((a,b) => {
+    const na = calcNextOccurrence(a), nb = calcNextOccurrence(b);
+    if(!na && !nb) return 0; if(!na) return 1; if(!nb) return -1;
+    return na - nb;
+  });
+
+  let html = '';
+
+  // 我的代辦
+  html += `<div class="section-label">☐ 我的代辦</div>`;
+  if(myTasks.length === 0) {
+    html += `<div class="empty-state" style="padding:16px 0;"><div style="font-size:28px;margin-bottom:6px;">✅</div><div>沒有待辦事項</div></div>`;
+  } else {
+    html += myTasks.map(t => renderTaskItem(t, false)).join('');
+  }
+
+  // 公告事項
+  if(announcements.length > 0) {
+    html += `<div class="section-label">📢 公告事項</div>`;
+    html += announcements.map(t => renderAnnouncementItem(t)).join('');
+  }
+
+  // 週期提醒
+  if(recurring.length > 0) {
+    html += `<div class="section-label">🔄 週期提醒</div>`;
+    html += recurring.map(t => renderRecurringItem(t)).join('');
+  }
+
+  // 已完成（可折疊）
+  if(done.length > 0) {
+    html += `<div class="collapse-header" onclick="toggleDone()">
+      <span class="collapse-icon ${doneCollapsed?'':'open'}" id="doneCollapseIcon">›</span>
+      <span class="section-label" style="margin:0;">已完成（${done.length} 項）</span>
+    </div>`;
+    html += `<div id="doneList" style="display:${doneCollapsed?'none':'block'};">`;
+    html += done.map(t => renderTaskItem(t, true)).join('');
+    html += `</div>`;
+  }
+
+  el.innerHTML = html || `<div class="empty-state"><div class="empty-icon">🗒️</div><div>目前沒有代辦事項</div></div>`;
+}
+
+function toggleDone() {
+  doneCollapsed = !doneCollapsed;
+  const list = document.getElementById('doneList');
+  const icon = document.getElementById('doneCollapseIcon');
+  if(list) list.style.display = doneCollapsed ? 'none' : 'block';
+  if(icon) icon.classList.toggle('open', !doneCollapsed);
+}
+
+// ===== 渲染各類型 item =====
+function renderTaskItem(todo, isDone) {
+  const checked = !!myChecks[todo.id];
+  const persons = buildPersonsHtml(todo);
+  const deadlineTag = buildDeadlineTag(todo.endDate);
+  return `<div class="todo-item ${isDone?'checked':''}" onclick="openDetail('${todo.id}')">
+    <div class="todo-checkbox ${checked?'checked':''}" onclick="event.stopPropagation(); toggleCheck('${todo.id}')">${checked?'✓':''}</div>
+    <div class="todo-body">
+      <div class="todo-title">${todo.title}</div>
+      ${todo.note ? `<div class="todo-note">${todo.note}</div>` : ''}
+      <div class="todo-meta">
+        ${deadlineTag}
+        ${buildScopeTag(todo)}
+      </div>
+      ${persons}
+    </div>
+    <div class="todo-arrow">›</div>
+  </div>`;
+}
+
+function renderAnnouncementItem(todo) {
+  const persons = buildPersonsHtml(todo);
+  const deadlineTag = buildDeadlineTag(todo.endDate);
+  return `<div class="todo-item announcement" onclick="openDetail('${todo.id}')">
+    <div class="todo-checkbox no-check">📢</div>
+    <div class="todo-body">
+      <div class="todo-title">${todo.title}</div>
+      ${todo.note ? `<div class="todo-note">${todo.note}</div>` : ''}
+      <div class="todo-meta">
+        ${deadlineTag}
+        ${buildScopeTag(todo)}
+      </div>
+      ${persons}
+    </div>
+    <div class="todo-arrow">›</div>
+  </div>`;
+}
+
+function renderRecurringItem(todo) {
+  const next = calcNextOccurrence(todo);
+  const nextStr = next ? `${next.getMonth()+1}/${next.getDate()}` : '--';
+  const isAnn = todo.type === 'announcement';
+  const persons = buildPersonsHtml(todo);
+  return `<div class="todo-item recurring" onclick="openDetail('${todo.id}')">
+    <div class="todo-checkbox no-check">${isAnn?'📢':'🔄'}</div>
+    <div class="todo-body">
+      <div class="todo-title">${todo.title}</div>
+      ${todo.note ? `<div class="todo-note">${todo.note}</div>` : ''}
+      <div class="todo-meta">
+        <span class="todo-tag recurring-tag">🔄 ${recurringLabel(todo)}</span>
+        <span class="todo-tag deadline">下次：${nextStr}</span>
+        ${buildScopeTag(todo)}
+      </div>
+      ${persons}
+    </div>
+    <div class="todo-arrow">›</div>
+  </div>`;
+}
+
+function recurringLabel(todo) {
+  if(todo.recurringType==='weekly'){
+    const days=['','週一','週二','週三','週四','週五','週六','週日'];
+    return `每週${days[todo.recurringDay]||''}`;
+  }
+  if(todo.recurringType==='monthly') return `每月${todo.recurringDay}號`;
+  if(todo.recurringType==='custom') return `每${todo.recurringInterval}天`;
+  return '週期';
+}
+
+function buildDeadlineTag(endDate) {
+  if(!endDate) return '';
+  const days = daysUntil(endDate);
+  if(days === null) return '';
+  const label = days < 0 ? '已截止' : days === 0 ? '今天截止' : `${days}天後截止`;
+  const cls = days !== null && days <= 2 ? 'deadline soon' : 'deadline';
+  return `<span class="todo-tag ${cls}">📅 ${dateLabel(endDate)} ${label}</span>`;
+}
+
+function buildScopeTag(todo) {
+  const tt = todo.targetType;
+  if(tt==='self') return '';
+  if(tt==='all') return `<span class="todo-tag store">全體</span>`;
+  if(tt==='store') return `<span class="todo-tag store">${todo.targetStore||''}</span>`;
+  if(tt==='stores_manager') return `<span class="todo-tag store">店長群</span>`;
+  if(tt==='specific') return `<span class="todo-tag person">指定人員</span>`;
+  return '';
+}
+
+function buildPersonsHtml(todo) {
+  const emps = todo.targetEmps || [];
+  if(!emps.length) return '';
+  const names = emps.map(n => getDisplayName(n)).join('、');
+  return `<div class="todo-persons">👤 ${names}</div>`;
+}
+
+// ===== 勾選完成 =====
+async function toggleCheck(todoId) {
+  const newVal = !myChecks[todoId];
+  myChecks[todoId] = newVal;
+  renderAll();
+  try{
+    const docId = `${todoId}__${myName()}`;
+    await window.db.collection('todoChecks').doc(docId).set({
+      todoId, empName: myName(), checked: newVal, checkedAt: todayStr()
+    });
+  }catch(e){ showToast('儲存失敗：'+e.message); }
+}
+
+// ===== 詳細檢視 Modal =====
+function openDetail(todoId) {
+  const todo = allTodos.find(t=>t.id===todoId);
+  if(!todo) return;
+
+  const isAnn = todo.type==='announcement';
+  const isRec = todo.isRecurring;
+  const next  = isRec ? calcNextOccurrence(todo) : null;
+  const deadlineTag = buildDeadlineTag(todo.endDate);
+  const canEdit = canManageTodo(todo);
+
+  const content = document.getElementById('detailContent');
+  content.innerHTML = `
+    <div style="font-size:18px; font-weight:900; margin-bottom:8px;">${todo.title}</div>
+    <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px;">
+      ${isAnn?'📢 公告':isRec?'🔄 週期提醒':'☐ 一般代辦'} ·
+      由 ${todo.createdByDisplay || getDisplayName(todo.createdBy)} 建立
+      ${todo.createdByStore ? `（${todo.createdByStore}）` : ''}
+    </div>
+    ${todo.note ? `<div style="background:#f8fafc; border-radius:8px; padding:10px 12px; font-size:13px; margin-bottom:10px; line-height:1.7;">${todo.note}</div>` : ''}
+    <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;">
+      ${deadlineTag}
+      ${todo.startDate ? `<span class="todo-tag store">顯示從 ${dateLabel(todo.startDate)}</span>` : ''}
+      ${buildScopeTag(todo)}
+      ${isRec ? `<span class="todo-tag recurring-tag">${recurringLabel(todo)}</span>` : ''}
+      ${isRec && next ? `<span class="todo-tag deadline">下次：${next.getMonth()+1}/${next.getDate()}</span>` : ''}
+    </div>
+    ${buildPersonsHtml(todo)}`;
+
+  const actions = document.getElementById('detailActions');
+  if(canEdit) {
+    actions.innerHTML = `
+      <button class="detail-btn edit" onclick="openEditModal('${todoId}')">✏️ 編輯</button>
+      <button class="detail-btn delete" onclick="confirmDelete('${todoId}')">🗑️ 刪除</button>`;
+  } else { actions.innerHTML = ''; }
+
+  openModal('detailModal');
+}
+
+function canManageTodo(todo) {
+  if(isAdmin()) return true; // 加盟主可刪任何人的
+  if(todo.createdBy === myName()) return true; // 自己建的
+  if(isManager() && todo.targetStore === myStore()) return true; // 店長管本店
+  return false;
+}
+
+// ===== 刪除 =====
+async function confirmDelete(todoId) {
+  if(!confirm('確定要刪除這筆代辦事項？')) return;
+  closeModal('detailModal');
+  showLoading('刪除中...');
+  try{
+    await window.db.collection('todos').doc(todoId).update({
+      deleted: true, deletedBy: myDisplay(), deletedAt: todayStr()
+    });
+    allTodos = allTodos.filter(t=>t.id!==todoId);
+    renderAll();
+    showToast('✅ 已刪除');
+  }catch(e){ showToast('❌ 刪除失敗：'+e.message); }
+  hideLoading();
+}
+
+// ===== 新增 Modal =====
+function openAddModal() {
+  editingId = null;
+  currentType = 'task';
+  selectedTargetType = 'self';
+  selectedStores = [];
+  selectedPersons = [];
+  document.getElementById('addModalTitle').textContent = '新增代辦';
+  document.getElementById('fTitle').value = '';
+  document.getElementById('fNote').value = '';
+  document.getElementById('fStartDate').value = todayStr();
+  document.getElementById('fEndDate').value = '';
+  document.getElementById('fIsRecurring').checked = false;
+  document.getElementById('recurringOptions').style.display = 'none';
+  document.getElementById('fRecurringType').value = 'weekly';
+  document.getElementById('fRecurringDay').value = '1';
+  document.getElementById('fRecurringInterval').value = '7';
+  document.getElementById('fRecurringEnd').value = '';
+  setType('task');
+  renderTargetGroup();
+  onRecurringTypeChange();
+  openModal('addModal');
+}
+
+function openEditModal(todoId) {
+  closeModal('detailModal');
+  const todo = allTodos.find(t=>t.id===todoId);
+  if(!todo) return;
+  editingId = todoId;
+  currentType = todo.type || 'task';
+  selectedTargetType = todo.targetType || 'self';
+  selectedStores = todo.targetStores || (todo.targetStore ? [todo.targetStore] : []);
+  selectedPersons = todo.targetEmps || [];
+
+  document.getElementById('addModalTitle').textContent = '編輯代辦';
+  document.getElementById('fTitle').value = todo.title || '';
+  document.getElementById('fNote').value = todo.note || '';
+  document.getElementById('fStartDate').value = todo.startDate || todayStr();
+  document.getElementById('fEndDate').value = todo.endDate || '';
+  document.getElementById('fIsRecurring').checked = !!todo.isRecurring;
+  document.getElementById('recurringOptions').style.display = todo.isRecurring ? 'block' : 'none';
+  document.getElementById('fRecurringType').value = todo.recurringType || 'weekly';
+  document.getElementById('fRecurringDay').value = todo.recurringDay || '1';
+  document.getElementById('fRecurringInterval').value = todo.recurringInterval || '7';
+  document.getElementById('fRecurringEnd').value = todo.recurringEnd || '';
+  setType(currentType);
+  renderTargetGroup();
+  onRecurringTypeChange();
+  openModal('addModal');
+}
+
+function setType(type) {
+  currentType = type;
+  document.getElementById('typeTask').classList.toggle('active', type==='task');
+  document.getElementById('typeAnnouncement').classList.toggle('active', type==='announcement');
+}
+
+function toggleRecurring() {
+  const checked = document.getElementById('fIsRecurring').checked;
+  document.getElementById('recurringOptions').style.display = checked ? 'block' : 'none';
+}
+
+function onRecurringTypeChange() {
+  const type = document.getElementById('fRecurringType').value;
+  const dayGroup = document.getElementById('recurringDayGroup');
+  const intGroup = document.getElementById('recurringIntervalGroup');
+  const label    = document.getElementById('recurringDayLabel');
+  if(type==='weekly'){ dayGroup.style.display='block'; intGroup.style.display='none'; label.textContent='星期幾'; }
+  else if(type==='monthly'){
+    dayGroup.style.display='block'; intGroup.style.display='none'; label.textContent='每月幾號';
+    // 替換 select 為數字輸入
+    const sel = document.getElementById('fRecurringDay');
+    if(sel.tagName==='SELECT'){
+      const inp = document.createElement('input');
+      inp.type='number'; inp.id='fRecurringDay'; inp.min='1'; inp.max='31'; inp.value='1';
+      inp.className=sel.className; sel.replaceWith(inp);
+    }
+  } else { dayGroup.style.display='none'; intGroup.style.display='block'; }
+}
+
+// ===== 指派對象渲染 =====
+function renderTargetGroup() {
+  const group = document.getElementById('targetGroup');
+  if(!isManager()){ group.style.display='none'; return; }
+  group.style.display='block';
+
+  // 依角色決定可選的 targetType
+  const options = isAdmin()
+    ? [
+        { val:'self',           label:'只有我' },
+        { val:'store',          label:'指定門市' },
+        { val:'stores_manager', label:'指定店長' },
+        { val:'specific',       label:'特定人員' },
+        { val:'all',            label:'全體' },
+      ]
+    : [
+        { val:'self',     label:'只有我' },
+        { val:'store',    label:'本店全部' },
+        { val:'specific', label:'特定人員' },
+      ];
+
+  document.getElementById('targetChips').innerHTML = options.map(o =>
+    `<span class="target-chip ${selectedTargetType===o.val?'active':''}" onclick="setTargetType('${o.val}')">${o.label}</span>`
+  ).join('');
+
+  renderStoreChips();
+  renderPersonChips();
+}
+
+function setTargetType(val) {
+  selectedTargetType = val;
+  selectedStores = [];
+  selectedPersons = [];
+  renderTargetGroup();
+}
+
+function renderStoreChips() {
+  const grp = document.getElementById('storeSelectGroup');
+  if(!isAdmin() || !['store','stores_manager'].includes(selectedTargetType)){
+    grp.style.display='none'; return;
+  }
+  grp.style.display='block';
+  document.getElementById('storeChips').innerHTML = (appConfig.stores||[]).map(s =>
+    `<span class="target-chip ${selectedStores.includes(s)?'active':''}" onclick="toggleStore('${s}')">${s}</span>`
+  ).join('');
+  renderPersonChips();
+}
+
+function toggleStore(store) {
+  const idx = selectedStores.indexOf(store);
+  if(idx>=0) selectedStores.splice(idx,1); else selectedStores.push(store);
+  renderStoreChips();
+}
+
+async function renderPersonChips() {
+  const grp = document.getElementById('personSelectGroup');
+  if(selectedTargetType !== 'specific'){ grp.style.display='none'; return; }
+  grp.style.display='block';
+
+  // 決定要載入哪些門市的員工
+  const stores = isAdmin() && selectedStores.length > 0
+    ? selectedStores
+    : [myStore()];
+
+  let emps = [];
+  for(const s of stores){
+    if(!empListCache[s]){
+      const snap = await window.db.collection('stores').doc(s).collection('employees').get().catch(()=>null);
+      empListCache[s] = [];
+      if(snap) snap.forEach(d=>{ if(!['離職','調走'].includes(d.data().status)) empListCache[s].push(d.id); });
+    }
+    emps = emps.concat(empListCache[s].map(n=>({store:s, name:n})));
+  }
+
+  document.getElementById('personChips').innerHTML = emps.map(e =>
+    `<span class="person-chip ${selectedPersons.includes(e.name)?'selected':''}" onclick="togglePerson('${e.name}')">
+      ${getDisplayName(e.name)}${stores.length>1?` <span style="font-size:9px;color:var(--text-muted);">${e.store}</span>`:''}
+    </span>`
+  ).join('');
+}
+
+function togglePerson(name) {
+  const idx = selectedPersons.indexOf(name);
+  if(idx>=0) selectedPersons.splice(idx,1); else selectedPersons.push(name);
+  renderPersonChips();
+}
+
+// ===== 儲存 =====
+async function saveTodo() {
+  const title = document.getElementById('fTitle').value.trim();
+  if(!title){ showToast('⚠️ 請輸入標題'); return; }
+
+  const isRecurring = document.getElementById('fIsRecurring').checked;
+  const recurringType = document.getElementById('fRecurringType').value;
+  const recurringDayEl = document.getElementById('fRecurringDay');
+  const recurringDay = recurringDayEl ? (recurringDayEl.value || '1') : '1';
+  const recurringInterval = parseInt(document.getElementById('fRecurringInterval').value) || 7;
+  const recurringEnd = document.getElementById('fRecurringEnd').value;
+
+  // 指派對象設定
+  let targetStore = '', targetStores = [], targetEmps = [];
+  if(isAdmin()){
+    targetStores = [...selectedStores];
+    targetStore  = selectedStores[0] || myStore();
+  } else {
+    targetStore = myStore();
+  }
+  if(selectedTargetType === 'specific') targetEmps = [...selectedPersons];
+
+  const data = {
+    type: currentType,
+    isRecurring,
+    title,
+    note: document.getElementById('fNote').value.trim(),
+    startDate: document.getElementById('fStartDate').value || todayStr(),
+    endDate:   document.getElementById('fEndDate').value || '',
+    targetType: selectedTargetType,
+    targetStore,
+    targetStores,
+    targetEmps,
+    createdBy:        myName(),
+    createdByDisplay: myDisplay(),
+    createdByStore:   myStore(),
+    deleted: false,
+  };
+
+  if(isRecurring){
+    data.recurringType     = recurringType;
+    data.recurringDay      = recurringDay;
+    data.recurringInterval = recurringInterval;
+    data.recurringEnd      = recurringEnd || '';
+  }
+
+  showLoading('儲存中...');
+  try{
+    if(editingId){
+      await window.db.collection('todos').doc(editingId).update({ ...data, updatedAt: new Date().toISOString() });
+      const idx = allTodos.findIndex(t=>t.id===editingId);
+      if(idx>=0) allTodos[idx] = { ...allTodos[idx], ...data };
+      showToast('✅ 已更新');
+    } else {
+      data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+      const ref = await window.db.collection('todos').add(data);
+      allTodos.unshift({ id:ref.id, ...data });
+      showToast('✅ 已新增');
+    }
+    closeModal('addModal');
+    renderAll();
+  }catch(e){ showToast('❌ 儲存失敗：'+e.message); }
+  hideLoading();
+}
+</script>
+</body>
+</html>
