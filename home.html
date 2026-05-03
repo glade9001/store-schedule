@@ -1338,7 +1338,11 @@ async function initApp() {
   const storeConfigItem = document.getElementById('menuStoreConfig');
   if(storeConfigItem) storeConfigItem.style.display = canSchedule() ? 'flex' : 'none';
 
-  await loadTodayShifts();
+  // ✅ 班表讀取加 timeout，最多等 5 秒，卡住不影響整頁顯示
+  await Promise.race([
+    loadTodayShifts(),
+    new Promise(res => setTimeout(res, 5000))
+  ]);
   loadStats();
   loadPendingItems();
 
@@ -1414,14 +1418,21 @@ async function loadMySchedule() {
   el.innerHTML = `<div style="text-align:center;color:var(--text-muted);font-size:12px;padding:6px 0;">載入中...</div>`;
 
   try {
-    const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get();
-    const data = snap.exists ? snap.data() : {};
+    const withTimeout = (p, ms=5000) =>
+      Promise.race([p, new Promise((_,rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+
+    const snap = await withTimeout(
+      window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get()
+    ).catch(() => null);
+    const data = snap?.exists ? snap.data() : {};
     const records = data.records || [];
     const myRecs = records.filter(r => r.name === empName);
 
     if(weekStr === thisWeekStr) {
-      const nextSnap = await window.db.collection('stores').doc(store).collection('weeks').doc(nextWeekStr).get();
-      const nextData = nextSnap.exists ? nextSnap.data() : {};
+      const nextSnap = await withTimeout(
+        window.db.collection('stores').doc(store).collection('weeks').doc(nextWeekStr).get()
+      ).catch(() => null);
+      const nextData = nextSnap?.exists ? nextSnap.data() : {};
       homeCanGoNext = nextData.published || isAutoPublishedHome(nextWeekStr);
       if(nextBtn) nextBtn.style.opacity = homeCanGoNext ? '1' : '0.3';
     } else {
