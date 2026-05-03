@@ -2172,7 +2172,8 @@ function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, al
 
 
   for (let i = 0; i < 7; i++) {
-    const cx = nameColW + i * dataColW + dataColW / 2;
+    // ✅ 修正：加上 margin，與員工列 cx 計算一致
+    const cx = margin + nameColW + i * dataColW + dataColW / 2;
     const cy = tableTop + headerH / 2;
     ctx.fillStyle = '#000';
     ctx.font = `900 24px ${font}`;
@@ -2199,7 +2200,14 @@ function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, al
       const shift = rec.shift || '';
       const note = rec.note || '';
       const loc = (rec.location && rec.location !== '本店') ? rec.location : '';
-      const hasSub = note || loc;
+      // ✅ 支援人員名字（待補行 supportEmp 格式："門市-姓名"）
+      const supportEmp = rec.supportEmp || '';
+      const supportName = supportEmp ? (supportEmp.split('-')[1] || supportEmp) : '';
+      const approvalStatus = rec.approvalStatus || '';
+      const isApproved = approvalStatus === 'approved';
+
+      // hasSub：有附加文字時把班別往上移
+      const hasSub = note || loc || (supportName && isApproved);
       const textY = hasSub ? midY - 14 : midY;
 
       if (shift === '指休') {
@@ -2251,9 +2259,14 @@ function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, al
         }
       }
 
-      // 備註 or 地點
+      // 備註 or 地點 or 支援人員名字
       if (hasSub) {
-        if (loc) {
+        if (supportName && isApproved) {
+          // ✅ 待補行：顯示支援人員名字（藍色）
+          ctx.fillStyle = '#1a73e8';
+          ctx.font = `900 20px ${font}`;
+          ctx.fillText(supportName, cx, midY + 20);
+        } else if (loc) {
           ctx.fillStyle = '#c0392b';
           ctx.font = `bold 18px ${font}`;
           ctx.fillText(loc, cx, midY + 20);
