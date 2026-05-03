@@ -194,7 +194,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
   <div class="modal-box">
     <div class="modal-handle"></div>
     <div class="modal-title">📅 設定到職日</div>
-    <div class="modal-sub" id="hireDateModalSub">首次建檔需輸入到職日，系統將自動計算年度特休天數。</div>
+    <div class="modal-sub" id="hireDateModalSub">首次建檔需輸入到職日，系統將自動建議年度特休天數。</div>
     <div class="form-field">
       <label>員工姓名</label>
       <input type="text" id="hireDateEmpName" readonly style="background:#f1f3f4;">
@@ -204,6 +204,12 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
       <input type="date" id="hireDateInput" max="">
     </div>
     <div id="hireDatePreview" style="background:#e8f0fe;border-radius:10px;padding:12px;font-size:13px;line-height:1.8;margin-bottom:8px;display:none;"></div>
+    <!-- 手動確認或修改本年度特休 -->
+    <div class="form-field" id="manualDaysWrap" style="display:none; margin-top:8px;">
+      <label style="color:var(--primary); font-size:12px;">👉 手動確認本年度特休天數</label>
+      <input type="number" id="manualAnnualDays" min="0" step="0.5" style="border-color:var(--primary); background:#f0f4ff; font-size:16px; font-weight:900;">
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">系統已帶入上方試算的建議值，店長可視公司規定自行微調。未來每年第一次發放時均可手動輸入。</div>
+    </div>
     <button class="modal-action" onclick="saveHireDate()">確認建檔</button>
     <button class="modal-cancel" onclick="closeModal('hireDateModal')">取消</button>
   </div>
@@ -236,6 +242,13 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
       <input type="text" id="addLogNote" placeholder="例：年度特休發放、國定假日補休...">
     </div>
     <div id="addLogWarn" style="display:none;background:#fce8e6;border-radius:8px;padding:10px;font-size:13px;color:var(--danger);margin-bottom:8px;font-weight:600;"></div>
+    
+    <!-- 遞延特休 SOP 提示 -->
+    <div style="font-size:11px; color:var(--text-muted); background:#f8fafc; padding:10px; border-radius:8px; margin-bottom:12px; line-height:1.6;">
+      💡 <b>遞延特休操作提示：</b><br>
+      若需結轉去年未休完的特休至今年，請選擇「特休 — 取得」，日期填寫今年的 1/1，並於備註註明「去年度遞延特休」。
+    </div>
+
     <button class="modal-action" onclick="saveAddLog()">確認新增</button>
     <button class="modal-cancel" onclick="closeModal('addLogModal')">取消</button>
   </div>
@@ -276,34 +289,6 @@ function getNextYM(ym){ const[y,m]=ym.split('-').map(Number); if(m===12)return `
 function handleBack(){
   if(window.history.length>1) window.history.back();
   else window.location.href='home.html';
-}
-
-// ===== 勞基法特休計算 =====
-// 到職日 → 該曆年可休天數
-// 採曆年制：以「到職日到當年 12/31 的年資」計算當年度比例天數
-function calcAnnualDays(hireDate, year) {
-  if(!hireDate) return 0;
-  const hire = new Date(hireDate);
-  const yearEnd = new Date(parseInt(year), 11, 31); // 當年 12/31
-  // 以年資計算：到職日到當年 12/31 共幾年幾個月
-  let years = yearEnd.getFullYear() - hire.getFullYear();
-  let months = yearEnd.getMonth() - hire.getMonth();
-  if(yearEnd.getDate() < hire.getDate()) months--;
-  if(months < 0){ years--; months+=12; }
-  const totalMonths = years * 12 + months;
-
-  // 若尚未到職（到職日在當年之後）→ 0 天
-  if(hire > yearEnd) return 0;
-
-  if(totalMonths < 6)  return 0;
-  if(totalMonths < 12) return 3;
-  if(totalMonths < 24) return 7;
-  if(totalMonths < 36) return 10;
-  if(totalMonths < 60) return 14;
-  if(totalMonths < 120) return 15;
-  // 滿 10 年：每年 +1，上限 30
-  const extraYears = Math.floor(totalMonths / 12) - 10;
-  return Math.min(30, 15 + extraYears + 1);
 }
 
 // ===== Tab 切換 =====
@@ -668,37 +653,114 @@ async function empDetailChangeMonth(offset) {
 function openHireDateModal(empName) {
   document.getElementById('hireDateEmpName').value = empName;
   const data = leaveDataAll[empName];
-  if(data?.hireDate) document.getElementById('hireDateInput').value = data.hireDate;
-  else document.getElementById('hireDateInput').value = '';
-  document.getElementById('hireDatePreview').style.display = 'none';
-  document.getElementById('hireDateInput').oninput = previewAnnualDays;
+  const inputEl = document.getElementById('hireDateInput');
+  inputEl.oninput = previewAnnualDays;
+  
+  if(data?.hireDate) {
+    inputEl.value = data.hireDate;
+    previewAnnualDays(); // 如果已經有到職日，直接觸發試算
+  } else {
+    inputEl.value = '';
+    document.getElementById('hireDatePreview').style.display = 'none';
+    document.getElementById('manualDaysWrap').style.display = 'none';
+  }
   openModal('hireDateModal');
 }
 
 function previewAnnualDays() {
-  const hireDate = document.getElementById('hireDateInput').value;
-  if(!hireDate){ document.getElementById('hireDatePreview').style.display='none'; return; }
-  const days = calcAnnualDays(hireDate, currentYear);
-  const hire = new Date(hireDate);
-  const now = new Date();
-  let years = now.getFullYear() - hire.getFullYear();
-  let months = now.getMonth() - hire.getMonth();
-  if(months < 0){ years--; months+=12; }
+  const hireDateStr = document.getElementById('hireDateInput').value;
   const el = document.getElementById('hireDatePreview');
+  const manualWrap = document.getElementById('manualDaysWrap');
+  const manualInput = document.getElementById('manualAnnualDays');
+
+  if(!hireDateStr){ el.style.display='none'; manualWrap.style.display='none'; return; }
+
+  const hire = new Date(hireDateStr);
+  const targetY = parseInt(currentYear);
+  const yearStart = new Date(targetY, 0, 1);
+  const yearEnd = new Date(targetY, 11, 31);
+
+  // 特休級距表
+  function getTier(years) {
+    if (years === 0.5) return 3;
+    if (years === 1) return 7;
+    if (years === 2) return 10;
+    if (years === 3 || years === 4) return 14;
+    if (years >= 5 && years < 10) return 15;
+    if (years >= 10) return Math.min(30, 15 + (years - 9));
+    return 0;
+  }
+
+  let totalDays = 0;
+  let detailTexts = [];
+  let lateYearHint = '';
+
+  // 找出該年度可能會跨越的年資里程碑 (前一年、當年、後一年)
+  const ageY = targetY - hire.getFullYear();
+  const tiersToCheck = [0.5, ageY - 1, ageY, ageY + 1].filter(y => y >= 0.5);
+  const uniqueTiers = [...new Set(tiersToCheck)].sort((a,b)=>a-b);
+
+  uniqueTiers.forEach(tier => {
+    // 該階層的生效起日
+    let startD = new Date(hire);
+    if (tier === 0.5) startD.setMonth(startD.getMonth() + 6);
+    else startD.setFullYear(startD.getFullYear() + tier);
+
+    // 該階層的生效迄日 (前一天)
+    let endD = new Date(startD);
+    if (tier === 0.5) endD.setMonth(endD.getMonth() + 6);
+    else endD.setFullYear(endD.getFullYear() + 1);
+    endD.setDate(endD.getDate() - 1);
+
+    // 檢查這段有效期與「目標年度」重疊了幾天
+    let overlapStart = startD > yearStart ? startD : yearStart;
+    let overlapEnd = endD < yearEnd ? endD : yearEnd;
+
+    if (overlapStart <= overlapEnd) {
+      let overlapDays = Math.round((overlapEnd - overlapStart) / 86400000) + 1;
+      let daysInTier = Math.round((endD - startD) / 86400000) + 1;
+      let tierDays = getTier(tier);
+      
+      let portion = (tierDays * overlapDays / daysInTier);
+      let label = tier === 0.5 ? '滿半年(3天)' : `滿${tier}年(${tierDays}天)`;
+      detailTexts.push(`・${label}：涵蓋 ${overlapDays} 天，折算 <b style="color:var(--primary);">${portion.toFixed(2)}</b> 天`);
+      totalDays += portion;
+
+      // 檢查是否取得日落在 10, 11, 12 月（未滿 3 個月）
+      if (startD.getFullYear() === targetY && startD.getMonth() >= 9) {
+        lateYearHint = `<div style="font-size:11px;color:#c0392b;margin-top:4px;font-weight:700;">💡 提醒：該員工於 ${startD.getMonth()+1} 月取得特休（距年底未滿3個月），若依公司規定可延至隔年底，請於年底確認未休完天數，並於隔年1/1使用「手動新增」將其結轉。</div>`;
+      }
+    }
+  });
+
+  // 👇 公司規則：直接進位到個位數 (Math.ceil 無條件進位)
+  let suggested = Math.ceil(totalDays); 
+
   el.style.display = 'block';
   el.innerHTML = `
-    年資：約 ${years} 年 ${months} 個月<br>
-    ${currentYear} 年度特休：<b style="color:var(--primary);font-size:16px;">${days} 天</b><br>
-    <span style="font-size:11px;color:var(--text-muted);">（依勞基法曆年制計算到 ${currentYear}/12/31）</span>`;
+    <div style="font-weight:800;color:var(--primary);margin-bottom:4px;">📊 曆年制比例算法（${targetY}年度）</div>
+    ${detailTexts.length > 0 ? detailTexts.join('<br>') : '・本年度尚無生效之特休'}
+    <div style="margin-top:6px;padding-top:6px;border-top:1px dashed #abc4ff;font-weight:700;">
+      法規比例合計：<span style="color:#e65100;font-size:15px;">${totalDays.toFixed(2)}</span> 天 ➔ 
+      直接進位：<span style="color:var(--primary);font-size:16px;font-weight:900;">${suggested}</span> 天
+    </div>
+    ${lateYearHint}
+  `;
+
+  // 顯示手動輸入框，並帶入進位後的建議值
+  manualWrap.style.display = 'block';
+  manualInput.value = suggested; 
 }
 
 async function saveHireDate() {
   const empName = document.getElementById('hireDateEmpName').value;
   const hireDate = document.getElementById('hireDateInput').value;
+  // 從手動輸入框讀取天數
+  const annualDays = parseFloat(document.getElementById('manualAnnualDays').value || 0);
+
   if(!hireDate){ showToast('⚠️ 請輸入到職日'); return; }
   showLoading('儲存中...');
   try{
-    const annualDays = calcAnnualDays(hireDate, currentYear);
     const leaveRef = window.db.collection('employees').doc(empName).collection('leaves').doc(currentYear);
     const snap = await leaveRef.get();
     const existing = snap.exists ? snap.data() : {};
@@ -712,15 +774,14 @@ async function saveHireDate() {
       store: currentStore,
       updatedAt: new Date().toISOString(),
     });
-    // 寫入年度特休取得紀錄（若為首次建檔）
-    if(!existing.hireDate) {
-      const logRef = window.db.collection('employees').doc(empName).collection('leaveLog').doc(`${currentYear}-01`);
-      await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
-        date: `${currentYear}-01-01`, type: 'annual_earn', days: annualDays,
-        note: `${currentYear} 年度特休發放（到職日：${hireDate}）`,
-        savedBy: currentUser.displayName || currentUser.empName
-      })}, { merge: true });
-    }
+    // 寫入年度特休取得紀錄（若為首次建檔或重新調整額度）
+    const logRef = window.db.collection('employees').doc(empName).collection('leaveLog').doc(`${currentYear}-01`);
+    await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
+      date: `${currentYear}-01-01`, type: 'annual_earn', days: annualDays,
+      note: `${currentYear} 年度特休發放（到職日：${hireDate}）`,
+      savedBy: currentUser.displayName || currentUser.empName
+    })}, { merge: true });
+    
     leaveDataAll[empName] = { ...existing, hireDate, annualDays, usedAnnual:existing.usedAnnual||0, earnedComp:existing.earnedComp||0, usedComp:existing.usedComp||0 };
     closeModal('hireDateModal');
     showToast(`✅ ${empName} 到職日已設定，${currentYear}年特休 ${annualDays} 天`);
