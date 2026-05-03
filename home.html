@@ -181,7 +181,35 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 .stat-val { font-size: 26px; font-weight: 900; color: var(--primary); line-height: 1; }
 .stat-label { font-size: 11px; color: var(--text-muted); margin-top: 4px; font-weight: 600; }
 
-/* ===== QUICK ACTIONS - 3欄小格 ===== */
+/* Sub-header（子頁面藍色標題列）*/
+.sub-header {
+  background: linear-gradient(135deg, var(--primary), #1557b0);
+  color: white; height: 52px; display: flex; align-items: center;
+  padding: 0 16px; gap: 10px; flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(26,115,232,0.2);
+  margin: -16px -16px 16px;
+}
+.sub-header-back {
+  background: rgba(255,255,255,0.18); border: none; color: white;
+  height: 32px; border-radius: 9px; font-size: 13px; font-weight: 700;
+  cursor: pointer; padding: 0 12px; display: flex; align-items: center; gap: 4px;
+  transition: background 0.15s; flex-shrink: 0;
+}
+.sub-header-back:active { background: rgba(255,255,255,0.32); }
+.sub-header-title { font-size: 15px; font-weight: 800; flex: 1; }
+.sub-header-action { background: rgba(255,255,255,0.18); border: none; color: white; height: 32px; border-radius: 9px; font-size: 13px; font-weight: 700; cursor: pointer; padding: 0 12px; }
+
+/* 回首頁按鈕 */
+.back-home-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: white; border: 1.5px solid var(--border);
+  color: var(--text); border-radius: 12px;
+  padding: 9px 16px; font-size: 13px; font-weight: 700;
+  cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  transition: all 0.15s; text-decoration: none;
+}
+.back-home-btn:active { background: #f1f3f4; transform: scale(0.97); }
+.back-home-btn .back-icon { font-size: 15px; }
 .func-section { margin-bottom:10px; }
 .func-section-header {
   display:flex; align-items:center; gap:8px; padding:4px 0 8px;
@@ -586,29 +614,38 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 
     <!-- ===== 申請 PAGE ===== -->
     <div class="page" id="page-apply">
+      <div class="sub-header">
+        <button class="sub-header-back" onclick="switchPage('home')">← 首頁</button>
+        <div class="sub-header-title">假期申請</div>
+      </div>
       <div class="card" style="text-align:center; padding:40px 20px;">
         <div class="wip-icon">🏗️</div>
         <div class="wip-title">假期申請</div>
         <div class="wip-desc">特休、補休、調班申請功能開發中，敬請期待！</div>
         <div class="wip-badge">🔨 新增中</div>
-        <button class="close-btn" onclick="switchPage('home')">返回首頁</button>
       </div>
     </div>
 
     <!-- ===== 薪資 PAGE ===== -->
     <div class="page" id="page-salary">
+      <div class="sub-header">
+        <button class="sub-header-back" onclick="switchPage('home')">← 首頁</button>
+        <div class="sub-header-title">薪資計算</div>
+      </div>
       <div class="card" style="text-align:center; padding:40px 20px;">
         <div class="wip-icon">💹</div>
         <div class="wip-title">薪資計算</div>
         <div class="wip-desc">薪資結構試算、月結明細、加班費計算功能開發中，敬請期待！</div>
         <div class="wip-badge">🔨 新增中</div>
-        <button class="close-btn" onclick="switchPage('home')">返回首頁</button>
       </div>
     </div>
 
     <!-- ===== 人員 PAGE ===== -->
     <div class="page" id="page-employee">
-      <button class="close-btn" onclick="switchPage('home')" style="margin-bottom:14px;">← 回首頁</button>
+      <div class="sub-header">
+        <button class="sub-header-back" onclick="switchPage('home')">← 首頁</button>
+        <div class="sub-header-title" id="empPageTitle">帳號管理</div>
+      </div>
       <!-- 管理者視圖 -->
       <div id="empAdminView" style="display:none;">
         <div class="store-tabs" id="empStoreTabs"></div>
@@ -644,9 +681,10 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 
     <!-- ===== 個人 PAGE ===== -->
     <div class="page" id="page-profile">
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-        <button class="close-btn" onclick="switchPage('home')" style="margin:0;">← 回首頁</button>
-        <button onclick="doLogout()" style="background:none; border:1.5px solid var(--danger); color:var(--danger); border-radius:10px; padding:7px 14px; font-size:13px; font-weight:700; cursor:pointer;">🚪 登出</button>
+      <div class="sub-header">
+        <button class="sub-header-back" onclick="switchPage('home')">← 首頁</button>
+        <div class="sub-header-title">個人資料</div>
+        <button class="sub-header-action" onclick="doLogout()">🚪 登出</button>
       </div>
       <div class="profile-header">
         <div class="profile-avatar" id="profileAvatar">👤</div>
@@ -1959,7 +1997,7 @@ function renderQuickBtns() {
     <button class="func-btn blue" onclick="showWip('劃休系統')">
       <div class="func-icon">📝</div><div class="func-label">劃休申請</div>
     </button>
-    <button class="func-btn gray" onclick="switchPage('employee')">
+    <button class="func-btn gray" onclick="loadAccountPage()">
       <div class="func-icon">👤</div><div class="func-label">帳號管理</div>
     </button>`;
 
@@ -1979,8 +2017,11 @@ function renderQuickBtns() {
     <button class="func-btn orange-dark" onclick="window.location.href='salary.html'">
       <div class="func-icon">💳</div><div class="func-label">薪資管理</div>
     </button>
-    <button class="func-btn green" onclick="switchPage('employee')">
+    <button class="func-btn green" onclick="loadEmpMgmtPage()">
       <div class="func-icon">👥</div><div class="func-label">員工管理</div>
+    </button>
+    <button class="func-btn purple" onclick="window.location.href='leave.html'">
+      <div class="func-icon">📆</div><div class="func-label">假勤管理</div>
     </button>`;
 
   if(canSchedule()) {
@@ -2028,7 +2069,27 @@ function setFuncSectionState(key, open) {
 }
 
 function goToSchedule() { window.location.href = 'schedule-V2.html'; }
-function goToEmployee() { switchPage('employee'); }
+// ===== 帳號管理（常用功能，強制顯示個人帳號介面）=====
+function loadAccountPage() {
+  const titleEl = document.getElementById('empPageTitle');
+  if(titleEl) titleEl.textContent = '帳號管理';
+  switchPage('employee');
+  // 強制顯示員工視圖，不管權限
+  document.getElementById('empAdminView').style.display = 'none';
+  document.getElementById('empSelfView').style.display = 'block';
+  loadSelfView();
+}
+
+// ===== 員工管理（管理功能，顯示員工管理介面）=====
+async function loadEmpMgmtPage() {
+  const titleEl = document.getElementById('empPageTitle');
+  if(titleEl) titleEl.textContent = '員工管理';
+  switchPage('employee');
+  document.getElementById('empAdminView').style.display = 'block';
+  document.getElementById('empSelfView').style.display = 'none';
+  const defaultStore = currentUser.store || (appConfig.stores && appConfig.stores[0]) || '';
+  await loadEmpAdminList(defaultStore);
+}
 
 // ===== 人員 / 帳號設定頁 =====
 async function loadEmployeePage() {
