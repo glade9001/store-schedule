@@ -153,6 +153,9 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
     <div class="header-badge" id="headerBadge">--</div>
   </div>
 
+  <!-- 加盟主門市選擇列（mode=mgmt 且加盟主以上才顯示）-->
+  <div id="storeSelectBar" style="display:none; gap:8px; padding:10px 14px; overflow-x:auto; background:white; border-bottom:1px solid var(--border); flex-shrink:0; -webkit-overflow-scrolling:touch; scrollbar-width:none;"></div>
+
   <!-- Tab：管理者看員工列表；員工直接看個人 -->
   <div class="tab-bar" id="tabBar" style="display:none;">
     <div class="tab-item active" id="tab-overview" onclick="switchTab('overview')">📊 總覽</div>
@@ -348,12 +351,39 @@ window.onload = async () => {
     document.getElementById('headerBadge').textContent = currentStore;
     document.getElementById('hireDateInput').max = new Date().toISOString().split('T')[0];
 
-    // 管理者：顯示 tab，讀所有員工；員工：直接看個人
-    if(isManager()) {
+    // ✅ 讀取 URL mode 參數
+    const urlMode = new URLSearchParams(window.location.search).get('mode'); // 'self' | 'mgmt' | null
+
+    // mode=self：強制個人明細（常用功能進入）
+    if(urlMode === 'self') {
+      document.getElementById('tabBar').style.display = 'none';
+      currentTab = 'detail'; // ✅ 預設顯示明細
+      empDetailMonth = getCurrentYM();
+      await loadMyLeave();
+
+    // mode=mgmt 或管理者預設：總覽管理
+    } else if(urlMode === 'mgmt' || (!urlMode && isManager())) {
       document.getElementById('tabBar').style.display = 'flex';
+
+      // ✅ 加盟主以上：可切換門市，顯示門市選擇列
+      if(isAdmin()) {
+        const storeBar = document.getElementById('storeSelectBar');
+        if(storeBar) {
+          storeBar.style.display = 'flex';
+          storeBar.innerHTML = (appConfig.stores || []).map(s =>
+            `<button onclick="switchMgmtStore('${s}')"
+              id="storeBtn-${s}"
+              style="padding:6px 14px;border:1.5px solid ${s===currentStore?'var(--primary)':'var(--border)'};
+              background:${s===currentStore?'var(--primary)':'white'};
+              color:${s===currentStore?'white':'var(--text)'};
+              border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">${s}</button>`
+          ).join('');
+        }
+      }
       await loadAllEmpLeave();
+
+    // 一般員工：個人頁
     } else {
-      // 員工：隱藏 tab，直接顯示個人總覽+明細
       document.getElementById('tabBar').style.display = 'none';
       empDetailMonth = getCurrentYM();
       await loadMyLeave();
@@ -367,7 +397,20 @@ window.onload = async () => {
   }
 };
 
-// ===== 讀取所有員工特補休資料（管理者用）=====
+// ✅ 加盟主切換門市
+async function switchMgmtStore(store) {
+  currentStore = store;
+  document.getElementById('headerBadge').textContent = store;
+  // 更新按鈕樣式
+  (appConfig.stores||[]).forEach(s => {
+    const btn = document.getElementById(`storeBtn-${s}`);
+    if(!btn) return;
+    btn.style.border = `1.5px solid ${s===store?'var(--primary)':'var(--border)'}`;
+    btn.style.background = s===store ? 'var(--primary)' : 'white';
+    btn.style.color = s===store ? 'white' : 'var(--text)';
+  });
+  await loadAllEmpLeave();
+}
 async function loadAllEmpLeave() {
   showLoading('讀取員工特補休...');
   try{
