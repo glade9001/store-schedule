@@ -45,11 +45,16 @@ html,body { height:100%; overflow:hidden; background:var(--bg); font-family:"Not
 #appShell.active { display:flex; }
 
 /* Header */
-.header { background:linear-gradient(135deg,var(--primary),var(--primary-dark)); color:white; padding:0 16px; height:var(--header-h); display:flex; align-items:center; gap:10px; flex-shrink:0; box-shadow:0 2px 12px rgba(26,115,232,0.3); }
+.header { background:linear-gradient(135deg,var(--primary),var(--primary-dark)); color:white; padding:0 16px; height:var(--header-h); display:flex; align-items:center; gap:10px; flex-shrink:0; box-shadow:0 2px 12px rgba(26,115,232,0.3); z-index:10; }
 .header-back { background:rgba(255,255,255,0.2); border:none; color:white; width:34px; height:34px; border-radius:10px; font-size:18px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
 .header-title { font-size:17px; font-weight:800; flex:1; }
 .header-add { background:rgba(255,255,255,0.2); border:none; color:white; border-radius:10px; padding:6px 14px; font-size:14px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px; }
 .header-add:active { background:rgba(255,255,255,0.35); }
+
+/* Tabs */
+.tab-bar { display:flex; background:white; border-bottom:1px solid var(--border); flex-shrink:0; }
+.tab-item { flex:1; padding:12px 8px; text-align:center; font-size:14px; font-weight:800; color:var(--text-muted); cursor:pointer; border-bottom:3px solid transparent; transition:all 0.2s; }
+.tab-item.active { color:var(--primary); border-bottom-color:var(--primary); }
 
 /* Content */
 .content { flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; padding:14px 14px 80px; }
@@ -150,8 +155,14 @@ html,body { height:100%; overflow:hidden; background:var(--bg); font-family:"Not
   <div class="header">
     <button class="header-back" onclick="handleBack()">←</button>
     <div class="header-title">🗒️ 代辦事項</div>
-    <button class="header-add" onclick="openAddModal()">＋ 新增</button>
+    <button class="header-add" id="headerAddBtn" onclick="openAddModal()" style="display:none;">＋ 新增</button>
   </div>
+  <!-- 雙分頁設計 -->
+  <div class="tab-bar">
+    <div class="tab-item active" id="tab-view" onclick="switchTab('view')">📋 查閱代辦</div>
+    <div class="tab-item" id="tab-manage" onclick="switchTab('manage')">⚙️ 設定與管理</div>
+  </div>
+
   <div class="content" id="mainContent">
     <div class="empty-state"><div class="spinner" style="border-top-color:var(--primary);border-color:var(--border);margin:0 auto 10px;"></div></div>
   </div>
@@ -233,7 +244,7 @@ html,body { height:100%; overflow:hidden; background:var(--bg); font-family:"Not
         <div class="target-chips" id="targetChips"></div>
       </div>
 
-      <!-- 門市選擇（加盟主跨門市）-->
+      <!-- 門市選擇（加盟主/管理員 或 發給其他店長）-->
       <div class="form-field" id="storeSelectGroup" style="display:none;">
         <label>選擇門市</label>
         <div class="target-chips" id="storeChips"></div>
@@ -267,16 +278,17 @@ html,body { height:100%; overflow:hidden; background:var(--bg); font-family:"Not
 // ===== 全域狀態 =====
 let currentUser = null;
 let appConfig = { stores: [], shifts: [] };
-let allTodos = [];        // 從 Firestore 讀取的原始資料
-let myChecks = {};        // { todoId: true }
-let displayNameMap = {};  // { empName: displayName }
-let empListCache = {};    // { store: [empName,...] }
-let editingId = null;     // 編輯模式的 todoId
+let allTodos = [];        
+let myChecks = {};        
+let displayNameMap = {};  
+let empListCache = {};    
+let editingId = null;     
 let currentType = 'task';
 let selectedTargetType = 'self';
 let selectedStores = [];
 let selectedPersons = [];
 let doneCollapsed = true;
+let currentTab = 'view'; // 雙分頁預設為查看
 
 // ===== 權限 =====
 const isAdmin   = () => ['owner','admin'].includes(currentUser?.permission);
@@ -297,18 +309,26 @@ function todayStr(){ const d=new Date(); return `${d.getFullYear()}-${String(d.g
 function dateLabel(str){ if(!str) return ''; const[y,m,d]=str.split('-'); return `${parseInt(m)}/${parseInt(d)}`; }
 function daysUntil(str){ if(!str) return null; const t=new Date(str); t.setHours(23,59,59); return Math.ceil((t-new Date())/86400000); }
 
+// ===== 切換分頁 =====
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab-item').forEach(el => el.classList.remove('active'));
+  document.getElementById(`tab-${tab}`).classList.add('active');
+  // 只有在「設定與管理」頁籤，才顯示右上角的＋新增按鈕
+  document.getElementById('headerAddBtn').style.display = (tab === 'manage') ? 'flex' : 'none';
+  renderAll(); // 可選，主要確保點擊狀態同步
+}
+
 // ===== 勞基法週期計算 =====
-// 給定一個週期型 todo，計算「今天開始往後最近一次觸發日」
 function calcNextOccurrence(todo) {
   const today = new Date(); today.setHours(0,0,0,0);
   const start = todo.startDate ? new Date(todo.startDate) : today;
   const end   = todo.recurringEnd ? new Date(todo.recurringEnd) : null;
-  if(end && today > end) return null; // 已超過結束日
+  if(end && today > end) return null; 
 
   if(todo.recurringType === 'weekly') {
-    // 每週幾：找本週或下週的對應星期
-    const targetDay = parseInt(todo.recurringDay || 1); // 1=週一 7=週日
-    const todayDow = today.getDay() === 0 ? 7 : today.getDay(); // 轉成 1-7
+    const targetDay = parseInt(todo.recurringDay || 1); 
+    const todayDow = today.getDay() === 0 ? 7 : today.getDay(); 
     let diff = targetDay - todayDow;
     if(diff < 0) diff += 7;
     const next = new Date(today); next.setDate(today.getDate() + diff);
@@ -334,24 +354,52 @@ function calcNextOccurrence(todo) {
 // ===== 判斷 todo 是否對「我」可見 =====
 function isVisibleToMe(todo) {
   const today = todayStr();
-  // 顯示區間判斷
   if(todo.startDate && today < todo.startDate) return false;
-  // 週期型：用 calcNextOccurrence 判斷是否有下一次
   if(todo.isRecurring) {
     const next = calcNextOccurrence(todo);
-    return next !== null;
+    if(next === null) return false;
+  } else if(todo.type === 'announcement' && todo.endDate && today > todo.endDate) {
+    return false;
   }
-  // 公告型：截止日過了就消失（除非被刪）
-  if(todo.type === 'announcement' && todo.endDate && today > todo.endDate) return false;
   if(todo.deleted) return false;
 
-  // 指派對象判斷
   const tt = todo.targetType;
-  if(tt === 'self') return todo.createdBy === myName() || todo.createdByDisplay === myDisplay();
+  // 絕對私密防護：只有自己建的私事才看得到，即使是老闆也不能看別人的 private
+  if(tt === 'self') return todo.createdBy === myName();
+  
   if(tt === 'all') return true;
   if(tt === 'store') return (todo.targetStore === myStore()) || (todo.targetStores||[]).includes(myStore());
-  if(tt === 'stores_manager') return isManager() && ((todo.targetStores||[]).includes(myStore()) || todo.targetStore === myStore());
+  
+  if(tt === 'stores_manager') {
+    // 只有店長以上才看得到
+    if(!isManager()) return false;
+    // 如果沒特別指定門市(長度0)代表所有店長，或指定門市包含我所屬門市
+    const stores = todo.targetStores || [];
+    return stores.length === 0 || stores.includes(myStore()) || todo.targetStore === myStore();
+  }
+  
   if(tt === 'specific') return (todo.targetEmps||[]).includes(myName());
+  
+  return false;
+}
+
+// ===== 判斷 todo 是否可編輯/刪除 =====
+function canManageTodo(todo) {
+  // 1. 如果是別人的私事，絕對不能管（其實前面已經擋掉看不見了，雙重保險）
+  if(todo.targetType === 'self' && todo.createdBy !== myName()) return false;
+  
+  // 2. 如果是我建的，我當然可以管
+  if(todo.createdBy === myName()) return true;
+  
+  // 3. 系統管理員 / 加盟主 可管理除了別人私事外的所有事情
+  if(isAdmin()) return true;
+  
+  // 4. 店長可以管理發到他門市的事項
+  if(isManager()) {
+    const stores = todo.targetStores || [];
+    if(todo.targetStore === myStore() || stores.includes(myStore())) return true;
+  }
+  
   return false;
 }
 
@@ -374,8 +422,7 @@ window.onload = async () => {
       if(snap.exists){ appConfig=snap.data(); localStorage.setItem('appConfig',JSON.stringify(appConfig)); }
     }catch(e){}
 
-    // 讀 displayName
-    const accSnap = await window.db.collection('account').where('store','==',myStore()).get().catch(()=>null);
+    const accSnap = await window.db.collection('account').get().catch(()=>null);
     if(accSnap) accSnap.forEach(d=>{ const a=d.data(); if(a.empName&&a.displayName) displayNameMap[a.empName]=a.displayName; });
 
     await loadTodos();
@@ -388,7 +435,6 @@ window.onload = async () => {
 async function loadTodos() {
   showLoading('載入代辦事項...');
   try{
-    // 讀所有可能與我有關的 todos
     const snap = await window.db.collection('todos')
       .where('deleted','==',false)
       .orderBy('createdAt','desc')
@@ -396,7 +442,6 @@ async function loadTodos() {
     allTodos = [];
     snap.forEach(d => allTodos.push({ id:d.id, ...d.data() }));
 
-    // 讀個人勾選狀態
     const checkSnap = await window.db.collection('todoChecks')
       .where('empName','==',myName()).get();
     myChecks = {};
@@ -410,25 +455,19 @@ async function loadTodos() {
 // ===== 渲染主頁面 =====
 function renderAll() {
   const el = document.getElementById('mainContent');
-  const today = todayStr();
-
-  // 篩選可見的 todos
   const visible = allTodos.filter(t => isVisibleToMe(t) && !t.deleted);
 
-  // 分類
   const myTasks      = visible.filter(t => t.type==='task' && !t.isRecurring && !myChecks[t.id]);
   const announcements= visible.filter(t => t.type==='announcement' && !t.isRecurring);
   const recurring    = visible.filter(t => t.isRecurring);
   const done         = visible.filter(t => t.type==='task' && !t.isRecurring && myChecks[t.id]);
 
-  // 公告依截止日排序（無截止日排最後）
   announcements.sort((a,b) => {
     if(!a.endDate && !b.endDate) return 0;
     if(!a.endDate) return 1;
     if(!b.endDate) return -1;
     return a.endDate.localeCompare(b.endDate);
   });
-  // 週期依下次觸發日排序
   recurring.sort((a,b) => {
     const na = calcNextOccurrence(a), nb = calcNextOccurrence(b);
     if(!na && !nb) return 0; if(!na) return 1; if(!nb) return -1;
@@ -437,7 +476,6 @@ function renderAll() {
 
   let html = '';
 
-  // 我的代辦
   html += `<div class="section-label">☐ 我的代辦</div>`;
   if(myTasks.length === 0) {
     html += `<div class="empty-state" style="padding:16px 0;"><div style="font-size:28px;margin-bottom:6px;">✅</div><div>沒有待辦事項</div></div>`;
@@ -445,19 +483,16 @@ function renderAll() {
     html += myTasks.map(t => renderTaskItem(t, false)).join('');
   }
 
-  // 公告事項
   if(announcements.length > 0) {
     html += `<div class="section-label">📢 公告事項</div>`;
     html += announcements.map(t => renderAnnouncementItem(t)).join('');
   }
 
-  // 週期提醒
   if(recurring.length > 0) {
     html += `<div class="section-label">🔄 週期提醒</div>`;
     html += recurring.map(t => renderRecurringItem(t)).join('');
   }
 
-  // 已完成（可折疊）
   if(done.length > 0) {
     html += `<div class="collapse-header" onclick="toggleDone()">
       <span class="collapse-icon ${doneCollapsed?'':'open'}" id="doneCollapseIcon">›</span>
@@ -596,7 +631,9 @@ function openDetail(todoId) {
   const isRec = todo.isRecurring;
   const next  = isRec ? calcNextOccurrence(todo) : null;
   const deadlineTag = buildDeadlineTag(todo.endDate);
-  const canEdit = canManageTodo(todo);
+  
+  // 決定是否顯示編輯/刪除按鈕 (要在管理頁籤 + 有權限)
+  const canEdit = currentTab === 'manage' && canManageTodo(todo);
 
   const content = document.getElementById('detailContent');
   content.innerHTML = `
@@ -621,16 +658,11 @@ function openDetail(todoId) {
     actions.innerHTML = `
       <button class="detail-btn edit" onclick="openEditModal('${todoId}')">✏️ 編輯</button>
       <button class="detail-btn delete" onclick="confirmDelete('${todoId}')">🗑️ 刪除</button>`;
-  } else { actions.innerHTML = ''; }
+  } else { 
+    actions.innerHTML = ''; 
+  }
 
   openModal('detailModal');
-}
-
-function canManageTodo(todo) {
-  if(isAdmin()) return true; // 加盟主可刪任何人的
-  if(todo.createdBy === myName()) return true; // 自己建的
-  if(isManager() && todo.targetStore === myStore()) return true; // 店長管本店
-  return false;
 }
 
 // ===== 刪除 =====
@@ -719,7 +751,6 @@ function onRecurringTypeChange() {
   if(type==='weekly'){ dayGroup.style.display='block'; intGroup.style.display='none'; label.textContent='星期幾'; }
   else if(type==='monthly'){
     dayGroup.style.display='block'; intGroup.style.display='none'; label.textContent='每月幾號';
-    // 替換 select 為數字輸入
     const sel = document.getElementById('fRecurringDay');
     if(sel.tagName==='SELECT'){
       const inp = document.createElement('input');
@@ -732,6 +763,7 @@ function onRecurringTypeChange() {
 // ===== 指派對象渲染 =====
 function renderTargetGroup() {
   const group = document.getElementById('targetGroup');
+  // 員工只能設定給自己，隱藏這個區塊
   if(!isManager()){ group.style.display='none'; return; }
   group.style.display='block';
 
@@ -745,9 +777,10 @@ function renderTargetGroup() {
         { val:'all',            label:'全體' },
       ]
     : [
-        { val:'self',     label:'只有我' },
-        { val:'store',    label:'本店全部' },
-        { val:'specific', label:'特定人員' },
+        { val:'self',           label:'只有我' },
+        { val:'store',          label:'本店全部' },
+        { val:'stores_manager', label:'其他店長' }, // 店長可發給其他店長
+        { val:'specific',       label:'特定人員' },
       ];
 
   document.getElementById('targetChips').innerHTML = options.map(o =>
@@ -767,9 +800,15 @@ function setTargetType(val) {
 
 function renderStoreChips() {
   const grp = document.getElementById('storeSelectGroup');
-  if(!isAdmin() || !['store','stores_manager'].includes(selectedTargetType)){
-    grp.style.display='none'; return;
-  }
+  
+  // 顯示選門市的條件：
+  // 1. Admin 且選了 store 或 stores_manager
+  // 2. Manager 且選了 stores_manager
+  let showStores = false;
+  if(isAdmin() && ['store', 'stores_manager'].includes(selectedTargetType)) showStores = true;
+  if(!isAdmin() && isManager() && selectedTargetType === 'stores_manager') showStores = true;
+
+  if(!showStores){ grp.style.display='none'; return; }
   grp.style.display='block';
   document.getElementById('storeChips').innerHTML = (appConfig.stores||[]).map(s =>
     `<span class="target-chip ${selectedStores.includes(s)?'active':''}" onclick="toggleStore('${s}')">${s}</span>`
@@ -788,10 +827,8 @@ async function renderPersonChips() {
   if(selectedTargetType !== 'specific'){ grp.style.display='none'; return; }
   grp.style.display='block';
 
-  // 決定要載入哪些門市的員工
-  const stores = isAdmin() && selectedStores.length > 0
-    ? selectedStores
-    : [myStore()];
+  // 決定要載入哪些門市的員工 (加盟主/管理員是全部門市，店長只能選自己門市)
+  const stores = isAdmin() ? (appConfig.stores || []) : [myStore()];
 
   let emps = [];
   for(const s of stores){
@@ -830,12 +867,18 @@ async function saveTodo() {
 
   // 指派對象設定
   let targetStore = '', targetStores = [], targetEmps = [];
-  if(isAdmin()){
-    targetStores = [...selectedStores];
-    targetStore  = selectedStores[0] || myStore();
-  } else {
-    targetStore = myStore();
+  
+  if(['store', 'stores_manager'].includes(selectedTargetType)) {
+    if(isAdmin() || selectedTargetType === 'stores_manager') {
+      targetStores = [...selectedStores];
+      // 若沒特別勾選，視為發布給全部門市
+      if(targetStores.length === 0) targetStores = [...appConfig.stores];
+    } else {
+      // 一般店長的本店廣播
+      targetStore = myStore();
+    }
   }
+
   if(selectedTargetType === 'specific') targetEmps = [...selectedPersons];
 
   const data = {
