@@ -607,6 +607,14 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
           </div>
           <div class="menu-item-arrow">›</div>
         </div>
+        <div class="menu-item" onclick="window.location.href='todo.html'">
+          <div class="menu-item-icon" style="background:#fff8e1;">🗒️</div>
+          <div class="menu-item-text">
+            <div class="menu-item-title">代辦事項</div>
+            <div class="menu-item-sub">待辦清單與公告提醒</div>
+          </div>
+          <div class="menu-item-arrow">›</div>
+        </div>
         <div class="menu-item" onclick="window.location.href='leave.html'">
           <div class="menu-item-icon" style="background:#f3e8ff;">🏖️</div>
           <div class="menu-item-text">
@@ -1669,6 +1677,46 @@ async function loadPendingItems() {
   } catch(e) {
     console.error("讀取待處理事項失敗：", e);
   }
+
+  // ✅ 代辦事項未完成件數（所有人都計算）
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const empName = currentUser.empName || '';
+    const store   = currentUser.store || '';
+
+    const [todoSnap, checkSnap] = await Promise.all([
+      window.db.collection('todos').where('deleted','==',false).get(),
+      window.db.collection('todoChecks').where('empName','==',empName).get()
+    ]);
+
+    const myChecks = {};
+    checkSnap.forEach(d => { const data=d.data(); if(data.checked) myChecks[data.todoId]=true; });
+
+    let todoCnt = 0;
+    todoSnap.forEach(d => {
+      const t = { id:d.id, ...d.data() };
+      if(t.type !== 'task' || t.isRecurring) return; // 只算一般代辦
+      if(myChecks[t.id]) return;                      // 已勾選完成
+      if(t.startDate && today < t.startDate) return;  // 尚未開始顯示
+      if(t.endDate   && today > t.endDate)   return;  // 已過截止
+      // 指派對象判斷
+      const tt = t.targetType;
+      if(tt === 'self'     && t.createdBy !== empName) return;
+      if(tt === 'store'    && t.targetStore !== store && !(t.targetStores||[]).includes(store)) return;
+      if(tt === 'stores_manager' && !['manager','owner','admin'].includes(currentUser.permission)) return;
+      if(tt === 'specific' && !(t.targetEmps||[]).includes(empName)) return;
+      todoCnt++;
+    });
+
+    if(todoCnt > 0) {
+      pending.push({
+        type: '代辦事項',
+        desc: `您有 ${todoCnt} 件待完成的代辦`,
+        link: 'todo.html',
+        color: 'var(--warn)'
+      });
+    }
+  } catch(e) {}
 
   // ✅ 薪資未送出提醒（原本獨立卡片，現在併入待處理）
   if(canSchedule()) {
