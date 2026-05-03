@@ -1174,7 +1174,22 @@ async function fetchAllStoreData() {
     otherStores.forEach(s => {
       allFetches.push(
         window.db.collection('stores').doc(s).collection('employees').get()
-          .then(snap => { const emps=[]; snap.forEach(d=>{if(!['離職','調走'].includes(d.data().status))emps.push(d.id);}); appData.allStoresEmployees[s]=emps; })
+          .then(snap => {
+            const emps=[];
+            snap.forEach(d=>{ if(!['離職','調走'].includes(d.data().status)) emps.push(d.id); });
+            appData.allStoresEmployees[s]=emps;
+          })
+          .catch(()=>{})
+      );
+      // ✅ 讀其他門市的 displayName，補入 displayNameMap
+      allFetches.push(
+        window.db.collection('account').where('store','==',s).get()
+          .then(snap => {
+            snap.forEach(d => {
+              const acc = d.data();
+              if(acc.empName && acc.displayName) appData.displayNameMap[acc.empName] = acc.displayName;
+            });
+          })
           .catch(()=>{})
       );
       // 讀其他店「本月所有週次」，只取有支援本店員工的記錄
@@ -1444,7 +1459,8 @@ function renderSupportDropdown() {
   for(const s in appData.allStoresEmployees) {
     if(s !== myStore) {
       html += `<optgroup label="[${s}]">`;
-      appData.allStoresEmployees[s].forEach(emp => html += `<option value="${s}-${emp}">${emp}</option>`);
+      // ✅ 顯示 displayName，value 保持原始 empName 供系統識別
+      appData.allStoresEmployees[s].forEach(emp => html += `<option value="${s}-${emp}">${getDisplayName(emp)}</option>`);
       html += `</optgroup>`;
     }
   }
