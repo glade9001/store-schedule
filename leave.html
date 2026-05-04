@@ -1034,7 +1034,7 @@ async function saveEditLog() {
     await logRef.update({ records });
 
     // 同步更新 leaves 總帳（舊值 → 新值）
-    await syncLeaveTotal(empName, newDate.slice(0,4), oldLog, records[idx]);
+    await syncLeaveTotal(empName, newDate.slice(0,4));
     closeModal('editLogModal');
     showToast('✅ 已更新');
     await loadDetailLogs(empName, ym, 'empDetailLogs');
@@ -1055,35 +1055,51 @@ async function confirmDeleteLog(empName, ym, idx) {
     records.splice(idx, 1);
     await logRef.update({ records });
 
-    // 同步更新 leaves 總帳：傳入 oldLog 讓 syncLeaveTotal 扣掉，newLog 傳 null
-    await syncLeaveTotal(empName, (oldLog.date||ym).slice(0,4), oldLog, null);
+    await syncLeaveTotal(empName, (oldLog.date||ym).slice(0,4));
     showToast('✅ 已刪除');
     await loadDetailLogs(empName, ym, 'empDetailLogs');
   } catch(e) { showToast('❌ 失敗：' + e.message); }
   hideLoading();
 }
 
-// 同步更新 leaves 總帳
-async function syncLeaveTotal(empName, year, oldLog, newLog) {
+// 同步更新 leaves 總帳：從該年所有 leaveLog 重新加總使用量
+// annualDays（年度特休總天數）保留原值，由到職日設定決定，不從 leaveLog 算
+async function syncLeaveTotal(empName, year) {
   const leaveRef = window.db.collection('employees').doc(empName).collection('leaves').doc(year);
   const snap = await leaveRef.get();
-  const ld = snap.exists ? { ...snap.data() } : { annualDays:0, usedAnnual:0, earnedComp:0, usedComp:0 };
+  const existing = snap.exists ? snap.data() : {};
 
-  // 先扣掉舊值
-  if(oldLog) {
-    if(oldLog.type==='annual_earn')  ld.annualDays  = Math.max(0,(ld.annualDays||0)  - (oldLog.days||0));
-    if(oldLog.type==='annual_use')   ld.usedAnnual  = Math.max(0,(ld.usedAnnual||0)  - (oldLog.days||0));
-    if(oldLog.type==='comp_earn')    ld.earnedComp  = Math.max(0,(ld.earnedComp||0)  - (oldLog.days||0));
-    if(oldLog.type==='comp_use')     ld.usedComp    = Math.max(0,(ld.usedComp||0)    - (oldLog.days||0));
+  // 讀取該年所有月份的 leaveLog
+  const logSnaps = await window.db.collection('employees').doc(empName)
+    .collection('leaveLog').get().catch(() => null);
+
+  let usedAnnual = 0, earnedComp = 0, usedComp = 0;
+
+  if(logSnaps) {
+    logSnaps.forEach(d => {
+      if(!d.id.startsWith(year)) return; // 只算該年
+      const records = d.data().records || [];
+      records.forEach(r => {
+        const days = parseFloat(r.days) || 0;
+        if(r.type === 'annual_use')        usedAnnual += days;
+        if(r.type === 'comp_earn')         earnedComp += days;
+        if(r.type === 'comp_use')          usedComp   += days;
+        if(r.type === 'annual_use_cancel') usedAnnual = Math.max(0, usedAnnual - days);
+        if(r.type === 'comp_use_cancel')   usedComp   = Math.max(0, usedComp   - days);
+        if(r.type === 'comp_cancel')       earnedComp = Math.max(0, earnedComp - days);
+      });
+    });
   }
-  // 再加上新值
-  if(newLog) {
-    if(newLog.type==='annual_earn')  ld.annualDays  = (ld.annualDays||0)  + (newLog.days||0);
-    if(newLog.type==='annual_use')   ld.usedAnnual  = (ld.usedAnnual||0)  + (newLog.days||0);
-    if(newLog.type==='comp_earn')    ld.earnedComp  = (ld.earnedComp||0)  + (newLog.days||0);
-    if(newLog.type==='comp_use')     ld.usedComp    = (ld.usedComp||0)    + (newLog.days||0);
-  }
-  await leaveRef.set(ld, { merge: true });
+
+  await leaveRef.set({
+    ...existing,
+    // ✅ annualDays 保留原值（由到職日設定，不從 leaveLog 算）
+    annualDays: existing.annualDays ?? 0,
+    usedAnnual: Math.max(0, usedAnnual),
+    earnedComp: Math.max(0, earnedComp),
+    usedComp:   Math.max(0, usedComp),
+    updatedAt:  new Date().toISOString(),
+  }, { merge: true });
 }
 
 function openAddLogModal() {
@@ -1155,18 +1171,10 @@ async function saveAddLog() {
       savedBy: currentUser.displayName || currentUser.empName
     })}, { merge: true });
 
-    // 更新總帳
-    const snap = await leaveRef.get();
-    const ld = snap.exists ? snap.data() : { annualDays:0, usedAnnual:0, earnedComp:0, usedComp:0 };
-    if(type === 'annual_earn') ld.annualDays  = (ld.annualDays  || 0) + days;
-    if(type === 'annual_use')  ld.usedAnnual  = (ld.usedAnnual  || 0) + days;
-    if(type === 'comp_earn')   ld.earnedComp  = (ld.earnedComp  || 0) + days;
-    if(type === 'comp_use')    ld.usedComp    = (ld.usedComp    || 0) + days;
-    ld.store = currentStore;
-    ld.updatedAt = new Date().toISOString();
-    await leaveRef.set(ld, { merge: true });
-
-    leaveDataAll[empName] = ld;
+    // ✅ 重新從所有明細加總，確保總帳正確
+    await syncLeaveTotal(empName, year);
+    const updatedSnap = await window.db.collection('employees').doc(empName).collection('leaves').doc(year).get();
+    leaveDataAll[empName] = updatedSnap.exists ? updatedSnap.data() : {};
     closeModal('addLogModal');
     showToast('✅ 已新增紀錄');
     // 刷新 Modal 內容
