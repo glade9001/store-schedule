@@ -1134,13 +1134,26 @@ async function fetchAllStoreData() {
     // 員工名單
     appData.employees = [];
     const mainWeekRecs = (mainWeekSnap.exists && mainWeekSnap.data().records) ? mainWeekSnap.data().records : [];
-    // ✅ 只保留本週有實際排班內容的調走員工（顯示歷史班表用），離職員工完全排除
     const scheduledNames = mainWeekRecs.filter(r => r.shift && r.shift !== '').map(r=>r.name);
+
+    // ✅ 排班系統生效日用「下週一」判斷
+    const todaySched = new Date(); todaySched.setHours(0,0,0,0);
+    const dow = todaySched.getDay() || 7;
+    const nextMon = new Date(todaySched); nextMon.setDate(todaySched.getDate() + (8 - dow));
+    const nextMonStr = `${nextMon.getFullYear()}-${String(nextMon.getMonth()+1).padStart(2,'0')}-${String(nextMon.getDate()).padStart(2,'0')}`;
+
     mainEmpSnap.forEach(d => {
-      const status = d.data().status;
-      if(status === '離職') return; // 離職：完全不顯示
-      if(status === '調走' && !scheduledNames.includes(d.id)) return; // 調走：只有本週有班才顯示
-      appData.employees.push({ name: d.id, ...d.data() });
+      const data = d.data();
+      const status = data.status;
+      if(!['離職','調走'].includes(status)) {
+        appData.employees.push({ name: d.id, ...data });
+        return;
+      }
+      const effectDate = data.retireDate || data.transferDate;
+      // 排班：生效日 <= 下週一 才生效（本週班還保留）
+      const isEffective = !effectDate || nextMonStr >= effectDate;
+      if(!isEffective) appData.employees.push({ name: d.id, ...data });
+      else if(scheduledNames.includes(d.id)) appData.employees.push({ name: d.id, ...data }); // 本週有班仍顯示
     });
     appData.employees.sort((a,b) => (a.sortKey||0)-(b.sortKey||0));
 
