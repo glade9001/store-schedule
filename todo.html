@@ -417,8 +417,12 @@ function visible(todo){
   const td=toDay();
   if(todo.startDate&&td<todo.startDate)return false;
   if(todo.deleted)return false;
-  if(todo.isRecurring)return calcNext(todo)!==null;
-  if(todo.type==='announcement'&&todo.endDate&&td>todo.endDate)return false;
+  // 截止日判斷（非週期公告）
+  if(!todo.isRecurring&&todo.type==='announcement'&&todo.endDate&&td>todo.endDate)return false;
+  // 週期型：先判斷是否有下一次，再判斷 targetType
+  if(todo.isRecurring&&calcNext(todo)===null)return false;
+
+  // ✅ targetType 判斷（週期型也要走這裡）
   const tt=todo.targetType;
   if(tt==='self')return todo.createdBy===myName();
   if(tt==='all')return true;
