@@ -420,8 +420,13 @@ async function loadAllEmpLeave() {
     ]);
 
     empList = [];
+    const todayLeave = new Date().toISOString().split('T')[0];
     empSnap.forEach(d => {
-      if(!['離職','調走'].includes(d.data().status)) empList.push({ name:d.id, ...d.data() });
+      const data = d.data();
+      const status = data.status;
+      const effectDate = data.retireDate || data.transferDate;
+      const isEffective = ['離職','調走'].includes(status) && (!effectDate || todayLeave >= effectDate);
+      if(!isEffective) empList.push({ name:d.id, ...data });
     });
     empList.sort((a,b) => (a.sortKey||0)-(b.sortKey||0));
 
