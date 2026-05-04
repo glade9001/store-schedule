@@ -1134,10 +1134,13 @@ async function fetchAllStoreData() {
     // 員工名單
     appData.employees = [];
     const mainWeekRecs = (mainWeekSnap.exists && mainWeekSnap.data().records) ? mainWeekSnap.data().records : [];
-    const scheduledNames = mainWeekRecs.filter(r => r.shift||r.note||r.requestOff).map(r=>r.name);
+    // ✅ 只保留本週有實際排班內容的調走員工（顯示歷史班表用），離職員工完全排除
+    const scheduledNames = mainWeekRecs.filter(r => r.shift && r.shift !== '').map(r=>r.name);
     mainEmpSnap.forEach(d => {
-      if(!['離職','調走'].includes(d.data().status) || scheduledNames.includes(d.id))
-        appData.employees.push({ name: d.id, ...d.data() });
+      const status = d.data().status;
+      if(status === '離職') return; // 離職：完全不顯示
+      if(status === '調走' && !scheduledNames.includes(d.id)) return; // 調走：只有本週有班才顯示
+      appData.employees.push({ name: d.id, ...d.data() });
     });
     appData.employees.sort((a,b) => (a.sortKey||0)-(b.sortKey||0));
 
