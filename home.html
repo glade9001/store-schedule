@@ -866,9 +866,9 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       <select id="transferToStore" style="width:100%; padding:12px; border:1.5px solid var(--border); border-radius:10px; font-size:14px;"></select>
     </div>
     <div class="form-field">
-      <label>生效日期（月初）</label>
-      <select id="transferDate" style="width:100%; padding:12px; border:1.5px solid var(--border); border-radius:10px; font-size:14px;"></select>
-      <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">⚠️ 生效日起的班表將複製到新門市，並標記「支援原門市」</div>
+      <label>生效日期</label>
+      <input type="date" id="transferDate" style="width:100%; padding:12px; border:1.5px solid var(--border); border-radius:10px; font-size:14px;">
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">排班系統從生效日的下週一起生效，其他頁面當天起生效</div>
     </div>
     <div class="form-field">
       <label>新門市職務</label>
@@ -1054,6 +1054,24 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 </div>
 
 <!-- ===== 角色預覽 MODAL ===== -->
+<!-- ===== 離職日期 Modal ===== -->
+<div class="modal-overlay" id="retireModal" onclick="if(event.target===this)closeModal('retireModal')">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-title">⛔ 設定離職</div>
+    <div class="modal-sub" id="retireModalSub"></div>
+    <input type="hidden" id="retireEmpId">
+    <input type="hidden" id="retireStore">
+    <div class="form-field" style="margin-top:14px;">
+      <label>離職生效日期</label>
+      <input type="date" id="retireDate" style="width:100%; padding:12px; border:1.5px solid var(--border); border-radius:10px; font-size:14px;">
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">排班系統從下週一起生效，其他頁面當天起生效</div>
+    </div>
+    <button class="save-btn" onclick="confirmRetire()" style="background:var(--danger); color:white;">⛔ 確認離職</button>
+    <button class="cancel-btn" onclick="closeModal('retireModal')">取消</button>
+  </div>
+</div>
+
 <!-- ===== 離職員工 Modal ===== -->
 <div class="modal-overlay" id="retiredEmpModal" onclick="if(event.target===this)closeModal('retiredEmpModal')">
   <div class="modal-box" style="max-height:85vh;">
@@ -2185,10 +2203,15 @@ async function loadEmpAdminList(store) {
 
   try {
     const snap = await window.db.collection('stores').doc(store).collection('employees').get();
+    const todayStr = new Date().toISOString().split('T')[0];
     let emps = [];
     snap.forEach(d => {
-      // ✅ 過濾離職和調走，只顯示在職員工
-      if(!['離職','調走'].includes(d.data().status)) emps.push({id: d.id, ...d.data()});
+      const data = d.data();
+      const status = data.status;
+      const effectDate = data.retireDate || data.transferDate;
+      // ✅ 生效日判斷：狀態為離職/調走 且 今天已達生效日，才過濾掉
+      const isEffective = ['離職','調走'].includes(status) && (!effectDate || todayStr >= effectDate);
+      if(!isEffective) emps.push({id: d.id, ...data});
     });
     emps.sort((a,b) => (a.sortKey||0) - (b.sortKey||0));
 
@@ -2542,20 +2565,41 @@ async function saveNewEmployee() {
 }
 
 // ===== 離職 / 復職 =====
-async function toggleRetire(empId, store, isRetired, dispName) {
+function toggleRetire(empId, store, isRetired, dispName) {
+  if(isRetired) {
+    // 復職：直接操作，不需要日期
+    reinstateEmp(empId, store);
+    return;
+  }
+  // 離職：開啟日期 Modal
   const name = dispName || empId;
-  const action = isRetired ? '復職' : '離職';
-  if(!confirm(`確定將「${name}」標記為${action}？`)) return;
-  showLoading(`處理中...`);
+  document.getElementById('retireEmpId').value = empId;
+  document.getElementById('retireStore').value = store;
+  document.getElementById('retireModalSub').textContent = `將「${name}」標記為離職`;
+  const today = new Date();
+  document.getElementById('retireDate').value =
+    `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  openModal('retireModal');
+}
+
+async function confirmRetire() {
+  const empId     = document.getElementById('retireEmpId').value;
+  const store     = document.getElementById('retireStore').value;
+  const retireDate = document.getElementById('retireDate').value;
+  if(!retireDate) { showToast('⚠️ 請選擇生效日期'); return; }
+  const sub = document.getElementById('retireModalSub').textContent;
+  const nameMatch = sub.match(/將「(.+)」/);
+  const name = nameMatch ? nameMatch[1] : empId;
+  if(!confirm(`確定將「${name}」標記為離職？\n生效日：${retireDate}`)) return;
+  showLoading('處理中...');
   try {
     await window.db.collection('stores').doc(store).collection('employees').doc(empId).update({
-      status: isRetired ? '在職' : '離職'
+      status: '離職', retireDate
     });
-    showToast(`✅ ${name} 已標記${action}`);
+    showToast(`✅ ${name} 已標記離職，生效日：${retireDate}`);
+    closeModal('retireModal');
     await loadEmpAdminList(store);
-  } catch(e) {
-    showToast('❌ 失敗：' + e.message);
-  }
+  } catch(e) { showToast('❌ 失敗：' + e.message); }
   hideLoading();
 }
 
@@ -2571,21 +2615,10 @@ function openTransferModal(empId, fromStore, dispName) {
     .filter(s => s !== fromStore)
     .map(s => `<option value="${s}">${s}</option>`).join('');
 
-  const dateSel = document.getElementById('transferDate');
-  dateSel.innerHTML = '';
-  const now = new Date();
-  for(let i = 0; i <= 5; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
-    const y = d.getFullYear();
-    const m = String(d.getMonth()+1).padStart(2,'0');
-    const label = `${y}年${d.getMonth()+1}月1日`;
-    const val = `${y}-${m}-01`;
-    const opt = document.createElement('option');
-    opt.value = val;
-    opt.textContent = label;
-    if(i === 0 || (i === 1 && now.getDate() > 20)) opt.selected = true;
-    dateSel.appendChild(opt);
-  }
+  // 生效日期預設今天
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  document.getElementById('transferDate').value = todayStr;
 
   const empStore = fromStore;
   window.db.collection('stores').doc(empStore).collection('employees').doc(empId).get()
@@ -2606,20 +2639,13 @@ async function confirmTransfer() {
   const effectDate = document.getElementById('transferDate').value; 
   const newRole = document.getElementById('transferRole').value;
   if(!toStore) { showToast('⚠️ 請選擇目標門市'); return; }
+  if(!effectDate) { showToast('⚠️ 請選擇生效日期'); return; }
 
   const sub = document.getElementById('transferSub').textContent;
   const nameMatch = sub.match(/將「(.+)」從/);
   const displayedName = nameMatch ? nameMatch[1] : empId;
-  const [ey, em] = effectDate.split('-').map(Number);
 
-  if(!confirm(`確定將「${displayedName}」
-從「${fromStore}」調往「${toStore}」？
-
-生效日：${ey}年${em}月1日
-新職務：${newRole}
-
-生效日起的班表將複製到新門市
-並標記「支援${fromStore}」`)) return;
+  if(!confirm(`確定將「${displayedName}」\n從「${fromStore}」調往「${toStore}」？\n\n生效日：${effectDate}\n新職務：${newRole}\n\n排班系統從下週一起生效，其他頁面當天起生效`)) return;
 
   showLoading('調店處理中...');
   try {
