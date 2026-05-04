@@ -1055,9 +1055,8 @@ async function confirmDeleteLog(empName, ym, idx) {
     records.splice(idx, 1);
     await logRef.update({ records });
 
-    // 同步更新 leaves 總帳（扣掉被刪的值）
-    const reverseLog = { ...oldLog, days: -(oldLog.days || 0) };
-    await syncLeaveTotal(empName, (oldLog.date||ym).slice(0,4), reverseLog, null);
+    // 同步更新 leaves 總帳：傳入 oldLog 讓 syncLeaveTotal 扣掉，newLog 傳 null
+    await syncLeaveTotal(empName, (oldLog.date||ym).slice(0,4), oldLog, null);
     showToast('✅ 已刪除');
     await loadDetailLogs(empName, ym, 'empDetailLogs');
   } catch(e) { showToast('❌ 失敗：' + e.message); }
