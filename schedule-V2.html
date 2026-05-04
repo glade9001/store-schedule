@@ -374,6 +374,11 @@ th:first-child { background: #1557b0; z-index: 12; }
           <div style="flex:1; text-align:center; font-size:14px; font-weight:800;" id="empWeekLabel">--</div>
           <button class="week-btn" onclick="empChangeWeek(1)" style="background:white; border:1.5px solid var(--border);">›</button>
         </div>
+        <!-- 門市選擇（店長以上才顯示）-->
+        <div id="empStoreSelectWrap" style="display:none; margin-bottom:12px;">
+          <select id="empStoreSelector" onchange="onEmpStoreChange()"
+            style="width:100%; padding:9px 12px; border:1.5px solid var(--border); border-radius:10px; font-size:14px; font-weight:700; background:white;"></select>
+        </div>
 
         <!-- 班表圖片 -->
         <div class="schedule-img-wrap" id="scheduleImgWrap" style="display:none;">
@@ -704,17 +709,25 @@ window.onload = async () => {
       document.getElementById('adminView').style.display = 'none';
       document.getElementById('empView').style.display = 'block';
       document.getElementById('appTitle').textContent = '📅 查看班表';
-      // 員工鎖定本店；店長以上可切換門市（含 admin/owner 用第一間預設）
-      if(!canSchedule()) {
+
+      // 門市選擇器初始化
+      const empStoreSel = document.getElementById('empStoreSelector');
+      const empStoreWrap = document.getElementById('empStoreSelectWrap');
+      if(canSchedule()) {
+        // 店長以上：顯示門市選擇器
+        empStoreWrap.style.display = 'block';
+        empStoreSel.innerHTML = '';
+        (appConfig.stores || []).forEach(s => {
+          empStoreSel.innerHTML += `<option value="${s}">${s}</option>`;
+        });
+        empStoreSel.value = currentUser.store || appConfig.stores[0];
+      } else {
+        // 員工：隱藏選擇器，鎖定本店
+        empStoreWrap.style.display = 'none';
         const myStore = currentUser.store || appConfig.stores[0];
         sel.value = myStore;
-        Array.from(sel.options).forEach(o => {
-          if(o.value !== myStore) o.disabled = true;
-        });
-      } else {
-        // 店長以上：預設本店或第一間
-        sel.value = currentUser.store || appConfig.stores[0];
       }
+
       // 初始化：跳到含今天的週次
       empWeekStr = getCurrentWeekString();
       updateEmpWeekLabel();
@@ -1280,6 +1293,13 @@ function updateHeaderInfo() {
 }
 
 // ===== 員工視角 =====
+// 查閱模式門市切換（店長以上）
+async function onEmpStoreChange() {
+  empWeekStr = getCurrentWeekString();
+  updateEmpWeekLabel();
+  await loadEmpView();
+}
+
 function empChangeWeek(offset) {
   const p = empWeekStr.split('-W');
   let yr = parseInt(p[0]), wk = parseInt(p[1]);
@@ -1341,8 +1361,10 @@ function updateEmpWeekLabel() {
 }
 
 async function loadEmpView() {
-  const selEl = document.getElementById('storeSelector');
-  const store = (selEl && selEl.value) ? selEl.value : currentUser.store;
+  // ✅ 查閱模式讀 empStoreSelector，排班模式讀 storeSelector
+  const empStoreSel = document.getElementById('empStoreSelector');
+  const adminStoreSel = document.getElementById('storeSelector');
+  const store = (empStoreSel?.value) || (adminStoreSel?.value) || currentUser.store;
   if(!store) return;
 
   showLoading('載入班表...');
