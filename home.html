@@ -651,7 +651,10 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
         <div class="store-tabs" id="empStoreTabs"></div>
         <div class="section-header">
           <div class="section-title">👥 員工帳號管理</div>
-          <button onclick="openAddEmpModal()" style="background:var(--primary); color:white; border:none; border-radius:10px; padding:8px 14px; font-size:12px; font-weight:700; cursor:pointer;">＋ 新增員工</button>
+          <div style="display:flex; gap:8px;">
+            <button onclick="openRetiredEmpModal()" style="background:#f1f3f4; color:var(--text-muted); border:none; border-radius:10px; padding:8px 12px; font-size:12px; font-weight:700; cursor:pointer;">📦 離職員工</button>
+            <button onclick="openAddEmpModal()" style="background:var(--primary); color:white; border:none; border-radius:10px; padding:8px 14px; font-size:12px; font-weight:700; cursor:pointer;">＋ 新增員工</button>
+          </div>
         </div>
         <div id="empAdminList" class="emp-list"></div>
       </div>
@@ -1051,6 +1054,22 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 </div>
 
 <!-- ===== 角色預覽 MODAL ===== -->
+<!-- ===== 離職員工 Modal ===== -->
+<div class="modal-overlay" id="retiredEmpModal" onclick="if(event.target===this)closeModal('retiredEmpModal')">
+  <div class="modal-box" style="max-height:85vh;">
+    <div class="modal-handle"></div>
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
+      <div class="modal-title" style="margin:0;">📦 離職員工</div>
+      <div style="flex:1;"></div>
+      <button onclick="closeModal('retiredEmpModal')" style="background:#f1f3f4;border:none;border-radius:10px;padding:6px 10px;cursor:pointer;">✕</button>
+    </div>
+    <div style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">資料保留不刪除，可點選復職。</div>
+    <div id="retiredEmpList">
+      <div style="text-align:center; color:var(--text-muted); padding:20px 0;">載入中...</div>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="rolePreviewModal" onclick="closeWip(event)">
   <div class="modal-box">
     <div class="modal-handle"></div>
@@ -2038,6 +2057,60 @@ function renderQuickBtns() {
   mgmt.innerHTML = mgmtBtns;
 }
 
+// ===== 離職員工清單 =====
+async function openRetiredEmpModal() {
+  openModal('retiredEmpModal');
+  const listEl = document.getElementById('retiredEmpList');
+  listEl.innerHTML = `<div style="text-align:center;color:var(--text-muted);padding:20px 0;">載入中...</div>`;
+  try {
+    const store = currentEmpAdminStore || currentUser.store || '';
+    const snap = await window.db.collection('stores').doc(store).collection('employees').get();
+    const retired = [];
+    snap.forEach(d => {
+      const s = d.data().status;
+      if(s === '離職' || s === '調走') retired.push({ id:d.id, ...d.data() });
+    });
+    if(retired.length === 0) {
+      listEl.innerHTML = `<div style="text-align:center;color:var(--text-muted);padding:30px 0;">📭 無離職/調走員工資料</div>`;
+      return;
+    }
+    listEl.innerHTML = retired.map(emp => {
+      const isRetired = emp.status === '離職';
+      const tagStyle = isRetired
+        ? 'background:#fce8e6;color:var(--danger);'
+        : 'background:#fff3e0;color:#e65100;';
+      const tagText = isRetired ? '已離職' : `已調走${emp.transferredTo?` → ${emp.transferredTo}`:''}`;
+      return `
+      <div style="display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--border);">
+        <div style="width:36px;height:36px;border-radius:10px;background:#f1f3f4;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;color:var(--text-muted);">${emp.id[0]}</div>
+        <div style="flex:1;">
+          <div style="font-size:14px;font-weight:700;color:var(--text-muted);">${emp.id}
+            <span style="font-size:11px;${tagStyle}padding:1px 6px;border-radius:4px;">${tagText}</span>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);">${emp.role||''}</div>
+        </div>
+        ${canManageEmployee() && isRetired ? `
+        <button onclick="reinstateEmp('${emp.id}','${store}')"
+          style="background:#e8f5e9;color:#2e7d32;border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;">✅ 復職</button>` : ''}
+      </div>`;
+    }).join('');
+  } catch(e) {
+    listEl.innerHTML = `<div style="text-align:center;color:var(--danger);padding:20px 0;">讀取失敗</div>`;
+  }
+}
+
+async function reinstateEmp(empName, store) {
+  if(!confirm(`確定將 ${empName} 設為復職？`)) return;
+  showLoading('更新中...');
+  try {
+    await window.db.collection('stores').doc(store).collection('employees').doc(empName).update({ status: '在職' });
+    showToast(`✅ ${empName} 已復職`);
+    closeModal('retiredEmpModal');
+    await loadEmpAdminList(store);
+  } catch(e) { showToast('❌ 失敗：' + e.message); }
+  hideLoading();
+}
+
 // 折疊/展開
 function toggleFuncSection(key) {
   const grid  = document.getElementById(`grid-${key}`);
@@ -2113,7 +2186,10 @@ async function loadEmpAdminList(store) {
   try {
     const snap = await window.db.collection('stores').doc(store).collection('employees').get();
     let emps = [];
-    snap.forEach(d => emps.push({id: d.id, ...d.data()}));
+    snap.forEach(d => {
+      // ✅ 過濾離職和調走，只顯示在職員工
+      if(!['離職','調走'].includes(d.data().status)) emps.push({id: d.id, ...d.data()});
+    });
     emps.sort((a,b) => (a.sortKey||0) - (b.sortKey||0));
 
     const accSnap = await window.db.collection('account').where('store','==',store).get();
