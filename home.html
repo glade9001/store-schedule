@@ -2700,19 +2700,48 @@ function toggleRetire(empId, store, isRetired, dispName) {
 }
 
 async function confirmRetire() {
-  const empId     = document.getElementById('retireEmpId').value;
-  const store     = document.getElementById('retireStore').value;
+  const empId      = document.getElementById('retireEmpId').value;
+  const store      = document.getElementById('retireStore').value;
   const retireDate = document.getElementById('retireDate').value;
   if(!retireDate) { showToast('⚠️ 請選擇生效日期'); return; }
   const sub = document.getElementById('retireModalSub').textContent;
   const nameMatch = sub.match(/將「(.+)」/);
   const name = nameMatch ? nameMatch[1] : empId;
-  if(!confirm(`確定將「${name}」標記為離職？\n生效日：${retireDate}`)) return;
+
+  // ✅ 檢查該員工本月薪資是否已送出
+  const today = new Date();
+  const ym = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
+  const salSnap = await window.db.collection('stores').doc(store).collection('salary').doc(ym).get().catch(()=>null);
+  const salStatus = salSnap?.exists ? salSnap.data().status : 'draft';
+  if(salStatus === 'draft') {
+    const proceed = confirm(`⚠️ 注意：${name} 本月薪資尚未送出！\n\n依規定應先完成本月薪資（含特休遞延結算）再標記離職。\n\n確定要繼續嗎？（建議先至薪資系統處理）`);
+    if(!proceed) return;
+  }
+
+  // ✅ 計算離職特休結算（擇優）
+  const batchSnap = await window.db.collection('employees').doc(empId).collection('leaveBatches').get().catch(()=>null);
+  let batches = [];
+  if(batchSnap) batchSnap.forEach(d=>batches.push({id:d.id,...d.data()}));
+  const hireDate = batches[0]?.grantDate ? (() => { const d=new Date(batches[0].grantDate); d.setMonth(d.getMonth()-6); return d.toISOString().split('T')[0]; })() : null;
+
+  let settleMsg = '';
+  if(hireDate && batches.length > 0) {
+    const f=new Date(hireDate), t=new Date(retireDate);
+    const totalMonths=(t.getFullYear()-f.getFullYear())*12+(t.getMonth()-f.getMonth());
+    const weeklyRemain = batches.filter(b=>!b.settled).reduce((a,b)=>a+Math.max(0,(b.days||0)-(b.used||0)),0);
+    // 比例制
+    let propDays = 0;
+    if(totalMonths>=6){ const rule=totalMonths<12?3:totalMonths<24?7:totalMonths<36?10:totalMonths<48?14:totalMonths<120?15:Math.min(30,15+Math.floor(totalMonths/12)-9); propDays=Math.ceil(rule*(totalMonths%12||12)/12); }
+    const finalDays = Math.max(weeklyRemain, propDays);
+    const basis = finalDays===propDays&&propDays>weeklyRemain?'比例制（較優）':'週年制（較優）';
+    if(finalDays > 0) settleMsg = `\n\n📋 離職特休結算（擇優原則）\n週年制剩餘：${weeklyRemain} 天\n比例制應得：${propDays} 天\n最終補發：${finalDays} 天（${basis}）\n\n請在最後一個月薪資中手動加入此金額。`;
+  }
+
+  if(!confirm(`確定將「${name}」標記為離職？\n生效日：${retireDate}${settleMsg}`)) return;
+
   showLoading('處理中...');
   try {
-    await window.db.collection('stores').doc(store).collection('employees').doc(empId).update({
-      status: '離職', retireDate
-    });
+    await window.db.collection('stores').doc(store).collection('employees').doc(empId).update({ status:'離職', retireDate });
     showToast(`✅ ${name} 已標記離職，生效日：${retireDate}`);
     closeModal('retireModal');
     await loadEmpAdminList(store);
