@@ -685,10 +685,20 @@ function openEmpDetail(empName) {
 function renderEmpDetail(empName, showBack=true) {
   const el = document.getElementById('mainContent');
   const emp = empList.find(e=>e.name===empName) || { name:empName, role:currentUser?.role||'' };
-  const batches = (batchesAll[empName]||[]).filter(b=>!b._legacy);
+const rawBatches = batchesAll[empName] || [];
+  const batches = rawBatches.filter(b=>!b._legacy);
   const logs = leaveLogAll[empName] || [];
   const s = calcEmpSummary(empName);
-  const hireDate = batches[0]?.grantDate ? dateAdd(batches[0].grantDate, -6) : null;
+  
+  // 修正：同時支援讀取舊版到職日與新版到職日
+  let hireDate = null;
+  if (rawBatches.length > 0) {
+    if (rawBatches[0]._legacy && rawBatches[0].hireDate) {
+      hireDate = rawBatches[0].hireDate; // 舊版直接取 hireDate
+    } else if (batches[0]?.grantDate) {
+      hireDate = dateAdd(batches[0].grantDate, -6); // 新版用第一筆發放日回推
+    }
+  }
   const isPartTime = (emp.role||'').includes('工讀');
   const canEdit = isManager();
   const todayStr = today();
@@ -851,10 +861,15 @@ function openHireDateModal(empName) {
   document.getElementById('hireDateEmpDisplay').value = getDN(empName);
   document.getElementById('manualDaysGroup').style.display = isPartTime ? 'block' : 'none';
   document.getElementById('autoDaysPreview').style.display = 'none';
-  // 現有到職日
-  const existing = (batchesAll[empName]||[]).find(b=>!b._legacy);
-  if(existing?.grantDate) {
-    document.getElementById('hireDateInput').value = dateAdd(existing.grantDate,-6);
+// 現有到職日：相容舊版與新版
+  const rawBatches = batchesAll[empName] || [];
+  const existingNew = rawBatches.find(b=>!b._legacy);
+  const existingLegacy = rawBatches.find(b=>b._legacy);
+  
+  if(existingNew?.grantDate) {
+    document.getElementById('hireDateInput').value = dateAdd(existingNew.grantDate, -6);
+  } else if (existingLegacy?.hireDate) {
+    document.getElementById('hireDateInput').value = existingLegacy.hireDate;
   } else {
     document.getElementById('hireDateInput').value = '';
   }
