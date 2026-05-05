@@ -901,40 +901,56 @@ async function deductLeave(empName, day, weekStr, prevShift, newShift) {
 
     // 特休：從有到無 → 回補；從無到有 → 扣除
     if(prevIsAnnual && !newIsAnnual) {
-      ld.usedAnnual = Math.max(0, (ld.usedAnnual||0) - 1);
       await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
         date: fullDate, type: 'annual_use_cancel', days: 1,
-        note: `${day} 特休取消（排班異動）`, savedBy
+        note: `${fullDate} 特休取消（排班異動）`, savedBy
       })}, { merge: true });
     } else if(!prevIsAnnual && newIsAnnual) {
-      // 防呆：剩餘不足
       const remain = (ld.annualDays||0) - (ld.usedAnnual||0);
       if(remain < 1) { showToast(`⚠️ ${empName} 特休不足（剩餘 ${remain} 天）`); return; }
-      ld.usedAnnual = (ld.usedAnnual||0) + 1;
       await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
         date: fullDate, type: 'annual_use', days: 1,
-        note: `${day} 使用特休`, savedBy
+        note: `${fullDate} 使用特休`, savedBy
       })}, { merge: true });
     }
 
     // 補休：從有到無 → 回補；從無到有 → 扣除
     if(prevIsComp && !newIsComp) {
-      ld.usedComp = Math.max(0, (ld.usedComp||0) - 1);
       await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
         date: fullDate, type: 'comp_use_cancel', days: 1,
-        note: `${day} 補休取消（排班異動）`, savedBy
+        note: `${fullDate} 補休取消（排班異動）`, savedBy
       })}, { merge: true });
     } else if(!prevIsComp && newIsComp) {
       const remain = (ld.earnedComp||0) - (ld.usedComp||0);
       if(remain < 1) { showToast(`⚠️ ${empName} 補休不足（剩餘 ${remain} 天）`); return; }
-      ld.usedComp = (ld.usedComp||0) + 1;
       await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
         date: fullDate, type: 'comp_use', days: 1,
-        note: `${day} 使用補休`, savedBy
+        note: `${fullDate} 使用補休`, savedBy
       })}, { merge: true });
     }
 
-    await leaveRef.set(ld, { merge: true });
+    // ✅ 從 leaveLog 重新加總，確保總帳正確
+    const logSnaps = await window.db.collection('employees').doc(empName).collection('leaveLog').get();
+    let usedAnnual = 0, earnedComp = 0, usedComp = 0;
+    logSnaps.forEach(d => {
+      if(!d.id.startsWith(year)) return;
+      (d.data().records || []).forEach(r => {
+        const rd = parseFloat(r.days) || 0;
+        if(r.type === 'annual_use')        usedAnnual += rd;
+        if(r.type === 'comp_earn')         earnedComp += rd;
+        if(r.type === 'comp_use')          usedComp   += rd;
+        if(r.type === 'annual_use_cancel') usedAnnual = Math.max(0, usedAnnual - rd);
+        if(r.type === 'comp_use_cancel')   usedComp   = Math.max(0, usedComp   - rd);
+        if(r.type === 'comp_cancel')       earnedComp = Math.max(0, earnedComp - rd);
+      });
+    });
+    await leaveRef.set({
+      ...ld,
+      usedAnnual: Math.max(0, usedAnnual),
+      earnedComp: Math.max(0, earnedComp),
+      usedComp:   Math.max(0, usedComp),
+      updatedAt:  new Date().toISOString()
+    }, { merge: true });
   } catch(e) {
     console.warn('deductLeave 失敗（不影響排班）:', e.message);
   }
