@@ -107,13 +107,49 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 }
 .header-avatar {
   width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,0.25);
-  display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; font-size: 18px;
+  flex-shrink: 0; cursor: pointer; transition: background 0.15s;
 }
+.header-avatar:active { background: rgba(255,255,255,0.4); }
 .header-info { flex: 1; }
 .header-name { font-size: 15px; font-weight: 800; }
 .header-role { font-size: 11px; opacity: 0.75; }
 .header-store { background: rgba(255,255,255,0.2); border-radius: 8px; padding: 4px 10px; font-size: 12px; font-weight: 700; }
-.header-logout { background: none; border: 1px solid rgba(255,255,255,0.4); color: white; border-radius: 8px; padding: 6px 12px; font-size: 12px; cursor: pointer; font-weight: 600; }
+.header-settings-btn {
+  background: rgba(255,255,255,0.18); border: none; color: white;
+  width: 34px; height: 34px; border-radius: 10px; font-size: 18px;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s; flex-shrink: 0;
+}
+.header-settings-btn:active { background: rgba(255,255,255,0.35); }
+
+/* Bottom Sheet */
+.bottom-sheet-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+  z-index: 9500; opacity: 0; pointer-events: none; transition: opacity 0.25s;
+}
+.bottom-sheet-overlay.active { opacity: 1; pointer-events: all; }
+.bottom-sheet {
+  position: fixed; bottom: 0; left: 50%; transform: translateX(-50%) translateY(100%);
+  width: 100%; max-width: 520px; background: white;
+  border-radius: 24px 24px 0 0; z-index: 9600;
+  transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+.bottom-sheet.active { transform: translateX(-50%) translateY(0); }
+.bs-handle { width: 36px; height: 4px; background: #e2e8f0; border-radius: 2px; margin: 12px auto 16px; }
+.bs-title { font-size: 13px; font-weight: 800; color: var(--text-muted); letter-spacing: 0.5px; padding: 0 20px 10px; text-transform: uppercase; }
+.bs-item {
+  display: flex; align-items: center; gap: 14px; padding: 14px 20px;
+  cursor: pointer; transition: background 0.1s; border-top: 1px solid var(--border);
+}
+.bs-item:active { background: #f8fafc; }
+.bs-item-icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+.bs-item-text { flex: 1; }
+.bs-item-label { font-size: 15px; font-weight: 700; }
+.bs-item-sub { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+.bs-item-arrow { color: var(--text-muted); font-size: 16px; }
+.bs-divider { height: 8px; background: #f4f6fb; }
 
 /* ===== PAGE CONTAINER ===== */
 .page-container {
@@ -173,13 +209,13 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 /* ===== STATS ROW ===== */
 .stats-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
 .stat-card {
-  background: var(--card); border-radius: 14px; padding: 16px; text-align: center;
+  background: var(--card); border-radius: 12px; padding: 10px 8px; text-align: center;
   box-shadow: var(--shadow); border: 1px solid var(--border); cursor: pointer; transition: transform 0.15s;
 }
 .stat-card:active { transform: scale(0.97); }
-.stat-icon { font-size: 26px; margin-bottom: 6px; }
-.stat-val { font-size: 26px; font-weight: 900; color: var(--primary); line-height: 1; }
-.stat-label { font-size: 11px; color: var(--text-muted); margin-top: 4px; font-weight: 600; }
+.stat-icon { font-size: 20px; margin-bottom: 3px; }
+.stat-val { font-size: 20px; font-weight: 900; color: var(--primary); line-height: 1; }
+.stat-label { font-size: 10px; color: var(--text-muted); margin-top: 3px; font-weight: 600; }
 
 /* Sub-header（子頁面藍色標題列）*/
 .sub-header {
@@ -511,13 +547,13 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 
   <!-- TOP HEADER -->
   <div class="top-header">
-    <div class="header-avatar" id="headerAvatar">👤</div>
+    <div class="header-avatar" id="headerAvatar" onclick="openSettingsSheet()">👤</div>
     <div class="header-info">
       <div class="header-name" id="headerName">載入中</div>
       <div class="header-role" id="headerRole">--</div>
     </div>
     <div class="header-store" id="headerStore">--</div>
-    <button class="header-logout" onclick="doLogout()">登出</button>
+    <button class="header-settings-btn" onclick="openSettingsSheet()">⚙️</button>
   </div>
 
   <!-- PAGE CONTAINER -->
@@ -535,10 +571,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
         </div>
       </div>
 
-      <!-- 統計卡片（依角色動態渲染）-->
-      <div id="statsArea"></div>
-
-      <!-- 公告橫幅（可橫向滑動，有公告才顯示）-->
+      <!-- 公告橫幅 -->
       <div id="announceBannerWrap" style="display:none; margin-bottom:10px;">
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
           <div style="font-size:11px; font-weight:800; color:var(--text-muted); letter-spacing:0.5px;">📢 公告事項</div>
@@ -547,43 +580,35 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
         <div id="announceBanner" style="display:flex; gap:10px; overflow-x:auto; padding-bottom:4px; -webkit-overflow-scrolling:touch; scrollbar-width:none;"></div>
       </div>
 
-      <!-- 待處理 badge（有待處理時才顯示，公告橫幅下方）-->
+      <!-- 待處理 badge -->
       <div id="pendingBadgeBar" style="display:none; background:linear-gradient(135deg,#fce8e6,#fef2f2); border:1.5px solid var(--danger); border-radius:12px; padding:10px 14px; margin-bottom:12px; cursor:pointer; align-items:center; gap:10px;" onclick="document.getElementById('pendingCard').scrollIntoView({behavior:'smooth'})">
         <div style="font-size:18px;">🔔</div>
         <div style="flex:1; font-size:13px; font-weight:800; color:var(--danger);">有 <span id="pendingBadgeCount">0</span> 件待處理事項</div>
         <div style="color:var(--danger); font-size:16px; font-weight:900;">›</div>
       </div>
 
-      <!-- 我的班表（上移到統計欄下方）-->
+      <!-- 我的班表（置頂）-->
       <div class="card">
         <div class="section-header">
-          <div class="section-title">📅 我的班表</div>
-          <div class="section-more" onclick="window.location.href='schedule-V2.html'">查看完整 →</div>
+          <div class="section-title" style="font-size:13px;">📅 我的班表</div>
+          <div class="section-more" onclick="window.location.href='schedule-V2.html'" style="font-size:12px;">查看完整 →</div>
         </div>
-        <!-- 週次切換列 -->
         <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
-          <button id="homePrevBtn" onclick="homeChangeWeek(-1)" style="background:#f1f3f4; border:none; border-radius:8px; padding:6px 14px; font-size:14px; font-weight:700; cursor:pointer; color:var(--text);">‹</button>
-          <div style="flex:1; text-align:center; font-size:12px; font-weight:800; color:var(--primary);" id="homeWeekLabel">--</div>
-          <button id="homeNextBtn" onclick="homeChangeWeek(1)" style="background:#f1f3f4; border:none; border-radius:8px; padding:6px 14px; font-size:14px; font-weight:700; cursor:pointer; color:var(--text);">›</button>
+          <button id="homePrevBtn" onclick="homeChangeWeek(-1)" style="background:#f1f3f4; border:none; border-radius:8px; padding:5px 12px; font-size:13px; font-weight:700; cursor:pointer; color:var(--text);">‹</button>
+          <div style="flex:1; text-align:center; font-size:11px; font-weight:800; color:var(--primary);" id="homeWeekLabel">--</div>
+          <button id="homeNextBtn" onclick="homeChangeWeek(1)" style="background:#f1f3f4; border:none; border-radius:8px; padding:5px 12px; font-size:13px; font-weight:700; cursor:pointer; color:var(--text);">›</button>
         </div>
         <div id="homeWeekShifts">
           <div style="text-align:center; color:var(--text-muted); font-size:13px; padding:8px 0;">載入中...</div>
         </div>
       </div>
 
-      <!-- 常用功能 + 管理功能（分區塊）-->
-      <div class="card" style="padding:16px 16px 12px;">
-        <!-- 常用功能：所有人都有 -->
+      <!-- 常用功能 + 管理功能 -->
+      <div class="card" style="padding:14px 14px 10px;">
         <div class="func-section">
-          <div class="func-section-header" onclick="toggleFuncSection('personal')">
-            <div class="func-section-title">常用功能</div>
-            <span class="func-section-arrow open" id="arrow-personal">›</span>
-          </div>
-          <div class="func-grid expanded" id="grid-personal" id="quickGrid"></div>
+          <div class="func-grid expanded" id="grid-personal"></div>
         </div>
-
-        <!-- 管理功能：店長以上才顯示 -->
-        <div class="func-section" id="mgmtSection" style="display:none; border-top:1px solid var(--border); padding-top:10px; margin-top:4px;">
+        <div class="func-section" id="mgmtSection" style="display:none; border-top:1px solid var(--border); padding-top:10px; margin-top:8px;">
           <div class="func-section-header" onclick="toggleFuncSection('mgmt')">
             <div class="func-section-title">管理功能</div>
             <span class="func-section-arrow open" id="arrow-mgmt">›</span>
@@ -592,15 +617,16 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
         </div>
       </div>
 
-      <!-- 待處理事項（管理者才顯示，含薪資提醒）-->
+      <!-- 統計卡片（下移、縮小）-->
+      <div id="statsArea"></div>
+
+      <!-- 待處理事項（含代辦入口）-->
       <div class="card" id="pendingCard" style="display:none;">
         <div class="section-header">
           <div class="section-title">🔔 待處理事項</div>
-          <div class="section-more" id="pendingCount">0 件</div>
+          <div class="section-more" onclick="window.location.href='todo.html'" style="font-size:11px; color:var(--primary);">代辦清單 →</div>
         </div>
-        <div id="pendingList">
-          <div style="text-align:center; color:var(--text-muted); font-size:13px; padding:20px 0;">暫無待處理</div>
-        </div>
+        <div id="pendingList"></div>
       </div>
     </div>
 
@@ -1072,7 +1098,86 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
   </div>
 </div>
 
-<!-- ===== 離職員工 Modal ===== -->
+<!-- ===== 設定 Bottom Sheet ===== -->
+<div class="bottom-sheet-overlay" id="settingsOverlay" onclick="closeSettingsSheet()"></div>
+<div class="bottom-sheet" id="settingsSheet">
+  <div class="bs-handle"></div>
+  <div id="settingsProfile" style="display:flex; align-items:center; gap:12px; padding:0 20px 16px;">
+    <div style="width:44px; height:44px; border-radius:50%; background:var(--primary); display:flex; align-items:center; justify-content:center; font-size:20px; font-weight:800; color:white;" id="settingsAvatar">👤</div>
+    <div>
+      <div style="font-size:15px; font-weight:800;" id="settingsName">--</div>
+      <div style="font-size:12px; color:var(--text-muted);" id="settingsRole">--</div>
+    </div>
+  </div>
+  <div class="bs-title">帳號與設定</div>
+  <div class="bs-item" onclick="closeSettingsSheet(); loadAccountPage();">
+    <div class="bs-item-icon" style="background:#e8f0fe;">👤</div>
+    <div class="bs-item-text">
+      <div class="bs-item-label">帳號管理</div>
+      <div class="bs-item-sub">修改密碼、個人資料</div>
+    </div>
+    <div class="bs-item-arrow">›</div>
+  </div>
+  <div class="bs-item" id="bsStoreConfig" style="display:none;" onclick="closeSettingsSheet(); openStoreConfigModal();">
+    <div class="bs-item-icon" style="background:#e8f5e9;">🔧</div>
+    <div class="bs-item-text">
+      <div class="bs-item-label">門市設定</div>
+      <div class="bs-item-sub">班別、工時設定</div>
+    </div>
+    <div class="bs-item-arrow">›</div>
+  </div>
+  <div class="bs-item" id="bsSysConfig" style="display:none;" onclick="closeSettingsSheet(); openSysConfigModal();">
+    <div class="bs-item-icon" style="background:#f3e8ff;">⚙️</div>
+    <div class="bs-item-text">
+      <div class="bs-item-label">系統設定</div>
+      <div class="bs-item-sub">門市管理、角色預覽</div>
+    </div>
+    <div class="bs-item-arrow">›</div>
+  </div>
+  <div class="bs-divider"></div>
+  <div class="bs-item" onclick="closeSettingsSheet(); doLogout();">
+    <div class="bs-item-icon" style="background:#fce8e6;">🚪</div>
+    <div class="bs-item-text">
+      <div class="bs-item-label" style="color:var(--danger);">登出</div>
+      <div class="bs-item-sub">退出目前帳號</div>
+    </div>
+  </div>
+  <div style="height:16px;"></div>
+</div>
+
+<!-- ===== 更多管理 Bottom Sheet ===== -->
+<div class="bottom-sheet-overlay" id="moreMgmtOverlay" onclick="closeMoreMgmtSheet()"></div>
+<div class="bottom-sheet" id="moreMgmtSheet">
+  <div class="bs-handle"></div>
+  <div class="bs-title">管理功能</div>
+  <div class="bs-item" onclick="closeMoreMgmtSheet(); loadEmpMgmtPage();">
+    <div class="bs-item-icon" style="background:#e8f5e9;">👥</div>
+    <div class="bs-item-text">
+      <div class="bs-item-label">員工資料</div>
+      <div class="bs-item-sub">帳號、職位、調店、離職</div>
+    </div>
+    <div class="bs-item-arrow">›</div>
+  </div>
+  <div class="bs-item" onclick="closeMoreMgmtSheet(); window.location.href='leave.html?mode=mgmt';">
+    <div class="bs-item-icon" style="background:#f3e8ff;">📆</div>
+    <div class="bs-item-text">
+      <div class="bs-item-label">員工特補休</div>
+      <div class="bs-item-sub">假別管理、紀錄查詢</div>
+    </div>
+    <div class="bs-item-arrow">›</div>
+  </div>
+  <div class="bs-item" id="bsMgmtPreview" style="display:none;" onclick="closeMoreMgmtSheet(); openRolePreviewModal();">
+    <div class="bs-item-icon" style="background:#ede7f6;">🎭</div>
+    <div class="bs-item-text">
+      <div class="bs-item-label">角色預覽</div>
+      <div class="bs-item-sub">以員工視角體驗介面</div>
+    </div>
+    <div class="bs-item-arrow">›</div>
+  </div>
+  <div style="height:16px;"></div>
+</div>
+
+<!-- ===== rolePreviewModal ===== -->
 <div class="modal-overlay" id="retiredEmpModal" onclick="if(event.target===this)closeModal('retiredEmpModal')">
   <div class="modal-box" style="max-height:85vh;">
     <div class="modal-handle"></div>
@@ -2001,78 +2106,74 @@ function renderQuickBtns() {
   if(!personal) return;
 
   // 折疊狀態記憶
-  const pState = localStorage.getItem('funcSection-personal') !== 'collapsed';
-  const mState = localStorage.getItem('funcSection-mgmt')     !== 'collapsed';
-  setFuncSectionState('personal', pState);
+  const mState = localStorage.getItem('funcSection-mgmt') !== 'collapsed';
   setFuncSectionState('mgmt', mState);
 
-  // ===== 常用功能（所有人）=====
-  const hasEmpName = !!currentUser.empName;
-  let personalBtns = `
+  // ===== 常用功能（所有人，3個）=====
+  personal.innerHTML = `
     <button class="func-btn blue-dark" onclick="window.location.href='schedule-V2.html'">
-      <div class="func-icon">📅</div><div class="func-label">查看班表</div>
-    </button>
-    <button class="func-btn purple" onclick="window.location.href='todo.html'">
-      <div class="func-icon">🗒️</div><div class="func-label">代辦事項</div>
+      <div class="func-icon">📅</div><div class="func-label">班表</div>
     </button>
     <button class="func-btn purple" onclick="window.location.href='leave.html?mode=self'">
-      <div class="func-icon">🏖️</div><div class="func-label">特休補休</div>
-    </button>`;
-
-  if(hasEmpName) {
-    personalBtns += `
-    <button class="func-btn orange" onclick="window.location.href='my-salary.html'">
-      <div class="func-icon">💰</div><div class="func-label">我的薪資</div>
-    </button>`;
-  }
-
-  personalBtns += `
-    <button class="func-btn blue" onclick="showWip('劃休系統')">
-      <div class="func-icon">📝</div><div class="func-label">劃休申請</div>
+      <div class="func-icon">🏖️</div><div class="func-label">特補休紀錄</div>
     </button>
-    <button class="func-btn gray" onclick="loadAccountPage()">
-      <div class="func-icon">👤</div><div class="func-label">帳號管理</div>
-    </button>`;
-
-  personal.innerHTML = personalBtns;
+    ${currentUser.empName ? `
+    <button class="func-btn orange" onclick="window.location.href='my-salary.html'">
+      <div class="func-icon">💰</div><div class="func-label">薪水</div>
+    </button>` : ''}`;
 
   // ===== 管理功能（店長以上）=====
-  if(!canSchedule()) {
-    mgmtSec.style.display = 'none';
-    return;
-  }
+  if(!canSchedule()) { mgmtSec.style.display='none'; return; }
   mgmtSec.style.display = 'block';
 
-  let mgmtBtns = `
+  mgmt.innerHTML = `
     <button class="func-btn blue-dark" onclick="window.location.href='schedule-V2.html?mode=admin'">
-      <div class="func-icon">📋</div><div class="func-label">排班管理</div>
+      <div class="func-icon">📋</div><div class="func-label">排班</div>
     </button>
     <button class="func-btn orange-dark" onclick="window.location.href='salary.html'">
-      <div class="func-icon">💳</div><div class="func-label">薪資管理</div>
+      <div class="func-icon">💳</div><div class="func-label">算薪水</div>
     </button>
-    <button class="func-btn green" onclick="loadEmpMgmtPage()">
-      <div class="func-icon">👥</div><div class="func-label">員工管理</div>
-    </button>
-    <button class="func-btn purple" onclick="window.location.href='leave.html?mode=mgmt'">
-      <div class="func-icon">📆</div><div class="func-label">假勤管理</div>
+    <button class="func-btn gray" onclick="openMoreMgmtSheet()">
+      <div class="func-icon">⋯</div><div class="func-label">更多管理</div>
     </button>`;
 
-  if(canSchedule()) {
-    mgmtBtns += `
-    <button class="func-btn blue" onclick="openStoreConfigModal()">
-      <div class="func-icon">🔧</div><div class="func-label">門市設定</div>
-    </button>`;
-  }
+  // 更多管理 sheet 的角色預覽顯示
+  const bsPreview = document.getElementById('bsMgmtPreview');
+  if(bsPreview) bsPreview.style.display = canSysConfig() ? 'flex' : 'none';
+}
 
-  // 系統設定（店長以上都可以開，admin 有完整功能）
-  if(canSchedule()) {
-    mgmtBtns += `
-    <button class="func-btn gray" onclick="openSysConfigModal()">
-      <div class="func-icon">⚙️</div><div class="func-label">系統設定</div>
-    </button>`;
-  }
+// ===== Bottom Sheet 控制 =====
+function openSettingsSheet() {
+  // 更新 sheet 裡的使用者資訊
+  const dName = displayNameMap[currentUser.empName] || currentUser.empName || '';
+  document.getElementById('settingsAvatar').textContent = dName ? dName[0] : '👤';
+  document.getElementById('settingsName').textContent = dName || currentUser.empName || '--';
+  document.getElementById('settingsRole').textContent =
+    ({ employee:'員工', manager:'店長', owner:'加盟主', admin:'系統管理者' }[currentUser.permission] || '') +
+    (currentUser.store ? ` · ${currentUser.store}` : '');
+  // 門市設定：店長以上
+  const bsStore = document.getElementById('bsStoreConfig');
+  if(bsStore) bsStore.style.display = canSchedule() ? 'flex' : 'none';
+  // 系統設定：admin
+  const bsSys = document.getElementById('bsSysConfig');
+  if(bsSys) bsSys.style.display = canSysConfig() ? 'flex' : 'none';
 
-  mgmt.innerHTML = mgmtBtns;
+  document.getElementById('settingsOverlay').classList.add('active');
+  document.getElementById('settingsSheet').classList.add('active');
+}
+function closeSettingsSheet() {
+  document.getElementById('settingsOverlay').classList.remove('active');
+  document.getElementById('settingsSheet').classList.remove('active');
+}
+function openMoreMgmtSheet() {
+  const bsPreview = document.getElementById('bsMgmtPreview');
+  if(bsPreview) bsPreview.style.display = canSysConfig() ? 'flex' : 'none';
+  document.getElementById('moreMgmtOverlay').classList.add('active');
+  document.getElementById('moreMgmtSheet').classList.add('active');
+}
+function closeMoreMgmtSheet() {
+  document.getElementById('moreMgmtOverlay').classList.remove('active');
+  document.getElementById('moreMgmtSheet').classList.remove('active');
 }
 
 // ===== 離職員工清單 =====
