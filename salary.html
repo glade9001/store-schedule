@@ -185,6 +185,14 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 
   <!-- Content -->
   <div class="content">
+    <!-- 遞延假年底結算提示（1月份才顯示）-->
+    <div id="carrySettleBanner" style="display:none; background:linear-gradient(135deg,#fff3e0,#fff8e1); border:1.5px solid var(--warn); border-radius:12px; padding:12px 16px; margin-bottom:12px; align-items:center; gap:10px;">
+      <div style="font-size:20px;">⏰</div>
+      <div style="flex:1;">
+        <div style="font-size:13px;font-weight:800;color:#b45309;">去年遞延假尚未結算</div>
+        <div style="font-size:11px;color:var(--text-muted);">有員工的遞延假應在去年 12/31 結算為工資，請在各員工薪資卡片中確認。</div>
+      </div>
+    </div>
     <!-- 本月說明區 -->
     <div id="monthInfoArea"></div>
     <!-- 員工列表 -->
@@ -399,20 +407,160 @@ function getDisplayName(empName) {
   return displayNameMap[empName] || empName;
 }
 
+let batchDataMap = {}; // { empName: [batch,...] }
+
 // ===== 讀取當月員工特補休資料 =====
 async function loadLeaveData() {
   const year = currentMonth.split('-')[0];
   leaveDataMap = {};
+  batchDataMap = {};
   try {
-    await Promise.all(empList.map(emp =>
-      window.db.collection('employees').doc(emp.name).collection('leaves').doc(year).get()
-        .then(snap => { if(snap.exists) leaveDataMap[emp.name] = snap.data(); })
-        .catch(() => {})
-    ));
+    await Promise.all(empList.map(async emp => {
+      const [leaveSnap, batchSnap] = await Promise.all([
+        window.db.collection('employees').doc(emp.name).collection('leaves').doc(year).get().catch(()=>null),
+        window.db.collection('employees').doc(emp.name).collection('leaveBatches').get().catch(()=>null)
+      ]);
+      if(leaveSnap?.exists) leaveDataMap[emp.name] = leaveSnap.data();
+      // 批次資料
+      let batches = [];
+      if(batchSnap) batchSnap.forEach(d => batches.push({id:d.id,...d.data()}));
+      batchDataMap[emp.name] = batches.sort((a,b)=>(a.grantDate||'').localeCompare(b.grantDate||''));
+    }));
   } catch(e) { console.warn('特補休讀取失敗:', e); }
+
+  // ✅ 1月份：自動偵測去年遞延假待結算
+  if(currentMonth.endsWith('-01')) checkCarryOverSettlement();
 }
 
-// ===== 確認補休發放（打勾按鈕）=====
+// ===== 遞延假年底結算（1月份薪資偵測）=====
+function checkCarryOverSettlement() {
+  const prevYear = parseInt(currentMonth.split('-')[0]) - 1;
+  const settleDate = `${prevYear}-12-31`;
+  let hasSettle = false;
+
+  empList.forEach(emp => {
+    const batches = batchDataMap[emp.name] || [];
+    const needSettle = batches.filter(b =>
+      b.carried && !b.settled &&
+      (b.settleDate === settleDate || new Date(b.expireDate||'') <= new Date(settleDate))
+    );
+    if(needSettle.length > 0) hasSettle = true;
+  });
+
+  if(hasSettle) {
+    const banner = document.getElementById('carrySettleBanner');
+    if(banner) banner.style.display = 'flex';
+  }
+}
+
+// 計算員工遞延假結算金額
+function calcCarrySettlement(empName) {
+  const batches = batchDataMap[empName] || [];
+  const prevYear = parseInt(currentMonth.split('-')[0]) - 1;
+  const settleDate = `${prevYear}-12-31`;
+
+  const toSettle = batches.filter(b => b.carried && !b.settled);
+  if(!toSettle.length) return { days:0, amount:0, items:[] };
+
+  const rec = getSalaryRecord(empName);
+  const emp = empList.find(e=>e.name===empName);
+  // 日薪基準：月薪 / 30
+  const monthWage = parseFloat(rec?.baseSalary||0) + parseFloat(rec?.fullAttendBonus||0);
+  const dailyWage = Math.round(monthWage / 30);
+
+  const items = toSettle.map(b => {
+    const remaining = Math.max(0,(b.days||0)-(b.used||0));
+    return { batchId:b.id, label:b.label||b.note||'遞延批次', grantDate:b.grantDate, days:remaining, amount:remaining*dailyWage };
+  });
+  const totalDays   = items.reduce((a,b)=>a+b.days,0);
+  const totalAmount = items.reduce((a,b)=>a+b.amount,0);
+  return { days:totalDays, amount:totalAmount, dailyWage, items };
+}
+
+// ===== 離職擇優結算 =====
+// 週年制總天數 vs 實際在職月數比例計算，取高者
+function calcRetireSettlement(empName) {
+  const emp = empList.find(e=>e.name===empName);
+  const batches = batchDataMap[empName] || [];
+  const hireDate = batches[0]?.grantDate ? dateAddMonths(batches[0].grantDate,-6) : null;
+  if(!hireDate) return null;
+
+  const retireDate = emp?.retireDate || today();
+  const totalMonths = monthsDiffSalary(hireDate, retireDate);
+
+  // 週年制：已實際發放的所有批次天數
+  const weeklyTotal = batches.reduce((a,b)=>a+(b.days||0),0);
+  const weeklyUsed  = batches.reduce((a,b)=>a+(b.used||0),0);
+  const weeklyRemain = Math.max(0, weeklyTotal - weeklyUsed);
+
+  // 比例制：依實際在職月數計算當年應得天數（不重複計算已給的）
+  const rule = annualLeaveRuleSalary(totalMonths);
+  const proportional = totalMonths > 0 ? Math.ceil(rule.days * (totalMonths % 12 || 12) / 12) : 0;
+
+  // 擇優（取高者）
+  const finalRemain = Math.max(weeklyRemain, proportional);
+
+  const rec = getSalaryRecord(empName);
+  const monthWage = parseFloat(rec?.baseSalary||0) + parseFloat(rec?.fullAttendBonus||0);
+  const dailyWage = Math.round(monthWage/30);
+
+  return {
+    hireDate, retireDate, totalMonths,
+    weeklyTotal, weeklyUsed, weeklyRemain,
+    proportional, finalRemain,
+    dailyWage, amount: finalRemain * dailyWage,
+    basis: finalRemain === proportional ? '比例制（較高）' : '週年制（較高）'
+  };
+}
+
+// 輔助：月數差
+function monthsDiffSalary(from, to) {
+  const f=new Date(from), t=new Date(to);
+  return (t.getFullYear()-f.getFullYear())*12+(t.getMonth()-f.getMonth());
+}
+function dateAddMonths(s, months) {
+  const d=new Date(s); d.setMonth(d.getMonth()+months); return d.toISOString().split('T')[0];
+}
+function annualLeaveRuleSalary(totalMonths) {
+  if(totalMonths<6)   return {days:0};
+  if(totalMonths<12)  return {days:3};
+  if(totalMonths<24)  return {days:7};
+  if(totalMonths<36)  return {days:10};
+  if(totalMonths<48)  return {days:14};
+  if(totalMonths<60)  return {days:14};
+  if(totalMonths<120) return {days:15};
+  return {days:Math.min(30,15+Math.floor(totalMonths/12)-9)};
+}
+function today() { return new Date().toISOString().split('T')[0]; }
+// ===== 確認遞延假結算（納入當月薪資）=====
+async function confirmCarrySettle(empName) {
+  const carry = calcCarrySettlement(empName);
+  if(!carry.days) { showToast('無需結算'); return; }
+  if(!confirm(`確認將 ${getDisplayName(empName)} 的 ${carry.days} 天遞延假結算為工資 $${carry.amount.toLocaleString()}？\n\n此金額將加入本月薪資的「其他獎金」欄位。`)) return;
+  showLoading('結算中...');
+  try {
+    for(const item of carry.items) {
+      await window.db.collection('employees').doc(empName).collection('leaveBatches').doc(item.batchId).update({
+        settled:true, settledAt:today(), settledDays:item.days, settlePay:item.amount,
+        settledNote:`${currentMonth} 薪資年底遞延假結算`
+      });
+    }
+    let rec = getSalaryRecord(empName);
+    const emp = empList.find(e=>e.name===empName);
+    if(!rec){ rec=buildDefaultRecord(emp); salaryData.records.push(rec); }
+    rec.otherBonus = (parseFloat(rec.otherBonus||0)) + carry.amount;
+    rec.carrySettleNote = `遞延假結算 ${carry.days} 天 $${carry.amount.toLocaleString()}`;
+    const batchSnap = await window.db.collection('employees').doc(empName).collection('leaveBatches').get().catch(()=>null);
+    let batches = [];
+    if(batchSnap) batchSnap.forEach(d=>batches.push({id:d.id,...d.data()}));
+    batchDataMap[empName] = batches;
+    triggerAutoSave();
+    openEmpModal(empName);
+    showToast(`✅ 已結算 $${carry.amount.toLocaleString()} 納入本月薪資`);
+  }catch(e){ showToast('❌ 失敗：'+e.message); }
+  hideLoading();
+}
+
 async function confirmCompEarned(empName) {
   const rec = getSalaryRecord(empName);
   const emp = empList.find(e => e.name === empName);
@@ -1830,21 +1978,48 @@ function renderSalaryForm(emp, rec, idx, readonly) {
     <div class="salary-section" style="background:#f0f4ff;border-radius:10px;padding:10px 12px;margin-top:10px;">
       <div class="salary-section-title" style="color:#1a73e8;">📋 考勤</div>
       <div class="salary-row">
-        <span class="salary-row-label">年度特休天數</span>
-        <span class="salary-row-val">${annualDays}天</span>
+        <span class="salary-row-label">特休可用天數</span>
+        <span class="salary-row-val">${
+          (() => {
+            const batches = batchDataMap[emp.name]||[];
+            const active = batches.filter(b=>!b.settled).reduce((a,b)=>a+Math.max(0,(b.days||0)-(b.used||0)),0);
+            return active > 0 ? `<span style="color:var(--accent)">${active} 天</span>` : `${active} 天`;
+          })()
+        }</span>
       </div>
       <div class="salary-row">
-        <span class="salary-row-label">已用特休天數</span>
-        <span class="salary-row-val">${usedAnnual}天</span>
-      </div>
-      <div class="salary-row">
-        <span class="salary-row-label">剩餘特休天數</span>
-        <span class="salary-row-val" style="color:${typeof remainAnnual==='number'&&remainAnnual>0?'var(--accent)':'var(--text-muted)'};">${remainAnnual}天</span>
+        <span class="salary-row-label">遞延假天數</span>
+        <span class="salary-row-val">${
+          (() => {
+            const carried = (batchDataMap[emp.name]||[]).filter(b=>b.carried&&!b.settled).reduce((a,b)=>a+Math.max(0,(b.days||0)-(b.used||0)),0);
+            return carried > 0 ? `<span style="color:var(--warn);font-weight:800;">${carried} 天</span>` : '0 天';
+          })()
+        }</span>
       </div>
       <div class="salary-row">
         <span class="salary-row-label">剩餘補休天數</span>
         <span class="salary-row-val" style="color:${typeof remainComp==='number'&&remainComp>0?'var(--accent)':'var(--text-muted)'};">${remainComp}天</span>
       </div>
+
+      ${(() => {
+        // 遞延假結算（1月份且有遞延假）
+        const carry = calcCarrySettlement(emp.name);
+        if(carry.days > 0 && currentMonth.endsWith('-01')) {
+          const settled = (batchDataMap[emp.name]||[]).filter(b=>b.carried&&!b.settled);
+          const alreadySettled = settled.length === 0;
+          return `<div style="background:#fff3e0;border-radius:8px;padding:10px;margin:8px 0;">
+            <div style="font-size:12px;font-weight:800;color:#b45309;margin-bottom:6px;">⏰ 遞延假結算（去年 12/31）</div>
+            ${carry.items.map(item=>`<div style="font-size:11px;color:var(--text-muted);">${item.label}：${item.days} 天 × $${carry.dailyWage}/天 = <b>$${item.amount.toLocaleString()}</b></div>`).join('')}
+            <div style="font-size:12px;font-weight:800;margin-top:4px;">合計：${carry.days} 天 → <span style="color:#b45309;">$${carry.amount.toLocaleString()}</span></div>
+            ${!ro&&!alreadySettled?`<button onclick="confirmCarrySettle('${emp.name}')"
+              style="width:100%;margin-top:8px;padding:8px;background:#f9ab00;color:white;border:none;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer;">
+              ✅ 確認納入本月薪資
+            </button>`:`<div style="font-size:11px;color:var(--accent);font-weight:700;margin-top:4px;">✅ 已結算</div>`}
+          </div>`;
+        }
+        return '';
+      })()}
+
       <div style="border-top:1px solid #e2e8f0;margin:6px 0;"></div>
       ${inpNum('otHours', rec.otHours, '平日加班時數', 'h', autoOtHours)}
       <div class="salary-row">
