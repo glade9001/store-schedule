@@ -624,7 +624,10 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       <div class="card" id="pendingCard" style="display:none;">
         <div class="section-header">
           <div class="section-title">🔔 待處理事項</div>
-          <div class="section-more" onclick="window.location.href='todo.html'" style="font-size:11px; color:var(--primary);">代辦清單 →</div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span id="pendingCount" style="font-size:11px; color:var(--text-muted); font-weight:700;"></span>
+            <div class="section-more" onclick="window.location.href='todo.html'" style="font-size:11px; color:var(--primary);">代辦清單 →</div>
+          </div>
         </div>
         <div id="pendingList"></div>
       </div>
@@ -1241,6 +1244,7 @@ let currentUser = null;  // { name, store, role, permission, username }
 let appConfig = { stores: [], shifts: [], shiftHours: {} };
 let empListCache = {};
 let weekRecordsCache = {};
+let displayNameMap = {}; // ✅ empName → displayName 對應表
 let currentEmpAdminStore = '';
 
 const ROLE_LABELS = { 工讀: '工讀生', 正職: '正職員工', 副店長: '副店長', 店長: '店長' };
@@ -1490,6 +1494,17 @@ async function initApp() {
   showLoading('載入個人資料中...');
   const storeLabel = currentUser.store || '全門市';
   const dName = currentUser.displayName || currentUser.empName || '使用者';
+
+  // ✅ 讀取門市 displayNameMap（設定 sheet 和待處理清單都需要）
+  displayNameMap = {};
+  displayNameMap[currentUser.empName] = dName;
+  try {
+    const accSnap = await window.db.collection('account').where('store','==', currentUser.store||'').get().catch(()=>null);
+    if(accSnap) accSnap.forEach(d => {
+      const a = d.data();
+      if(a.empName && a.displayName) displayNameMap[a.empName] = a.displayName;
+    });
+  } catch(e) {}
 
   // 更新 header
   document.getElementById('headerName').textContent = dName;
@@ -2051,7 +2066,8 @@ async function loadPendingItems() {
   }
 
   // 確保無論如何都能順利渲染到畫面，UI不會卡死
-  document.getElementById('pendingCount').textContent = pending.length + ' 件';
+  const pendingCountEl = document.getElementById('pendingCount');
+  if(pendingCountEl) pendingCountEl.textContent = pending.length + ' 件';
 
   const pendingCard = document.getElementById('pendingCard');
   const badge = document.getElementById('pendingBadgeBar');
