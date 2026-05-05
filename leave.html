@@ -651,7 +651,6 @@ html += empList.map(emp => {
     const needSetup = !hireDate;
     
     const avatarColor = emp.role==='店長'?'linear-gradient(135deg,#9334e6,#6a1bb5)':emp.role==='正職'?'linear-gradient(135deg,#34a853,#1e7e34)':'linear-gradient(135deg,#1a73e8,#0d47a1)';
-    const avatarColor = emp.role==='店長'?'linear-gradient(135deg,#9334e6,#6a1bb5)':emp.role==='正職'?'linear-gradient(135deg,#34a853,#1e7e34)':'linear-gradient(135deg,#1a73e8,#0d47a1)';
 
     return `<div class="emp-card" onclick="openEmpDetail('${emp.name}')">
       <div class="emp-card-header">
