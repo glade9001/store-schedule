@@ -747,7 +747,7 @@ function renderEmpDetail(empName, showBack=true) {
       const pct = b.days > 0 ? Math.round((remaining/b.days)*100) : 0;
       const statusColor = b.settled?'#9e9e9e':b.carried?'#f9ab00':remaining>0?'#34a853':'#e0e0e0';
       const statusLabel = b.settled?'已結算':b.carried?'遞延中':'進行中';
-      const daysClass = remaining===0?'':'remaining>3?ok':dLeft&&dLeft<=30?'danger':'warn';
+      const daysClass = remaining === 0 ? '' : remaining > 3 ? 'ok' : dLeft && dLeft <= 30 ? 'danger' : 'warn';
 
       return `<div class="batch-card">
         <div class="batch-header">
