@@ -417,38 +417,76 @@ async function confirmCompEarned(empName) {
   const rec = getSalaryRecord(empName);
   const emp = empList.find(e => e.name === empName);
   if(!rec || !emp) return;
-  const days = parseFloat(rec.holidayDays ?? detectHolidayWork(empName, currentMonth).length);
+
+  // 取得有上班的國定假日清單
+  const workedHolidays = detectHolidayWork(empName, currentMonth);
+  const days = parseFloat(rec.holidayDays ?? workedHolidays.length);
   if(days <= 0) { showToast('⚠️ 國定假日時數為 0，無需發補休'); return; }
+
   if(rec.compConfirmed) {
     if(!confirm(`取消 ${empName} 本月 ${days} 天補休發放？`)) return;
   } else {
-    if(!confirm(`確認發放 ${empName} 本月 ${days} 天補休？\n將寫入補休紀錄。`)) return;
+    // 顯示具體的國定假日清單
+    const holidayList = workedHolidays.map(h => `${h.date.slice(5)} ${h.name}`).join('、');
+    if(!confirm(`確認發放 ${empName} ${days} 天補休？\n\n國定假日：${holidayList || `共 ${days} 天`}\n\n將逐筆寫入補休紀錄。`)) return;
   }
+
   const newVal = !rec.compConfirmed;
   showLoading(newVal ? '發放補休中...' : '取消補休中...');
   try {
     const year = currentMonth.split('-')[0];
-    const leaveRef = window.db.collection('employees').doc(empName).collection('leaves').doc(year);
-    const logRef   = window.db.collection('employees').doc(empName).collection('leaveLog').doc(currentMonth);
-    const snap = await leaveRef.get();
-    const leaveData = snap.exists ? snap.data() : { annualDays:0, usedAnnual:0, earnedComp:0, usedComp:0 };
+    const logRef = window.db.collection('employees').doc(empName).collection('leaveLog').doc(currentMonth);
+
     if(newVal) {
-      leaveData.earnedComp = (leaveData.earnedComp || 0) + days;
-      await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
-        date: currentMonth + '-01', type: 'comp_earn', days,
-        note: `${currentMonth.replace('-','年')}月薪資結算發放`, savedBy: currentUser.displayName || currentUser.empName
-      })}, { merge: true });
+      // ✅ 每筆國定假日各自一條記錄，說明文字具體
+      if(workedHolidays.length > 0) {
+        for(const h of workedHolidays) {
+          const note = `${h.date} ${h.name} 國定假日補休`;
+          await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
+            date: h.date, type: 'comp_earn', days: 1,
+            note, savedBy: currentUser.displayName || currentUser.empName
+          })}, { merge: true });
+        }
+      } else {
+        // 手動填寫天數的情況（無排班記錄）
+        await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
+          date: currentMonth + '-01', type: 'comp_earn', days,
+          note: `${currentMonth.replace('-','年')}月 國定假日補休（共 ${days} 天）`,
+          savedBy: currentUser.displayName || currentUser.empName
+        })}, { merge: true });
+      }
     } else {
-      leaveData.earnedComp = Math.max(0, (leaveData.earnedComp || 0) - days);
+      // 取消：寫一筆 comp_cancel
       await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
         date: currentMonth + '-01', type: 'comp_cancel', days,
-        note: `${currentMonth.replace('-','年')}月薪資結算取消`, savedBy: currentUser.displayName || currentUser.empName
+        note: `${currentMonth.replace('-','年')}月 取消國定假日補休發放`,
+        savedBy: currentUser.displayName || currentUser.empName
       })}, { merge: true });
     }
-    await leaveRef.set(leaveData, { merge: true });
+
+    // ✅ 從 leaveLog 重新加總，確保 leaves 總帳正確
+    const leaveRef = window.db.collection('employees').doc(empName).collection('leaves').doc(year);
+    const leaveSnap = await leaveRef.get();
+    const existing = leaveSnap.exists ? leaveSnap.data() : {};
+    const logSnaps = await window.db.collection('employees').doc(empName).collection('leaveLog').get();
+    let usedAnnual = 0, earnedComp = 0, usedComp = 0;
+    logSnaps.forEach(d => {
+      if(!d.id.startsWith(year)) return;
+      (d.data().records || []).forEach(r => {
+        const rd = parseFloat(r.days) || 0;
+        if(r.type === 'annual_use')        usedAnnual += rd;
+        if(r.type === 'comp_earn')         earnedComp += rd;
+        if(r.type === 'comp_use')          usedComp   += rd;
+        if(r.type === 'annual_use_cancel') usedAnnual = Math.max(0, usedAnnual - rd);
+        if(r.type === 'comp_use_cancel')   usedComp   = Math.max(0, usedComp   - rd);
+        if(r.type === 'comp_cancel')       earnedComp = Math.max(0, earnedComp - rd);
+      });
+    });
+    const updatedLeave = { ...existing, usedAnnual, earnedComp, usedComp, updatedAt: new Date().toISOString() };
+    await leaveRef.set(updatedLeave, { merge: true });
+
     rec.compConfirmed = newVal;
-    leaveDataMap[empName] = leaveData;
-    // 重新開啟 Modal 刷新顯示
+    leaveDataMap[empName] = updatedLeave;
     openEmpModal(empName);
     showToast(newVal ? `✅ 已發放 ${empName} ${days} 天補休` : `已取消補休發放`);
   } catch(e) { showToast('❌ 失敗：' + e.message); }
