@@ -870,7 +870,7 @@ function setSyncStatus(type, msg) {
   el.innerHTML = `<div class="sync-dot"></div><span>${msg}</span>`;
 }
 
-// ===== ✅ 特休/補休扣天數（全自動雙軌同步）=====
+// ===== ✅ 特休/補休扣天數（全自動雙軌同步 - 終極防錯版）=====
 async function deductLeave(empName, day, weekStr, prevShift, newShift) {
   const prevIsAnnual = prevShift === '特休';
   const prevIsComp   = prevShift === '補休';
@@ -891,6 +891,9 @@ async function deductLeave(empName, day, weekStr, prevShift, newShift) {
   const ym = fullDate.slice(0, 7);
   const yearStr = String(cy);
   const savedBy = currentUser?.displayName || currentUser?.empName || '';
+  
+  // 🌟 關鍵修正：加入專屬時間戳記，防止資料庫吃掉重複的開關動作
+  const ts = new Date().getTime(); 
 
   try {
     const leaveRef = window.db.collection('employees').doc(empName).collection('leaves').doc(yearStr);
@@ -901,16 +904,15 @@ async function deductLeave(empName, day, weekStr, prevShift, newShift) {
     const [leaveSnap, compSnap, bSnap] = await Promise.all([
       leaveRef.get(), compRef.get(), batchesRef.get()
     ]);
-    const ld = leaveSnap.exists ? leaveSnap.data() : { usedAnnual:0, earnedComp:0, usedComp:0 };
-    const cdData = compSnap.exists ? compSnap.data() : { earned:0, used:0 };
+    const ld = leaveSnap.exists ? leaveSnap.data() : {};
+    const cdData = compSnap.exists ? compSnap.data() : {};
 
     // --- 特休處理 ---
     if(prevIsAnnual && !newIsAnnual) {
-      // 退特休
       await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
-        date: fullDate, type: 'annual_use_cancel', days: 1, note: `${fullDate} 特休取消（排班退還）`, savedBy
+        date: fullDate, type: 'annual_use_cancel', days: 1, note: `${fullDate} 特休取消（排班退還）`, savedBy, ts
       })}, { merge: true });
-      // 找一個扣過的批次退還
+      
       let targetBatch = null;
       bSnap.forEach(doc => {
         const b = { id: doc.id, ...doc.data() };
@@ -919,11 +921,10 @@ async function deductLeave(empName, day, weekStr, prevShift, newShift) {
       if(targetBatch) await batchesRef.doc(targetBatch.id).update({ used: Math.max(0, targetBatch.used - 1) });
       
     } else if(!prevIsAnnual && newIsAnnual) {
-      // 扣特休
       await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
-        date: fullDate, type: 'annual_use', days: 1, note: `${fullDate} 使用特休`, savedBy
+        date: fullDate, type: 'annual_use', days: 1, note: `${fullDate} 使用特休`, savedBy, ts
       })}, { merge: true });
-      // 找最先到期的批次扣除
+      
       let targetBatch = null, latestBatch = null;
       bSnap.forEach(doc => {
         const b = { id: doc.id, ...doc.data() };
@@ -935,52 +936,56 @@ async function deductLeave(empName, day, weekStr, prevShift, newShift) {
       const batchToDeduct = targetBatch || latestBatch;
       if(batchToDeduct) {
         await batchesRef.doc(batchToDeduct.id).update({ used: (batchToDeduct.used||0) + 1 });
-      } else {
-        showToast(`⚠️ ${empName} 尚未建檔特休批次，天數恐計算錯誤`);
       }
     }
 
     // --- 補休處理 ---
     if(prevIsComp && !newIsComp) {
-      // 退補休
       await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
-        date: fullDate, type: 'comp_use_cancel', days: 1, note: `${fullDate} 補休取消（排班退還）`, savedBy
+        date: fullDate, type: 'comp_use_cancel', days: 1, note: `${fullDate} 補休取消（排班退還）`, savedBy, ts
       })}, { merge: true });
     } else if(!prevIsComp && newIsComp) {
-      // 扣補休
-      const remain = Math.max(0, (cdData.earned||0) - (cdData.used||0));
-      if(remain < 1) showToast(`⚠️ ${empName} 補休餘額似乎不足，已強制作扣除`);
       await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
-        date: fullDate, type: 'comp_use', days: 1, note: `${fullDate} 使用補休`, savedBy
+        date: fullDate, type: 'comp_use', days: 1, note: `${fullDate} 使用補休`, savedBy, ts
       })}, { merge: true });
     }
 
-    // --- 重新加總 LeaveLog 雙軌統計 ---
+    // --- 🌟 重新加總雙軌統計 (嚴格防錯版：分類加總後才相減) ---
     const logSnaps = await window.db.collection('employees').doc(empName).collection('leaveLog').get();
-    let usedAnnual = 0, earnedComp = 0, usedComp = 0;
+    let aUse=0, aCan=0, cEarn=0, cUse=0, cCan=0, cUseCan=0;
+    
     logSnaps.forEach(doc => {
       if(!doc.id.startsWith(yearStr)) return;
       (doc.data().records || []).forEach(r => {
         const rd = parseFloat(r.days) || 0;
-        if(r.type === 'annual_use')        usedAnnual += rd;
-        if(r.type === 'comp_earn')         earnedComp += rd;
-        if(r.type === 'comp_use')          usedComp   += rd;
-        if(r.type === 'annual_use_cancel') usedAnnual  = Math.max(0, usedAnnual - rd);
-        if(r.type === 'comp_use_cancel')   usedComp    = Math.max(0, usedComp - rd);
-        if(r.type === 'comp_cancel')       earnedComp  = Math.max(0, earnedComp - rd);
+        if(r.type === 'annual_use')        aUse += rd;
+        if(r.type === 'annual_use_cancel') aCan += rd;
+        if(r.type === 'comp_earn')         cEarn += rd;
+        if(r.type === 'comp_cancel')       cCan += rd;
+        if(r.type === 'comp_use')          cUse += rd;
+        if(r.type === 'comp_use_cancel')   cUseCan += rd;
       });
     });
     
+    const finalAnnualUse = Math.max(0, aUse - aCan);
+    const finalCompEarn = Math.max(0, cEarn - cCan);
+    const finalCompUse = Math.max(0, cUse - cUseCan);
+
     await Promise.all([
-      leaveRef.set({ ...ld, usedAnnual: Math.max(0,usedAnnual), earnedComp: Math.max(0,earnedComp), usedComp: Math.max(0,usedComp), updatedAt: new Date().toISOString() }, { merge: true }),
-      compRef.set({ earned: Math.max(0,earnedComp), used: Math.max(0,usedComp) }, { merge: true })
+      leaveRef.set({ ...ld, usedAnnual: finalAnnualUse, earnedComp: finalCompEarn, usedComp: finalCompUse, updatedAt: new Date().toISOString() }, { merge: true }),
+      compRef.set({ earned: finalCompEarn, used: finalCompUse }, { merge: true })
     ]);
+
+    // --- 🌟 強制更新畫面上的統計數字 (延遲 0.5 秒讓 DB 寫入完成) ---
+    setTimeout(() => {
+      const eIdx = appData.employees.findIndex(e => e.name === empName);
+      if(eIdx !== -1) updateSummary(eIdx, appData.employees[eIdx]);
+    }, 500);
 
   } catch(e) {
     console.warn('deductLeave 失敗:', e.message);
   }
 }
-
 // ===== 國定假日補休：發放 =====
 async function grantHolidayComp(empName, fullDate, holidayName) {
   const year = fullDate.slice(0,4);
