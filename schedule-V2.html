@@ -870,7 +870,7 @@ function setSyncStatus(type, msg) {
   el.innerHTML = `<div class="sync-dot"></div><span>${msg}</span>`;
 }
 
-// ===== ✅ 特休/補休扣天數（雙軌同步 leaves + comp）=====
+// ===== ✅ 特休/補休扣天數（全自動雙軌同步）=====
 async function deductLeave(empName, day, weekStr, prevShift, newShift) {
   const prevIsAnnual = prevShift === '特休';
   const prevIsComp   = prevShift === '補休';
@@ -878,70 +878,88 @@ async function deductLeave(empName, day, weekStr, prevShift, newShift) {
   const newIsComp    = newShift  === '補休';
   if(prevIsAnnual === newIsAnnual && prevIsComp === newIsComp) return;
 
-  const year = weekStr.split('-W')[0];
-  const dates = getWeekDates(weekStr);
+  // 精確計算這格的日期 (處理跨年)
   const dIdx = dayNames.indexOf(day);
   if(dIdx < 0) return;
-  const [m, d] = dates[dIdx].split('/');
-  const fullDate = `${year}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+  const weekMon = weekStringToDate(weekStr);
+  const cellDate = new Date(weekMon);
+  cellDate.setDate(weekMon.getDate() + dIdx);
+  const cy = cellDate.getFullYear();
+  const cm = String(cellDate.getMonth()+1).padStart(2,'0');
+  const cd = String(cellDate.getDate()).padStart(2,'0');
+  const fullDate = `${cy}-${cm}-${cd}`;
   const ym = fullDate.slice(0, 7);
+  const yearStr = String(cy);
   const savedBy = currentUser?.displayName || currentUser?.empName || '';
 
   try {
-    const leaveRef = window.db.collection('employees').doc(empName).collection('leaves').doc(year);
-    const compRef  = window.db.collection('employees').doc(empName).collection('comp').doc(year);
+    const leaveRef = window.db.collection('employees').doc(empName).collection('leaves').doc(yearStr);
+    const compRef  = window.db.collection('employees').doc(empName).collection('comp').doc(yearStr);
     const logRef   = window.db.collection('employees').doc(empName).collection('leaveLog').doc(ym);
+    const batchesRef = window.db.collection('employees').doc(empName).collection('leaveBatches');
 
-    const [leaveSnap, compSnap] = await Promise.all([leaveRef.get(), compRef.get()]);
-    const ld = leaveSnap.exists ? leaveSnap.data() : { annualDays:0, usedAnnual:0, earnedComp:0, usedComp:0 };
-    const cd = compSnap.exists ? compSnap.data() : { earned:0, used:0 };
+    const [leaveSnap, compSnap, bSnap] = await Promise.all([
+      leaveRef.get(), compRef.get(), batchesRef.get()
+    ]);
+    const ld = leaveSnap.exists ? leaveSnap.data() : { usedAnnual:0, earnedComp:0, usedComp:0 };
+    const cdData = compSnap.exists ? compSnap.data() : { earned:0, used:0 };
 
-    // 特休：從有到無 → 回補；從無到有 → 扣除
+    // --- 特休處理 ---
     if(prevIsAnnual && !newIsAnnual) {
+      // 退特休
       await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
-        date: fullDate, type: 'annual_use_cancel', days: 1,
-        note: `${fullDate} 特休取消（排班異動）`, savedBy
+        date: fullDate, type: 'annual_use_cancel', days: 1, note: `${fullDate} 特休取消（排班退還）`, savedBy
       })}, { merge: true });
-    } else if(!prevIsAnnual && newIsAnnual) {
-      // 從 leaveBatches 計算可用特休
-      const bSnap = await window.db.collection('employees').doc(empName).collection('leaveBatches').get();
-      const todayStr = new Date().toISOString().split('T')[0];
-      let remain = 0;
-      bSnap.forEach(b => {
-        const bd = b.data();
-        if(bd.settled) return;
-        const rem = (bd.days||0)-(bd.used||0);
-        if(rem <= 0) return;
-        const expDate = bd.carried ? (() => { const e=new Date(bd.expireDate); e.setFullYear(e.getFullYear()+1); e.setDate(e.getDate()-1); return e.toISOString().split('T')[0]; })() : bd.expireDate;
-        if(todayStr <= expDate) remain += rem;
+      // 找一個扣過的批次退還
+      let targetBatch = null;
+      bSnap.forEach(doc => {
+        const b = { id: doc.id, ...doc.data() };
+        if(b.used > 0 && (!targetBatch || b.grantDate > targetBatch.grantDate)) targetBatch = b;
       });
-      if(remain < 1) { showToast(`⚠️ ${empName} 特休不足（剩餘 ${remain} 天）`); return; }
+      if(targetBatch) await batchesRef.doc(targetBatch.id).update({ used: Math.max(0, targetBatch.used - 1) });
+      
+    } else if(!prevIsAnnual && newIsAnnual) {
+      // 扣特休
       await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
-        date: fullDate, type: 'annual_use', days: 1,
-        note: `${fullDate} 使用特休`, savedBy
+        date: fullDate, type: 'annual_use', days: 1, note: `${fullDate} 使用特休`, savedBy
       })}, { merge: true });
+      // 找最先到期的批次扣除
+      let targetBatch = null, latestBatch = null;
+      bSnap.forEach(doc => {
+        const b = { id: doc.id, ...doc.data() };
+        if(!latestBatch || b.createdAt > latestBatch.createdAt) latestBatch = b;
+        if(!b.settled && (b.days||0) - (b.used||0) > 0) {
+          if(!targetBatch || b.grantDate < targetBatch.grantDate) targetBatch = b;
+        }
+      });
+      const batchToDeduct = targetBatch || latestBatch;
+      if(batchToDeduct) {
+        await batchesRef.doc(batchToDeduct.id).update({ used: (batchToDeduct.used||0) + 1 });
+      } else {
+        showToast(`⚠️ ${empName} 尚未建檔特休批次，天數恐計算錯誤`);
+      }
     }
 
-    // 補休：從有到無 → 回補；從無到有 → 扣除（讀 comp/{year}）
+    // --- 補休處理 ---
     if(prevIsComp && !newIsComp) {
+      // 退補休
       await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
-        date: fullDate, type: 'comp_use_cancel', days: 1,
-        note: `${fullDate} 補休取消（排班異動）`, savedBy
+        date: fullDate, type: 'comp_use_cancel', days: 1, note: `${fullDate} 補休取消（排班退還）`, savedBy
       })}, { merge: true });
     } else if(!prevIsComp && newIsComp) {
-      const remain = Math.max(0, (cd.earned||0) - (cd.used||0));
-      if(remain < 1) { showToast(`⚠️ ${empName} 補休不足（剩餘 ${remain} 天）`); return; }
+      // 扣補休
+      const remain = Math.max(0, (cdData.earned||0) - (cdData.used||0));
+      if(remain < 1) showToast(`⚠️ ${empName} 補休餘額似乎不足，已強制作扣除`);
       await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
-        date: fullDate, type: 'comp_use', days: 1,
-        note: `${fullDate} 使用補休`, savedBy
+        date: fullDate, type: 'comp_use', days: 1, note: `${fullDate} 使用補休`, savedBy
       })}, { merge: true });
     }
 
-    // 重新加總，雙軌同步
+    // --- 重新加總 LeaveLog 雙軌統計 ---
     const logSnaps = await window.db.collection('employees').doc(empName).collection('leaveLog').get();
     let usedAnnual = 0, earnedComp = 0, usedComp = 0;
     logSnaps.forEach(doc => {
-      if(!doc.id.startsWith(year)) return;
+      if(!doc.id.startsWith(yearStr)) return;
       (doc.data().records || []).forEach(r => {
         const rd = parseFloat(r.days) || 0;
         if(r.type === 'annual_use')        usedAnnual += rd;
@@ -952,13 +970,14 @@ async function deductLeave(empName, day, weekStr, prevShift, newShift) {
         if(r.type === 'comp_cancel')       earnedComp  = Math.max(0, earnedComp - rd);
       });
     });
-    const updates = [
+    
+    await Promise.all([
       leaveRef.set({ ...ld, usedAnnual: Math.max(0,usedAnnual), earnedComp: Math.max(0,earnedComp), usedComp: Math.max(0,usedComp), updatedAt: new Date().toISOString() }, { merge: true }),
       compRef.set({ earned: Math.max(0,earnedComp), used: Math.max(0,usedComp) }, { merge: true })
-    ];
-    await Promise.all(updates);
+    ]);
+
   } catch(e) {
-    console.warn('deductLeave 失敗（不影響排班）:', e.message);
+    console.warn('deductLeave 失敗:', e.message);
   }
 }
 
