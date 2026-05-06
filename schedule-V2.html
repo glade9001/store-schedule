@@ -322,6 +322,7 @@ th:first-child { background: #1557b0; z-index: 12; }
         <button class="tool-btn img" onclick="exportImage()">📸 產圖</button>
         <button class="tool-btn add" onclick="addVirtualRow()">➕ 待補</button>
         <button class="tool-btn log" onclick="openLogModal()">📜 畫休紀錄</button>
+        <button id="compFixBtn" style="display:none;background:#fff3e0;color:#e65100;border:1.5px solid #ffcc80;border-radius:8px;padding:7px 12px;font-size:13px;font-weight:700;cursor:pointer;" onclick="runHistoricalCompFix()">🔧 補休修復</button>
       </div>
 
       <!-- 畫筆選色列 -->
@@ -703,6 +704,11 @@ window.onload = async () => {
         // 不 disabled，讓店長可以切換看其他門市
       }
       document.getElementById('publishBtn').style.display = 'flex';
+      // 系統管理員顯示補休修復按鈕
+      if(currentUser.permission === 'admin') {
+        const fixBtn = document.getElementById('compFixBtn');
+        if(fixBtn) fixBtn.style.display = 'inline-block';
+      }
       await fetchAllStoreData();
     } else {
       // 查閱模式：所有人都進員工視角（查看圖片）
@@ -864,40 +870,31 @@ function setSyncStatus(type, msg) {
   el.innerHTML = `<div class="sync-dot"></div><span>${msg}</span>`;
 }
 
-// ===== ✅ 特休/補休扣天數 =====
-// prevShift: 修改前的班別；newShift: 修改後的班別
-// 邏輯：
-//   舊=特休 → 新≠特休：回補 1 天 (annual_use 取消)
-//   舊=補休 → 新≠補休：回補 1 天 (comp_use 取消)
-//   舊≠特休 → 新=特休：扣 1 天 (annual_use)
-//   舊≠補休 → 新=補休：扣 1 天 (comp_use)
-//   其他：不動
+// ===== ✅ 特休/補休扣天數（雙軌同步 leaves + comp）=====
 async function deductLeave(empName, day, weekStr, prevShift, newShift) {
-  const LEAVE_TYPES = ['特休','補休'];
   const prevIsAnnual = prevShift === '特休';
   const prevIsComp   = prevShift === '補休';
   const newIsAnnual  = newShift  === '特休';
   const newIsComp    = newShift  === '補休';
-
-  // 沒有異動不處理
   if(prevIsAnnual === newIsAnnual && prevIsComp === newIsComp) return;
 
-  const year  = weekStr.split('-W')[0];
+  const year = weekStr.split('-W')[0];
   const dates = getWeekDates(weekStr);
-  const dIdx  = dayNames.indexOf(day);
+  const dIdx = dayNames.indexOf(day);
   if(dIdx < 0) return;
-  const dateStr = `${year}-${dates[dIdx].replace('/','-').padStart(4,'0')}`; // "YYYY-M/D" → "YYYY-MM-DD"
-  // 修正日期格式：dates[dIdx] 是 "M/D"，需補齊
   const [m, d] = dates[dIdx].split('/');
   const fullDate = `${year}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
   const ym = fullDate.slice(0, 7);
+  const savedBy = currentUser?.displayName || currentUser?.empName || '';
 
   try {
     const leaveRef = window.db.collection('employees').doc(empName).collection('leaves').doc(year);
+    const compRef  = window.db.collection('employees').doc(empName).collection('comp').doc(year);
     const logRef   = window.db.collection('employees').doc(empName).collection('leaveLog').doc(ym);
-    const snap = await leaveRef.get();
-    const ld = snap.exists ? snap.data() : { annualDays:0, usedAnnual:0, earnedComp:0, usedComp:0 };
-    const savedBy = (typeof currentUser !== 'undefined') ? (currentUser.displayName || currentUser.empName || '') : '';
+
+    const [leaveSnap, compSnap] = await Promise.all([leaveRef.get(), compRef.get()]);
+    const ld = leaveSnap.exists ? leaveSnap.data() : { annualDays:0, usedAnnual:0, earnedComp:0, usedComp:0 };
+    const cd = compSnap.exists ? compSnap.data() : { earned:0, used:0 };
 
     // 特休：從有到無 → 回補；從無到有 → 扣除
     if(prevIsAnnual && !newIsAnnual) {
@@ -906,7 +903,18 @@ async function deductLeave(empName, day, weekStr, prevShift, newShift) {
         note: `${fullDate} 特休取消（排班異動）`, savedBy
       })}, { merge: true });
     } else if(!prevIsAnnual && newIsAnnual) {
-      const remain = (ld.annualDays||0) - (ld.usedAnnual||0);
+      // 從 leaveBatches 計算可用特休
+      const bSnap = await window.db.collection('employees').doc(empName).collection('leaveBatches').get();
+      const todayStr = new Date().toISOString().split('T')[0];
+      let remain = 0;
+      bSnap.forEach(b => {
+        const bd = b.data();
+        if(bd.settled) return;
+        const rem = (bd.days||0)-(bd.used||0);
+        if(rem <= 0) return;
+        const expDate = bd.carried ? (() => { const e=new Date(bd.expireDate); e.setFullYear(e.getFullYear()+1); e.setDate(e.getDate()-1); return e.toISOString().split('T')[0]; })() : bd.expireDate;
+        if(todayStr <= expDate) remain += rem;
+      });
       if(remain < 1) { showToast(`⚠️ ${empName} 特休不足（剩餘 ${remain} 天）`); return; }
       await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
         date: fullDate, type: 'annual_use', days: 1,
@@ -914,14 +922,14 @@ async function deductLeave(empName, day, weekStr, prevShift, newShift) {
       })}, { merge: true });
     }
 
-    // 補休：從有到無 → 回補；從無到有 → 扣除
+    // 補休：從有到無 → 回補；從無到有 → 扣除（讀 comp/{year}）
     if(prevIsComp && !newIsComp) {
       await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
         date: fullDate, type: 'comp_use_cancel', days: 1,
         note: `${fullDate} 補休取消（排班異動）`, savedBy
       })}, { merge: true });
     } else if(!prevIsComp && newIsComp) {
-      const remain = (ld.earnedComp||0) - (ld.usedComp||0);
+      const remain = Math.max(0, (cd.earned||0) - (cd.used||0));
       if(remain < 1) { showToast(`⚠️ ${empName} 補休不足（剩餘 ${remain} 天）`); return; }
       await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
         date: fullDate, type: 'comp_use', days: 1,
@@ -929,31 +937,214 @@ async function deductLeave(empName, day, weekStr, prevShift, newShift) {
       })}, { merge: true });
     }
 
-    // ✅ 從 leaveLog 重新加總，確保總帳正確
+    // 重新加總，雙軌同步
     const logSnaps = await window.db.collection('employees').doc(empName).collection('leaveLog').get();
     let usedAnnual = 0, earnedComp = 0, usedComp = 0;
-    logSnaps.forEach(d => {
-      if(!d.id.startsWith(year)) return;
-      (d.data().records || []).forEach(r => {
+    logSnaps.forEach(doc => {
+      if(!doc.id.startsWith(year)) return;
+      (doc.data().records || []).forEach(r => {
         const rd = parseFloat(r.days) || 0;
         if(r.type === 'annual_use')        usedAnnual += rd;
         if(r.type === 'comp_earn')         earnedComp += rd;
         if(r.type === 'comp_use')          usedComp   += rd;
-        if(r.type === 'annual_use_cancel') usedAnnual = Math.max(0, usedAnnual - rd);
-        if(r.type === 'comp_use_cancel')   usedComp   = Math.max(0, usedComp   - rd);
-        if(r.type === 'comp_cancel')       earnedComp = Math.max(0, earnedComp - rd);
+        if(r.type === 'annual_use_cancel') usedAnnual  = Math.max(0, usedAnnual - rd);
+        if(r.type === 'comp_use_cancel')   usedComp    = Math.max(0, usedComp - rd);
+        if(r.type === 'comp_cancel')       earnedComp  = Math.max(0, earnedComp - rd);
       });
     });
-    await leaveRef.set({
-      ...ld,
-      usedAnnual: Math.max(0, usedAnnual),
-      earnedComp: Math.max(0, earnedComp),
-      usedComp:   Math.max(0, usedComp),
-      updatedAt:  new Date().toISOString()
-    }, { merge: true });
+    const updates = [
+      leaveRef.set({ ...ld, usedAnnual: Math.max(0,usedAnnual), earnedComp: Math.max(0,earnedComp), usedComp: Math.max(0,usedComp), updatedAt: new Date().toISOString() }, { merge: true }),
+      compRef.set({ earned: Math.max(0,earnedComp), used: Math.max(0,usedComp) }, { merge: true })
+    ];
+    await Promise.all(updates);
   } catch(e) {
     console.warn('deductLeave 失敗（不影響排班）:', e.message);
   }
+}
+
+// ===== 國定假日補休：發放 =====
+async function grantHolidayComp(empName, fullDate, holidayName) {
+  const year = fullDate.slice(0,4);
+  const ym   = fullDate.slice(0,7);
+  const savedBy = currentUser?.displayName || currentUser?.empName || '';
+  const logRef  = window.db.collection('employees').doc(empName).collection('leaveLog').doc(ym);
+  const compRef = window.db.collection('employees').doc(empName).collection('comp').doc(year);
+  const leaveRef= window.db.collection('employees').doc(empName).collection('leaves').doc(year);
+
+  // 防重複：檢查 leaveLog 是否已有此日 comp_earn
+  const logSnap = await logRef.get();
+  const existing = (logSnap.exists ? logSnap.data().records||[] : [])
+    .some(r => r.type === 'comp_earn' && r.date === fullDate && (r.note||'').includes('國定假日'));
+  if(existing) { showToast(`⚠️ ${empName} ${fullDate} 補休已發放過`); return false; }
+
+  const note = `${fullDate} ${holidayName} 國定假日補休`;
+  await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
+    date: fullDate, type: 'comp_earn', days: 1, note, savedBy
+  })}, { merge: true });
+
+  // 同步 comp/{year}
+  const compSnap = await compRef.get();
+  const cd = compSnap.exists ? compSnap.data() : { earned:0, used:0 };
+  await compRef.set({ earned: (cd.earned||0)+1, used: cd.used||0 }, { merge: true });
+
+  // 同步 leaves/{year}
+  const leaveSnap = await leaveRef.get();
+  const ld = leaveSnap.exists ? leaveSnap.data() : {};
+  await leaveRef.set({ ...ld, earnedComp: (ld.earnedComp||0)+1, updatedAt: new Date().toISOString() }, { merge: true });
+
+  return true;
+}
+
+// ===== 國定假日補休：撤銷 =====
+async function revokeHolidayComp(empName, fullDate, holidayName) {
+  const year = fullDate.slice(0,4);
+  const ym   = fullDate.slice(0,7);
+  const savedBy = currentUser?.displayName || currentUser?.empName || '';
+  const logRef  = window.db.collection('employees').doc(empName).collection('leaveLog').doc(ym);
+  const compRef = window.db.collection('employees').doc(empName).collection('comp').doc(year);
+  const leaveRef= window.db.collection('employees').doc(empName).collection('leaves').doc(year);
+
+  const note = `${fullDate} ${holidayName} 國定假日補休撤銷`;
+  await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
+    date: fullDate, type: 'comp_cancel', days: 1, note, savedBy
+  })}, { merge: true });
+
+  const compSnap = await compRef.get();
+  const cd = compSnap.exists ? compSnap.data() : { earned:0, used:0 };
+  await compRef.set({ earned: Math.max(0,(cd.earned||0)-1), used: cd.used||0 }, { merge: true });
+
+  const leaveSnap = await leaveRef.get();
+  const ld = leaveSnap.exists ? leaveSnap.data() : {};
+  await leaveRef.set({ ...ld, earnedComp: Math.max(0,(ld.earnedComp||0)-1), updatedAt: new Date().toISOString() }, { merge: true });
+}
+
+// ===== 國定假日偵測：這格儲存時檢查是否需要發/撤銷補休 =====
+async function checkHolidayCompOnSave(empName, fullDate, prevShift, newShift, emp) {
+  // 工讀生不處理補休
+  if(!emp || (emp.role||'').includes('工讀')) return;
+
+  const holidayName = TW_HOLIDAYS_SCHED[fullDate];
+  if(!holidayName) return; // 不是國定假日
+
+  const wasWorking = prevShift && prevShift !== '排休' && prevShift !== '指休' && prevShift !== '特休' && prevShift !== '補休';
+  const isWorking  = newShift  && newShift  !== '排休' && newShift  !== '指休' && newShift  !== '特休' && newShift  !== '補休';
+
+  if(!wasWorking && isWorking) {
+    // 新增上班 → 提示發放補休
+    if(confirm(`🎌 ${fullDate} 是${holidayName}（國定假日）
+${getDisplayName(empName)} 有上班，是否發放 1 天補休？`)) {
+      const ok = await grantHolidayComp(empName, fullDate, holidayName);
+      if(ok) showToast(`✅ 已發放 ${getDisplayName(empName)} ${fullDate} 補休`);
+    }
+  } else if(wasWorking && !isWorking) {
+    // 取消上班 → 檢查是否已發補休
+    const ym = fullDate.slice(0,7);
+    const logSnap = await window.db.collection('employees').doc(empName).collection('leaveLog').doc(ym).get();
+    const hasComp = (logSnap.exists ? logSnap.data().records||[] : [])
+      .some(r => r.type === 'comp_earn' && r.date === fullDate && (r.note||'').includes('國定假日'));
+    if(hasComp) {
+      if(confirm(`⚠️ ${fullDate} ${holidayName} 已發放補休
+${getDisplayName(empName)} 取消上班，是否一併撤銷補休？`)) {
+        await revokeHolidayComp(empName, fullDate, holidayName);
+        showToast(`已撤銷 ${getDisplayName(empName)} ${fullDate} 補休`);
+      }
+    }
+  }
+}
+
+// ===== 朔及既往補休修復（系統管理員）=====
+async function runHistoricalCompFix() {
+  if(!['admin'].includes(currentUser?.permission)) { showToast('⚠️ 僅系統管理員可執行'); return; }
+
+  // 防重複執行
+  const flagRef = window.db.collection('settings').doc('compFixFlag');
+  const flagSnap = await flagRef.get();
+  if(flagSnap.exists && flagSnap.data().done) {
+    if(!confirm('補休修復已執行過，確定要再次執行？（可能重複發放）')) return;
+  }
+
+  const TARGET_HOLIDAYS = {
+    '2026-04-04': '兒童節',
+    '2026-04-05': '清明節',
+    '2026-05-01': '勞動節'
+  };
+
+  showLoading('朔及既往補休修復中...');
+  try {
+    const store = appData.store || currentUser.store;
+    // 讀取所有員工
+    const empSnap = await window.db.collection('stores').doc(store).collection('employees').get();
+    const emps = [];
+    empSnap.forEach(d => {
+      const data = d.data();
+      if(!['離職','調走'].includes(data.status) && !(data.role||'').includes('工讀')) {
+        emps.push({ name: d.id, ...data });
+      }
+    });
+
+    // 讀取 2026-04 和 2026-05 的所有週次
+    const targetWeeks = [];
+    ['2026-04', '2026-05'].forEach(ym => {
+      const [y, mo] = ym.split('-').map(Number);
+      const firstDay = new Date(y, mo-1, 1);
+      const lastDay  = new Date(y, mo, 0);
+      let d = new Date(firstDay);
+      while(d <= lastDay) {
+        const mon = new Date(d);
+        const day = mon.getDay() || 7;
+        mon.setDate(mon.getDate() - day + 1);
+        const yr2 = mon.getFullYear();
+        const first = new Date(yr2, 0, 1);
+        const w = Math.ceil((((mon - first) / 86400000) + first.getDay() + 1) / 7);
+        const wStr = `${yr2}-W${w < 10 ? '0'+w : w}`;
+        if(!targetWeeks.includes(wStr)) targetWeeks.push(wStr);
+        d.setDate(d.getDate() + 7);
+      }
+    });
+
+    // 讀取所有週次的排班
+    const weekData = {};
+    await Promise.all(targetWeeks.map(async ws => {
+      const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(ws).get();
+      weekData[ws] = snap.exists ? (snap.data().records || []) : [];
+    }));
+
+    // 找出各國定假日有上班的員工
+    let fixCount = 0;
+    const dNames = ['週一','週二','週三','週四','週五','週六','週日'];
+
+    for(const [dateStr, holName] of Object.entries(TARGET_HOLIDAYS)) {
+      const [hy, hm, hd] = dateStr.split('-').map(Number);
+      for(const emp of emps) {
+        let hasWork = false;
+        for(const [ws, recs] of Object.entries(weekData)) {
+          const wsYear = parseInt(ws.split('-W')[0]);
+          const wsWeek = parseInt(ws.split('-W')[1]);
+          const jan1 = new Date(wsYear, 0, 1);
+          const offset = (jan1.getDay() <= 4 ? 1 - jan1.getDay() : 8 - jan1.getDay());
+          const mon = new Date(wsYear, 0, 1 + offset + (wsWeek-1)*7);
+          for(let i=0; i<7; i++) {
+            const cellDate = new Date(mon);
+            cellDate.setDate(mon.getDate() + i);
+            if(cellDate.getFullYear()===hy && cellDate.getMonth()+1===hm && cellDate.getDate()===hd) {
+              const rec = recs.find(r => r.name===emp.name && r.day===dNames[i]);
+              if(rec && rec.shift && rec.shift!=='排休' && rec.shift!=='指休' && rec.shift!=='特休' && rec.shift!=='補休') {
+                hasWork = true;
+              }
+            }
+          }
+        }
+        if(hasWork) {
+          const ok = await grantHolidayComp(emp.name, dateStr, holName);
+          if(ok) { fixCount++; document.getElementById('loadingText').textContent = `修復中... 已處理 ${fixCount} 筆`; }
+        }
+      }
+    }
+
+    await flagRef.set({ done: true, doneAt: new Date().toISOString(), by: currentUser.empName, count: fixCount });
+    showToast(`✅ 修復完成，共補發 ${fixCount} 筆補休`);
+  } catch(e) { showToast('❌ 失敗：' + e.message); }
+  hideLoading();
 }
 
 // ===== 自動儲存 =====
@@ -1815,6 +2006,16 @@ function applyShift() {
     const day      = currentCell.dataset.day;
     const weekStr  = document.getElementById('weekSelector').value;
     deductLeave(empName, day, weekStr, prevShift, newShift);
+
+    // 🎌 國定假日補休偵測
+    const dates2 = getWeekDates(weekStr);
+    const dIdx2  = dayNames.indexOf(day);
+    if(dIdx2 >= 0) {
+      const [m2, d2] = dates2[dIdx2].split('/');
+      const fullDate2 = `${weekStr.split('-W')[0]}-${m2.padStart(2,'0')}-${d2.padStart(2,'0')}`;
+      const emp2 = appData.employees?.find(e => e.name === empName);
+      checkHolidayCompOnSave(empName, fullDate2, prevShift, newShift, emp2);
+    }
   }
   syncUIToMemory();
   renderTable();
@@ -1891,6 +2092,16 @@ function applyPaintToCell(btn, eIdx) {
   if(!isVirtual) {
     const week = document.getElementById('weekSelector').value;
     deductLeave(btn.dataset.emp, btn.dataset.day, week, prevShift, btn.dataset.shift||'');
+
+    // 🎌 國定假日補休偵測
+    const dates3 = getWeekDates(week);
+    const dIdx3  = dayNames.indexOf(btn.dataset.day);
+    if(dIdx3 >= 0) {
+      const [m3, d3] = dates3[dIdx3].split('/');
+      const fullDate3 = `${week.split('-W')[0]}-${m3.padStart(2,'0')}-${d3.padStart(2,'0')}`;
+      const emp3 = appData.employees?.find(e => e.name === btn.dataset.emp);
+      checkHolidayCompOnSave(btn.dataset.emp, fullDate3, prevShift, btn.dataset.shift||'', emp3);
+    }
   }
   // 局部更新記憶體
   const week=document.getElementById('weekSelector').value;
@@ -2017,19 +2228,35 @@ async function updateSummary(idx, emp) {
   const leavePlaceholder = `<div id="${leaveHtmlId}" style="font-size:10px;color:#94a3b8;">--</div>`;
   // 背景讀取（不阻塞表格渲染）
   const yearStr = document.getElementById('weekSelector').value.split('-W')[0];
-  window.db.collection('employees').doc(emp.name).collection('leaves').doc(yearStr).get()
-    .then(snap => {
-      const el = document.getElementById(leaveHtmlId);
-      if(!el) return;
-      if(!snap.exists || !snap.data().hireDate) { el.innerHTML = '<span style="color:#94a3b8;">未建特休</span>'; return; }
-      const ld = snap.data();
-      const remainAnn  = Math.max(0, (ld.annualDays||0)  - (ld.usedAnnual||0));
-      const remainComp = Math.max(0, (ld.earnedComp||0) - (ld.usedComp||0));
-      el.innerHTML =
-        `<span style="color:#7c3aed;font-weight:700;">🏖️特${remainAnn}天</span>` +
-        `<span style="color:#0891b2;font-weight:700;margin-left:4px;">🗓️補${remainComp}天</span>`;
-    })
-    .catch(()=>{});
+  // 讀取特休（從 leaveBatches）與補休（從 comp/{year}）
+  Promise.all([
+    window.db.collection('employees').doc(emp.name).collection('leaveBatches').get(),
+    window.db.collection('employees').doc(emp.name).collection('comp').doc(yearStr).get(),
+    window.db.collection('employees').doc(emp.name).collection('comp').doc(String(parseInt(yearStr)-1)).get()
+  ]).then(([bSnap, compSnap, compPrevSnap]) => {
+    const el = document.getElementById(leaveHtmlId);
+    if(!el) return;
+    const todayStr2 = new Date().toISOString().split('T')[0];
+    let remainAnn = 0;
+    if(bSnap) bSnap.forEach(b => {
+      const bd = b.data();
+      if(bd.settled) return;
+      const rem = (bd.days||0)-(bd.used||0);
+      if(rem<=0) return;
+      let expDate = bd.expireDate;
+      if(bd.carried) { const e=new Date(bd.expireDate); e.setFullYear(e.getFullYear()+1); e.setDate(e.getDate()-1); expDate=e.toISOString().split('T')[0]; }
+      if(todayStr2 <= expDate) remainAnn += rem;
+    });
+    const cd = compSnap?.exists ? compSnap.data() : { earned:0, used:0 };
+    const cpd = compPrevSnap?.exists ? compPrevSnap.data() : {};
+    const remainComp = Math.max(0,(cd.earned||0)-(cd.used||0));
+    const carriedComp = cpd.carried&&!cpd.settled ? Math.max(0,(cpd.earned||0)-(cpd.used||0)-(cpd.carriedUsed||0)) : 0;
+    const totalComp = remainComp + carriedComp;
+    if(remainAnn===0 && totalComp===0 && !bSnap?.size) { el.innerHTML = '<span style="color:#94a3b8;">未建特休</span>'; return; }
+    el.innerHTML =
+      `<span style="color:#7c3aed;font-weight:700;">🏖️特${remainAnn}天</span>` +
+      `<span style="color:#0891b2;font-weight:700;margin-left:4px;">🗓️補${totalComp}天</span>`;
+  }).catch(()=>{});
 
   if(isPartTime) {
     const wage = parseFloat(emp.wage || 0);
