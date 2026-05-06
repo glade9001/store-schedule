@@ -1136,7 +1136,7 @@ async function runHistoricalCompFix() {
         }
         if(hasWork) {
           const ok = await grantHolidayComp(emp.name, dateStr, holName);
-          if(ok) { fixCount++; document.getElementById('loadingText').textContent = `修復中... 已處理 ${fixCount} 筆`; }
+          if(ok) { fixCount++; document.getElementById('loadingSub').textContent = `修復中... 已處理 ${fixCount} 筆`; }
         }
       }
     }
