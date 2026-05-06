@@ -1863,26 +1863,37 @@ async function loadStats() {
         otEl.textContent = otVal;
         otEl.style.color = otVal > 0 ? 'var(--danger)' : 'var(--text)';
       }
-      const year = new Date().getFullYear().toString();
       const empNameStr = currentUser.empName || currentUser.displayName || '';
+      const thisYear = new Date().getFullYear();
       if(empNameStr) {
-        window.db.collection('employees').doc(empNameStr).collection('leaves').doc(year).get()
-          .then(snap => {
-            if(!snap.exists || !snap.data().hireDate) {
-              if(leaveEl) { leaveEl.textContent = '--'; leaveEl.style.color = 'var(--text-muted)'; }
-              return;
-            }
-            const ld = snap.data();
-            const remainAnn  = Math.max(0, (ld.annualDays||0)  - (ld.usedAnnual||0));
-            const remainComp = Math.max(0, (ld.earnedComp||0) - (ld.usedComp||0));
-            if(leaveEl) {
-              leaveEl.textContent = remainAnn;
-              leaveEl.style.color = remainAnn > 0 ? '#7c3aed' : 'var(--text-muted)';
-            }
-            const labelEl = document.getElementById('statLeaveLabel');
-            if(labelEl) labelEl.textContent = `特休剩餘 / 補休 ${remainComp} 天`;
-          })
-          .catch(() => { if(leaveEl) leaveEl.textContent = '--'; });
+        // 讀取批次計算特休剩餘
+        Promise.all([
+          window.db.collection('employees').doc(empNameStr).collection('leaveBatches').get(),
+          window.db.collection('employees').doc(empNameStr).collection('comp').doc(String(thisYear)).get()
+        ]).then(([batchSnap, compSnap]) => {
+          const todayStr = new Date().toISOString().split('T')[0];
+          let totalAvail = 0;
+          if(batchSnap) {
+            batchSnap.forEach(d => {
+              const b = d.data();
+              if(b.settled) return;
+              const rem = (b.days||0) - (b.used||0);
+              if(rem <= 0) return;
+              const expDate = b.carried
+                ? new Date(b.expireDate).setMonth(new Date(b.expireDate).getMonth()+12) && (() => { const d2=new Date(b.expireDate); d2.setMonth(d2.getMonth()+12); return d2.toISOString().split('T')[0]; })()
+                : b.expireDate;
+              if(todayStr <= expDate) totalAvail += rem;
+            });
+          }
+          const compData = compSnap?.exists ? compSnap.data() : {};
+          const remainComp = Math.max(0, (compData.earned||0) - (compData.used||0));
+          if(leaveEl) {
+            leaveEl.textContent = totalAvail;
+            leaveEl.style.color = totalAvail > 0 ? '#7c3aed' : 'var(--text-muted)';
+          }
+          const labelEl = document.getElementById('statLeaveLabel');
+          if(labelEl) labelEl.textContent = `特休剩餘 / 補休 ${remainComp} 天`;
+        }).catch(() => { if(leaveEl) leaveEl.textContent = '--'; });
       } else {
         if(leaveEl) leaveEl.textContent = '--';
       }
@@ -1947,27 +1958,115 @@ async function loadPendingItems() {
           storePending.push({ type:'薪資提醒', desc:`${ym.replace('-','年')}月薪資尚未送出`, link:'salary.html', color:'var(--warn)' });
         }
 
-        // 特休建檔
+        // ===== 特休 / 補休 週年提醒與到期提醒 =====
         if(empSnap) {
           const emps = [];
-          empSnap.forEach(d => { if(!['離職','調走'].includes(d.data().status)) emps.push(d.id); });
+          empSnap.forEach(d => { if(!['離職','調走'].includes(d.data().status)) emps.push({ id:d.id, ...d.data() }); });
+
+          const now = new Date();
+          const todayStr = now.toISOString().split('T')[0];
+          const isDecember = now.getMonth() === 11;
+          const thisYear = now.getFullYear();
+          const prevYear = thisYear - 1;
+
+          // 日期工具（home 頁面 inline，避免相依外部函式）
+          const _dateAdd = (s, months) => { const d=new Date(s); d.setMonth(d.getMonth()+months); return d.toISOString().split('T')[0]; };
+          const _isExpThisMonth = (ds) => { if(!ds) return false; const e=new Date(ds); return e.getFullYear()===now.getFullYear()&&e.getMonth()===now.getMonth(); };
+
           const leaveResults = await Promise.race([
-            Promise.all(emps.map(empName =>
-              window.db.collection('employees').doc(empName).collection('leaves').doc(currentYear).get()
-                .then(snap => ({ empName, snap })).catch(() => null)
-            )),
-            new Promise(res => setTimeout(() => res([]), 6000))
+            Promise.all(emps.map(async emp => {
+              try {
+                const [batchSnap, leaveLegacySnap, compSnap, compPrevSnap] = await Promise.all([
+                  window.db.collection('employees').doc(emp.id).collection('leaveBatches').get(),
+                  window.db.collection('employees').doc(emp.id).collection('leaves').doc(String(thisYear)).get(),
+                  window.db.collection('employees').doc(emp.id).collection('comp').doc(String(thisYear)).get(),
+                  window.db.collection('employees').doc(emp.id).collection('comp').doc(String(prevYear)).get()
+                ]);
+                return { emp, batchSnap, leaveLegacySnap, compSnap, compPrevSnap };
+              } catch(e) { return null; }
+            })),
+            new Promise(res => setTimeout(() => res([]), 8000))
           ]);
+
           leaveResults.forEach(item => {
             if(!item) return;
-            const ld = item.snap?.exists ? item.snap.data() : null;
-            if(!ld || !ld.hireDate) {
-              storePending.push({ type:'特休建檔', desc:`${store}｜請幫 ${item.empName} 設定到職日與特休`, link:'leave.html', color:'var(--warn)' });
-            } else {
-              const halfYear = new Date(ld.hireDate);
-              halfYear.setMonth(halfYear.getMonth()+6);
-              if(new Date() >= halfYear && (ld.annualDays||0)===0) {
-                storePending.push({ type:'特休解鎖', desc:`${store}｜${item.empName} 已滿半年，請發放特休`, link:'leave.html', color:'#9334e6' });
+            const { emp, batchSnap, leaveLegacySnap, compSnap, compPrevSnap } = item;
+            const empDisplayName = displayNameMap[emp.id] || emp.id;
+
+            // === 取得到職日 ===
+            let hireDate = null;
+            const batches = [];
+            if(batchSnap) batchSnap.forEach(d => batches.push({ id:d.id, ...d.data() }));
+            batches.sort((a,b) => (a.grantDate||'').localeCompare(b.grantDate||''));
+            if(batches.length > 0) {
+              const firstBatch = batches[0];
+              hireDate = firstBatch.grantDate ? _dateAdd(firstBatch.grantDate, -6) : null;
+            }
+            if(!hireDate && leaveLegacySnap?.exists) hireDate = leaveLegacySnap.data()?.hireDate || null;
+
+            // === 1. 尚未建檔 ===
+            if(!hireDate) {
+              storePending.push({ type:'特休建檔', desc:`${store}｜請幫 ${empDisplayName} 設定到職日`, link:'leave.html', color:'var(--warn)' });
+              return;
+            }
+
+            // === 2. 週年日提醒（今天 = 到職日某個週年）===
+            // 滿6個月
+            const m6Date = _dateAdd(hireDate, 6);
+            if(m6Date === todayStr) {
+              storePending.push({ type:'特休週年', desc:`${store}｜${empDisplayName} 今天滿6個月，請至特休管理新增批次（3天）`, link:'leave.html', color:'#9334e6' });
+            }
+            // 每個週年
+            for(let yr = 1; yr <= 30; yr++) {
+              const annivDate = _dateAdd(hireDate, yr * 12);
+              if(annivDate > todayStr) break;
+              if(annivDate === todayStr) {
+                const months = yr * 12;
+                let days = 0;
+                if(months < 24) days = 7;
+                else if(months < 36) days = 10;
+                else if(months < 48) days = 14;
+                else if(months < 60) days = 14;
+                else if(months < 120) days = 15;
+                else days = Math.min(30, 15 + Math.floor(months/12) - 10 + 1);
+                storePending.push({ type:'特休週年', desc:`${store}｜${empDisplayName} 今天滿${yr}年，請至特休管理新增批次（${days}天）`, link:'leave.html', color:'#9334e6' });
+              }
+            }
+
+            // === 3. 特休批次本月到期提醒 ===
+            batches.forEach(b => {
+              if(b.settled) return;
+              const remaining = (b.days||0) - (b.used||0);
+              if(remaining <= 0) return;
+              const expDate = b.carried ? _dateAdd(b.expireDate, 12) : b.expireDate;
+              if(_isExpThisMonth(expDate)) {
+                const canCarry = !b.carried;
+                storePending.push({
+                  type:'特休到期',
+                  desc:`${store}｜${empDisplayName} 的「${b.label||b.note}」剩 ${remaining} 天本月到期${canCarry?'，可結算或遞延':'，已無法遞延，請結算'}`,
+                  link:'leave.html',
+                  color:'var(--danger)'
+                });
+              }
+            });
+
+            // === 4. 補休本月（12月）到期提醒 ===
+            if(isDecember) {
+              // 本年度補休
+              if(compSnap?.exists) {
+                const cd = compSnap.data();
+                const remaining = Math.max(0, (cd.earned||0) - (cd.used||0));
+                if(!cd.settled && remaining > 0) {
+                  storePending.push({ type:'補休結算', desc:`${store}｜${empDisplayName} 本年度補休剩 ${remaining} 天，12/31 到期，請結算或遞延`, link:'leave.html', color:'var(--accent)' });
+                }
+              }
+              // 遞延補休（不可再延）
+              if(compPrevSnap?.exists) {
+                const cpd = compPrevSnap.data();
+                const carriedRemaining = cpd.carried && !cpd.settled ? Math.max(0,(cpd.earned||0)-(cpd.used||0)-(cpd.carriedUsed||0)) : 0;
+                if(carriedRemaining > 0) {
+                  storePending.push({ type:'補休結算', desc:`${store}｜${empDisplayName} ${prevYear}年遞延補休剩 ${carriedRemaining} 天，本月底到期且不可再延，請盡速結算`, link:'leave.html', color:'var(--danger)' });
+                }
               }
             }
           });
