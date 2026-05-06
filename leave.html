@@ -786,7 +786,10 @@ function getHireDateFromBatches(rawBatches) {
   const legacy = rawBatches.find(b=>b._legacy);
   if(legacy?.hireDate) return legacy.hireDate;
   const first = rawBatches.filter(b=>!b._legacy).sort((a,b)=>a.grantDate?.localeCompare(b.grantDate))[0];
-  if(first?.grantDate) return dateAdd(first.grantDate, -6);
+  if(first?.grantDate) {
+    const offsetMonths = first.months || 6;
+    return dateAdd(first.grantDate, -offsetMonths);
+  }
   return null;
 }
 
@@ -919,16 +922,24 @@ function renderEmpDetail(empName, showBack=true) {
   // 法規說明框
   if(hireDate && !isPartTime) {
     const schedule = calcBatchSchedule(hireDate);
-    const yearService = Math.floor(monthsDiff(hireDate, todayStr)/12);
+    const _totalM = monthsDiff(hireDate, todayStr);
+    const _yrs = Math.floor(_totalM/12);
+    const _mths = _totalM % 12;
+    const serviceLabel = _yrs===0 ? `約${_totalM}個月` : _mths===0 ? `約${_yrs}年` : `約${_yrs}年${_mths}個月`;
     html+=`<div class="law-box">
       <div class="law-box-title">📋 法規計算說明（週年制）</div>
-      <div>到職日：${fmtDate(hireDate)}，目前年資約 ${yearService} 年</div>
+      <div>到職日：${fmtDate(hireDate)}，目前年資 ${serviceLabel}</div>
       <table class="law-table">
         <tr><th>週年</th><th>發放日</th><th>到期日</th><th>天數</th><th>狀態</th></tr>
         ${schedule.map(b=>{
           const existing = batches.find(x=>x.grantDate===b.grantDate);
-          const status = existing ? (existing.settled?'已結算':existing.carried?'遞延中':'進行中') : '待發放';
-          return `<tr class="${existing?'highlight':''}"><td>${b.label}</td><td>${fmtDate(b.grantDate)}</td><td>${fmtDate(b.expireDate)}</td><td>${b.days} 天</td><td>${status}</td></tr>`;
+          let status = '待發放';
+          if(existing) {
+            const rem = (existing.days||0)-(existing.used||0);
+            status = existing.settled ? '已結算' : existing.carried ? '遞延中' : rem<=0 ? '已用完' : '進行中';
+          }
+          const rowClass = existing ? (existing.settled||((existing.days||0)-(existing.used||0)<=0) ? '' : 'highlight') : '';
+          return `<tr class="${rowClass}"><td>${b.label}</td><td>${fmtDate(b.grantDate)}</td><td>${fmtDate(b.expireDate)}</td><td>${b.days} 天</td><td style="color:${status==='已用完'?'var(--text-muted)':status==='進行中'?'var(--accent)':status==='遞延中'?'var(--warn)':'inherit'};">${status}</td></tr>`;
         }).join('')}
       </table>
     </div>`;
@@ -940,7 +951,7 @@ function renderEmpDetail(empName, showBack=true) {
   // 特休批次列表
   html+=`<div style="font-size:12px;font-weight:800;color:var(--text-muted);letter-spacing:0.5px;margin-bottom:8px;text-transform:uppercase;">特休批次</div>`;
   if(batches.length>0) {
-    html += batches.filter(b=>!b.settled||(b.days||0)-(b.used||0)>0).map(b=>{
+    html += batches.filter(b=>!b.settled && (b.days||0)-(b.used||0)>0).map(b=>{
       const remaining = Math.max(0,(b.days||0)-(b.used||0));
       const expDate = b.carried ? dateAdd(b.expireDate,12) : b.expireDate;
       const dLeft = daysUntil(expDate);
