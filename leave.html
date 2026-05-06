@@ -256,6 +256,16 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
         </div>
       </div>
       <div id="autoDaysPreview" style="display:none;background:#e8f0fe;border-radius:10px;padding:12px;font-size:13px;line-height:1.8;margin-bottom:12px;"></div>
+      <!-- 僅系統管理員可見：略過已到期批次 -->
+      <div id="skipExpiredGroup" style="display:none;background:#fff8e1;border:1.5px solid #ffcc80;border-radius:10px;padding:12px;margin-bottom:14px;">
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
+          <input type="checkbox" id="skipExpiredCheck" style="width:18px;height:18px;margin-top:2px;flex-shrink:0;cursor:pointer;">
+          <div>
+            <div style="font-size:13px;font-weight:800;color:#e65100;">⚙️ 略過已到期批次（歷史建檔用）</div>
+            <div style="font-size:11px;color:#b45309;margin-top:3px;line-height:1.6;">勾選後，到期日已過的批次將不會建入系統。<br>適用於系統上線時，過去批次已自行消化完畢的舊員工。</div>
+          </div>
+        </label>
+      </div>
       <button class="modal-action" onclick="saveHireDate()">確認設定</button>
       <button class="modal-cancel" onclick="closeModal('hireDateModal')">取消</button>
     </div>
@@ -1092,6 +1102,14 @@ function openHireDateModal(empName) {
   const hireDate = getHireDateFromBatches(rawBatches);
   document.getElementById('hireDateInput').value = hireDate||'';
   document.getElementById('hireDateInput').oninput = ()=>previewHireDate(isPartTime);
+  // 僅系統管理員顯示「略過已到期批次」選項
+  const skipGroup = document.getElementById('skipExpiredGroup');
+  const skipCheck = document.getElementById('skipExpiredCheck');
+  if(skipGroup) skipGroup.style.display = isAdmin() ? 'block' : 'none';
+  if(skipCheck) {
+    skipCheck.checked = false;
+    skipCheck.onchange = () => previewHireDate(isPartTime);
+  }
   openModal('hireDateModal');
 }
 
@@ -1099,11 +1117,16 @@ function previewHireDate(isPartTime) {
   const hireDate = document.getElementById('hireDateInput').value;
   const preview = document.getElementById('autoDaysPreview');
   if(!hireDate||isPartTime){ preview.style.display='none'; return; }
-  const schedule = calcBatchSchedule(hireDate);
+  const skipExpired = document.getElementById('skipExpiredCheck')?.checked || false;
+  let schedule = calcBatchSchedule(hireDate);
+  if(skipExpired) {
+    const todayStr = today();
+    schedule = schedule.filter(b => b.expireDate > todayStr);
+  }
   if(!schedule.length){ preview.style.display='none'; return; }
   preview.style.display='block';
-  preview.innerHTML=`<b>預計發放批次（已到的）：</b><br>`+
-    schedule.map(b=>`${b.label}（${fmtDate(b.grantDate)}）：${b.days} 天`).join('<br>');
+  preview.innerHTML=`<b>預計發放批次（${skipExpired?'僅有效、略過已到期':'已到的全部'}）：</b><br>`+
+    schedule.map(b=>`${b.label}（${fmtDate(b.grantDate)}）：${b.days} 天  到期 ${fmtDate(b.expireDate)}`).join('<br>');
 }
 
 async function saveHireDate() {
@@ -1125,9 +1148,14 @@ async function saveHireDate() {
         await batchRef.add({ grantDate:hireDate, expireDate:dateAdd(hireDate,12), days:manualDays, used:0, label:'手動建檔（工讀生）', carried:false, settled:false, createdAt:today() });
       }
     } else {
-      const schedule = calcBatchSchedule(hireDate);
+      const skipExpired = document.getElementById('skipExpiredCheck')?.checked || false;
+      let schedule = calcBatchSchedule(hireDate);
+      if(skipExpired) {
+        const todayStr = today();
+        schedule = schedule.filter(b => b.expireDate > todayStr);
+      }
       for(const b of schedule) {
-        await batchRef.add({ ...b, used:0, carried:false, settled:false, createdAt:today() });
+        await batchRef.add({ ...b, used:0, carried:false, settled:false, createdAt:today(), historicalSetup: skipExpired||false });
       }
     }
 
