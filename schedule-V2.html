@@ -1060,7 +1060,7 @@ async function runHistoricalCompFix() {
   const flagRef = window.db.collection('settings').doc('compFixFlag');
   const flagSnap = await flagRef.get();
   if(flagSnap.exists && flagSnap.data().done) {
-    if(!confirm('補休修復已執行過，確定要再次執行？（可能重複發放）')) return;
+    if(!confirm('補休修復已執行過，確定要再次執行？（請注意：這會檢查所有門市）')) return;
   }
 
   const TARGET_HOLIDAYS = {
@@ -1071,18 +1071,11 @@ async function runHistoricalCompFix() {
 
   showLoading('朔及既往補休修復中...');
   try {
-    const store = appData.store || currentUser.store;
-    // 讀取所有員工
-    const empSnap = await window.db.collection('stores').doc(store).collection('employees').get();
-    const emps = [];
-    empSnap.forEach(d => {
-      const data = d.data();
-      if(!['離職','調走'].includes(data.status) && !(data.role||'').includes('工讀')) {
-        emps.push({ name: d.id, ...data });
-      }
-    });
+    let fixCount = 0;
+    // 取得所有門市清單，若無則降級使用當前門市
+    const storesToFix = (appConfig.stores && appConfig.stores.length > 0) ? appConfig.stores : [currentUser.store];
 
-    // 讀取 2026-04 和 2026-05 的所有週次
+    // 讀取 2026-04 和 2026-05 的所有週次（只需算一次）
     const targetWeeks = [];
     ['2026-04', '2026-05'].forEach(ym => {
       const [y, mo] = ym.split('-').map(Number);
@@ -1102,48 +1095,68 @@ async function runHistoricalCompFix() {
       }
     });
 
-    // 讀取所有週次的排班
-    const weekData = {};
-    await Promise.all(targetWeeks.map(async ws => {
-      const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(ws).get();
-      weekData[ws] = snap.exists ? (snap.data().records || []) : [];
-    }));
-
-    // 找出各國定假日有上班的員工
-    let fixCount = 0;
     const dNames = ['週一','週二','週三','週四','週五','週六','週日'];
 
-    for(const [dateStr, holName] of Object.entries(TARGET_HOLIDAYS)) {
-      const [hy, hm, hd] = dateStr.split('-').map(Number);
-      for(const emp of emps) {
-        let hasWork = false;
-        for(const [ws, recs] of Object.entries(weekData)) {
-          const wsYear = parseInt(ws.split('-W')[0]);
-          const wsWeek = parseInt(ws.split('-W')[1]);
-          const jan1 = new Date(wsYear, 0, 1);
-          const offset = (jan1.getDay() <= 4 ? 1 - jan1.getDay() : 8 - jan1.getDay());
-          const mon = new Date(wsYear, 0, 1 + offset + (wsWeek-1)*7);
-          for(let i=0; i<7; i++) {
-            const cellDate = new Date(mon);
-            cellDate.setDate(mon.getDate() + i);
-            if(cellDate.getFullYear()===hy && cellDate.getMonth()+1===hm && cellDate.getDate()===hd) {
-              const rec = recs.find(r => r.name===emp.name && r.day===dNames[i]);
-              if(rec && rec.shift && rec.shift!=='排休' && rec.shift!=='指休' && rec.shift!=='特休' && rec.shift!=='補休') {
-                hasWork = true;
+    // 🌟 開始針對「每一間門市」跑迴圈修復
+    for(const store of storesToFix) {
+      // 讀取該門市所有員工
+      const empSnap = await window.db.collection('stores').doc(store).collection('employees').get();
+      const emps = [];
+      empSnap.forEach(d => {
+        const data = d.data();
+        if(!['離職','調走'].includes(data.status) && !(data.role||'').includes('工讀')) {
+          emps.push({ name: d.id, ...data });
+        }
+      });
+
+      // 讀取該門市所有指定週次的排班
+      const weekData = {};
+      await Promise.all(targetWeeks.map(async ws => {
+        const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(ws).get();
+        weekData[ws] = snap.exists ? (snap.data().records || []) : [];
+      }));
+
+      // 檢查該門市每位員工是否有在國定假日上班
+      for(const [dateStr, holName] of Object.entries(TARGET_HOLIDAYS)) {
+        const [hy, hm, hd] = dateStr.split('-').map(Number);
+        for(const emp of emps) {
+          let hasWork = false;
+          for(const [ws, recs] of Object.entries(weekData)) {
+            const wsYear = parseInt(ws.split('-W')[0]);
+            const wsWeek = parseInt(ws.split('-W')[1]);
+            const jan1 = new Date(wsYear, 0, 1);
+            const offset = (jan1.getDay() <= 4 ? 1 - jan1.getDay() : 8 - jan1.getDay());
+            const mon = new Date(wsYear, 0, 1 + offset + (wsWeek-1)*7);
+            for(let i=0; i<7; i++) {
+              const cellDate = new Date(mon);
+              cellDate.setDate(mon.getDate() + i);
+              if(cellDate.getFullYear()===hy && cellDate.getMonth()+1===hm && cellDate.getDate()===hd) {
+                const rec = recs.find(r => r.name===emp.name && r.day===dNames[i]);
+                if(rec && rec.shift && rec.shift!=='排休' && rec.shift!=='指休' && rec.shift!=='特休' && rec.shift!=='補休') {
+                  hasWork = true;
+                }
               }
             }
           }
-        }
-        if(hasWork) {
-          const ok = await grantHolidayComp(emp.name, dateStr, holName);
-          if(ok) { fixCount++; document.getElementById('loadingSub').textContent = `修復中... 已處理 ${fixCount} 筆`; }
+          if(hasWork) {
+            const ok = await grantHolidayComp(emp.name, dateStr, holName);
+            if(ok) { 
+              fixCount++; 
+              // 確保介面文字可以正常更新，並加入門市提示
+              const loadingEl = document.getElementById('loadingSub');
+              if(loadingEl) loadingEl.textContent = `修復中(${store})... 已處理 ${fixCount} 筆`; 
+            }
+          }
         }
       }
-    }
+    } // 🌟 門市迴圈結束
 
+    // 所有門市跑完後，標記為已完成
     await flagRef.set({ done: true, doneAt: new Date().toISOString(), by: currentUser.empName, count: fixCount });
-    showToast(`✅ 修復完成，共補發 ${fixCount} 筆補休`);
-  } catch(e) { showToast('❌ 失敗：' + e.message); }
+    showToast(`✅ 所有門市修復完成，共補發 ${fixCount} 筆補休`);
+  } catch(e) { 
+    showToast('❌ 失敗：' + e.message); 
+  }
   hideLoading();
 }
 
