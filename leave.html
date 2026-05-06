@@ -931,14 +931,19 @@ function renderEmpDetail(empName, showBack=true) {
 
   // 法規說明框
   if(hireDate && !isPartTime) {
-    const schedule = calcBatchSchedule(hireDate);
+    // 若此員工是「歷史建檔略過模式」建入的，法規表格也省略已到期批次
+    const isHistoricalSetup = batches.some(b=>b.historicalSetup===true);
+    let schedule = calcBatchSchedule(hireDate);
+    if(isHistoricalSetup) schedule = schedule.filter(b=>b.expireDate > todayStr);
     const _totalM = monthsDiff(hireDate, todayStr);
     const _yrs = Math.floor(_totalM/12);
     const _mths = _totalM % 12;
     const serviceLabel = _yrs===0 ? `約${_totalM}個月` : _mths===0 ? `約${_yrs}年` : `約${_yrs}年${_mths}個月`;
+    const setupNote = isHistoricalSetup ? `<div style="font-size:11px;color:#b45309;background:#fff8e1;border-radius:6px;padding:4px 8px;margin-top:6px;display:inline-block;">⚙️ 歷史建檔模式：已到期批次已省略</div>` : '';
     html+=`<div class="law-box">
       <div class="law-box-title">📋 法規計算說明（週年制）</div>
       <div>到職日：${fmtDate(hireDate)}，目前年資 ${serviceLabel}</div>
+      ${setupNote}
       <table class="law-table">
         <tr><th>週年</th><th>發放日</th><th>到期日</th><th>天數</th><th>狀態</th></tr>
         ${schedule.map(b=>{
