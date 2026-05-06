@@ -48,7 +48,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 .header-badge{background:rgba(255,255,255,0.2);border-radius:8px;padding:4px 10px;font-size:13px;font-weight:700;}
 .header-action{background:rgba(255,255,255,0.2);border:none;color:white;height:32px;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer;padding:0 12px;}
 
-/* Store bar (加盟主) */
+/* Store bar */
 .store-bar{display:none;gap:8px;padding:8px 14px;overflow-x:auto;background:white;border-bottom:1px solid var(--border);flex-shrink:0;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
 .store-tab{padding:6px 14px;border:1.5px solid var(--border);background:white;font-size:12px;font-weight:700;border-radius:20px;cursor:pointer;white-space:nowrap;flex-shrink:0;}
 .store-tab.active{border-color:var(--primary);background:var(--primary);color:white;}
@@ -90,13 +90,22 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 .batch-meta{padding:0 16px 12px;display:grid;grid-template-columns:1fr 1fr;gap:6px;}
 .batch-meta-item{font-size:11px;color:var(--text-muted);}
 .batch-meta-val{font-weight:700;color:var(--text);}
-.batch-expire-bar{height:4px;background:#f1f3f4;border-radius:0 0 0 0;}
+.batch-expire-bar{height:4px;background:#f1f3f4;}
 .batch-expire-fill{height:100%;border-radius:2px;transition:width 0.5s;}
 .batch-actions{display:flex;gap:8px;padding:0 16px 12px;}
 .batch-btn{flex:1;padding:8px;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;}
 .batch-btn.primary{background:#e8f0fe;color:var(--primary);}
 .batch-btn.danger{background:#fce8e6;color:var(--danger);}
 .batch-btn.warn{background:#fff3e0;color:#e65100;}
+.batch-btn.settle{background:#fce8e6;color:var(--danger);}
+.batch-btn.carry-btn{background:#fff3e0;color:#e65100;}
+
+/* ⚠️ 到期警示橫幅 */
+.expire-alert{background:linear-gradient(135deg,#fce8e6,#fef2f2);border:1.5px solid var(--danger);border-radius:12px;padding:12px 16px;margin-bottom:10px;cursor:pointer;}
+.expire-alert-title{font-size:13px;font-weight:800;color:var(--danger);margin-bottom:4px;}
+.expire-alert-sub{font-size:11px;color:var(--text-muted);}
+.expire-alert.warn-type{background:linear-gradient(135deg,#fff3e0,#fff8e1);border-color:var(--warn);}
+.expire-alert.warn-type .expire-alert-title{color:#e65100;}
 
 /* 個人總覽卡片 */
 .leave-summary{background:white;border-radius:var(--radius);padding:16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06);}
@@ -109,6 +118,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 .leave-row-val.accent{color:var(--accent);}
 .leave-row-val.warn{color:var(--warn);}
 .leave-row-val.danger{color:var(--danger);}
+.leave-row-expire{font-size:10px;color:var(--text-muted);font-weight:600;margin-left:4px;}
 
 /* 法規說明框 */
 .law-box{background:#f8fafc;border:1px solid var(--border);border-left:4px solid var(--primary);border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:12px;color:var(--text-muted);line-height:1.8;}
@@ -164,8 +174,12 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 .form-field input,.form-field select,.form-field textarea{width:100%;padding:11px 13px;border:1.5px solid var(--border);border-radius:10px;font-size:14px;font-weight:600;outline:none;background:#f8fafc;font-family:inherit;}
 .form-field input:focus,.form-field select:focus{border-color:var(--primary);background:white;}
 .modal-action{width:100%;padding:14px;background:var(--primary);color:white;border:none;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer;margin-top:8px;}
+.modal-action.danger{background:var(--danger);}
+.modal-action.warn{background:#e65100;}
+.modal-action.accent{background:var(--accent);}
 .modal-cancel{width:100%;padding:10px;background:none;border:none;color:var(--text-muted);font-size:14px;cursor:pointer;margin-top:6px;}
 .private-hint{display:flex;align-items:center;gap:6px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#166534;font-weight:600;}
+.danger-hint{display:flex;align-items:center;gap:6px;background:#fce8e6;border:1px solid #f5c6c6;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#c62828;font-weight:600;}
 .toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(20px);background:#1e293b;color:white;padding:10px 20px;border-radius:20px;font-size:13px;font-weight:700;z-index:9999;opacity:0;transition:all 0.3s;pointer-events:none;white-space:nowrap;}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 
@@ -176,8 +190,21 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 /* 警示橫幅 */
 .alert-banner{background:linear-gradient(135deg,#fce8e6,#fef2f2);border:1.5px solid var(--danger);border-radius:12px;padding:12px 16px;margin-bottom:12px;display:flex;align-items:center;gap:10px;}
 .alert-banner.warn{background:linear-gradient(135deg,#fff3e0,#fff8e1);border-color:var(--warn);}
+.alert-banner.info{background:linear-gradient(135deg,#e8f0fe,#f0f4ff);border-color:var(--primary);}
 .alert-banner-icon{font-size:20px;flex-shrink:0;}
 .alert-banner-text{flex:1;font-size:13px;font-weight:700;}
+
+/* 補休分區 */
+.comp-section-header{font-size:12px;font-weight:800;color:var(--accent);letter-spacing:0.5px;text-transform:uppercase;margin:14px 0 8px;display:flex;align-items:center;gap:6px;}
+.comp-card{background:white;border-radius:12px;margin-bottom:10px;box-shadow:0 1px 6px rgba(0,0,0,0.06);overflow:hidden;border-left:4px solid var(--accent);}
+.comp-card.carried{border-left-color:var(--warn);}
+.comp-card.expiring{border-left-color:var(--danger);}
+.comp-card-body{padding:12px 16px;}
+.comp-card-title{font-size:13px;font-weight:800;margin-bottom:6px;}
+.comp-card-row{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--text-muted);margin-bottom:3px;}
+.comp-card-val{font-weight:700;color:var(--text);}
+.comp-expire-tag{display:inline-block;background:#fff3e0;color:#e65100;border-radius:6px;padding:2px 8px;font-size:10px;font-weight:700;margin-top:4px;}
+.comp-expire-tag.danger{background:#fce8e6;color:var(--danger);}
 </style>
 </head>
 <body>
@@ -205,12 +232,12 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
   </div>
 </div>
 
-<!-- ===== 到職日 / 設定 Modal ===== -->
+<!-- ===== 到職日設定 Modal ===== -->
 <div class="modal-overlay" id="hireDateModal" onclick="if(event.target===this)closeModal('hireDateModal')">
   <div class="modal-box">
     <div class="modal-handle"></div>
     <div class="modal-title" id="hireDateTitle">設定到職日</div>
-    <div class="modal-sub" id="hireDateSub">設定到職日後，系統將自動計算週年制特休批次。</div>
+    <div class="modal-sub">設定到職日後，系統將自動依勞基法計算週年制特休批次。</div>
     <div class="modal-body">
       <input type="hidden" id="hireDateEmpName">
       <div class="form-field">
@@ -221,59 +248,44 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
         <label>到職日期</label>
         <input type="date" id="hireDateInput">
       </div>
-      <!-- 工讀生：法規未定，保留手動輸入 -->
       <div id="manualDaysGroup" style="display:none;">
-        <div class="private-hint">
-          📝 工讀生特休規則尚未定案，請手動輸入年度特休天數
-        </div>
+        <div class="private-hint">📝 工讀生特休規則尚未定案，請手動輸入年度特休天數</div>
         <div class="form-field">
           <label>年度特休天數（手動設定）</label>
           <input type="number" id="manualAnnualDays" min="0" max="30" step="1" placeholder="請輸入天數">
         </div>
       </div>
-      <!-- 正職/副店長/店長：自動計算 -->
-      <div id="autoDaysPreview" style="display:none; background:#e8f0fe; border-radius:10px; padding:12px; font-size:13px; line-height:1.8; margin-bottom:12px;"></div>
+      <div id="autoDaysPreview" style="display:none;background:#e8f0fe;border-radius:10px;padding:12px;font-size:13px;line-height:1.8;margin-bottom:12px;"></div>
       <button class="modal-action" onclick="saveHireDate()">確認設定</button>
       <button class="modal-cancel" onclick="closeModal('hireDateModal')">取消</button>
     </div>
   </div>
 </div>
 
-<!-- ===== 手動新增批次 Modal（工讀生 or 店長以上手動） ===== -->
+<!-- ===== 手動新增批次 Modal ===== -->
 <div class="modal-overlay" id="addBatchModal" onclick="if(event.target===this)closeModal('addBatchModal')">
   <div class="modal-box">
     <div class="modal-handle"></div>
     <div class="modal-title">手動新增特休批次</div>
     <div class="modal-body">
       <input type="hidden" id="addBatchEmp">
-      <div class="form-field">
-        <label>發放日</label>
-        <input type="date" id="addBatchGrantDate">
-      </div>
-      <div class="form-field">
-        <label>到期日</label>
-        <input type="date" id="addBatchExpireDate">
-      </div>
-      <div class="form-field">
-        <label>天數</label>
-        <input type="number" id="addBatchDays" min="0.5" step="0.5">
-      </div>
-      <div class="form-field">
-        <label>說明（如：滿6個月、滿1年）</label>
-        <input type="text" id="addBatchNote" placeholder="說明">
-      </div>
+      <div class="form-field"><label>發放日</label><input type="date" id="addBatchGrantDate"></div>
+      <div class="form-field"><label>到期日</label><input type="date" id="addBatchExpireDate"></div>
+      <div class="form-field"><label>天數</label><input type="number" id="addBatchDays" min="0.5" step="0.5"></div>
+      <div class="form-field"><label>說明（如：滿6個月、滿1年）</label><input type="text" id="addBatchNote" placeholder="說明"></div>
       <button class="modal-action" onclick="saveAddBatch()">新增批次</button>
       <button class="modal-cancel" onclick="closeModal('addBatchModal')">取消</button>
     </div>
   </div>
 </div>
 
-<!-- ===== 新增 leaveLog 紀錄 Modal ===== -->
+<!-- ===== 新增 leaveLog Modal ===== -->
 <div class="modal-overlay" id="addLogModal" onclick="if(event.target===this)closeModal('addLogModal')">
   <div class="modal-box">
     <div class="modal-handle"></div>
     <div class="modal-title" id="addLogTitle">手動新增紀錄</div>
     <div class="modal-body">
+      <input type="hidden" id="addLogEmpName">
       <div class="form-field">
         <label>類型</label>
         <select id="addLogType">
@@ -284,25 +296,16 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
           <option value="comp_use_cancel">補休 — 取消</option>
         </select>
       </div>
-      <div class="form-field">
-        <label>日期</label>
-        <input type="date" id="addLogDate">
-      </div>
-      <div class="form-field">
-        <label>天數</label>
-        <input type="number" id="addLogDays" min="0.5" step="0.5">
-      </div>
-      <div class="form-field">
-        <label>說明</label>
-        <input type="text" id="addLogNote" placeholder="說明（選填）">
-      </div>
+      <div class="form-field"><label>日期</label><input type="date" id="addLogDate"></div>
+      <div class="form-field"><label>天數</label><input type="number" id="addLogDays" min="0.5" step="0.5"></div>
+      <div class="form-field"><label>說明</label><input type="text" id="addLogNote" placeholder="說明（選填）"></div>
       <button class="modal-action" onclick="saveAddLog()">儲存</button>
       <button class="modal-cancel" onclick="closeModal('addLogModal')">取消</button>
     </div>
   </div>
 </div>
 
-<!-- ===== 編輯 leaveLog 紀錄 Modal ===== -->
+<!-- ===== 編輯 leaveLog Modal ===== -->
 <div class="modal-overlay" id="editLogModal" onclick="if(event.target===this)closeModal('editLogModal')">
   <div class="modal-box">
     <div class="modal-handle"></div>
@@ -321,20 +324,47 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
           <option value="comp_use_cancel">補休 — 取消</option>
         </select>
       </div>
-      <div class="form-field">
-        <label>日期</label>
-        <input type="date" id="editLogDate">
-      </div>
-      <div class="form-field">
-        <label>天數</label>
-        <input type="number" id="editLogDays" min="0.5" step="0.5">
-      </div>
-      <div class="form-field">
-        <label>說明</label>
-        <input type="text" id="editLogNote" placeholder="說明">
-      </div>
+      <div class="form-field"><label>日期</label><input type="date" id="editLogDate"></div>
+      <div class="form-field"><label>天數</label><input type="number" id="editLogDays" min="0.5" step="0.5"></div>
+      <div class="form-field"><label>說明</label><input type="text" id="editLogNote" placeholder="說明"></div>
       <button class="modal-action" onclick="saveEditLog()">儲存修改</button>
       <button class="modal-cancel" onclick="closeModal('editLogModal')">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 結算 / 遞延 Modal（特休批次）===== -->
+<div class="modal-overlay" id="settleCarryModal" onclick="if(event.target===this)closeModal('settleCarryModal')">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="scModalTitle">處理到期特休</div>
+    <div class="modal-body">
+      <input type="hidden" id="scEmpName">
+      <input type="hidden" id="scBatchId">
+      <input type="hidden" id="scCanCarry">
+      <div class="danger-hint" id="scHint">⚠️ 此批次特休本月到期，請選擇處理方式。處理完成前薪資無法送出審核。</div>
+      <div id="scInfo" style="background:#f8fafc;border-radius:10px;padding:12px;margin-bottom:14px;font-size:13px;line-height:2;"></div>
+      <button class="modal-action settle" id="scSettleBtn" onclick="doSettle()">💰 結算薪資（將剩餘天數折算工資）</button>
+      <button class="modal-action warn" id="scCarryBtn" onclick="doCarry()" style="margin-top:8px;">📌 遞延一年</button>
+      <button class="modal-cancel" onclick="closeModal('settleCarryModal')">稍後處理</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 補休結算 / 遞延 Modal ===== -->
+<div class="modal-overlay" id="compSettleModal" onclick="if(event.target===this)closeModal('compSettleModal')">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="csModalTitle">處理到期補休</div>
+    <div class="modal-body">
+      <input type="hidden" id="csEmpName">
+      <input type="hidden" id="csCompYear">
+      <input type="hidden" id="csCanCarry">
+      <div class="danger-hint" id="csHint">⚠️ 此補休本月底到期，請選擇處理方式。</div>
+      <div id="csInfo" style="background:#f8fafc;border-radius:10px;padding:12px;margin-bottom:14px;font-size:13px;line-height:2;"></div>
+      <button class="modal-action settle" onclick="doCompSettle()">💰 結算薪資</button>
+      <button class="modal-action warn" id="csCarryBtn" onclick="doCompCarry()" style="margin-top:8px;">📌 遞延至明年12/31</button>
+      <button class="modal-cancel" onclick="closeModal('compSettleModal')">稍後處理</button>
     </div>
   </div>
 </div>
@@ -345,8 +375,9 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 // ===== 全域狀態 =====
 let currentUser = null, appConfig = { stores:[], shifts:[] };
 let empList = [], batchesAll = {}, leaveLogAll = {}, displayNameMap = {};
+let compDataAll = {}; // empName -> { current: {year, earned, used, remaining}, carried: {year, earned, used, remaining} }
 let currentStore = '', currentTab = 'overview', currentViewEmp = '';
-let urlMode = ''; // 'self' | 'mgmt'
+let urlMode = '';
 
 // ===== 權限 =====
 const isAdmin   = () => ['owner','admin'].includes(currentUser?.permission);
@@ -366,9 +397,17 @@ function fmtDate(s){if(!s)return '--';const[y,m,d]=s.split('-');return `${y}/${p
 function getDN(n){return displayNameMap[n]||n;}
 function daysUntil(s){if(!s)return null;const t=new Date(s);t.setHours(23,59,59);return Math.ceil((t-new Date())/86400000);}
 function dateAdd(s,months){const d=new Date(s);d.setMonth(d.getMonth()+months);return d.toISOString().split('T')[0];}
+function monthsDiff(from,to){const f=new Date(from),t=new Date(to);return(t.getFullYear()-f.getFullYear())*12+(t.getMonth()-f.getMonth());}
 
-// ===== 勞基法天數（週年制）=====
-// 回傳 { months, days, label }
+// 判斷是否為「本月到期」
+function isExpiringThisMonth(dateStr) {
+  if(!dateStr) return false;
+  const now = new Date();
+  const exp = new Date(dateStr);
+  return exp.getFullYear() === now.getFullYear() && exp.getMonth() === now.getMonth();
+}
+
+// ===== 勞基法週年制 =====
 function annualLeaveRule(totalMonths) {
   if(totalMonths < 6)   return { days:0,  label:'未滿6個月' };
   if(totalMonths < 12)  return { days:3,  label:'滿6個月' };
@@ -381,15 +420,13 @@ function annualLeaveRule(totalMonths) {
   return { days:Math.min(30, 15+extra+1), label:`滿${Math.floor(totalMonths/12)}年` };
 }
 
-// 計算從到職日起，每一個週年日應得的特休批次清單
 function calcBatchSchedule(hireDate) {
   if(!hireDate) return [];
-  const hire = new Date(hireDate);
-  const now  = new Date();
+  const now = new Date();
   const batches = [];
-  // 6個月到期
+  // 滿6個月
   const m6Grant  = dateAdd(hireDate, 6);
-  const m6Expire = dateAdd(hireDate, 12); // 下一個週年日
+  const m6Expire = dateAdd(hireDate, 12);
   if(new Date(m6Grant) <= now) {
     batches.push({ grantDate:m6Grant, expireDate:m6Expire, days:3, label:'滿6個月', months:6 });
   }
@@ -398,19 +435,30 @@ function calcBatchSchedule(hireDate) {
     const grantDate  = dateAdd(hireDate, yr*12);
     const expireDate = dateAdd(hireDate, (yr+1)*12);
     if(new Date(grantDate) > now) break;
-    const totalM = yr*12;
-    const rule = annualLeaveRule(totalM);
+    const rule = annualLeaveRule(yr*12);
     if(rule.days > 0) {
-      batches.push({ grantDate, expireDate, days:rule.days, label:rule.label, months:totalM });
+      batches.push({ grantDate, expireDate, days:rule.days, label:rule.label, months:yr*12 });
     }
   }
   return batches;
 }
 
-// 計算月數差
-function monthsDiff(from, to) {
-  const f=new Date(from), t=new Date(to);
-  return (t.getFullYear()-f.getFullYear())*12 + (t.getMonth()-f.getMonth());
+// 取得下一個週年提醒（未來最近一個）
+function getNextAnniversary(hireDate) {
+  if(!hireDate) return null;
+  const now = new Date();
+  // 滿6個月
+  const m6 = new Date(dateAdd(hireDate,6));
+  if(m6 > now) return { date: dateAdd(hireDate,6), label:'滿6個月（3天）', months:6 };
+  // 週年
+  for(let yr=1; yr<=30; yr++) {
+    const d = new Date(dateAdd(hireDate, yr*12));
+    if(d > now) {
+      const rule = annualLeaveRule(yr*12);
+      return { date: dateAdd(hireDate, yr*12), label:`滿${yr}年（${rule.days}天）`, months:yr*12 };
+    }
+  }
+  return null;
 }
 
 // ===== 初始化 =====
@@ -436,37 +484,31 @@ window.onload = async () => {
     currentStore = myStore();
     document.getElementById('headerBadge').textContent = currentStore;
 
-    // displayName
     const accSnap = await window.db.collection('account').where('store','==',currentStore).get().catch(()=>null);
     if(accSnap) accSnap.forEach(d=>{ const a=d.data(); if(a.empName&&a.displayName) displayNameMap[a.empName]=a.displayName; });
 
-    // 年度報表按鈕（店長以上）
     if(isManager()) document.getElementById('reportBtn').style.display='block';
 
     if(urlMode==='self') {
-      // 員工個人
       document.getElementById('tabBar').style.display='none';
       currentViewEmp = myName();
       await loadEmpBatches(myName());
+      await loadEmpComp(myName());
       renderMyView();
     } else if(urlMode==='mgmt' || isManager()) {
-      // 管理者
       document.getElementById('tabBar').style.display='flex';
-      // 加盟主：門市切換
       if(isAdmin()) setupStoreTabs();
       await loadAllEmps();
       renderOverview();
     } else {
-      // 一般員工（直接進）
       document.getElementById('tabBar').style.display='none';
       currentViewEmp = myName();
       await loadEmpBatches(myName());
+      await loadEmpComp(myName());
       renderMyView();
     }
 
-    // 自動檢查到期批次
     await checkExpiredBatches();
-
     document.getElementById('appShell').classList.add('active');
     hideLoading();
   }catch(e){ hideLoading(); alert('載入失敗：'+e.message); }
@@ -476,16 +518,14 @@ window.onload = async () => {
 function setupStoreTabs() {
   const bar = document.getElementById('storeBar');
   bar.style.display = 'flex';
-  const stores = appConfig.stores || [];
-  bar.innerHTML = stores.map(s =>
+  bar.innerHTML = (appConfig.stores||[]).map(s=>
     `<button class="store-tab ${s===currentStore?'active':''}" onclick="switchMgmtStore('${s}')">${s}</button>`
   ).join('');
 }
 async function switchMgmtStore(store) {
   currentStore = store;
   document.getElementById('headerBadge').textContent = store;
-  document.querySelectorAll('.store-tab').forEach(b => b.classList.toggle('active', b.textContent===store));
-  // 重新讀取 displayName
+  document.querySelectorAll('.store-tab').forEach(b=>b.classList.toggle('active',b.textContent===store));
   const accSnap = await window.db.collection('account').where('store','==',store).get().catch(()=>null);
   if(accSnap) accSnap.forEach(d=>{ const a=d.data(); if(a.empName&&a.displayName) displayNameMap[a.empName]=a.displayName; });
   await loadAllEmps();
@@ -505,15 +545,14 @@ async function loadAllEmps() {
     if(!isEffective) empList.push({ name:d.id, ...data });
   });
   empList.sort((a,b)=>(a.sortKey||0)-(b.sortKey||0));
-
-  // 平行讀取所有員工的批次資料
   await Promise.all(empList.map(async emp => {
     await loadEmpBatches(emp.name);
+    await loadEmpComp(emp.name);
   }));
   hideLoading();
 }
 
-// ===== 讀取單一員工的批次與 log =====
+// ===== 讀取特休批次 =====
 async function loadEmpBatches(empName) {
   const [batchSnap, leaveSnap, logSnap] = await Promise.all([
     window.db.collection('employees').doc(empName).collection('leaveBatches').get().catch(()=>null),
@@ -523,10 +562,9 @@ async function loadEmpBatches(empName) {
 
   let batches = [];
   if(batchSnap) batchSnap.forEach(d=>batches.push({id:d.id,...d.data()}));
-  batches.sort((a,b)=>a.grantDate?.localeCompare(b.grantDate));
+  batches.sort((a,b)=>(a.grantDate||'').localeCompare(b.grantDate||''));
   batchesAll[empName] = batches;
 
-  // 舊版資料相容：若 leaveBatches 是空的但有 hireDate，提示需要遷移
   if(batches.length===0 && leaveSnap?.exists && leaveSnap.data()?.hireDate) {
     batchesAll[empName] = [{ _legacy: true, hireDate: leaveSnap.data().hireDate, ...leaveSnap.data() }];
   }
@@ -537,13 +575,51 @@ async function loadEmpBatches(empName) {
   leaveLogAll[empName] = logs;
 }
 
-// ===== 計算員工的有效特休概況 =====
+// ===== 讀取補休資料 =====
+// 補休結構：employees/{empName}/comp/{year} -> { earned, used, carried(bool), carriedFrom, settledAt, settledDays }
+// 「本年度」和「遞延」各一份
+async function loadEmpComp(empName) {
+  const thisYear = new Date().getFullYear();
+  const prevYear = thisYear - 1;
+
+  const [thisSnap, prevSnap] = await Promise.all([
+    window.db.collection('employees').doc(empName).collection('comp').doc(String(thisYear)).get().catch(()=>null),
+    window.db.collection('employees').doc(empName).collection('comp').doc(String(prevYear)).get().catch(()=>null)
+  ]);
+
+  const thisData = thisSnap?.exists ? thisSnap.data() : { earned:0, used:0 };
+  const prevData = prevSnap?.exists ? prevSnap.data() : { earned:0, used:0 };
+
+  // 遞延的補休：上年度 carried=true 且未結算
+  const carriedRemaining = prevData.carried && !prevData.settled
+    ? Math.max(0, (prevData.earned||0) - (prevData.used||0) - (prevData.carriedUsed||0))
+    : 0;
+
+  compDataAll[empName] = {
+    current: {
+      year: thisYear,
+      earned: thisData.earned||0,
+      used: thisData.used||0,
+      remaining: Math.max(0,(thisData.earned||0)-(thisData.used||0)),
+      expireDate: `${thisYear}-12-31`,
+      settled: thisData.settled||false
+    },
+    carried: carriedRemaining > 0 ? {
+      year: prevYear,
+      remaining: carriedRemaining,
+      expireDate: `${thisYear}-12-31`, // 遞延後到本年底
+      canCarryAgain: false, // 遞延只能一次
+      settled: prevData.settled||false
+    } : null
+  };
+}
+
+// ===== 計算特休概況 =====
 function calcEmpSummary(empName) {
   const batches = batchesAll[empName] || [];
   const logs    = leaveLogAll[empName] || [];
   const todayStr = today();
 
-  // 從 logs 加總使用量（供顯示）
   let usedAnnual=0, earnedComp=0, usedComp=0;
   logs.forEach(r=>{
     const d=parseFloat(r.days)||0;
@@ -555,59 +631,77 @@ function calcEmpSummary(empName) {
     if(r.type==='comp_cancel')       earnedComp=Math.max(0,earnedComp-d);
   });
 
-  // 有效的特休批次（未到期、未完全結算）
   let activeDays=0, carriedDays=0, nearExpire=null;
   batches.filter(b=>!b._legacy).forEach(b=>{
-    const remaining = (b.days||0) - (b.used||0);
-    if(remaining <= 0 || b.settled) return;
+    const remaining = (b.days||0)-(b.used||0);
+    if(remaining<=0||b.settled) return;
+    const settleDate = b.carried ? dateAdd(b.expireDate, 12) : b.expireDate;
     if(b.carried) {
-      // 遞延中：效期到當年 12/31
-      const yr = new Date(b.grantDate).getFullYear();
-      const settleDate = `${yr+1}-12-31`;
-      if(todayStr <= settleDate) carriedDays += remaining;
+      if(todayStr<=settleDate) carriedDays+=remaining;
     } else {
-      // 正常批次
-      if(todayStr <= b.expireDate) activeDays += remaining;
+      if(todayStr<=b.expireDate) activeDays+=remaining;
     }
-    // 最近到期
-    const exp = b.carried ? `${new Date(b.grantDate).getFullYear()+1}-12-31` : b.expireDate;
-    if(!nearExpire || exp < nearExpire) nearExpire = exp;
+    const exp = b.carried ? settleDate : b.expireDate;
+    if(!nearExpire||exp<nearExpire) nearExpire=exp;
   });
 
+  const cd = compDataAll[empName];
+  const compCurrentRemain = cd?.current?.remaining || 0;
+  const compCarriedRemain = cd?.carried?.remaining || 0;
+
   return {
-    activeDays,    // 本期可用天數
-    carriedDays,   // 遞延中天數
-    totalAvail: activeDays + carriedDays,
-    usedAnnual,
-    earnedComp,
-    usedComp,
-    remainComp: Math.max(0, earnedComp-usedComp),
+    activeDays, carriedDays,
+    totalAvail: activeDays+carriedDays,
+    usedAnnual, earnedComp, usedComp,
+    remainComp: compCurrentRemain,
+    remainCompCarried: compCarriedRemain,
     nearExpire
   };
 }
 
-// ===== 自動檢查到期批次（週年日到了 → 遞延）=====
+// ===== 取得需要提醒的到期批次（本月到期）=====
+function getExpiringBatches(empName) {
+  const batches = batchesAll[empName] || [];
+  return batches.filter(b=>{
+    if(b._legacy||b.settled) return false;
+    const remaining = (b.days||0)-(b.used||0);
+    if(remaining<=0) return false;
+    const expDate = b.carried ? dateAdd(b.expireDate, 12) : b.expireDate;
+    return isExpiringThisMonth(expDate);
+  });
+}
+
+// 取得需要提醒的補休（本月為12月 or 上年遞延補休本月到期）
+function getExpiringComp(empName) {
+  const cd = compDataAll[empName];
+  if(!cd) return [];
+  const result = [];
+  const now = new Date();
+  const isDecember = now.getMonth() === 11;
+
+  // 本年度補休：12月到期
+  if(isDecember && cd.current && !cd.current.settled && cd.current.remaining > 0) {
+    result.push({ type:'current', year: cd.current.year, remaining: cd.current.remaining, canCarry: true });
+  }
+  // 遞延補休：本月到期（同樣12/31，但不可再延）
+  if(isDecember && cd.carried && !cd.carried.settled && cd.carried.remaining > 0) {
+    result.push({ type:'carried', year: cd.carried.year, remaining: cd.carried.remaining, canCarry: false });
+  }
+  return result;
+}
+
+// ===== 自動檢查到期批次 =====
 async function checkExpiredBatches() {
   const todayStr = today();
   const emps = empList.length > 0 ? empList : [{ name: myName() }];
   for(const emp of emps) {
     const batches = batchesAll[emp.name] || [];
     for(const b of batches) {
-      if(b._legacy || b.settled || b.carried) continue;
-      const remaining = (b.days||0) - (b.used||0);
-      if(remaining <= 0) continue;
-      // 週年日已過 且 尚未遞延
-      if(todayStr > b.expireDate) {
-        // 自動遞延
-        await window.db.collection('employees').doc(emp.name)
-          .collection('leaveBatches').doc(b.id).update({
-            carried: true,
-            carriedAt: todayStr,
-            carriedNote: `${b.expireDate} 週年到期，自動遞延`
-          }).catch(()=>{});
-        b.carried = true;
-        showToast(`📌 ${getDN(emp.name)} 的 ${remaining} 天特休已自動遞延`);
-      }
+      if(b._legacy||b.settled||b.carried) continue;
+      const remaining = (b.days||0)-(b.used||0);
+      if(remaining<=0) continue;
+      // 週年日已過 → 自動標記「需處理」但不自動遞延，等店長手動操作
+      // 不在這裡自動遞延，改由 UI 引導店長操作
     }
   }
 }
@@ -618,52 +712,48 @@ function renderOverview() {
   if(!empList.length){ el.innerHTML=`<div class="empty-state"><div class="empty-icon">👥</div><div>無員工資料</div></div>`; return; }
 
   let html='';
-  // 到期警示
-  const expiring = empList.filter(emp=>{
-    const s=calcEmpSummary(emp.name);
-    return s.nearExpire && daysUntil(s.nearExpire)!==null && daysUntil(s.nearExpire) <= 90 && s.activeDays+s.carriedDays > 0;
+
+  // 週年到職提醒（今天）
+  const todayStr = today();
+  empList.forEach(emp=>{
+    const rawBatches = batchesAll[emp.name]||[];
+    let hireDate = getHireDateFromBatches(rawBatches);
+    if(!hireDate) return;
+    const next = getNextAnniversary(hireDate);
+    if(next && next.date === todayStr) {
+      html+=`<div class="alert-banner info"><div class="alert-banner-icon">🎉</div><div class="alert-banner-text">今天是 ${getDN(emp.name)} 的週年日！請至明細更新特休批次（${next.label}）</div></div>`;
+    }
   });
+
+  // 本月到期警示
+  const expiring = empList.filter(emp=>getExpiringBatches(emp.name).length>0||getExpiringComp(emp.name).length>0);
   if(expiring.length>0) {
-    html+=`<div class="alert-banner warn"><div class="alert-banner-icon">⏰</div><div class="alert-banner-text">有 ${expiring.length} 位員工的特休即將到期（90天內），請注意排休。</div></div>`;
-  }
-  // 低達成率警示
-  const lowRate = empList.filter(emp=>{
-    const s=calcEmpSummary(emp.name);
-    const total = (batchesAll[emp.name]||[]).reduce((a,b)=>a+(b.days||0),0);
-    return total>0 && s.usedAnnual/total < 0.3;
-  });
-  if(lowRate.length>0) {
-    html+=`<div class="alert-banner warn"><div class="alert-banner-icon">⚠️</div><div class="alert-banner-text">${lowRate.length} 位員工特休達成率低於 30%，建議主管關懷排休。</div></div>`;
+    html+=`<div class="alert-banner" style="cursor:pointer;" onclick="switchTab('detail')"><div class="alert-banner-icon">⏰</div><div class="alert-banner-text">有 ${expiring.length} 位員工的特休/補休本月到期，須在薪資送出前完成處理！</div><div style="font-size:16px;">›</div></div>`;
   }
 
-html += empList.map(emp => {
-    const rawBatches = batchesAll[emp.name] || [];
+  // 員工卡片
+  html += empList.map(emp => {
+    const rawBatches = batchesAll[emp.name]||[];
     const batches = rawBatches.filter(b=>!b._legacy);
     const s = calcEmpSummary(emp.name);
-    
-    // 正確判斷是否有到職日
-    let hireDate = null;
-    if (rawBatches.length > 0) {
-      if (rawBatches[0]._legacy && rawBatches[0].hireDate) hireDate = rawBatches[0].hireDate;
-      else if (batches[0]?.grantDate) hireDate = dateAdd(batches[0].grantDate, -6);
-    }
-    // 只要有到職日，就不算「尚未建檔」
+    let hireDate = getHireDateFromBatches(rawBatches);
     const needSetup = !hireDate;
-    
+    const hasExpiring = getExpiringBatches(emp.name).length>0||getExpiringComp(emp.name).length>0;
     const avatarColor = emp.role==='店長'?'linear-gradient(135deg,#9334e6,#6a1bb5)':emp.role==='正職'?'linear-gradient(135deg,#34a853,#1e7e34)':'linear-gradient(135deg,#1a73e8,#0d47a1)';
 
     return `<div class="emp-card" onclick="openEmpDetail('${emp.name}')">
       <div class="emp-card-header">
         <div class="emp-avatar" style="background:${avatarColor};">${getDN(emp.name)[0]}</div>
         <div class="emp-info">
-          <div class="emp-name">${getDN(emp.name)}</div>
+          <div class="emp-name">${getDN(emp.name)}${hasExpiring?` <span style="color:var(--danger);font-size:11px;">⚠️ 待處理</span>`:''}</div>
           <div class="emp-role">${emp.role||''}</div>
           <div class="leave-chips">
             ${needSetup
               ? `<span class="lchip warn">⚠️ 尚未建檔</span>`
               : `<span class="lchip annual">特休可用 ${s.totalAvail} 天</span>
                  ${s.carriedDays>0?`<span class="lchip carry">遞延 ${s.carriedDays} 天</span>`:''}
-                 ${s.remainComp>0?`<span class="lchip comp">補休剩 ${s.remainComp} 天</span>`:''}
+                 ${s.remainComp>0?`<span class="lchip comp">補休 ${s.remainComp} 天</span>`:''}
+                 ${s.remainCompCarried>0?`<span class="lchip carry">補休遞延 ${s.remainCompCarried} 天</span>`:''}
                  ${s.nearExpire&&daysUntil(s.nearExpire)<=30?`<span class="lchip expire">⏰ ${daysUntil(s.nearExpire)}天後到期</span>`:''}`
             }
           </div>
@@ -676,13 +766,12 @@ html += empList.map(emp => {
   el.innerHTML = html;
 }
 
-// ===== 渲染：員工個人視圖 =====
+// ===== 員工個人視圖 =====
 function renderMyView() {
   currentViewEmp = myName();
   renderEmpDetail(myName(), false);
 }
 
-// ===== 員工詳細頁 =====
 function openEmpDetail(empName) {
   currentViewEmp = empName;
   currentTab = 'detail';
@@ -691,49 +780,141 @@ function openEmpDetail(empName) {
   renderEmpDetail(empName, true);
 }
 
+// ===== 取得到職日 =====
+function getHireDateFromBatches(rawBatches) {
+  if(!rawBatches||rawBatches.length===0) return null;
+  const legacy = rawBatches.find(b=>b._legacy);
+  if(legacy?.hireDate) return legacy.hireDate;
+  const first = rawBatches.filter(b=>!b._legacy).sort((a,b)=>a.grantDate?.localeCompare(b.grantDate))[0];
+  if(first?.grantDate) return dateAdd(first.grantDate, -6);
+  return null;
+}
+
+// ===== 員工詳細頁 =====
 function renderEmpDetail(empName, showBack=true) {
   const el = document.getElementById('mainContent');
-  const emp = empList.find(e=>e.name===empName) || { name:empName, role:currentUser?.role||'' };
-const rawBatches = batchesAll[empName] || [];
+  const emp = empList.find(e=>e.name===empName)||{ name:empName, role:currentUser?.role||'' };
+  const rawBatches = batchesAll[empName]||[];
   const batches = rawBatches.filter(b=>!b._legacy);
-  const logs = leaveLogAll[empName] || [];
+  const logs = leaveLogAll[empName]||[];
   const s = calcEmpSummary(empName);
-  
-  // 修正：同時支援讀取舊版到職日與新版到職日
-  let hireDate = null;
-  if (rawBatches.length > 0) {
-    if (rawBatches[0]._legacy && rawBatches[0].hireDate) {
-      hireDate = rawBatches[0].hireDate; // 舊版直接取 hireDate
-    } else if (batches[0]?.grantDate) {
-      hireDate = dateAdd(batches[0].grantDate, -6); // 新版用第一筆發放日回推
-    }
-  }
+  const hireDate = getHireDateFromBatches(rawBatches);
   const isPartTime = (emp.role||'').includes('工讀');
   const canEdit = isManager();
   const todayStr = today();
 
-  let html = '';
+  const expiringBatches = getExpiringBatches(empName);
+  const expiringComp = getExpiringComp(empName);
+  const hasUrgent = expiringBatches.length>0||expiringComp.length>0;
 
-  // 回到總覽
+  let html = '';
   if(showBack) html+=`<button onclick="switchTab('overview')" style="background:none;border:none;color:var(--primary);font-size:13px;font-weight:700;cursor:pointer;padding:4px 0;margin-bottom:12px;">← 回總覽</button>`;
 
   // 員工標題
+  const avatarColor = emp.role==='店長'?'linear-gradient(135deg,#9334e6,#6a1bb5)':emp.role==='正職'?'linear-gradient(135deg,#34a853,#1e7e34)':'linear-gradient(135deg,#1a73e8,#0d47a1)';
   html+=`<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
-    <div class="emp-avatar" style="background:linear-gradient(135deg,#1a73e8,#0d47a1);width:44px;height:44px;">${getDN(empName)[0]}</div>
+    <div class="emp-avatar" style="background:${avatarColor};width:44px;height:44px;">${getDN(empName)[0]}</div>
     <div><div style="font-size:17px;font-weight:900;">${getDN(empName)}</div><div style="font-size:12px;color:var(--text-muted);">${emp.role||''}</div></div>
     ${canEdit?`<button onclick="openHireDateModal('${empName}')" style="margin-left:auto;background:#f1f3f4;border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;">✏️ 修改到職日</button>`:''}
   </div>`;
 
-  // 總覽摘要
-  html+=`<div class="leave-summary">
-    <div class="leave-summary-title">📊 特休概況</div>
-    <div class="leave-row"><span class="leave-row-label">本期可用天數</span><span class="leave-row-val primary">${s.activeDays} 天</span></div>
-    <div class="leave-row"><span class="leave-row-label">遞延中天數</span><span class="leave-row-val warn">${s.carriedDays} 天</span></div>
-    <div class="leave-row"><span class="leave-row-label">合計可用</span><span class="leave-row-val accent">${s.totalAvail} 天</span></div>
-    <div class="leave-row"><span class="leave-row-label">已使用特休</span><span class="leave-row-val">${s.usedAnnual} 天</span></div>
-    <div class="leave-row"><span class="leave-row-label">補休剩餘</span><span class="leave-row-val comp">${s.remainComp} 天</span></div>
-    ${hireDate?`<div class="leave-row"><span class="leave-row-label">到職日</span><span class="leave-row-val">${fmtDate(hireDate)}</span></div>`:''}
-  </div>`;
+  // ⚠️ 到期待處理警示（本月）
+  if(canEdit && hasUrgent) {
+    expiringBatches.forEach(b=>{
+      const remaining = (b.days||0)-(b.used||0);
+      const expDate = b.carried ? dateAdd(b.expireDate,12) : b.expireDate;
+      const canCarry = !b.carried; // 遞延批次不可再延
+      html+=`<div class="expire-alert" onclick="openSettleCarryModal('${empName}','${b.id}',${canCarry})">
+        <div class="expire-alert-title">⚠️ 特休到期：${b.label||b.note} — 剩 ${remaining} 天（${fmtDate(expDate)} 到期）</div>
+        <div class="expire-alert-sub">點擊選擇「結算薪資」或「遞延${canCarry?'一年':'（不可再延，請結算）'}」→ 處理前薪資無法送出</div>
+      </div>`;
+    });
+    expiringComp.forEach(c=>{
+      html+=`<div class="expire-alert warn-type" onclick="openCompSettleModal('${empName}',${c.year},${c.canCarry})">
+        <div class="expire-alert-title">${c.canCarry?'⚠️':'🚨'} 補休到期（${c.year}年度）— 剩 ${c.remaining} 天（12/31 到期${c.canCarry?''+'':'，不可再延'}）</div>
+        <div class="expire-alert-sub">點擊選擇「結算薪資」${c.canCarry?'或「遞延至明年12/31」':''} → 處理前薪資無法送出</div>
+      </div>`;
+    });
+  }
+
+  // 週年日提醒（今天）
+  if(hireDate) {
+    const next = getNextAnniversary(hireDate);
+    if(next && next.date === todayStr && canEdit) {
+      html+=`<div class="alert-banner info"><div class="alert-banner-icon">🎉</div><div class="alert-banner-text">今天是週年日！請新增批次（${next.label}）</div></div>`;
+    }
+  }
+
+  // ===== 特休概況（重構欄位）=====
+  if(hireDate) {
+    // 依批次分別列出剩餘與到期日
+    const validBatches = batches.filter(b=>!b.settled && (b.days||0)-(b.used||0)>0);
+    html+=`<div class="leave-summary">
+      <div class="leave-summary-title">🏖️ 特休概況</div>`;
+
+    // 本期各批次
+    validBatches.forEach(b=>{
+      const rem = Math.max(0,(b.days||0)-(b.used||0));
+      const expDate = b.carried ? dateAdd(b.expireDate,12) : b.expireDate;
+      const dl = daysUntil(expDate);
+      const isExp = isExpiringThisMonth(expDate);
+      const valColor = isExp?'var(--danger)':dl&&dl<=90?'var(--warn)':'var(--primary)';
+      html+=`<div class="leave-row">
+        <span class="leave-row-label">${b.label||b.note}${b.carried?' (遞延)':''}</span>
+        <span>
+          <span class="leave-row-val" style="color:${valColor};">${rem} 天</span>
+          <span class="leave-row-expire">到期 ${fmtDate(expDate)}</span>
+        </span>
+      </div>`;
+    });
+
+    if(validBatches.length===0) {
+      html+=`<div style="color:var(--text-muted);font-size:13px;padding:8px 0;">目前無可用特休</div>`;
+    }
+
+    html+=`<div class="leave-row" style="border-top:1px solid #e2e8f0;margin-top:4px;">
+      <span class="leave-row-label" style="font-weight:800;">合計可用</span>
+      <span class="leave-row-val accent">${s.totalAvail} 天</span>
+    </div>
+    <div class="leave-row"><span class="leave-row-label">累計已使用</span><span class="leave-row-val">${s.usedAnnual} 天</span></div>
+    ${hireDate?`<div class="leave-row"><span class="leave-row-label">到職日</span><span class="leave-row-val" style="font-size:13px;color:var(--text-muted);">${fmtDate(hireDate)}</span></div>`:''}
+    </div>`;
+  }
+
+  // ===== 補休概況（分兩欄）=====
+  const cd = compDataAll[empName];
+  if(cd) {
+    html+=`<div class="leave-summary">
+      <div class="leave-summary-title">🔄 補休概況</div>`;
+
+    // 本年度補休
+    const curExp = isExpiringThisMonth(cd.current.expireDate);
+    html+=`<div class="leave-row">
+      <span class="leave-row-label">${cd.current.year}年度補休</span>
+      <span>
+        <span class="leave-row-val ${curExp?'danger':'accent'}">${cd.current.remaining} 天</span>
+        <span class="leave-row-expire">到期 ${fmtDate(cd.current.expireDate)}</span>
+      </span>
+    </div>
+    <div class="leave-row"><span class="leave-row-label" style="font-size:11px;color:var(--text-muted);">　取得</span><span style="font-size:12px;">${cd.current.earned} 天</span></div>
+    <div class="leave-row"><span class="leave-row-label" style="font-size:11px;color:var(--text-muted);">　使用</span><span style="font-size:12px;">${cd.current.used} 天</span></div>`;
+
+    // 遞延補休
+    if(cd.carried) {
+      const carExp = isExpiringThisMonth(cd.carried.expireDate);
+      html+=`<div style="height:1px;background:#f1f3f4;margin:8px 0;"></div>
+      <div style="font-size:11px;font-weight:700;color:var(--warn);margin-bottom:4px;">🔁 遞延補休（${cd.carried.year}年度，不可再延）</div>
+      <div class="leave-row">
+        <span class="leave-row-label">遞延補休剩餘</span>
+        <span>
+          <span class="leave-row-val ${carExp?'danger':'warn'}">${cd.carried.remaining} 天</span>
+          <span class="leave-row-expire">到期 ${fmtDate(cd.carried.expireDate)}</span>
+        </span>
+      </div>`;
+    }
+
+    html+=`</div>`;
+  }
 
   // 法規說明框
   if(hireDate && !isPartTime) {
@@ -753,40 +934,43 @@ const rawBatches = batchesAll[empName] || [];
     </div>`;
   }
   if(isPartTime) {
-    html+=`<div class="law-box"><div class="law-box-title">📝 工讀生備註</div>工讀生特休規則尚未定案，目前採手動建檔方式管理。如有異動請聯繫管理員。</div>`;
+    html+=`<div class="law-box"><div class="law-box-title">📝 工讀生備註</div>工讀生特休規則尚未定案，目前採手動建檔方式管理。</div>`;
   }
 
-  // 批次列表
-  if(batches.length > 0) {
-    html+=`<div style="font-size:12px;font-weight:800;color:var(--text-muted);letter-spacing:0.5px;margin-bottom:8px;text-transform:uppercase;">特休批次</div>`;
-    html += batches.filter(b=>!b.settled || (b.days||0)-(b.used||0)>0).map(b=>{
+  // 特休批次列表
+  html+=`<div style="font-size:12px;font-weight:800;color:var(--text-muted);letter-spacing:0.5px;margin-bottom:8px;text-transform:uppercase;">特休批次</div>`;
+  if(batches.length>0) {
+    html += batches.filter(b=>!b.settled||(b.days||0)-(b.used||0)>0).map(b=>{
       const remaining = Math.max(0,(b.days||0)-(b.used||0));
-      const settleDate = b.carried ? `${new Date(b.grantDate).getFullYear()+1}-12-31` : b.expireDate;
-      const dLeft = daysUntil(settleDate);
-      const pct = b.days > 0 ? Math.round((remaining/b.days)*100) : 0;
-      const statusColor = b.settled?'#9e9e9e':b.carried?'#f9ab00':remaining>0?'#34a853':'#e0e0e0';
-      const statusLabel = b.settled?'已結算':b.carried?'遞延中':'進行中';
-      const daysClass = remaining === 0 ? '' : remaining > 3 ? 'ok' : dLeft && dLeft <= 30 ? 'danger' : 'warn';
+      const expDate = b.carried ? dateAdd(b.expireDate,12) : b.expireDate;
+      const dLeft = daysUntil(expDate);
+      const pct = b.days>0?Math.round((remaining/b.days)*100):0;
+      const isExp = isExpiringThisMonth(expDate);
+      const statusColor = b.settled?'#9e9e9e':isExp?'#d93025':b.carried?'#f9ab00':remaining>0?'#34a853':'#e0e0e0';
+      const statusLabel = b.settled?'已結算':isExp?'⚠️ 本月到期':b.carried?'遞延中':'進行中';
+      const daysClass = remaining===0?'':remaining>3?'ok':dLeft&&dLeft<=30?'danger':'warn';
+      const canCarry = !b.carried;
 
       return `<div class="batch-card">
         <div class="batch-header">
           <div class="batch-status-dot" style="background:${statusColor};"></div>
           <div>
-            <div class="batch-title">${b.label||b.note||'特休批次'}</div>
-            <div style="font-size:11px;color:var(--text-muted);">發放：${fmtDate(b.grantDate)} | ${b.carried?'遞延到':'到期：'}${fmtDate(settleDate)}</div>
+            <div class="batch-title">${b.label||b.note||'特休批次'}${b.carried?' 🔁':''}</div>
+            <div style="font-size:11px;color:var(--text-muted);">發放：${fmtDate(b.grantDate)} | ${b.carried?'遞延到':'到期：'}${fmtDate(expDate)}</div>
           </div>
-          <div class="batch-days ${remaining>3?'ok':dLeft&&dLeft<=30?'danger':'warn'}">${remaining}<span style="font-size:12px;font-weight:600;"> 天</span></div>
+          <div class="batch-days ${daysClass}">${remaining}<span style="font-size:12px;font-weight:600;"> 天</span></div>
         </div>
         <div class="batch-meta">
           <div class="batch-meta-item">原始天數 <span class="batch-meta-val">${b.days} 天</span></div>
           <div class="batch-meta-item">已使用 <span class="batch-meta-val">${b.used||0} 天</span></div>
-          <div class="batch-meta-item">效期 <span class="batch-meta-val">${b.carried?'遞延至 '+fmtDate(settleDate):dLeft===null?'--':dLeft>0?dLeft+'天後到期':'已到期'}</span></div>
-          <div class="batch-meta-item">狀態 <span class="batch-meta-val">${statusLabel}</span></div>
+          <div class="batch-meta-item">剩餘效期 <span class="batch-meta-val" style="color:${isExp?'var(--danger)':'inherit'};">${dLeft===null?'--':dLeft>0?dLeft+'天':'已到期'}</span></div>
+          <div class="batch-meta-item">狀態 <span class="batch-meta-val" style="color:${statusColor};">${statusLabel}</span></div>
         </div>
         <div class="batch-expire-bar"><div class="batch-expire-fill" style="width:${pct}%;background:${statusColor};"></div></div>
         ${canEdit&&!b.settled?`<div class="batch-actions">
-          ${remaining>0&&!b.carried?`<button class="batch-btn warn" onclick="carryBatch('${empName}','${b.id}')">📌 手動遞延</button>`:''}
-          ${b.carried&&remaining>0?`<button class="batch-btn danger" onclick="settleBatch('${empName}','${b.id}')">💰 立即結算</button>`:''}
+          ${isExp?`<button class="batch-btn settle" onclick="openSettleCarryModal('${empName}','${b.id}',${canCarry})">⚠️ 處理到期</button>`:''}
+          ${!isExp&&remaining>0&&canCarry?`<button class="batch-btn carry-btn" onclick="openSettleCarryModal('${empName}','${b.id}',true)">📌 提前遞延</button>`:''}
+          ${!isExp&&remaining>0&&b.carried?`<button class="batch-btn settle" onclick="openSettleCarryModal('${empName}','${b.id}',false)">💰 結算</button>`:''}
           <button class="batch-btn danger" onclick="deleteBatch('${empName}','${b.id}')">🗑️</button>
         </div>`:''}
       </div>`;
@@ -795,102 +979,45 @@ const rawBatches = batchesAll[empName] || [];
     if(canEdit) html+=`<button onclick="openAddBatchModal('${empName}')" style="width:100%;padding:12px;background:#f1f3f4;border:none;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:14px;">＋ 手動新增批次</button>`;
   } else {
     html+=`<div class="empty-state"><div class="empty-icon">📋</div><div>尚無特休批次</div></div>`;
-    if(canEdit) html+=`<button onclick="openHireDateModal('${empName}')" style="width:100%;padding:12px;background:var(--primary);color:white;border:none;border-radius:12px;font-size:14px;font-weight:800;cursor:pointer;margin-bottom:14px;">＋ 設定到職日（建立批次）</button>`;
-  }
-
-// 總覽摘要 (特休與補休合併顯示)
-  html+=`<div class="leave-summary">
-    <div class="leave-summary-title">📊 特補休概況</div>
-    
-    <div style="font-size:11px;font-weight:700;color:var(--primary);margin-bottom:4px;">特休</div>
-    <div class="leave-row"><span class="leave-row-label">本期可用</span><span class="leave-row-val primary">${s.activeDays} 天</span></div>
-    <div class="leave-row"><span class="leave-row-label">遞延中</span><span class="leave-row-val warn">${s.carriedDays} 天</span></div>
-    <div class="leave-row"><span class="leave-row-label">合計可用</span><span class="leave-row-val accent">${s.totalAvail} 天</span></div>
-    <div class="leave-row"><span class="leave-row-label">已使用</span><span class="leave-row-val">${s.usedAnnual} 天</span></div>
-    
-    <div style="height:1px;background:#f1f3f4;margin:10px 0;"></div>
-    <div style="font-size:11px;font-weight:700;color:var(--accent);margin-bottom:4px;">補休</div>
-    <div class="leave-row"><span class="leave-row-label">累積取得</span><span class="leave-row-val">${s.earnedComp} 天</span></div>
-    <div class="leave-row"><span class="leave-row-label">已使用</span><span class="leave-row-val">${s.usedComp} 天</span></div>
-    <div class="leave-row"><span class="leave-row-label">剩餘</span><span class="leave-row-val comp">${s.remainComp} 天</span></div>
-    
-    ${hireDate?`<div style="height:1px;background:#f1f3f4;margin:10px 0;"></div>
-    <div class="leave-row"><span class="leave-row-label">到職日</span><span class="leave-row-val" style="color:var(--text-muted);">${fmtDate(hireDate)}</span></div>`:''}
-  </div>`;
-
-  // 法規說明框
-  if(hireDate && !isPartTime) {
-    const schedule = calcBatchSchedule(hireDate);
-    const yearService = Math.floor(monthsDiff(hireDate, todayStr)/12);
-    html+=`<div class="law-box">
-      <div class="law-box-title">📋 法規計算說明（週年制）</div>
-      <div>到職日：${fmtDate(hireDate)}，目前年資約 ${yearService} 年</div>
-      <table class="law-table">
-        <tr><th>週年</th><th>發放日</th><th>到期日</th><th>天數</th><th>狀態</th></tr>
-        ${schedule.map(b=>{
-          const existing = batches.find(x=>x.grantDate===b.grantDate);
-          const status = existing ? (existing.settled?'已結算':existing.carried?'遞延中':'進行中') : '待發放';
-          return `<tr class="${existing?'highlight':''}"><td>${b.label}</td><td>${fmtDate(b.grantDate)}</td><td>${fmtDate(b.expireDate)}</td><td>${b.days} 天</td><td>${status}</td></tr>`;
-        }).join('')}
-      </table>
-    </div>`;
-  }
-  if(isPartTime) {
-    html+=`<div class="law-box"><div class="law-box-title">📝 工讀生備註</div>工讀生特休規則尚未定案，目前採手動建檔方式管理。如有異動請聯繫管理員。</div>`;
-  }
-
-  // 批次列表與按鈕邏輯
-  if(batches.length > 0) {
-    html+=`<div style="font-size:12px;font-weight:800;color:var(--text-muted);letter-spacing:0.5px;margin-bottom:8px;text-transform:uppercase;">特休批次</div>`;
-    html += batches.filter(b=>!b.settled || (b.days||0)-(b.used||0)>0).map(b=>{
-      const remaining = Math.max(0,(b.days||0)-(b.used||0));
-      const settleDate = b.carried ? `${new Date(b.grantDate).getFullYear()+1}-12-31` : b.expireDate;
-      const dLeft = daysUntil(settleDate);
-      const pct = b.days > 0 ? Math.round((remaining/b.days)*100) : 0;
-      const statusColor = b.settled?'#9e9e9e':b.carried?'#f9ab00':remaining>0?'#34a853':'#e0e0e0';
-      const statusLabel = b.settled?'已結算':b.carried?'遞延中':'進行中';
-      const daysClass = remaining === 0 ? '' : remaining > 3 ? 'ok' : dLeft && dLeft <= 30 ? 'danger' : 'warn';
-
-      return `<div class="batch-card">
-        <div class="batch-header">
-          <div class="batch-status-dot" style="background:${statusColor};"></div>
-          <div>
-            <div class="batch-title">${b.label||b.note||'特休批次'}</div>
-            <div style="font-size:11px;color:var(--text-muted);">發放：${fmtDate(b.grantDate)} | ${b.carried?'遞延到':'到期：'}${fmtDate(settleDate)}</div>
-          </div>
-          <div class="batch-days ${remaining>3?'ok':dLeft&&dLeft<=30?'danger':'warn'}">${remaining}<span style="font-size:12px;font-weight:600;"> 天</span></div>
-        </div>
-        <div class="batch-meta">
-          <div class="batch-meta-item">原始天數 <span class="batch-meta-val">${b.days} 天</span></div>
-          <div class="batch-meta-item">已使用 <span class="batch-meta-val">${b.used||0} 天</span></div>
-          <div class="batch-meta-item">效期 <span class="batch-meta-val">${b.carried?'遞延至 '+fmtDate(settleDate):dLeft===null?'--':dLeft>0?dLeft+'天後到期':'已到期'}</span></div>
-          <div class="batch-meta-item">狀態 <span class="batch-meta-val">${statusLabel}</span></div>
-        </div>
-        <div class="batch-expire-bar"><div class="batch-expire-fill" style="width:${pct}%;background:${statusColor};"></div></div>
-        ${canEdit&&!b.settled?`<div class="batch-actions">
-          ${remaining>0&&!b.carried?`<button class="batch-btn warn" onclick="carryBatch('${empName}','${b.id}')">📌 手動遞延</button>`:''}
-          ${b.carried&&remaining>0?`<button class="batch-btn danger" onclick="settleBatch('${empName}','${b.id}')">💰 立即結算</button>`:''}
-          <button class="batch-btn danger" onclick="deleteBatch('${empName}','${b.id}')">🗑️</button>
-        </div>`:''}
-      </div>`;
-    }).join('');
-
-    if(canEdit) html+=`<button onclick="openAddBatchModal('${empName}')" style="width:100%;padding:12px;background:#f1f3f4;border:none;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:14px;">＋ 手動新增批次</button>`;
-  } else {
-    // 修正點：有到職日但不滿半年時，不要顯示大藍色按鈕
-    html+=`<div class="empty-state"><div class="empty-icon">📋</div><div>尚無可用的特休批次</div></div>`;
     if(canEdit) {
       if(!hireDate) {
-        // 真的完全沒設到職日，才顯示藍色按鈕
         html+=`<button onclick="openHireDateModal('${empName}')" style="width:100%;padding:12px;background:var(--primary);color:white;border:none;border-radius:12px;font-size:14px;font-weight:800;cursor:pointer;margin-bottom:14px;">＋ 設定到職日（建立批次）</button>`;
       } else {
-        // 已有到職日但沒批次 (年資未滿)，提供灰色手動新增按鈕
         html+=`<button onclick="openAddBatchModal('${empName}')" style="width:100%;padding:12px;background:#f1f3f4;border:none;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:14px;">＋ 手動新增批次</button>`;
       }
     }
   }
 
-  // 明細紀錄（最近 20 筆）
+  // 補休管理按鈕（管理者）
+  if(canEdit && cd) {
+    html+=`<div class="comp-section-header">🔄 補休管理</div>`;
+    html+=`<div class="comp-card">
+      <div class="comp-card-body">
+        <div class="comp-card-title">${cd.current.year}年度補休</div>
+        <div class="comp-card-row"><span>取得</span><span class="comp-card-val">${cd.current.earned} 天</span></div>
+        <div class="comp-card-row"><span>使用</span><span class="comp-card-val">${cd.current.used} 天</span></div>
+        <div class="comp-card-row"><span>剩餘</span><span class="comp-card-val" style="color:var(--accent);">${cd.current.remaining} 天</span></div>
+        <div class="comp-expire-tag">到期 ${fmtDate(cd.current.expireDate)}</div>
+        <div style="display:flex;gap:8px;margin-top:10px;">
+          <button onclick="openUpdateCompModal('${empName}',${cd.current.year})" style="flex:1;padding:8px;background:#e8f5e9;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;color:#2e7d32;">✏️ 更新補休</button>
+          ${isExpiringThisMonth(cd.current.expireDate)?`<button onclick="openCompSettleModal('${empName}',${cd.current.year},true)" style="flex:1;padding:8px;background:#fce8e6;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;color:var(--danger);">⚠️ 處理到期</button>`:''}
+        </div>
+      </div>
+    </div>`;
+
+    if(cd.carried) {
+      html+=`<div class="comp-card carried ${isExpiringThisMonth(cd.carried.expireDate)?'expiring':''}">
+        <div class="comp-card-body">
+          <div class="comp-card-title">遞延補休（${cd.carried.year}年度）</div>
+          <div class="comp-card-row"><span>遞延剩餘</span><span class="comp-card-val" style="color:var(--warn);">${cd.carried.remaining} 天</span></div>
+          <div class="comp-expire-tag danger">到期 ${fmtDate(cd.carried.expireDate)}（不可再延）</div>
+          ${isExpiringThisMonth(cd.carried.expireDate)?`<button onclick="openCompSettleModal('${empName}',${cd.carried.year},false)" style="width:100%;margin-top:10px;padding:8px;background:#fce8e6;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;color:var(--danger);">🚨 必須結算</button>`:''}
+        </div>
+      </div>`;
+    }
+  }
+
+  // 近期紀錄
   const recentLogs = logs.slice(0,20);
   if(recentLogs.length>0) {
     html+=`<div style="font-size:12px;font-weight:800;color:var(--text-muted);letter-spacing:0.5px;margin:14px 0 8px;text-transform:uppercase;">近期紀錄</div>`;
@@ -913,18 +1040,16 @@ function renderLogItem(r, idx, empName) {
     comp_earn:'補休取得', comp_use:'補休使用', comp_use_cancel:'補休取消',
     comp_cancel:'補休結算', carry:'遞延', settle:'薪資結算'
   };
-  const badgeClass = r.type?.includes('earn')||r.type?.includes('cancel')&&!r.type?.includes('use') ? 'earn'
-    : r.type?.includes('use') ? 'use'
-    : r.type==='carry' ? 'carry'
-    : r.type==='settle' ? 'settle' : 'cancel';
-  const sign = r.type?.includes('use')&&!r.type?.includes('cancel') ? '-' : '+';
-  const daysClass = sign==='-'?'neg':'pos';
+  const badgeClass = r.type?.includes('earn')||r.type==='carry'?'earn'
+    : r.type?.includes('use')&&!r.type?.includes('cancel')?'use'
+    : r.type==='settle'?'settle':'cancel';
+  const sign = (r.type?.includes('use')&&!r.type?.includes('cancel'))||(r.type==='settle')?'-':'+';
 
   return `<div class="log-item">
     <div class="log-header">
       <span class="log-badge ${badgeClass}">${typeMap[r.type]||r.type}</span>
       <span class="log-date">${fmtDate(r.date||r.ym)}</span>
-      <span class="log-days ${daysClass}">${sign}${r.days}天</span>
+      <span class="log-days ${sign==='-'?'neg':'pos'}">${sign}${r.days}天</span>
     </div>
     ${r.note?`<div class="log-note">📝 ${r.note}</div>`:''}
     ${r.savedBy?`<div class="log-note">👤 ${r.savedBy}</div>`:''}
@@ -950,32 +1075,23 @@ function openHireDateModal(empName) {
   const isPartTime = (emp.role||'').includes('工讀');
   document.getElementById('hireDateEmpName').value = empName;
   document.getElementById('hireDateEmpDisplay').value = getDN(empName);
-  document.getElementById('manualDaysGroup').style.display = isPartTime ? 'block' : 'none';
+  document.getElementById('manualDaysGroup').style.display = isPartTime?'block':'none';
   document.getElementById('autoDaysPreview').style.display = 'none';
-// 現有到職日：相容舊版與新版
-  const rawBatches = batchesAll[empName] || [];
-  const existingNew = rawBatches.find(b=>!b._legacy);
-  const existingLegacy = rawBatches.find(b=>b._legacy);
-  
-  if(existingNew?.grantDate) {
-    document.getElementById('hireDateInput').value = dateAdd(existingNew.grantDate, -6);
-  } else if (existingLegacy?.hireDate) {
-    document.getElementById('hireDateInput').value = existingLegacy.hireDate;
-  } else {
-    document.getElementById('hireDateInput').value = '';
-  }
-  document.getElementById('hireDateInput').oninput = () => previewHireDate(isPartTime);
+  const rawBatches = batchesAll[empName]||[];
+  const hireDate = getHireDateFromBatches(rawBatches);
+  document.getElementById('hireDateInput').value = hireDate||'';
+  document.getElementById('hireDateInput').oninput = ()=>previewHireDate(isPartTime);
   openModal('hireDateModal');
 }
 
 function previewHireDate(isPartTime) {
   const hireDate = document.getElementById('hireDateInput').value;
   const preview = document.getElementById('autoDaysPreview');
-  if(!hireDate || isPartTime) { preview.style.display='none'; return; }
+  if(!hireDate||isPartTime){ preview.style.display='none'; return; }
   const schedule = calcBatchSchedule(hireDate);
-  if(schedule.length===0) { preview.style.display='none'; return; }
+  if(!schedule.length){ preview.style.display='none'; return; }
   preview.style.display='block';
-  preview.innerHTML=`<b>預計發放批次（已到期的）：</b><br>`+
+  preview.innerHTML=`<b>預計發放批次（已到的）：</b><br>`+
     schedule.map(b=>`${b.label}（${fmtDate(b.grantDate)}）：${b.days} 天`).join('<br>');
 }
 
@@ -987,31 +1103,25 @@ async function saveHireDate() {
   const isPartTime = (emp.role||'').includes('工讀');
 
   showLoading('建立批次中...');
-  try {
+  try{
     const batchRef = window.db.collection('employees').doc(empName).collection('leaveBatches');
-    // 先刪除舊批次（重新設定到職日）
     const oldSnap = await batchRef.get();
     for(const d of oldSnap.docs) await d.ref.delete();
 
     if(isPartTime) {
-      // 工讀生：手動天數，只建一筆
       const manualDays = parseInt(document.getElementById('manualAnnualDays').value)||0;
       if(manualDays>0) {
-        const grantDate  = hireDate;
-        const expireDate = dateAdd(hireDate, 12);
-        await batchRef.add({ grantDate, expireDate, days:manualDays, used:0, label:'手動建檔（工讀生）', note:'工讀生，規則待定', carried:false, settled:false, createdAt: today() });
+        await batchRef.add({ grantDate:hireDate, expireDate:dateAdd(hireDate,12), days:manualDays, used:0, label:'手動建檔（工讀生）', carried:false, settled:false, createdAt:today() });
       }
     } else {
-      // 正職：依勞基法自動建立所有已到期批次
       const schedule = calcBatchSchedule(hireDate);
       for(const b of schedule) {
         await batchRef.add({ ...b, used:0, carried:false, settled:false, createdAt:today() });
       }
     }
 
-    // 更新 leaves/{year} 的 hireDate（相容舊資料）
     const year = new Date().getFullYear().toString();
-    await window.db.collection('employees').doc(empName).collection('leaves').doc(year).set({ hireDate }, { merge:true });
+    await window.db.collection('employees').doc(empName).collection('leaves').doc(year).set({ hireDate },{ merge:true });
 
     showToast('✅ 已設定到職日並建立批次');
     closeModal('hireDateModal');
@@ -1021,63 +1131,202 @@ async function saveHireDate() {
   hideLoading();
 }
 
-// ===== 批次操作 =====
-async function carryBatch(empName, batchId) {
-  if(!confirm('確定手動將此批次標記為遞延？')) return;
-  showLoading('處理中...');
-  try{
-    await window.db.collection('employees').doc(empName).collection('leaveBatches').doc(batchId).update({ carried:true, carriedAt:today(), carriedNote:'手動遞延' });
-    await loadEmpBatches(empName);
-    renderEmpDetail(empName,true);
-    showToast('✅ 已標記遞延');
-  }catch(e){ showToast('❌ 失敗'); }
-  hideLoading();
+// ===== 結算/遞延 Modal（特休）=====
+function openSettleCarryModal(empName, batchId, canCarry) {
+  if(!isManager()) return;
+  const b = batchesAll[empName]?.find(x=>x.id===batchId);
+  if(!b) return;
+  const remaining = (b.days||0)-(b.used||0);
+  const expDate = b.carried ? dateAdd(b.expireDate,12) : b.expireDate;
+
+  document.getElementById('scEmpName').value = empName;
+  document.getElementById('scBatchId').value = batchId;
+  document.getElementById('scCanCarry').value = canCarry?'1':'0';
+  document.getElementById('scModalTitle').textContent = `處理特休：${getDN(empName)} — ${b.label||b.note}`;
+  document.getElementById('scInfo').innerHTML = `
+    員工：<b>${getDN(empName)}</b><br>
+    批次：<b>${b.label||b.note}</b>${b.carried?' <span style="color:var(--warn);">(遞延批)</span>':''}<br>
+    剩餘天數：<b style="color:var(--danger);">${remaining} 天</b><br>
+    到期日：<b>${fmtDate(expDate)}</b>`;
+
+  const carryBtn = document.getElementById('scCarryBtn');
+  if(!canCarry) {
+    carryBtn.style.display='none';
+    document.getElementById('scHint').textContent='⚠️ 此批次為遞延批，不可再延。請結算薪資，否則薪資無法送出審核。';
+  } else {
+    carryBtn.style.display='block';
+    carryBtn.textContent='📌 遞延一年（到 '+fmtDate(dateAdd(expDate,12))+'）';
+    document.getElementById('scHint').textContent='⚠️ 此批次特休本月到期，請選擇處理方式。處理完成前薪資無法送出審核。';
+  }
+  openModal('settleCarryModal');
 }
 
-async function settleBatch(empName, batchId) {
-  const batch = (batchesAll[empName]||[]).find(b=>b.id===batchId);
-  if(!batch) return;
-  const remaining = (batch.days||0)-(batch.used||0);
-  if(!confirm(`立即結算 ${getDN(empName)} 剩餘 ${remaining} 天特休為工資？\n請確認日薪後於薪資系統處理。`)) return;
+async function doSettle() {
+  const empName = document.getElementById('scEmpName').value;
+  const batchId = document.getElementById('scBatchId').value;
+  const b = batchesAll[empName]?.find(x=>x.id===batchId);
+  if(!b) return;
+  const remaining = (b.days||0)-(b.used||0);
+  if(!confirm(`確定將 ${getDN(empName)} 剩餘 ${remaining} 天特休結算為薪資？\n請在薪資系統中手動計入日薪 × ${remaining} 天。`)) return;
   showLoading('結算中...');
   try{
     await window.db.collection('employees').doc(empName).collection('leaveBatches').doc(batchId).update({
-      settled:true, settledAt:today(), settledNote:'手動提前結算', settledDays:remaining
+      settled:true, settledAt:today(), settledNote:'月底結算', settledDays:remaining
     });
+    // 寫入 log
+    const ym = today().slice(0,7);
+    await window.db.collection('employees').doc(empName).collection('leaveLog').doc(ym).set({
+      records: firebase.firestore.FieldValue.arrayUnion({ date:today(), type:'settle', days:remaining, note:`特休薪資結算（${b.label||b.note}）`, savedBy:currentUser.displayName||currentUser.empName })
+    },{ merge:true });
+    showToast('✅ 已結算，請至薪資系統確認');
+    closeModal('settleCarryModal');
     await loadEmpBatches(empName);
-    renderEmpDetail(empName,true);
-    showToast('✅ 已標記結算，請至薪資系統確認金額');
-  }catch(e){ showToast('❌ 失敗'); }
+    renderEmpDetail(empName, true);
+  }catch(e){ showToast('❌ 失敗：'+e.message); }
   hideLoading();
 }
 
+async function doCarry() {
+  const empName = document.getElementById('scEmpName').value;
+  const batchId = document.getElementById('scBatchId').value;
+  const canCarry = document.getElementById('scCanCarry').value === '1';
+  if(!canCarry){ showToast('⚠️ 此批次不可再遞延'); return; }
+  const b = batchesAll[empName]?.find(x=>x.id===batchId);
+  if(!b) return;
+  if(!confirm(`確定將此批次遞延一年？遞延後不可再延，下次到期必須結算。`)) return;
+  showLoading('遞延中...');
+  try{
+    await window.db.collection('employees').doc(empName).collection('leaveBatches').doc(batchId).update({
+      carried:true, carriedAt:today(), carriedNote:'月底遞延'
+    });
+    showToast('✅ 已標記遞延');
+    closeModal('settleCarryModal');
+    await loadEmpBatches(empName);
+    renderEmpDetail(empName, true);
+  }catch(e){ showToast('❌ 失敗：'+e.message); }
+  hideLoading();
+}
+
+// ===== 補休結算/遞延 =====
+function openCompSettleModal(empName, compYear, canCarry) {
+  if(!isManager()) return;
+  const cd = compDataAll[empName];
+  if(!cd) return;
+  const isCarried = String(compYear) === String(cd.carried?.year);
+  const data = isCarried ? cd.carried : cd.current;
+  if(!data) return;
+
+  document.getElementById('csEmpName').value = empName;
+  document.getElementById('csCompYear').value = compYear;
+  document.getElementById('csCanCarry').value = canCarry?'1':'0';
+  document.getElementById('csModalTitle').textContent = `處理補休：${getDN(empName)} — ${compYear}年度`;
+  document.getElementById('csInfo').innerHTML = `
+    員工：<b>${getDN(empName)}</b><br>
+    年度：<b>${compYear} 年度補休</b>${isCarried?' <span style="color:var(--warn);">(遞延批，不可再延)</span>':''}<br>
+    剩餘天數：<b style="color:var(--danger);">${data.remaining} 天</b><br>
+    到期日：<b>12/31</b>`;
+
+  const carryBtn = document.getElementById('csCarryBtn');
+  if(!canCarry) {
+    carryBtn.style.display='none';
+    document.getElementById('csHint').textContent='🚨 此補休為遞延批，不可再延，請結算薪資。';
+  } else {
+    carryBtn.style.display='block';
+    document.getElementById('csHint').textContent='⚠️ 12月底補休即將到期，請選擇處理方式。處理完成前薪資無法送出審核。';
+  }
+  openModal('compSettleModal');
+}
+
+async function doCompSettle() {
+  const empName = document.getElementById('csEmpName').value;
+  const compYear = document.getElementById('csCompYear').value;
+  const cd = compDataAll[empName];
+  const isCarried = String(compYear) === String(cd?.carried?.year);
+  const data = isCarried ? cd.carried : cd.current;
+  if(!data) return;
+
+  if(!confirm(`確定將 ${getDN(empName)} ${compYear}年度剩餘 ${data.remaining} 天補休結算為薪資？`)) return;
+  showLoading('結算中...');
+  try{
+    const compRef = window.db.collection('employees').doc(empName).collection('comp').doc(String(compYear));
+    if(isCarried) {
+      await compRef.update({ settled:true, settledAt:today(), settledDays:data.remaining });
+    } else {
+      await compRef.set({ earned:data.earned||0, used:data.used||0, settled:true, settledAt:today(), settledDays:data.remaining },{ merge:true });
+    }
+    // 寫入 log
+    const ym = today().slice(0,7);
+    await window.db.collection('employees').doc(empName).collection('leaveLog').doc(ym).set({
+      records: firebase.firestore.FieldValue.arrayUnion({ date:today(), type:'settle', days:data.remaining, note:`補休薪資結算（${compYear}年度）`, savedBy:currentUser.displayName||currentUser.empName })
+    },{ merge:true });
+    showToast('✅ 補休已結算，請至薪資系統確認');
+    closeModal('compSettleModal');
+    await loadEmpComp(empName);
+    renderEmpDetail(empName, true);
+  }catch(e){ showToast('❌ 失敗：'+e.message); }
+  hideLoading();
+}
+
+async function doCompCarry() {
+  const empName = document.getElementById('csEmpName').value;
+  const compYear = document.getElementById('csCompYear').value;
+  const canCarry = document.getElementById('csCanCarry').value === '1';
+  if(!canCarry){ showToast('⚠️ 此補休不可再遞延'); return; }
+  const cd = compDataAll[empName];
+  if(!cd) return;
+  if(!confirm(`確定將 ${getDN(empName)} ${compYear}年度補休遞延至明年12/31？遞延後不可再延。`)) return;
+  showLoading('遞延中...');
+  try{
+    const compRef = window.db.collection('employees').doc(empName).collection('comp').doc(String(compYear));
+    await compRef.set({ earned:cd.current.earned||0, used:cd.current.used||0, carried:true, carriedAt:today() },{ merge:true });
+    showToast('✅ 補休已遞延至明年12/31');
+    closeModal('compSettleModal');
+    await loadEmpComp(empName);
+    renderEmpDetail(empName, true);
+  }catch(e){ showToast('❌ 失敗：'+e.message); }
+  hideLoading();
+}
+
+// ===== 更新補休 Modal =====
+function openUpdateCompModal(empName, year) {
+  // 使用 addLogModal 快速新增補休取得
+  document.getElementById('addLogTitle').textContent = `更新補休：${getDN(empName)}`;
+  document.getElementById('addLogEmpName').value = empName;
+  document.getElementById('addLogDate').value = today();
+  document.getElementById('addLogDays').value = '';
+  document.getElementById('addLogNote').value = '';
+  document.getElementById('addLogType').value = 'comp_earn';
+  openModal('addLogModal');
+}
+
+// ===== 批次操作 =====
 async function deleteBatch(empName, batchId) {
-  if(!confirm('確定刪除此批次？此操作不可回復。')) return;
+  if(!confirm('確定刪除此批次？')) return;
   showLoading('刪除中...');
   try{
     await window.db.collection('employees').doc(empName).collection('leaveBatches').doc(batchId).delete();
     await loadEmpBatches(empName);
-    renderEmpDetail(empName,true);
+    renderEmpDetail(empName, true);
     showToast('✅ 已刪除');
   }catch(e){ showToast('❌ 失敗'); }
   hideLoading();
 }
 
-// ===== 手動新增批次 =====
+// ===== 新增批次 =====
 function openAddBatchModal(empName) {
   document.getElementById('addBatchEmp').value = empName;
   document.getElementById('addBatchGrantDate').value = today();
-  document.getElementById('addBatchExpireDate').value = dateAdd(today(), 12);
+  document.getElementById('addBatchExpireDate').value = dateAdd(today(),12);
   document.getElementById('addBatchDays').value = '';
   document.getElementById('addBatchNote').value = '';
   openModal('addBatchModal');
 }
 async function saveAddBatch() {
-  const empName  = document.getElementById('addBatchEmp').value;
+  const empName   = document.getElementById('addBatchEmp').value;
   const grantDate = document.getElementById('addBatchGrantDate').value;
-  const expireDate = document.getElementById('addBatchExpireDate').value;
-  const days  = parseFloat(document.getElementById('addBatchDays').value);
-  const note  = document.getElementById('addBatchNote').value.trim();
+  const expireDate= document.getElementById('addBatchExpireDate').value;
+  const days      = parseFloat(document.getElementById('addBatchDays').value);
+  const note      = document.getElementById('addBatchNote').value.trim();
   if(!grantDate||!expireDate||isNaN(days)||days<=0){ showToast('⚠️ 請填寫完整'); return; }
   showLoading('新增中...');
   try{
@@ -1086,16 +1335,17 @@ async function saveAddBatch() {
     });
     closeModal('addBatchModal');
     await loadEmpBatches(empName);
-    renderEmpDetail(empName,true);
+    renderEmpDetail(empName, true);
     showToast('✅ 已新增批次');
   }catch(e){ showToast('❌ 失敗：'+e.message); }
   hideLoading();
 }
 
-// ===== 新增 leaveLog 紀錄 =====
+// ===== 新增 leaveLog =====
 function openAddLogModal(empName) {
   if(!isManager()) return;
   document.getElementById('addLogTitle').textContent = `新增紀錄：${getDN(empName)}`;
+  document.getElementById('addLogEmpName').value = empName;
   document.getElementById('addLogDate').value = today();
   document.getElementById('addLogDays').value = '';
   document.getElementById('addLogNote').value = '';
@@ -1103,7 +1353,7 @@ function openAddLogModal(empName) {
   openModal('addLogModal');
 }
 async function saveAddLog() {
-  const empName = currentViewEmp;
+  const empName = document.getElementById('addLogEmpName').value || currentViewEmp;
   const type  = document.getElementById('addLogType').value;
   const date  = document.getElementById('addLogDate').value;
   const days  = parseFloat(document.getElementById('addLogDays').value||0);
@@ -1113,14 +1363,26 @@ async function saveAddLog() {
   const year = date.slice(0,4);
   showLoading('儲存中...');
   try{
-    const logRef = window.db.collection('employees').doc(empName).collection('leaveLog').doc(ym);
-    await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
-      date, type, days, note:note||'', savedBy: currentUser.displayName || currentUser.empName
-    })},{ merge:true });
-    await syncLeaveTotal(empName, year);
+    await window.db.collection('employees').doc(empName).collection('leaveLog').doc(ym).set({
+      records: firebase.firestore.FieldValue.arrayUnion({ date, type, days, note:note||'', savedBy:currentUser.displayName||currentUser.empName })
+    },{ merge:true });
+    // 若是補休取得，同步更新 comp 文件
+    if(type==='comp_earn') {
+      const compRef = window.db.collection('employees').doc(empName).collection('comp').doc(year);
+      const compSnap = await compRef.get();
+      const existing = compSnap.exists ? compSnap.data() : { earned:0, used:0 };
+      await compRef.set({ earned:(existing.earned||0)+days, used:existing.used||0 },{ merge:true });
+    }
+    if(type==='comp_use') {
+      const compRef = window.db.collection('employees').doc(empName).collection('comp').doc(year);
+      const compSnap = await compRef.get();
+      const existing = compSnap.exists ? compSnap.data() : { earned:0, used:0 };
+      await compRef.set({ used:Math.min((existing.used||0)+days, existing.earned||0) },{ merge:true });
+    }
     closeModal('addLogModal');
     await loadEmpBatches(empName);
-    renderEmpDetail(empName,true);
+    await loadEmpComp(empName);
+    renderEmpDetail(empName, true);
     showToast('✅ 已新增');
   }catch(e){ showToast('❌ 失敗：'+e.message); }
   hideLoading();
@@ -1161,10 +1423,10 @@ async function saveEditLog() {
     const records = [...(snap.data().records||[])];
     records[idx] = { ...records[idx], type:newType, date:newDate, days:newDays, note:newNote, editedBy:currentUser.empName, editedAt:today() };
     await logRef.update({ records });
-    await syncLeaveTotal(empName, newDate.slice(0,4));
     closeModal('editLogModal');
     await loadEmpBatches(empName);
-    renderEmpDetail(empName,true);
+    await loadEmpComp(empName);
+    renderEmpDetail(empName, true);
     showToast('✅ 已更新');
   }catch(e){ showToast('❌ 失敗：'+e.message); }
   hideLoading();
@@ -1181,85 +1443,53 @@ async function confirmDeleteLog(empName, ym, idx) {
     const records = [...(snap.data().records||[])];
     records.splice(idx,1);
     await logRef.update({ records });
-    await syncLeaveTotal(empName, ym.slice(0,4));
     await loadEmpBatches(empName);
-    renderEmpDetail(empName,true);
+    await loadEmpComp(empName);
+    renderEmpDetail(empName, true);
     showToast('✅ 已刪除');
   }catch(e){ showToast('❌ 失敗：'+e.message); }
   hideLoading();
 }
 
-// ===== syncLeaveTotal（從 leaveLog 重算 leaves）=====
-async function syncLeaveTotal(empName, year) {
-  const leaveRef = window.db.collection('employees').doc(empName).collection('leaves').doc(year);
-  const snap = await leaveRef.get();
-  const existing = snap.exists ? snap.data() : {};
-  const logSnaps = await window.db.collection('employees').doc(empName).collection('leaveLog').get().catch(()=>null);
-  let usedAnnual=0, earnedComp=0, usedComp=0;
-  if(logSnaps) logSnaps.forEach(d=>{
-    if(!d.id.startsWith(year)) return;
-    (d.data().records||[]).forEach(r=>{
-      const rd=parseFloat(r.days)||0;
-      if(r.type==='annual_use')        usedAnnual+=rd;
-      if(r.type==='annual_use_cancel') usedAnnual=Math.max(0,usedAnnual-rd);
-      if(r.type==='comp_earn')         earnedComp+=rd;
-      if(r.type==='comp_use')          usedComp+=rd;
-      if(r.type==='comp_use_cancel')   usedComp=Math.max(0,usedComp-rd);
-      if(r.type==='comp_cancel')       earnedComp=Math.max(0,earnedComp-rd);
-    });
-  });
-  await leaveRef.set({ ...existing, usedAnnual:Math.max(0,usedAnnual), earnedComp:Math.max(0,earnedComp), usedComp:Math.max(0,usedComp), updatedAt:today() },{ merge:true });
-}
-
 // ===== 年度報表 =====
 async function openReport() {
   showLoading('產出報表中...');
-  // 確保所有員工批次都已讀取
   if(empList.length===0) await loadAllEmps();
   const year = new Date().getFullYear();
-
   const el = document.getElementById('mainContent');
   currentTab = '';
   document.querySelectorAll('.tab-item').forEach(el=>el.classList.remove('active'));
 
-  let totalSettleAmt = 0;
   let rows = empList.map(emp=>{
     const s = calcEmpSummary(emp.name);
     const batches = (batchesAll[emp.name]||[]).filter(b=>!b._legacy);
     const totalGranted = batches.reduce((a,b)=>a+(b.days||0),0);
-    const rate = totalGranted>0 ? Math.round((s.usedAnnual/totalGranted)*100) : null;
+    const rate = totalGranted>0?Math.round((s.usedAnnual/totalGranted)*100):null;
     const rateClass = rate===null?'':rate>=70?'high':rate>=30?'mid':'low';
-    const estSettle = (s.carriedDays||0); // 預估年底結算天數
-    return { emp, s, totalGranted, rate, rateClass, estSettle };
+    return { emp, s, totalGranted, rate, rateClass };
   });
 
   let html=`<button onclick="switchTab('overview')" style="background:none;border:none;color:var(--primary);font-size:13px;font-weight:700;cursor:pointer;margin-bottom:12px;">← 回總覽</button>
   <div class="report-section">
-    <div class="report-title">📊 ${year} 年度特休報表 — ${currentStore}</div>
-    <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">產出時間：${new Date().toLocaleString('zh-TW')}</div>
+    <div class="report-title">📊 ${year} 年度特補休報表 — ${currentStore}</div>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">產出：${new Date().toLocaleString('zh-TW')}</div>
     <table class="report-table">
-      <tr><th>員工</th><th>年資</th><th>已發放</th><th>已休</th><th>達成率</th><th>遞延中</th><th>補休剩</th></tr>
-      ${rows.map(({emp,s,totalGranted,rate,rateClass,estSettle})=>{
-        const hireDate = (batchesAll[emp.name]||[]).find(b=>b.grantDate)?.[0]?.grantDate;
-        const yrs = hireDate ? Math.floor(monthsDiff(dateAdd(hireDate,-6),today())/12) : '--';
+      <tr><th>員工</th><th>發放</th><th>已休</th><th>達成率</th><th>特休剩</th><th>補休剩</th><th>遞延補休</th></tr>
+      ${rows.map(({emp,s,totalGranted,rate,rateClass})=>{
         const rowClass = rate!==null&&rate<30?'danger-row':'';
+        const cd = compDataAll[emp.name];
         return `<tr class="${rowClass}">
           <td><b>${getDN(emp.name)}</b><br><span style="font-size:10px;color:var(--text-muted);">${emp.role||''}</span></td>
-          <td>${yrs} 年</td>
           <td>${totalGranted} 天</td>
           <td>${s.usedAnnual} 天</td>
           <td>${rate!==null?`<span class="achievement ${rateClass}">${rate}%</span>`:'--'}</td>
-          <td>${estSettle>0?`<span style="color:var(--warn);font-weight:700;">${estSettle} 天</span>`:'0 天'}</td>
-          <td>${s.remainComp} 天</td>
+          <td>${s.totalAvail} 天</td>
+          <td>${cd?.current?.remaining||0} 天</td>
+          <td>${cd?.carried?.remaining||0} 天</td>
         </tr>`;
       }).join('')}
     </table>
   </div>`;
-
-  const totalCarry = rows.reduce((a,{s})=>a+s.carriedDays,0);
-  if(totalCarry>0) {
-    html+=`<div class="alert-banner warn"><div class="alert-banner-icon">⚠️</div><div class="alert-banner-text">本店共有 ${totalCarry} 天遞延假，若 12/31 前未休完將須結算為工資，請主動安排排休。</div></div>`;
-  }
 
   el.innerHTML = html;
   hideLoading();
