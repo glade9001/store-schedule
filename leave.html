@@ -407,6 +407,7 @@ function fmtDate(s){if(!s)return '--';const[y,m,d]=s.split('-');return `${y}/${p
 function getDN(n){return displayNameMap[n]||n;}
 function daysUntil(s){if(!s)return null;const t=new Date(s);t.setHours(23,59,59);return Math.ceil((t-new Date())/86400000);}
 function dateAdd(s,months){const d=new Date(s);d.setMonth(d.getMonth()+months);return d.toISOString().split('T')[0];}
+function dateAddExpire(s,months){const d=new Date(s);d.setMonth(d.getMonth()+months);d.setDate(d.getDate()-1);return d.toISOString().split('T')[0];}
 function monthsDiff(from,to){const f=new Date(from),t=new Date(to);return(t.getFullYear()-f.getFullYear())*12+(t.getMonth()-f.getMonth());}
 
 // 判斷是否為「本月到期」
@@ -436,14 +437,14 @@ function calcBatchSchedule(hireDate) {
   const batches = [];
   // 滿6個月
   const m6Grant  = dateAdd(hireDate, 6);
-  const m6Expire = dateAdd(hireDate, 12);
+  const m6Expire = dateAddExpire(hireDate, 12);
   if(new Date(m6Grant) <= now) {
     batches.push({ grantDate:m6Grant, expireDate:m6Expire, days:3, label:'滿6個月', months:6 });
   }
   // 每個週年
   for(let yr=1; yr<=30; yr++) {
     const grantDate  = dateAdd(hireDate, yr*12);
-    const expireDate = dateAdd(hireDate, (yr+1)*12);
+    const expireDate = dateAddExpire(hireDate, (yr+1)*12);
     if(new Date(grantDate) > now) break;
     const rule = annualLeaveRule(yr*12);
     if(rule.days > 0) {
@@ -645,7 +646,7 @@ function calcEmpSummary(empName) {
   batches.filter(b=>!b._legacy).forEach(b=>{
     const remaining = (b.days||0)-(b.used||0);
     if(remaining<=0||b.settled) return;
-    const settleDate = b.carried ? dateAdd(b.expireDate, 12) : b.expireDate;
+    const settleDate = b.carried ? dateAddExpire(b.expireDate, 12) : b.expireDate;
     if(b.carried) {
       if(todayStr<=settleDate) carriedDays+=remaining;
     } else {
@@ -676,7 +677,7 @@ function getExpiringBatches(empName) {
     if(b._legacy||b.settled) return false;
     const remaining = (b.days||0)-(b.used||0);
     if(remaining<=0) return false;
-    const expDate = b.carried ? dateAdd(b.expireDate, 12) : b.expireDate;
+    const expDate = b.carried ? dateAddExpire(b.expireDate, 12) : b.expireDate;
     return isExpiringThisMonth(expDate);
   });
 }
@@ -835,7 +836,7 @@ function renderEmpDetail(empName, showBack=true) {
   if(canEdit && hasUrgent) {
     expiringBatches.forEach(b=>{
       const remaining = (b.days||0)-(b.used||0);
-      const expDate = b.carried ? dateAdd(b.expireDate,12) : b.expireDate;
+      const expDate = b.carried ? dateAddExpire(b.expireDate,12) : b.expireDate;
       const canCarry = !b.carried; // 遞延批次不可再延
       html+=`<div class="expire-alert" onclick="openSettleCarryModal('${empName}','${b.id}',${canCarry})">
         <div class="expire-alert-title">⚠️ 特休到期：${b.label||b.note} — 剩 ${remaining} 天（${fmtDate(expDate)} 到期）</div>
@@ -868,7 +869,7 @@ function renderEmpDetail(empName, showBack=true) {
     // 本期各批次
     validBatches.forEach(b=>{
       const rem = Math.max(0,(b.days||0)-(b.used||0));
-      const expDate = b.carried ? dateAdd(b.expireDate,12) : b.expireDate;
+      const expDate = b.carried ? dateAddExpire(b.expireDate,12) : b.expireDate;
       const dl = daysUntil(expDate);
       const isExp = isExpiringThisMonth(expDate);
       const valColor = isExp?'var(--danger)':dl&&dl<=90?'var(--warn)':'var(--primary)';
@@ -968,7 +969,7 @@ function renderEmpDetail(empName, showBack=true) {
   if(batches.length>0) {
     html += batches.filter(b=>!b.settled && (b.days||0)-(b.used||0)>0).map(b=>{
       const remaining = Math.max(0,(b.days||0)-(b.used||0));
-      const expDate = b.carried ? dateAdd(b.expireDate,12) : b.expireDate;
+      const expDate = b.carried ? dateAddExpire(b.expireDate,12) : b.expireDate;
       const dLeft = daysUntil(expDate);
       const pct = b.days>0?Math.round((remaining/b.days)*100):0;
       const isExp = isExpiringThisMonth(expDate);
@@ -1150,7 +1151,7 @@ async function saveHireDate() {
     if(isPartTime) {
       const manualDays = parseInt(document.getElementById('manualAnnualDays').value)||0;
       if(manualDays>0) {
-        await batchRef.add({ grantDate:hireDate, expireDate:dateAdd(hireDate,12), days:manualDays, used:0, label:'手動建檔（工讀生）', carried:false, settled:false, createdAt:today() });
+        await batchRef.add({ grantDate:hireDate, expireDate:dateAddExpire(hireDate,12), days:manualDays, used:0, label:'手動建檔（工讀生）', carried:false, settled:false, createdAt:today() });
       }
     } else {
       const skipExpired = document.getElementById('skipExpiredCheck')?.checked || false;
@@ -1181,7 +1182,7 @@ function openSettleCarryModal(empName, batchId, canCarry) {
   const b = batchesAll[empName]?.find(x=>x.id===batchId);
   if(!b) return;
   const remaining = (b.days||0)-(b.used||0);
-  const expDate = b.carried ? dateAdd(b.expireDate,12) : b.expireDate;
+  const expDate = b.carried ? dateAddExpire(b.expireDate,12) : b.expireDate;
 
   document.getElementById('scEmpName').value = empName;
   document.getElementById('scBatchId').value = batchId;
@@ -1360,7 +1361,7 @@ async function deleteBatch(empName, batchId) {
 function openAddBatchModal(empName) {
   document.getElementById('addBatchEmp').value = empName;
   document.getElementById('addBatchGrantDate').value = today();
-  document.getElementById('addBatchExpireDate').value = dateAdd(today(),12);
+  document.getElementById('addBatchExpireDate').value = dateAddExpire(today(),12);
   document.getElementById('addBatchDays').value = '';
   document.getElementById('addBatchNote').value = '';
   openModal('addBatchModal');
