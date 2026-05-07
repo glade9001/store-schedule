@@ -106,8 +106,12 @@ html,body{height:100%;overflow:hidden;background:var(--bg);
 .cal-cell.empty{background:#fafafa;cursor:default;}
 .cal-cell.other-month{background:#f8f8f8;opacity:0.5;cursor:default;}
 .cal-cell.today .cal-date{background:var(--primary);color:white;border-radius:50%;}
-.cal-cell.sunday .cal-date{color:var(--danger);}
 .cal-cell.saturday .cal-date{color:#0891b2;}
+.cal-cell.holiday .cal-date{color:var(--danger);font-weight:900;}
+.cal-cell.holiday .cal-holiday-name{display:block;font-size:8px;color:var(--danger);font-weight:700;line-height:1.2;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.cal-cell.blocked{background:#fff0f0 !important;cursor:not-allowed;}
+.cal-cell.blocked .cal-date{color:#e0a0a0;}
+.cal-tag.blocked-tag{background:#fce8e6;color:var(--danger);font-weight:800;}
 .cal-cell.past{background:#f0f0f0 !important;cursor:not-allowed;}
 .cal-cell.past .cal-date{color:#bbb;}
 .cal-cell.locked{background:#efefef !important;cursor:not-allowed;}
@@ -307,6 +311,25 @@ html,body{height:100%;overflow:hidden;background:var(--bg);
 let currentUser = null, appConfig = { stores:[], shifts:[] };
 let currentStore = ''; // 目前選擇的門市（加盟主/admin 可切換）
 const isMultiStore = () => ['owner','admin'].includes(currentUser?.permission);
+let holidayMap = {};   // { 'YYYY-MM-DD': '節日名稱' }
+let blockedDates = []; // ['YYYY-MM-DD', ...]
+let isBlockMode = false; // 店長禁休模式
+
+// ===== 內建假日資料 =====
+const BUILTIN_HOLIDAYS = {
+  '2026': {
+    '2026-01-01':'元旦','2026-01-28':'除夕','2026-01-29':'春節','2026-01-30':'春節',
+    '2026-01-31':'春節','2026-02-01':'春節','2026-02-02':'春節','2026-02-28':'和平紀念日',
+    '2026-04-03':'兒童節','2026-04-04':'清明節','2026-05-01':'勞動節',
+    '2026-06-19':'端午節','2026-09-26':'中秋節','2026-10-10':'國慶日'
+  },
+  '2027': {
+    '2027-01-01':'元旦','2027-02-17':'除夕','2027-02-18':'春節','2027-02-19':'春節',
+    '2027-02-20':'春節','2027-02-21':'春節','2027-02-22':'春節','2027-02-28':'和平紀念日',
+    '2027-04-03':'兒童節','2027-04-05':'清明節','2027-05-01':'勞動節',
+    '2027-06-09':'端午節','2027-10-01':'中秋節','2027-10-10':'國慶日'
+  }
+};
 let currentTab = 'cal';
 let viewYear = 0, viewMonth = 0; // 0-based month
 let myRequests = []; // 本人所有申請
@@ -328,6 +351,64 @@ const MAX_FULL_PER_DAY_SEATING = { full: 2, part: 1 }; // 預設，後面從 con
 let dailyLimits = { fullTime: 2, partTime: 1 };
 const WEEKLY_OFF_LIMIT_FULL = 2; // 正職排休每週上限
 
+// ===== 禁休模式切換 =====
+function toggleBlockMode() {
+  isBlockMode = !isBlockMode;
+  renderCalendar();
+}
+
+async function toggleBlockDate(dateStr) {
+  const idx = blockedDates.indexOf(dateStr);
+  if(idx !== -1) {
+    blockedDates.splice(idx, 1);
+    showToast(`✅ 已解除 ${fmtDateFull(dateStr)} 禁休`);
+  } else {
+    blockedDates.push(dateStr);
+    showToast(`🚫 已設定 ${fmtDateFull(dateStr)} 全店禁休`);
+  }
+  await saveBlockedDates();
+  renderCalBody();
+}
+
+// ===== 假日資料 =====
+async function loadHolidays() {
+  const now = new Date();
+  const years = [now.getFullYear(), now.getFullYear()+1];
+  holidayMap = {};
+  for(const yr of years) {
+    // 先用內建
+    Object.assign(holidayMap, BUILTIN_HOLIDAYS[String(yr)] || {});
+    // Firestore 有就覆蓋
+    try {
+      const snap = await window.db.collection('settings').doc('holidays').collection('years').doc(String(yr)).get();
+      if(snap.exists && snap.data().dates) Object.assign(holidayMap, snap.data().dates);
+    } catch(e) {}
+  }
+  // 12月提醒更新（只對加盟主以上）
+  if(now.getMonth() === 11 && ['owner','admin'].includes(currentUser?.permission)) {
+    const nextYr = now.getFullYear()+1;
+    const hasNext = Object.keys(holidayMap).some(d=>d.startsWith(String(nextYr)));
+    if(!hasNext) showToast(`⚠️ 請至系統設定更新 ${nextYr} 年國定假日`);
+  }
+}
+
+// ===== 禁休日期 =====
+async function loadBlockedDates() {
+  blockedDates = [];
+  try {
+    const snap = await window.db.collection('stores').doc(currentStore)
+      .collection('config').doc('blockedDates').get();
+    if(snap.exists && snap.data().dates) blockedDates = snap.data().dates;
+  } catch(e) {}
+}
+
+async function saveBlockedDates() {
+  try {
+    await window.db.collection('stores').doc(currentStore)
+      .collection('config').doc('blockedDates').set({ dates: blockedDates });
+  } catch(e) { showToast('❌ 儲存失敗：'+e.message); }
+}
+
 // ===== 門市切換（加盟主/admin）=====
 async function switchStoreTab(store) {
   if(currentStore === store) return;
@@ -348,7 +429,8 @@ async function switchStoreTab(store) {
       dailyLimits.partTime = cfgSnap.data().leaveQuota.partTime ?? 1;
     }
   } catch(e) {}
-  // 重新讀申請資料並重繪
+  // 重新讀禁休資料和申請資料
+  await loadBlockedDates();
   await loadRequests();
   renderTab();
 }
@@ -448,6 +530,11 @@ window.onload = async () => {
         localStorage.setItem('appConfig', JSON.stringify(appConfig));
       }
     }catch(e){}
+
+    // 讀取假日資料（Firestore 優先，否則用內建）
+    await loadHolidays();
+    // 讀取禁休日期
+    await loadBlockedDates();
 
     // 加盟主/admin：建立門市切換 bar
     if(isMultiStore()) {
@@ -594,9 +681,13 @@ function renderCalendar(){
   // 月份導航
   const canPrev = !(viewYear === min.year && viewMonth === min.month);
   const canNext = !(viewYear === max.year && viewMonth === max.month);
+  const blockBtnHtml = canSchedule()
+    ? `<button onclick="toggleBlockMode()" style="background:${isBlockMode?'var(--danger)':'#fce8e6'};color:${isBlockMode?'white':'var(--danger)'};border:1.5px solid var(--danger);border-radius:8px;padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer;">${isBlockMode?'✕ 取消':'🚫 禁休'}</button>`
+    : '';
   html += `<div class="month-nav">
     <button class="month-nav-btn" onclick="changeMonth(-1)" ${canPrev?'':'disabled style="opacity:0.3;"'}>‹</button>
     <div class="month-label">${viewYear} 年 ${viewMonth+1} 月</div>
+    ${blockBtnHtml}
     <button class="month-nav-btn" onclick="changeMonth(1)" ${canNext?'':'disabled style="opacity:0.3;"'}>›</button>
   </div>`;
 
@@ -637,26 +728,33 @@ function renderCalBody(){
   for(let d=1; d<=lastDay.getDate(); d++){
     const dateStr = `${viewYear}-${String(viewMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const dow = new Date(dateStr).getDay();
-    const isSunday = dow === 0;
     const isToday = dateStr === todayStr;
     const isPast = dateStr < todayStr;
     const isLocked = isDateLocked(dateStr);
+    const isBlocked = blockedDates.includes(dateStr);
+    const isHoliday = !!holidayMap[dateStr];
+    const holidayName = holidayMap[dateStr] || '';
 
     // 我的申請
     const myReqs = myRequests.filter(r=>r.date===dateStr && !['cancelled','unfulfilled'].includes(r.status));
     // 其他人（不顯示備註）
     const othersReqs = storeRequests.filter(r=>r.date===dateStr && r.empName!==currentUser.empName && !['cancelled','unfulfilled'].includes(r.status));
 
-    // 可不可以點
-    const canClick = !isPast && !isSunday && !isLocked;
     const hasMyReq = myReqs.length > 0;
 
+    // 禁休模式下：店長點擊切換禁休
+    // 一般模式：非過去、非禁休才可點
+    const canClick = isBlockMode
+      ? (!isPast && canSchedule())
+      : (!isPast && !isLocked && !isBlocked);
+
     let cls = 'cal-cell';
-    if(isSunday) cls += ' unavailable';         // 週日：灰
-    else if(isPast) cls += ' past';              // 過去：灰
-    else if(isLocked && !hasMyReq) cls += ' locked'; // 截止：灰（但有我的申請還是顯示）
+    if(isBlocked && !isBlockMode) cls += ' blocked';  // 禁休：淡紅底
+    else if(isPast) cls += ' past';                   // 過去：灰
+    else if(isLocked && !hasMyReq) cls += ' locked';  // 截止：灰
     if(isToday) cls += ' today';
-    if(!isSunday && dow === 6) cls += ' saturday'; // 週六不灰但日期可標色
+    if(isHoliday) cls += ' holiday';                  // 假日：紅色日期
+    if(dow === 6) cls += ' saturday';                 // 週六：藍色日期
 
     let tags = '';
 
@@ -677,9 +775,19 @@ function renderCalBody(){
       else                        tags += `<div class="cal-tag others-off">${name} 排休${shiftLabel}</div>`;
     });
 
-    const onclick = (canClick || hasMyReq) ? `onclick="openApplyModal('${dateStr}')"` : '';
+    // 禁休標籤
+    if(isBlocked) tags = `<div class="cal-tag blocked-tag">🚫 禁休</div>` + tags;
+    // 假日名稱（inline，不用 tag）
+    const holidayHtml = isHoliday ? `<span class="cal-holiday-name">${holidayName}</span>` : '';
+
+    let onclick = '';
+    if(isBlockMode && !isPast && canSchedule()) {
+      onclick = `onclick="toggleBlockDate('${dateStr}')"`;
+    } else if((canClick || hasMyReq) && !isBlockMode) {
+      onclick = `onclick="openApplyModal('${dateStr}')"`;
+    }
     html += `<div class="${cls}" ${onclick}>
-      <div class="cal-date">${d}</div>
+      <div class="cal-date">${d}${holidayHtml}</div>
       <div class="cal-tags">${tags}</div>
     </div>`;
   }
@@ -706,8 +814,11 @@ function changeMonth(dir){
 // ===== 開啟申請 Modal =====
 function openApplyModal(dateStr){
   const isPast = dateStr < today();
-  const isSunday = new Date(dateStr).getDay() === 0;
-  if(isPast || isSunday) return;
+  if(isPast) return;
+  if(blockedDates.includes(dateStr) && !canSchedule()) {
+    showToast('🚫 此日已設為全店禁休');
+    return;
+  }
 
   applyDate = dateStr;
   applyType = 'off';
