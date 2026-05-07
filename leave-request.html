@@ -597,7 +597,7 @@ async function loadBalance(){
   // 補休：comp/{year}
   const cSnap = await window.db.collection('employees').doc(empName).collection('comp').doc(String(yr)).get().catch(()=>null);
   const cData = cSnap?.exists ? cSnap.data() : { earned:0, used:0 };
-  compBalance = Math.max(0, (cData.earned||0) - (cData.used||0));
+  compBalance = (cData.earned||0) - (cData.used||0); // 允許負數（撤回補休時）
   // 加上遞延
   const prevSnap = await window.db.collection('employees').doc(empName).collection('comp').doc(String(yr-1)).get().catch(()=>null);
   if(prevSnap?.exists){
@@ -671,10 +671,10 @@ function renderCalendar(){
       <div class="balance-val annual">${annualBalance}</div>
       <div class="balance-sub">天</div>
     </div>
-    <div class="balance-card">
+    <div class="balance-card" style="${compBalance < 0 ? 'border:1.5px solid var(--danger);' : ''}">
       <div class="balance-label">🗓️ 補休可用</div>
-      <div class="balance-val comp">${compBalance}</div>
-      <div class="balance-sub">天</div>
+      <div class="balance-val comp" style="${compBalance < 0 ? 'color:var(--danger);' : ''}">${compBalance}</div>
+      <div class="balance-sub">${compBalance < 0 ? '<span style="color:var(--danger);font-size:9px;">待下次發放抵銷</span>' : '天'}</div>
     </div>
   </div>`;
 
