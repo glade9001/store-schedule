@@ -207,7 +207,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 }
 
 /* ===== STATS ROW ===== */
-.stats-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+.stats-row { display: grid; gap: 10px; margin-bottom: 14px; }
 .stat-card {
   background: var(--card); border-radius: 12px; padding: 10px 8px; text-align: center;
   box-shadow: var(--shadow); border: 1px solid var(--border); cursor: pointer; transition: transform 0.15s;
@@ -508,14 +508,12 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 </head>
 <body>
 
-<!-- LOADING -->
 <div id="loadingOverlay">
   <div class="spinner"></div>
   <div class="loading-title">莉學商行管理系統</div>
   <div class="loading-sub">連線雲端資料庫中...</div>
 </div>
 
-<!-- LOGIN SCREEN -->
 <div id="loginScreen">
   <div class="login-logo">🏪</div>
   <div class="login-title">莉學商行管理系統</div>
@@ -542,10 +540,8 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
   </div>
 </div>
 
-<!-- APP SHELL -->
 <div id="appShell">
 
-  <!-- TOP HEADER -->
   <div class="top-header">
     <div class="header-avatar" id="headerAvatar" onclick="openSettingsSheet()">👤</div>
     <div class="header-info">
@@ -556,10 +552,8 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
     <button class="header-settings-btn" onclick="openSettingsSheet()">⚙️</button>
   </div>
 
-  <!-- PAGE CONTAINER -->
   <div class="page-container">
 
-    <!-- ===== 首頁 PAGE ===== -->
     <div class="page active" id="page-home">
       <div class="greeting-banner">
         <div class="greeting-time" id="greetingTime"></div>
@@ -571,7 +565,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
         </div>
       </div>
 
-      <!-- 公告橫幅 -->
       <div id="announceBannerWrap" style="display:none; margin-bottom:10px;">
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
           <div style="font-size:11px; font-weight:800; color:var(--text-muted); letter-spacing:0.5px;">📢 公告事項</div>
@@ -580,14 +573,12 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
         <div id="announceBanner" style="display:flex; gap:10px; overflow-x:auto; padding-bottom:4px; -webkit-overflow-scrolling:touch; scrollbar-width:none;"></div>
       </div>
 
-      <!-- 待處理 badge -->
       <div id="pendingBadgeBar" style="display:none; background:linear-gradient(135deg,#fce8e6,#fef2f2); border:1.5px solid var(--danger); border-radius:12px; padding:10px 14px; margin-bottom:12px; cursor:pointer; align-items:center; gap:10px;" onclick="document.getElementById('pendingCard').scrollIntoView({behavior:'smooth'})">
         <div style="font-size:18px;">🔔</div>
         <div style="flex:1; font-size:13px; font-weight:800; color:var(--danger);">有 <span id="pendingBadgeCount">0</span> 件待處理事項</div>
         <div style="color:var(--danger); font-size:16px; font-weight:900;">›</div>
       </div>
 
-      <!-- 我的班表（置頂）-->
       <div class="card">
         <div class="section-header">
           <div class="section-title" style="font-size:13px;">📅 我的班表</div>
@@ -603,7 +594,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
         </div>
       </div>
 
-      <!-- 常用功能 + 管理功能 -->
       <div class="card" style="padding:14px 14px 10px;">
         <div class="func-section">
           <div class="func-grid expanded" id="grid-personal"></div>
@@ -617,10 +607,8 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
         </div>
       </div>
 
-      <!-- 統計卡片（下移、縮小）-->
       <div id="statsArea"></div>
 
-      <!-- 待處理事項（含代辦入口）-->
       <div class="card" id="pendingCard" style="display:none;">
         <div class="section-header">
           <div class="section-title">🔔 待處理事項</div>
@@ -633,7 +621,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       </div>
     </div>
 
-    <!-- ===== 班表 PAGE ===== -->
     <div class="page" id="page-schedule">
       <div style="text-align:center; padding:40px 20px;">
         <div style="font-size:40px; margin-bottom:12px;">📅</div>
@@ -641,7 +628,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       </div>
     </div>
 
-    <!-- ===== 申請 PAGE ===== -->
     <div class="page" id="page-apply">
       <div class="sub-header">
         <button class="sub-header-back" onclick="switchPage('home')">← 首頁</button>
@@ -655,7 +641,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       </div>
     </div>
 
-    <!-- ===== 薪資 PAGE ===== -->
     <div class="page" id="page-salary">
       <div class="sub-header">
         <button class="sub-header-back" onclick="switchPage('home')">← 首頁</button>
@@ -669,13 +654,11 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       </div>
     </div>
 
-    <!-- ===== 人員 PAGE ===== -->
     <div class="page" id="page-employee">
       <div class="sub-header">
         <button class="sub-header-back" onclick="switchPage('home')">← 首頁</button>
         <div class="sub-header-title" id="empPageTitle">帳號管理</div>
       </div>
-      <!-- 管理者視圖 -->
       <div id="empAdminView" style="display:none;">
         <div class="store-tabs" id="empStoreTabs"></div>
         <div class="section-header">
@@ -688,7 +671,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
         <div id="empAdminList" class="emp-list"></div>
       </div>
 
-      <!-- 員工視圖 -->
       <div id="empSelfView" style="display:none;">
         <div class="profile-header">
           <div class="profile-avatar" id="selfAvatar">👤</div>
@@ -711,7 +693,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       </div>
     </div>
 
-    <!-- ===== 個人 PAGE ===== -->
     <div class="page" id="page-profile">
       <div class="sub-header">
         <button class="sub-header-back" onclick="switchPage('home')">← 首頁</button>
@@ -758,7 +739,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
           </div>
           <div class="menu-item-arrow">›</div>
         </div>
-        <!-- 系統管理者專屬 -->
         <div class="menu-item" id="menuSysConfig" style="display:none;" onclick="openSysConfigModal()">
           <div class="menu-item-icon" style="background:#fce8e6;">⚙️</div>
           <div class="menu-item-text">
@@ -786,10 +766,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       </div>
     </div>
 
-  </div><!-- end page-container -->
-
-  <!-- BOTTOM NAV -->
-  <nav class="bottom-nav">
+  </div><nav class="bottom-nav">
     <button class="nav-item active" data-page="home" onclick="switchPage('home')">
       <span class="nav-icon">🏠</span>
       <span class="nav-label">首頁</span>
@@ -814,10 +791,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
     </button>
   </nav>
 
-</div><!-- end appShell -->
-
-<!-- ===== WIP MODAL ===== -->
-<div class="modal-overlay" id="wipModal" onclick="closeWip(event)">
+</div><div class="modal-overlay" id="wipModal" onclick="closeWip(event)">
   <div class="modal-box">
     <div class="modal-handle"></div>
     <div class="wip-icon">🚧</div>
@@ -828,8 +802,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
   </div>
 </div>
 
-<!-- ===== 帳號設定 MODAL ===== -->
-<!-- ===== 新增員工 MODAL ===== -->
 <div class="modal-overlay" id="addEmpModal" onclick="closeWip(event)">
   <div class="modal-box">
     <div class="modal-handle"></div>
@@ -882,7 +854,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
   </div>
 </div>
 
-<!-- ===== 調店 MODAL ===== -->
 <div class="modal-overlay" id="transferModal" onclick="closeWip(event)">
   <div class="modal-box">
     <div class="modal-handle"></div>
@@ -919,7 +890,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
     <div class="modal-sub" id="accountModalSub">設定員工的登入帳號與密碼</div>
     <input type="hidden" id="accountEmpStore">
 
-    <!-- 帳號（身分證字母+後5碼）-->
     <div class="form-field">
       <label>帳號（身分證字母 + 後5碼）</label>
       <input type="text" id="accountUsername" maxlength="6" placeholder="例如：A56789"
@@ -928,14 +898,12 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">格式：1個英文字母 + 5碼數字</div>
     </div>
 
-    <!-- 顯示姓名 -->
     <div class="form-field">
       <label>顯示姓名（APP 顯示用）</label>
       <input type="text" id="accountDisplayName" placeholder="例如：王小明">
     </div>
 
-<!-- 連動排班系統 -->
-    <div class="form-field">
+<div class="form-field">
       <label>連動排班系統</label>
       <div style="display:flex; gap:8px; margin-bottom:8px;">
         <label style="display:flex; align-items:center; justify-content:center; gap:6px; font-size:14px; font-weight:600; cursor:pointer; flex:1; background:#f1f3f4; border-radius:10px; padding:12px 4px; text-align:center;">
@@ -947,14 +915,12 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
           <span style="line-height:1.3;">全新員工</span>
         </label>
       </div>
-      <!-- 連動：選擇排班系統員工 -->
       <div id="linkEmpGroup">
         <select id="accountEmpName" style="width:100%; padding:12px 14px; border:1.5px solid var(--border); border-radius:10px; font-size:14px; background:#f8fafc;">
           <option value="">-- 選擇對應的排班系統員工 --</option>
         </select>
         <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">選擇後，班表資料將以此員工名稱查詢</div>
       </div>
-      <!-- 新員工：輸入名稱 -->
       <div id="newEmpGroup" style="display:none;">
         <input type="text" id="accountNewEmpName" placeholder="排班系統中的員工名稱（之後新增）"
           style="width:100%; padding:12px 14px; border:1.5px solid var(--border); border-radius:10px; font-size:14px; background:#f8fafc;">
@@ -962,7 +928,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       </div>
     </div>
 
-    <!-- 到職日（與特補休系統連動） -->
     <div class="form-field">
       <label>到職日 <span style="color:var(--primary); font-size:10px;">(與特補休系統自動連動)</span></label>
       <div style="display:flex; gap:8px;">
@@ -974,7 +939,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       <div style="font-size:11px; color:var(--text-muted); margin-top:6px;">⚠️ 統一由「特補休管理」系統計算與控制，點選跳轉修改</div>
     </div>
 
-    <!-- 密碼 -->
     <div class="form-field">
       <label>密碼 <span style="color:var(--text-muted); font-weight:400;">（留空則不修改）</span></label>
       <input type="password" id="accountPassword" placeholder="預設建議：生日月日，例如 0101">
@@ -984,7 +948,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       <input type="password" id="accountPasswordConfirm" placeholder="再輸入一次密碼">
     </div>
 
-    <!-- 職稱 -->
     <div class="form-field">
       <label>職稱</label>
       <select id="accountRole">
@@ -995,7 +958,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       </select>
     </div>
 
-    <!-- 權限 -->
     <div class="form-field">
       <label>權限等級</label>
       <select id="accountPermission"></select>
@@ -1006,7 +968,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
   </div>
 </div>
 
-<!-- ===== 修改密碼 MODAL ===== -->
 <div class="modal-overlay" id="changePwdModal" onclick="closeWip(event)">
   <div class="modal-box">
     <div class="modal-handle"></div>
@@ -1029,7 +990,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
   </div>
 </div>
 
-<!-- ===== 系統基礎設定 MODAL（管理者）===== -->
 <div class="modal-overlay" id="sysConfigModal" onclick="closeWip(event)">
   <div class="modal-box">
     <div class="modal-handle"></div>
@@ -1040,15 +1000,11 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       <input type="text" id="sysNewStore" placeholder="新增門市名稱" style="flex:1; padding:10px; border:1.5px solid var(--border); border-radius:10px; font-size:14px;">
       <button onclick="addSysStore()" style="background:var(--accent); color:white; border:none; border-radius:10px; padding:10px 16px; font-weight:700; cursor:pointer;">新增</button>
     </div>
-    <!-- 國定假日管理（加盟主以上）-->
     <div id="sysHolidaySection" style="display:none; border-top:1px solid var(--border); padding-top:14px; margin-bottom:4px;">
       <div class="card-title">📅 國定假日管理</div>
       <div style="font-size:11px; color:var(--text-muted); margin-bottom:10px;">每年初自動帶入內建假日，可手動新增或刪除</div>
-      <!-- 年份切換 -->
       <div style="display:flex; gap:6px; margin-bottom:10px;" id="holidayYearTabs"></div>
-      <!-- 假日清單 -->
       <div id="holidayList" style="max-height:200px; overflow-y:auto; margin-bottom:10px; border:1px solid var(--border); border-radius:10px; padding:4px 0;"></div>
-      <!-- 新增假日 -->
       <div style="display:flex; gap:6px; margin-bottom:14px;">
         <input type="date" id="newHolidayDate" style="flex:1; padding:9px; border:1.5px solid var(--border); border-radius:10px; font-size:13px; min-width:0;">
         <input type="text" id="newHolidayName" placeholder="假日名稱" style="flex:2; padding:9px; border:1.5px solid var(--border); border-radius:10px; font-size:13px; min-width:0;">
@@ -1056,7 +1012,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       </div>
     </div>
 
-    <!-- ✅ 角色預覽（只對 admin 顯示）-->
     <div id="sysRolePreviewSection" style="display:none; border-top:1px solid var(--border); padding-top:14px; margin-bottom:14px;">
       <div class="card-title">🎭 角色預覽</div>
       <div style="font-size:13px; color:var(--text-muted); margin-bottom:10px;">以員工視角體驗介面，方便確認員工看到的內容。</div>
@@ -1067,17 +1022,14 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
   </div>
 </div>
 
-<!-- ===== 門市班別設定 MODAL（店長以上）===== -->
 <div class="modal-overlay" id="storeConfigModal" onclick="closeWip(event)">
   <div class="modal-box">
     <div class="modal-handle"></div>
     <div class="modal-title">🔧 門市班別設定</div>
-    <!-- 加盟主/admin：門市切換 tab -->
     <div id="storeConfigTabs" style="display:none;flex-wrap:wrap;gap:6px;padding:0 20px 10px;"></div>
     <div class="modal-sub" id="storeConfigSub">設定門市的班別快捷按鈕</div>
     <input type="hidden" id="storeConfigStore">
 
-    <!-- 班別快捷 -->
     <div class="card-title" style="margin-top:8px;">📋 班別快捷按鈕</div>
     <div style="font-size:11px; color:var(--text-muted); margin-bottom:8px;">預設班別（7-15、15-23、23-07、18-23、清空、指休、排休）不可刪除</div>
     <div id="shiftBtnList" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; max-width:100%; overflow:hidden;"></div>
@@ -1087,7 +1039,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       <button onclick="addShiftBtn()" style="background:var(--primary); color:white; border:none; border-radius:10px; padding:10px 14px; font-weight:700; cursor:pointer; flex-shrink:0;">加入</button>
     </div>
 
-    <!-- 備註快捷 -->
     <div class="card-title">💬 備註快捷按鈕</div>
     <div id="noteBtnList" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; max-width:100%; overflow:hidden;"></div>
     <div style="display:flex; gap:6px; margin-bottom:16px;">
@@ -1095,12 +1046,10 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       <button onclick="addNoteBtn()" style="background:var(--accent); color:white; border:none; border-radius:10px; padding:10px 14px; font-weight:700; cursor:pointer; flex-shrink:0;">加入</button>
     </div>
 
-    <!-- 首次使用提示 -->
     <div id="storeConfigFirstSave" style="display:none;background:#fff3e0;border:1.5px solid #ffcc80;border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#e65100;font-weight:600;">
       ⚠️ 首次開啟門市設定，已自動帶入目前班別。請確認後儲存，往後以此設定為主。
     </div>
 
-    <!-- 每日劃休人數上限 -->
     <div class="card-title" style="margin-top:4px;">📅 每日劃休人數上限</div>
     <div style="font-size:11px; color:var(--text-muted); margin-bottom:10px;">特休、補休、排休合計，達上限仍可送出但系統會提示</div>
     <div style="display:flex; gap:12px; margin-bottom:16px;">
@@ -1121,8 +1070,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
   </div>
 </div>
 
-<!-- ===== 角色預覽 MODAL ===== -->
-<!-- ===== 離職日期 Modal ===== -->
 <div class="modal-overlay" id="retireModal" onclick="if(event.target===this)closeModal('retireModal')">
   <div class="modal-box">
     <div class="modal-handle"></div>
@@ -1140,7 +1087,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
   </div>
 </div>
 
-<!-- ===== 設定 Bottom Sheet ===== -->
 <div class="bottom-sheet-overlay" id="settingsOverlay" onclick="closeSettingsSheet()"></div>
 <div class="bottom-sheet" id="settingsSheet">
   <div class="bs-handle"></div>
@@ -1187,7 +1133,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
   <div style="height:16px;"></div>
 </div>
 
-<!-- ===== 更多管理 Bottom Sheet ===== -->
 <div class="bottom-sheet-overlay" id="leaveOverlay" onclick="closeLeaveSheet()"></div>
 <div class="bottom-sheet" id="leaveSheet">
   <div class="bs-handle"></div>
@@ -1242,7 +1187,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
   <div style="height:16px;"></div>
 </div>
 
-<!-- ===== rolePreviewModal ===== -->
 <div class="modal-overlay" id="retiredEmpModal" onclick="if(event.target===this)closeModal('retiredEmpModal')">
   <div class="modal-box" style="max-height:85vh;">
     <div class="modal-handle"></div>
@@ -1297,7 +1241,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
   </div>
 </div>
 
-<!-- TOAST -->
 <div class="toast" id="toast"></div>
 
 <script>
@@ -1791,28 +1734,21 @@ function renderStatsArea() {
       </div>`;
   } else {
     el.innerHTML = `
-      <div class="stats-row">
-        <div class="stat-card" onclick="window.location.href='leave.html'" style="cursor:pointer;">
+      <div class="stats-row" style="grid-template-columns: repeat(3, 1fr); gap: 8px;">
+        <div class="stat-card" onclick="window.location.href='leave.html'" style="cursor:pointer; padding: 10px 4px;">
           <div class="stat-icon">🏖️</div>
-          <div class="stat-val" id="statLeave" style="font-size:20px;">--</div>
-          <div class="stat-label" id="statLeaveLabel">特/補休剩餘 (天)</div>
+          <div class="stat-val" id="statAnnualLeave" style="font-size:20px;">--</div>
+          <div class="stat-label" style="font-size: 9px;">特休 (天)</div>
         </div>
-        <div class="stat-card">
-          <div class="stat-icon">😴</div>
-          <div class="stat-val" id="statMonthOff">--</div>
-          <div class="stat-label">本月已休 (天)</div>
+        <div class="stat-card" onclick="window.location.href='leave.html'" style="cursor:pointer; padding: 10px 4px;">
+          <div class="stat-icon">📆</div>
+          <div class="stat-val" id="statCompLeave" style="font-size:20px;">--</div>
+          <div class="stat-label" style="font-size: 9px;">補休 (天)</div>
         </div>
-      </div>
-      <div class="stats-row">
-        <div class="stat-card">
+        <div class="stat-card" style="padding: 10px 4px;">
           <div class="stat-icon">⚡</div>
-          <div class="stat-val" id="statMonthOT" style="color:var(--danger);">--</div>
-          <div class="stat-label">本月加班時數 (h)</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-icon">📅</div>
-          <div class="stat-val" id="statThisWeek">--</div>
-          <div class="stat-label">本週排班天數</div>
+          <div class="stat-val" id="statMonthOT" style="color:var(--danger); font-size:20px;">--</div>
+          <div class="stat-label" style="font-size: 9px;">本月加班 (h)</div>
         </div>
       </div>`;
   }
@@ -1914,12 +1850,10 @@ async function loadStats() {
       if(whEl) whEl.textContent = Math.round(weekHours * 10) / 10;
       if(mhEl) mhEl.textContent = Math.round(monthHours * 10) / 10;
     } else {
-      const twEl = document.getElementById('statThisWeek');
-      const moEl = document.getElementById('statMonthOff');
       const otEl = document.getElementById('statMonthOT');
-      const leaveEl = document.getElementById('statLeave');
-      if(twEl) twEl.textContent = workDays;
-      if(moEl) moEl.textContent = monthOff;
+      const annualLeaveEl = document.getElementById('statAnnualLeave');
+      const compLeaveEl = document.getElementById('statCompLeave');
+
       if(otEl) {
         const otVal = Math.round(monthOT * 10) / 10;
         otEl.textContent = otVal;
@@ -1949,15 +1883,22 @@ async function loadStats() {
           }
           const compData = compSnap?.exists ? compSnap.data() : {};
           const remainComp = Math.max(0, (compData.earned||0) - (compData.used||0));
-          if(leaveEl) {
-            leaveEl.textContent = totalAvail;
-            leaveEl.style.color = totalAvail > 0 ? '#7c3aed' : 'var(--text-muted)';
+          
+          if(annualLeaveEl) {
+            annualLeaveEl.textContent = totalAvail;
+            annualLeaveEl.style.color = totalAvail > 0 ? '#7c3aed' : 'var(--text-muted)';
           }
-          const labelEl = document.getElementById('statLeaveLabel');
-          if(labelEl) labelEl.textContent = `特休剩餘 / 補休 ${remainComp} 天`;
-        }).catch(() => { if(leaveEl) leaveEl.textContent = '--'; });
+          if(compLeaveEl) {
+            compLeaveEl.textContent = remainComp;
+            compLeaveEl.style.color = remainComp > 0 ? '#1a73e8' : 'var(--text-muted)';
+          }
+        }).catch(() => { 
+          if(annualLeaveEl) annualLeaveEl.textContent = '--';
+          if(compLeaveEl) compLeaveEl.textContent = '--';
+        });
       } else {
-        if(leaveEl) leaveEl.textContent = '--';
+        if(annualLeaveEl) annualLeaveEl.textContent = '--';
+        if(compLeaveEl) compLeaveEl.textContent = '--';
       }
     }
   } catch(e) {
