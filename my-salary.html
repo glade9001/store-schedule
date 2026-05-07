@@ -1937,29 +1937,21 @@ function renderEmpList() {
 }
 
 // ===== 員工薪資編輯 Modal =====
-let currentEmpModal = null; // 目前開啟的員工名稱
-
-function openEmpModal(empName, tabIdx) {
+function openEmpModal(empName) {
   currentEmpModal = empName;
-  currentModalTab = tabIdx ?? 0;
   const emp = empList.find(e => e.name === empName);
   if(!emp) return;
   let rec = getSalaryRecord(empName) || buildDefaultRecord(emp);
   if(!getSalaryRecord(empName)) salaryData.records.push(rec);
 
-  // 加盟主：開 Modal 時記錄快照（用於偵測是否修改）
-  if(canApprove()) {
-    modalSnapshot[empName] = JSON.stringify(rec);
-  }
-  if(!tabConfirmed[empName]) tabConfirmed[empName] = { 0: false, 1: false, 2: false };
-
-  const readonly = isReadonly();
   const total = calcTotal(rec);
 
   document.getElementById('empModalTitle').textContent = getDisplayName(empName);
   document.getElementById('empModalRole').textContent = `${emp.role||''} · ${currentMonth.replace('-','年')}月`;
   document.getElementById('empModalTotal').textContent = `$${total.toLocaleString()}`;
-  document.getElementById('empModalBody').innerHTML = renderSalaryForm(emp, rec, 0, readonly);
+  
+  // 核心：直接渲染一頁式三欄內容，不需要 switchModalTab
+  document.getElementById('empModalBody').innerHTML = renderSalaryForm(emp, rec, 0, true);
 
   openModal('empEditModal');
 }
@@ -2179,88 +2171,6 @@ function fieldIfExist(label, val) {
   }
   col3 += `</div>`;
 
-  // ===== Tab 架構 =====
-  const empNameEsc = emp.name.replace(/'/g, "\\'");
-  const tabs = ['考勤紀錄', '薪資項目', '代扣項目'];
-  const tabBar = tabs.map((t, i) => {
-    const confirmed = tabConfirmed[emp.name]?.[i];
-    const isActive = i === currentModalTab;
-    const needConfirm = !confirmed && !isReadonly();
-    return `<button onclick="switchModalTab(${i})"
-      style="flex:1;padding:10px 4px;border:none;border-bottom:3px solid ${isActive?'var(--primary)':'transparent'};
-      background:${isActive?'#f0f7ff':'white'};font-size:13px;font-weight:800;cursor:pointer;
-      color:${isActive?'var(--primary)':'var(--text-muted)'};position:relative;">
-      ${t}${needConfirm?'<span style="position:absolute;top:4px;right:4px;width:8px;height:8px;background:#f9ab00;border-radius:50%;"></span>':''}
-    </button>`;
-  }).join('');
-
-  // Tab 內容（考勤先、薪資項目次、代扣最後）
-  const tabContents = [
-    // Tab 0：考勤紀錄
-    `<div id="modal-tab-0">${col3}${renderCalendar(emp.name, emp.role)}</div>`,
-    // Tab 1：薪資項目
-    `<div id="modal-tab-1" style="display:none;">${col1}</div>`,
-    // Tab 2：代扣項目
-    `<div id="modal-tab-2" style="display:none;">${col2}</div>`,
-  ].join('');
-
-  const isLastTab = currentModalTab === 2;
-  const confirmBtn = !isReadonly() ? `
-    <div style="padding:12px 0 0;border-top:1px solid var(--border);margin-top:12px;">
-      <button onclick="confirmModalTab('${empNameEsc}', ${currentModalTab})"
-        style="width:100%;padding:13px;background:var(--primary);color:white;border:none;border-radius:12px;
-        font-size:15px;font-weight:800;cursor:pointer;">
-        ${isLastTab ? '✅ 確認完成' : '確認並繼續 →'}
-      </button>
-    </div>` : '';
-
-  return `
-    <div style="display:flex;border-bottom:1px solid var(--border);margin-bottom:12px;">${tabBar}</div>
-    ${tabContents}
-    ${confirmBtn}
-  `;
-}
-
-// ===== Modal Tab 切換 =====
-function switchModalTab(idx, saveState) {
-  currentModalTab = idx;
-  for(let i = 0; i <= 2; i++) {
-    const el = document.getElementById('modal-tab-' + i);
-    if(el) el.style.display = i === idx ? 'block' : 'none';
-  }
-  // Tab bar 高亮（重繪）
-  if(saveState !== false && currentEmpModal) {
-    const emp = empList.find(e => e.name === currentEmpModal);
-    const rec = getSalaryRecord(currentEmpModal);
-    if(emp && rec) {
-      document.getElementById('empModalBody').innerHTML = renderSalaryForm(emp, rec, 0, isReadonly());
-      switchModalTab(idx, false);
-    }
-  }
-}
-
-async function confirmModalTab(empName, tabIdx) {
-  if(!tabConfirmed[empName]) tabConfirmed[empName] = { 0:false, 1:false, 2:false };
-  tabConfirmed[empName][tabIdx] = true;
-  // 存檔
-  triggerAutoSave();
-  // 若是最後一頁，關閉 Modal 並更新卡片 badge
-  if(tabIdx === 2) {
-    renderEmpList();
-    closeEmpModal();
-    showToast('✅ 已確認完成');
-    return;
-  }
-  // 否則跳下一頁
-  const nextTab = tabIdx + 1;
-  currentModalTab = nextTab;
-  const emp = empList.find(e => e.name === empName);
-  const rec = getSalaryRecord(empName);
-  if(emp && rec) {
-    document.getElementById('empModalBody').innerHTML = renderSalaryForm(emp, rec, 0, isReadonly());
-    switchModalTab(nextTab, false);
-  }
-}
 
 // ===== 應休/補休區塊 =====
 function renderLeaveSection(empName, rec, idx, readonly) {
