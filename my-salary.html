@@ -1898,14 +1898,13 @@ function renderEmpList() {
   const el = document.getElementById('empList');
   const status = salaryData.status || 'draft';
 
-  // 1. 權限與狀態雙重過濾
-  // 如果是員工，且薪資狀態不是「已發布」，則不顯示任何卡片
-  if (currentUser.permission === 'employee' && status !== 'published') {
+  // 1. 狀態與權限檢查：非「已發布」狀態，顯示計算中
+  if (status !== 'published') {
     el.innerHTML = `
       <div class="empty-state">
         <div class="empty-icon">⏳</div>
         <div style="font-weight:700;">${currentMonth.replace('-','年')}月薪資計算中</div>
-        <div style="font-size:12px;margin-top:4px;">請待管理員發布後查看。若先前已發布但現在消失，表示管理員正在修正中。</div>
+        <div style="font-size:12px;margin-top:4px;">請待管理員發布後查看。若管理員收回發布，此內容將暫時隱藏。</div>
       </div>`;
     return;
   }
@@ -1928,7 +1927,7 @@ function renderEmpList() {
           <div class="emp-salary-avatar" style="background:linear-gradient(135deg,#1a73e8,#0d47a1);">${getDisplayName(emp.name)[0]}</div>
           <div class="emp-salary-info">
             <div class="emp-salary-name">${getDisplayName(emp.name)}</div>
-            <div class="emp-salary-role">${currentMonth.replace('-','年')}月 · 已確認發布</div>
+            <div class="emp-salary-role">${currentMonth.replace('-','年')}月 · 薪資明細已發布</div>
           </div>
           <div class="emp-salary-total">$${total.toLocaleString()}</div>
           <div style="font-size:18px;color:var(--text-muted);">›</div>
@@ -2067,57 +2066,66 @@ function buildDefaultRecord(emp) {
 
 function renderSalaryForm(emp, rec, idx, readonly) {
   const isPart = rec.role === ROLE_PART;
-  const ro = true; // 強制設定為唯讀檢視模式
+  const ro = true; // 個人檢視畫面強制唯讀
   const { totalH } = calcEmpHours(emp.name);
   const rph = isPart ? 0 : hourlyRate(rec);
   const gross = calcGross(rec);
   const deduct = calcDeduct(rec);
 
-  // 輔助函式：快速生成列
-  const rowHtml = (label, val, unit="$") => `
-    <div class="salary-row">
-      <span class="salary-row-label">${label}</span>
-      <span class="salary-row-val">${val !== 0 ? `${unit}${val.toLocaleString()}` : '-'}</span>
-    </div>`;
+  // 輔助函式：隱藏數值為 0 的列
+  const fieldIfExist = (label, val, unit="$") => {
+    if (!val || val === 0) return '';
+    return `
+      <div class="salary-row">
+        <span class="salary-row-label">${label}</span>
+        <span class="salary-row-val">${unit}${val.toLocaleString()}</span>
+      </div>`;
+  };
 
-  // --- 欄位 1：考勤紀錄與餘額 (原第三欄) ---
+  // --- 欄位 1：考勤紀錄與餘額 (考勤優先) ---
   const leaveInfo = leaveDataMap[emp.name] || {};
   const remainComp = (typeof leaveInfo.earnedComp==='number') ? (leaveInfo.earnedComp-leaveInfo.usedComp) : '--';
+  const annualDays = leaveInfo.annualDays ?? '--';
+  const usedAnnual = leaveInfo.usedAnnual ?? '--';
+  const remainAnnual = (typeof annualDays==='number' && typeof usedAnnual==='number') ? annualDays-usedAnnual : '--';
   
   let col1 = `<div class="col-card">
     <div class="col-header c3">1. 考勤紀錄與餘額</div>
-    ${rowHtml('平日加班時數', rec.otHours||0, '')}
-    ${rowHtml('遲到分鐘數', rec.lateMinutes||0, '')}
-    ${rowHtml('剩餘補休天數', remainComp, '')}
-    ${!isPart ? `<div class="salary-row"><span class="salary-row-label">時薪計算基準</span><span class="salary-row-val">$${Math.round(rph)}/hr</span></div>` : ''}
+    <div class="salary-row"><span class="salary-row-label">平日加班時數</span><span class="salary-row-val">${rec.otHours||0} h</span></div>
+    <div class="salary-row"><span class="salary-row-label">遲到分鐘數</span><span class="salary-row-val">${rec.lateMinutes||0} m</span></div>
+    <div class="salary-row" style="margin-top:8px; background:#f0f9ff; padding:8px; border-radius:8px;">
+      <span class="salary-row-label">剩餘補休天數</span><span class="salary-row-val" style="color:var(--accent); font-weight:800;">${remainComp} 天</span>
+    </div>
+    <div class="salary-row"><span class="salary-row-label">特休(發/用/剩)</span><span class="salary-row-val">${annualDays}/${usedAnnual}/${remainAnnual}</span></div>
     <div style="border-top:1px solid #eee; margin:12px 0;"></div>
     ${renderCalendar(emp.name, emp.role)} 
   </div>`;
 
-  // --- 欄位 2：薪資項目 (原第一欄) ---
+  // --- 欄位 2：薪資項目 ---
   let col2 = `<div class="col-card">
-    <div class="col-header c1">2. 薪資項目明細</div>
-    ${isPart ? rowHtml('本薪 ('+totalH+'h)', Math.round(totalH*(rec.wage||0))) : rowHtml('本薪 (底薪)', rec.baseSalary)}
+    <div class="col-header c1">2. 薪資項目</div>
+    ${isPart ? `<div class="salary-row"><span class="salary-row-label">本薪 (${totalH}h)</span><span class="salary-row-val">$${Math.round(totalH*(rec.wage||0)).toLocaleString()}</span></div>` : `<div class="salary-row"><span class="salary-row-label">本薪 (底薪)</span><span class="salary-row-val">$${(rec.baseSalary||0).toLocaleString()}</span></div>`}
     ${fieldIfExist('全勤獎金', rec.fullAttendBonus)}
     ${fieldIfExist('職務津貼', rec.roleBonus)}
     ${fieldIfExist('平日加班費', Math.ceil(rph * (rec.otHours||0) * 1.34))}
     ${fieldIfExist('績效獎金', rec.performance)}
+    ${fieldIfExist('夜點/勞務津貼', (parseFloat(rec.nightAllowance||0) + parseFloat(rec.laborAllowance||0)))}
     ${fieldIfExist('其他津貼', rec.otherBonus)}
     <div class="salary-total-row">
       <span class="salary-total-label">應發薪資總計</span>
-      <span class="salary-total-val">$${gross.toLocaleString()}</span>
+      <span class="salary-total-val" style="color:var(--primary);">$${gross.toLocaleString()}</span>
     </div>
   </div>`;
 
-  // --- 欄位 3：代扣項目 (原第二欄) ---
+  // --- 欄位 3：代扣項目 ---
   let col3 = `<div class="col-card">
-    <div class="col-header c2">3. 代扣與實支項目</div>
-    ${rowHtml('勞保費', rec.laborInsurance)}
-    ${rowHtml('健保費 (含眷屬)', (rec.healthInsurance||0) + (rec.dependentInsurance||0))}
-    ${rowHtml('勞退個人自提', rec.laborPension)}
+    <div class="col-header c2">3. 代扣項目</div>
+    <div class="salary-row"><span class="salary-row-label">勞保費</span><span class="salary-row-val">$${(rec.laborInsurance||0).toLocaleString()}</span></div>
+    <div class="salary-row"><span class="salary-row-label">健保費 (含眷屬)</span><span class="salary-row-val">$${((rec.healthInsurance||0) + (rec.dependentInsurance||0)).toLocaleString()}</span></div>
+    <div class="salary-row"><span class="salary-row-label">勞退個人自提</span><span class="salary-row-val">$${(rec.laborPension||0).toLocaleString()}</span></div>
     ${fieldIfExist('其他扣款', rec.otherDeduction)}
     <div class="salary-total-row">
-      <span class="salary-total-label">代扣款總計</span>
+      <span class="salary-total-label">代扣合計</span>
       <span class="salary-total-val" style="color:var(--danger);">-$${deduct.toLocaleString()}</span>
     </div>
   </div>`;
@@ -2129,7 +2137,7 @@ function renderSalaryForm(emp, rec, idx, readonly) {
       ${col3}
     </div>
     <div style="text-align:center; font-size:11px; color:var(--text-muted); margin-top:15px; border-top:1px solid #eee; padding-top:10px;">
-      💡 左右滑動可查閱不同分欄內容
+      💡 電腦版可直接查閱，手機版請左右滑動切換分欄
     </div>
   `;
 }
