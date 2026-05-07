@@ -2676,22 +2676,32 @@ function renderScheduleRef(empName, role) {
   </div>`;
 }
 // ===== 新增：管理責任獎金與加班費設定視窗控制 =====
+// ===== 新增：管理責任獎金與加班費設定視窗控制 =====
 function openMgmtModal(empName) {
   currentEmpModal = empName; // 共用原本記錄目前操作員工的變數
-  const rec = getSalaryRecord(empName);
-  ['ops','quality','kpi','account','leader'].forEach(k => {
-    const el = document.getElementById(`m_${k}`);
-    if(el) el.value = rec[`mgmt${k.charAt(0).toUpperCase()+k.slice(1)}`] || 0;
-  });
+  const rec = getSalaryRecord(empName) || {};
+  
+  // 修正：明確指定變數名稱，避免大小寫 (KPI) 轉換錯誤
+  document.getElementById('m_ops').value = rec.mgmtOps || 0;
+  document.getElementById('m_quality').value = rec.mgmtQuality || 0;
+  document.getElementById('m_kpi').value = rec.mgmtKPI || 0; // 這裡是 mgmtKPI
+  document.getElementById('m_account').value = rec.mgmtAccount || 0;
+  document.getElementById('m_leader').value = rec.mgmtLeader || 0;
+  
   openModal('mgmtEditModal');
 }
 
 function saveMgmtBonus() {
   if(!currentEmpModal) return;
   let rec = getSalaryRecord(currentEmpModal);
-  ['ops','quality','kpi','account','leader'].forEach(k => {
-    rec[`mgmt${k.charAt(0).toUpperCase()+k.slice(1)}`] = parseFloat(document.getElementById(`m_${k}`).value) || 0;
-  });
+  
+  // 修正：明確指定變數名稱存檔
+  rec.mgmtOps = parseFloat(document.getElementById('m_ops').value) || 0;
+  rec.mgmtQuality = parseFloat(document.getElementById('m_quality').value) || 0;
+  rec.mgmtKPI = parseFloat(document.getElementById('m_kpi').value) || 0; // 這裡是 mgmtKPI
+  rec.mgmtAccount = parseFloat(document.getElementById('m_account').value) || 0;
+  rec.mgmtLeader = parseFloat(document.getElementById('m_leader').value) || 0;
+  
   closeModal('mgmtEditModal');
   updateFieldModal(currentEmpModal, 'dummy', 0); // 觸發重新渲染
 }
