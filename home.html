@@ -1056,6 +1056,8 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
   <div class="modal-box">
     <div class="modal-handle"></div>
     <div class="modal-title">🔧 門市班別設定</div>
+    <!-- 加盟主/admin：門市切換 tab -->
+    <div id="storeConfigTabs" style="display:none;flex-wrap:wrap;gap:6px;padding:0 20px 10px;"></div>
     <div class="modal-sub" id="storeConfigSub">設定門市的班別快捷按鈕</div>
     <input type="hidden" id="storeConfigStore">
 
@@ -1075,6 +1077,11 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
     <div style="display:flex; gap:6px; margin-bottom:16px;">
       <input type="text" id="newNoteBtn" placeholder="如：訂鮮食" style="flex:1; padding:10px; border:1.5px solid var(--border); border-radius:10px; font-size:14px; min-width:0;">
       <button onclick="addNoteBtn()" style="background:var(--accent); color:white; border:none; border-radius:10px; padding:10px 14px; font-weight:700; cursor:pointer; flex-shrink:0;">加入</button>
+    </div>
+
+    <!-- 首次使用提示 -->
+    <div id="storeConfigFirstSave" style="display:none;background:#fff3e0;border:1.5px solid #ffcc80;border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#e65100;font-weight:600;">
+      ⚠️ 首次開啟門市設定，已自動帶入目前班別。請確認後儲存，往後以此設定為主。
     </div>
 
     <!-- 每日劃休人數上限 -->
@@ -3117,23 +3124,49 @@ async function saveSysConfig() {
 }
 
 // ===== 門市班別設定（店長以上）=====
-async function openStoreConfigModal() {
-  const store = currentUser.store || (appConfig.stores && appConfig.stores[0]);
+async function openStoreConfigModal(targetStore) {
+  // 加盟主/admin 可切換門市；店長只看自己的店
+  const isMulti = ['owner','admin'].includes(currentUser?.permission);
+  const stores = isMulti ? (appConfig.stores || []) : [currentUser.store || appConfig.stores?.[0] || ''];
+  const store = targetStore || currentUser.store || stores[0] || '';
+
+  // 渲染門市 tab
+  const tabsEl = document.getElementById('storeConfigTabs');
+  if(isMulti && stores.length > 1) {
+    tabsEl.style.display = 'flex';
+    tabsEl.innerHTML = stores.map(s =>
+      `<button style="padding:5px 14px;border-radius:16px;border:1.5px solid ${s===store?'var(--primary)':'var(--border)'};background:${s===store?'var(--primary)':'white'};color:${s===store?'white':'var(--text-muted)'};font-size:12px;font-weight:700;cursor:pointer;"
+        onclick="openStoreConfigModal('${s}')">${s}</button>`
+    ).join('');
+  } else {
+    tabsEl.style.display = 'none';
+  }
+
   document.getElementById('storeConfigStore').value = store;
   document.getElementById('storeConfigSub').textContent = `「${store}」班別快捷設定`;
+  document.getElementById('storeConfigFirstSave').style.display = 'none';
 
   showLoading('讀取門市設定...');
   try {
     const snap = await window.db.collection('stores').doc(store).collection('config').doc('shifts').get();
     if(snap.exists) {
+      // 門市 config 存在：以門市 config 為主
       storeConfig = {
-        shifts: snap.data().shifts || [...DEFAULT_SHIFTS],
-        shiftHours: snap.data().shiftHours || {...DEFAULT_SHIFT_HOURS},
-        quickNotes: snap.data().quickNotes || ['作帳','訂鮮食','訂捷盟','訂乳品18度C'],
+        shifts:     snap.data().shifts     || [...(appConfig.shifts || DEFAULT_SHIFTS)],
+        shiftHours: snap.data().shiftHours || {...(appConfig.shiftHours || DEFAULT_SHIFT_HOURS)},
+        quickNotes: snap.data().quickNotes || (appConfig.quickNotes ? [...appConfig.quickNotes] : ['作帳','訂鮮食','訂捷盟','訂乳品18度C']),
         leaveQuota: snap.data().leaveQuota || { fullTime: 2, partTime: 1 }
       };
     } else {
-      storeConfig = { shifts: [...DEFAULT_SHIFTS], shiftHours: {...DEFAULT_SHIFT_HOURS}, quickNotes: ['作帳','訂鮮食','訂捷盟','訂乳品18度C'], leaveQuota: { fullTime: 2, partTime: 1 } };
+      // 門市 config 不存在：以 appConfig（globalConfig）為初始值，保留所有自訂班別
+      storeConfig = {
+        shifts:     [...(appConfig.shifts || DEFAULT_SHIFTS)],
+        shiftHours: {...(appConfig.shiftHours || DEFAULT_SHIFT_HOURS)},
+        quickNotes: appConfig.quickNotes ? [...appConfig.quickNotes] : ['作帳','訂鮮食','訂捷盟','訂乳品18度C'],
+        leaveQuota: { fullTime: 2, partTime: 1 }
+      };
+      // 第一次開啟：提示儲存一次以鎖定設定
+      document.getElementById('storeConfigFirstSave').style.display = 'block';
     }
   } catch(e) {}
   hideLoading();
@@ -3146,7 +3179,10 @@ async function openStoreConfigModal() {
   // 填入劃休上限
   document.getElementById('quotaFullTime').value = storeConfig.leaveQuota?.fullTime ?? 2;
   document.getElementById('quotaPartTime').value = storeConfig.leaveQuota?.partTime ?? 1;
-  openModal('storeConfigModal');
+  // 若 modal 尚未開啟才 open（切換 tab 時已開著）
+  if(!document.getElementById('storeConfigModal').classList.contains('active')) {
+    openModal('storeConfigModal');
+  }
 }
 
 function renderShiftBtnList() {
