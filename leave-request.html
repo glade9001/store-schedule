@@ -35,6 +35,14 @@
 html,body{height:100%;overflow:hidden;background:var(--bg);
   font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;color:var(--text);}
 
+/* Store bar */
+.store-bar{display:flex;gap:8px;overflow-x:auto;padding:8px 14px;background:white;
+  border-bottom:1px solid var(--border);flex-shrink:0;scrollbar-width:none;-webkit-overflow-scrolling:touch;}
+.store-bar::-webkit-scrollbar{display:none;}
+.store-tab-btn{flex-shrink:0;padding:6px 16px;border-radius:20px;font-size:13px;font-weight:700;
+  border:1.5px solid var(--border);background:white;cursor:pointer;color:var(--text-muted);}
+.store-tab-btn.active{background:var(--primary);color:white;border-color:var(--primary);}
+
 /* Loading */
 #loadingOverlay{display:flex;position:fixed;inset:0;background:linear-gradient(135deg,#1a73e8,#0d47a1);
   z-index:99999;flex-direction:column;justify-content:center;align-items:center;color:white;transition:opacity 0.4s;}
@@ -215,6 +223,9 @@ html,body{height:100%;overflow:hidden;background:var(--bg);
     <div class="header-emp" id="headerEmp">--</div>
   </div>
 
+  <!-- 門市切換（加盟主/admin 才顯示）-->
+  <div class="store-bar" id="storeBar" style="display:none;"></div>
+
   <div class="tab-bar">
     <div class="tab-item active" id="tab-cal" onclick="switchTab('cal')">📆 月曆</div>
     <div class="tab-item" id="tab-list" onclick="switchTab('list')">📋 我的申請</div>
@@ -294,6 +305,8 @@ html,body{height:100%;overflow:hidden;background:var(--bg);
 <script>
 // ===== 全域狀態 =====
 let currentUser = null, appConfig = { stores:[], shifts:[] };
+let currentStore = ''; // 目前選擇的門市（加盟主/admin 可切換）
+const isMultiStore = () => ['owner','admin'].includes(currentUser?.permission);
 let currentTab = 'cal';
 let viewYear = 0, viewMonth = 0; // 0-based month
 let myRequests = []; // 本人所有申請
@@ -314,6 +327,31 @@ let cancelTargetId = '';
 const MAX_FULL_PER_DAY_SEATING = { full: 2, part: 1 }; // 預設，後面從 config 讀
 let dailyLimits = { fullTime: 2, partTime: 1 };
 const WEEKLY_OFF_LIMIT_FULL = 2; // 正職排休每週上限
+
+// ===== 門市切換（加盟主/admin）=====
+async function switchStoreTab(store) {
+  if(currentStore === store) return;
+  currentStore = store;
+  // 更新 bar 高亮
+  document.querySelectorAll('.store-tab-btn').forEach(b =>
+    b.classList.toggle('active', b.textContent === store)
+  );
+  // 重新讀 displayName
+  displayNameMap = {};
+  const accSnap = await window.db.collection('account').where('store','==',store).get().catch(()=>null);
+  if(accSnap) accSnap.forEach(d=>{ const a=d.data(); if(a.empName&&a.displayName) displayNameMap[a.empName]=a.displayName; });
+  // 重新讀門市 config（每日上限）
+  try {
+    const cfgSnap = await window.db.collection('stores').doc(store).collection('config').doc('shifts').get();
+    if(cfgSnap.exists && cfgSnap.data().leaveQuota){
+      dailyLimits.fullTime = cfgSnap.data().leaveQuota.fullTime ?? 2;
+      dailyLimits.partTime = cfgSnap.data().leaveQuota.partTime ?? 1;
+    }
+  } catch(e) {}
+  // 重新讀申請資料並重繪
+  await loadRequests();
+  renderTab();
+}
 
 // ===== 工具函式 =====
 function showLoading(m){ const o=document.getElementById('loadingOverlay'); o.classList.remove('hidden'); o.style.display='flex'; o.querySelector('div+div').textContent=m||'載入中...'; }
@@ -394,6 +432,7 @@ window.onload = async () => {
   try{ currentUser = JSON.parse(saved); } catch(e){ window.location.replace('home.html'); return; }
 
   document.getElementById('headerEmp').textContent = currentUser.displayName || currentUser.empName || '--';
+  currentStore = currentUser.store || appConfig.stores?.[0] || '';
 
   showLoading('載入設定...');
   try{
@@ -410,10 +449,18 @@ window.onload = async () => {
       }
     }catch(e){}
 
+    // 加盟主/admin：建立門市切換 bar
+    if(isMultiStore()) {
+      const bar = document.getElementById('storeBar');
+      bar.style.display = 'flex';
+      bar.innerHTML = (appConfig.stores||[]).map(s =>
+        `<button class="store-tab-btn ${s===currentStore?'active':''}" onclick="switchStoreTab('${s}')">${s}</button>`
+      ).join('');
+    }
+
     // 讀取每日上限設定（從門市 config/shifts 文件）
     try {
-      const store = currentUser.store || appConfig.stores?.[0] || '';
-      const cfgSnap = await window.db.collection('stores').doc(store).collection('config').doc('shifts').get();
+      const cfgSnap = await window.db.collection('stores').doc(currentStore).collection('config').doc('shifts').get();
       if(cfgSnap.exists && cfgSnap.data().leaveQuota){
         dailyLimits.fullTime = cfgSnap.data().leaveQuota.fullTime ?? 2;
         dailyLimits.partTime = cfgSnap.data().leaveQuota.partTime ?? 1;
@@ -421,8 +468,7 @@ window.onload = async () => {
     } catch(e) {}
 
     // 讀取顯示名稱
-    const store = currentUser.store || appConfig.stores?.[0] || '';
-    const accSnap = await window.db.collection('account').where('store','==',store).get().catch(()=>null);
+    const accSnap = await window.db.collection('account').where('store','==',currentStore).get().catch(()=>null);
     if(accSnap) accSnap.forEach(d=>{ const a=d.data(); if(a.empName&&a.displayName) displayNameMap[a.empName]=a.displayName; });
 
     // 讀取餘額
@@ -486,8 +532,7 @@ function addMonths(dateStr, months){
 
 // ===== 讀取申請資料 =====
 async function loadRequests(){
-  const store = currentUser.store || appConfig.stores?.[0] || '';
-  const snap = await window.db.collection('stores').doc(store).collection('leaveRequests')
+  const snap = await window.db.collection('stores').doc(currentStore).collection('leaveRequests')
     .orderBy('createdAt','desc').get().catch(()=>null);
   storeRequests = [];
   myRequests = [];
@@ -821,8 +866,6 @@ async function submitApply(){
   }
 
   const note = document.getElementById('applyNote').value.trim();
-  const store = currentUser.store || appConfig.stores?.[0] || '';
-
   showLoading('送出申請中...');
   try{
     const now = new Date();
@@ -838,9 +881,9 @@ async function submitApply(){
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
       week: dateToWeekStr(applyDate),
-      store
+      store: currentStore
     };
-    await window.db.collection('stores').doc(store).collection('leaveRequests').add(data);
+    await window.db.collection('stores').doc(currentStore).collection('leaveRequests').add(data);
     showToast('✅ 申請已送出');
     closeModal('applyModal');
     await loadRequests();
@@ -909,10 +952,9 @@ function openCancelModal(reqId){
 
 async function confirmCancel(){
   if(!cancelTargetId) return;
-  const store = currentUser.store || appConfig.stores?.[0] || '';
   showLoading('取消中...');
   try{
-    await window.db.collection('stores').doc(store).collection('leaveRequests').doc(cancelTargetId).update({
+    await window.db.collection('stores').doc(currentStore).collection('leaveRequests').doc(cancelTargetId).update({
       status: 'cancelled',
       updatedAt: new Date().toISOString()
     });
