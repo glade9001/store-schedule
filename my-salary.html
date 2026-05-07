@@ -711,14 +711,15 @@ async function confirmCompEarned(empName) {
       savedBy: currentUser.displayName || currentUser.empName
     })}, { merge: true });
 
-    // 從 leaveLog 重新加總 leaves 總帳
+   // 從 leaveLog 重新加總 leaves 總帳
     const leaveRef = window.db.collection('employees').doc(empName).collection('leaves').doc(year);
     const leaveSnap = await leaveRef.get();
     const existing = leaveSnap.exists ? leaveSnap.data() : {};
-    const logSnaps2 = await window.db.collection('employees').doc(empName).collection('leaveLog').get();
+    
+    // 修正：這裡正確取得所有 log 並計算
+    const logSnaps = await window.db.collection('employees').doc(empName).collection('leaveLog').get();
     let usedAnnual = 0, earnedComp = 0, usedComp = 0;
-    logSnaps2.forEach(d => {
-      if(!d.id.startsWith(year)) return;
+    
     logSnaps.forEach(d => {
       if(!d.id.startsWith(year)) return;
       (d.data().records || []).forEach(r => {
@@ -731,8 +732,6 @@ async function confirmCompEarned(empName) {
         if(r.type === 'comp_cancel')       earnedComp = Math.max(0, earnedComp - rd);
       });
     });
-    const updatedLeave = { ...existing, usedAnnual, earnedComp, usedComp, updatedAt: new Date().toISOString() };
-    await leaveRef.set(updatedLeave, { merge: true });
 
     // 同步 comp/{year}
     const compRef3 = window.db.collection('employees').doc(empName).collection('comp').doc(year);
