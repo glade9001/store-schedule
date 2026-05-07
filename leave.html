@@ -611,7 +611,7 @@ async function loadEmpComp(empName) {
       year: thisYear,
       earned: thisData.earned||0,
       used: thisData.used||0,
-      remaining: Math.max(0,(thisData.earned||0)-(thisData.used||0)),
+      remaining: (thisData.earned||0)-(thisData.used||0), // 允許負數（應休未休撤回時可能為負）
       expireDate: `${thisYear}-12-31`,
       settled: thisData.settled||false
     },
