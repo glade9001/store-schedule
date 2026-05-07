@@ -1040,6 +1040,22 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       <input type="text" id="sysNewStore" placeholder="新增門市名稱" style="flex:1; padding:10px; border:1.5px solid var(--border); border-radius:10px; font-size:14px;">
       <button onclick="addSysStore()" style="background:var(--accent); color:white; border:none; border-radius:10px; padding:10px 16px; font-weight:700; cursor:pointer;">新增</button>
     </div>
+    <!-- 國定假日管理（加盟主以上）-->
+    <div id="sysHolidaySection" style="display:none; border-top:1px solid var(--border); padding-top:14px; margin-bottom:4px;">
+      <div class="card-title">📅 國定假日管理</div>
+      <div style="font-size:11px; color:var(--text-muted); margin-bottom:10px;">每年初自動帶入內建假日，可手動新增或刪除</div>
+      <!-- 年份切換 -->
+      <div style="display:flex; gap:6px; margin-bottom:10px;" id="holidayYearTabs"></div>
+      <!-- 假日清單 -->
+      <div id="holidayList" style="max-height:200px; overflow-y:auto; margin-bottom:10px; border:1px solid var(--border); border-radius:10px; padding:4px 0;"></div>
+      <!-- 新增假日 -->
+      <div style="display:flex; gap:6px; margin-bottom:14px;">
+        <input type="date" id="newHolidayDate" style="flex:1; padding:9px; border:1.5px solid var(--border); border-radius:10px; font-size:13px; min-width:0;">
+        <input type="text" id="newHolidayName" placeholder="假日名稱" style="flex:2; padding:9px; border:1.5px solid var(--border); border-radius:10px; font-size:13px; min-width:0;">
+        <button onclick="addHoliday()" style="background:var(--accent); color:white; border:none; border-radius:10px; padding:9px 14px; font-weight:700; cursor:pointer; flex-shrink:0;">加入</button>
+      </div>
+    </div>
+
     <!-- ✅ 角色預覽（只對 admin 顯示）-->
     <div id="sysRolePreviewSection" style="display:none; border-top:1px solid var(--border); padding-top:14px; margin-bottom:14px;">
       <div class="card-title">🎭 角色預覽</div>
@@ -3091,6 +3107,17 @@ async function openSysConfigModal() {
   const rpSection = document.getElementById('sysRolePreviewSection');
   if(rpSection) rpSection.style.display = canSysConfig() ? 'block' : 'none';
 
+  // 國定假日管理：加盟主以上顯示
+  const canManageHoliday = ['owner','admin'].includes(currentUser?.permission);
+  const hSection = document.getElementById('sysHolidaySection');
+  if(hSection) hSection.style.display = canManageHoliday ? 'block' : 'none';
+  if(canManageHoliday) {
+    holidayMgrYear = new Date().getFullYear();
+    await loadHolidayMgrData(holidayMgrYear);
+    renderHolidayYearTabs();
+    renderHolidayList();
+  }
+
   document.getElementById('sysNewStore').value = '';
   openModal('sysConfigModal');
 }
@@ -3121,6 +3148,121 @@ async function saveSysConfig() {
     hideLoading();
     showToast('❌ 儲存失敗：' + e.message);
   }
+}
+
+// ===== 國定假日管理（加盟主以上）=====
+// 內建假日（與 leave-request.html 同步）
+const BUILTIN_HOLIDAYS_HOME = {
+  '2026': {
+    '2026-01-01':'元旦','2026-01-28':'除夕','2026-01-29':'春節','2026-01-30':'春節',
+    '2026-01-31':'春節','2026-02-01':'春節','2026-02-02':'春節','2026-02-28':'和平紀念日',
+    '2026-04-03':'兒童節','2026-04-04':'清明節','2026-05-01':'勞動節',
+    '2026-06-19':'端午節','2026-09-26':'中秋節','2026-10-10':'國慶日'
+  },
+  '2027': {
+    '2027-01-01':'元旦','2027-02-17':'除夕','2027-02-18':'春節','2027-02-19':'春節',
+    '2027-02-20':'春節','2027-02-21':'春節','2027-02-22':'春節','2027-02-28':'和平紀念日',
+    '2027-04-03':'兒童節','2027-04-05':'清明節','2027-05-01':'勞動節',
+    '2027-06-09':'端午節','2027-10-01':'中秋節','2027-10-10':'國慶日'
+  }
+};
+
+let holidayMgrYear = new Date().getFullYear();
+let holidayMgrData = {}; // { year: { 'YYYY-MM-DD': '假日名' } }
+
+async function loadHolidayMgrData(year) {
+  if(holidayMgrData[year]) return; // 已快取
+  try {
+    const snap = await window.db.collection('settings').doc('holidays')
+      .collection('years').doc(String(year)).get();
+    if(snap.exists && snap.data().dates) {
+      holidayMgrData[year] = { ...snap.data().dates };
+    } else {
+      // Firestore 無資料 → 自動帶入內建並寫入
+      holidayMgrData[year] = { ...(BUILTIN_HOLIDAYS_HOME[String(year)] || {}) };
+      await saveHolidayYear(year);
+      showToast(`✅ 已自動帶入 ${year} 年內建假日`);
+    }
+  } catch(e) {
+    holidayMgrData[year] = { ...(BUILTIN_HOLIDAYS_HOME[String(year)] || {}) };
+  }
+}
+
+async function saveHolidayYear(year) {
+  await window.db.collection('settings').doc('holidays')
+    .collection('years').doc(String(year)).set({ dates: holidayMgrData[year] || {} });
+}
+
+function renderHolidayYearTabs() {
+  const el = document.getElementById('holidayYearTabs');
+  if(!el) return;
+  const curYear = new Date().getFullYear();
+  const years = [curYear, curYear+1];
+  el.innerHTML = years.map(y =>
+    `<button onclick="switchHolidayYear(${y})"
+      style="padding:5px 16px;border-radius:16px;border:1.5px solid ${y===holidayMgrYear?'var(--primary)':'var(--border)'};
+      background:${y===holidayMgrYear?'var(--primary)':'white'};color:${y===holidayMgrYear?'white':'var(--text-muted)'};
+      font-size:13px;font-weight:700;cursor:pointer;">${y} 年</button>`
+  ).join('');
+}
+
+async function switchHolidayYear(year) {
+  holidayMgrYear = year;
+  await loadHolidayMgrData(year);
+  renderHolidayYearTabs();
+  renderHolidayList();
+}
+
+function renderHolidayList() {
+  const el = document.getElementById('holidayList');
+  if(!el) return;
+  const dates = holidayMgrData[holidayMgrYear] || {};
+  const sorted = Object.keys(dates).sort();
+  if(!sorted.length) {
+    el.innerHTML = `<div style="text-align:center;color:var(--text-muted);font-size:13px;padding:12px 0;">尚無假日資料</div>`;
+    return;
+  }
+  const fmtD = s => { const [y,m,d]=s.split('-'); return `${parseInt(m)}/${parseInt(d)}`; };
+  el.innerHTML = sorted.map(dateStr =>
+    `<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;border-bottom:1px solid #f1f3f4;">
+      <span style="font-size:13px;font-weight:700;color:var(--danger);">${fmtD(dateStr)}</span>
+      <span style="font-size:13px;flex:1;margin-left:10px;">${dates[dateStr]}</span>
+      <button onclick="removeHoliday('${dateStr}')"
+        style="background:none;border:none;color:var(--danger);font-size:16px;cursor:pointer;padding:0 4px;font-weight:900;">✕</button>
+    </div>`
+  ).join('');
+}
+
+async function addHoliday() {
+  const dateStr = document.getElementById('newHolidayDate').value;
+  const name    = document.getElementById('newHolidayName').value.trim();
+  if(!dateStr || !name) { showToast('⚠️ 請填寫日期和假日名稱'); return; }
+  const year = parseInt(dateStr.split('-')[0]);
+  if(!holidayMgrData[year]) holidayMgrData[year] = {};
+  holidayMgrData[year][dateStr] = name;
+  // 自動切換到該年份
+  if(year !== holidayMgrYear) {
+    holidayMgrYear = year;
+    renderHolidayYearTabs();
+  }
+  showLoading('儲存中...');
+  await saveHolidayYear(year);
+  hideLoading();
+  document.getElementById('newHolidayDate').value = '';
+  document.getElementById('newHolidayName').value = '';
+  renderHolidayList();
+  showToast('✅ 假日已新增');
+}
+
+async function removeHoliday(dateStr) {
+  const year = parseInt(dateStr.split('-')[0]);
+  if(!confirm(`確定刪除「${dateStr} ${holidayMgrData[year]?.[dateStr]}」？`)) return;
+  delete holidayMgrData[year][dateStr];
+  showLoading('儲存中...');
+  await saveHolidayYear(year);
+  hideLoading();
+  renderHolidayList();
+  showToast('✅ 已刪除');
 }
 
 // ===== 門市班別設定（店長以上）=====
