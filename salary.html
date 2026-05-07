@@ -715,11 +715,10 @@ async function confirmCompEarned(empName) {
     const leaveRef = window.db.collection('employees').doc(empName).collection('leaves').doc(year);
     const leaveSnap = await leaveRef.get();
     const existing = leaveSnap.exists ? leaveSnap.data() : {};
+    // leaveLog 重新加總 leaves 總帳
     const logSnaps2 = await window.db.collection('employees').doc(empName).collection('leaveLog').get();
     let usedAnnual = 0, earnedComp = 0, usedComp = 0;
     logSnaps2.forEach(d => {
-      if(!d.id.startsWith(year)) return;
-    logSnaps.forEach(d => {
       if(!d.id.startsWith(year)) return;
       (d.data().records || []).forEach(r => {
         const rd = parseFloat(r.days) || 0;
@@ -735,14 +734,11 @@ async function confirmCompEarned(empName) {
     await leaveRef.set(updatedLeave, { merge: true });
 
     // 同步 comp/{year}
-    const compRef3 = window.db.collection('employees').doc(empName).collection('comp').doc(year);
-    const compSnap3 = await compRef3.get();
-    const cd3 = compSnap3.exists ? compSnap3.data() : { earned:0, used:0 };
-    await compRef3.set({ earned: Math.max(0, earnedComp), used: Math.max(0, usedComp) }, { merge: true });
-    if(typeof compDataMap !== 'undefined') {
-      compDataMap[empName] = compDataMap[empName] || {};
-      compDataMap[empName].current = { earned: Math.max(0,earnedComp), used: Math.max(0,usedComp), remaining: Math.max(0,earnedComp-usedComp) };
-      compDataMap[empName].totalRemaining = Math.max(0,earnedComp-usedComp) + (compDataMap[empName].carried?.remaining||0);
+    await window.db.collection('employees').doc(empName).collection('comp').doc(year)
+      .set({ earned: earnedComp, used: usedComp }, { merge: true });
+    if(compDataMap[empName]) {
+      compDataMap[empName].current = { earned: earnedComp, used: usedComp, remaining: earnedComp - usedComp };
+      compDataMap[empName].totalRemaining = earnedComp - usedComp + (compDataMap[empName].carried?.remaining||0);
     }
 
     rec.unworkedCompGranted = true;
