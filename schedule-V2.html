@@ -403,6 +403,8 @@ th:first-child { background: #1557b0; z-index: 12; }
     <div class="modal-handle"></div>
     <div class="modal-title" id="shiftModalTitle">設定班別</div>
     <div class="conflict-warn" id="conflictWarn">⚠️ 員工已提出排休，確定要覆蓋嗎？</div>
+    <!-- 劃休申請提示橫幅 -->
+    <div id="leaveReqBanner" style="display:none;margin:0 16px 10px;padding:10px 13px;border-radius:10px;font-size:12px;line-height:1.7;"></div>
     <div class="quick-grid" id="quickShiftBtns"></div>
     <div class="form-row">
       <div class="form-field">
@@ -504,7 +506,7 @@ th:first-child { background: #1557b0; z-index: 12; }
 // ===== 全域狀態 =====
 let currentUser = null;
 let appConfig = { stores: [], shifts: [], shiftHours: {} };
-let appData = { employees: [], records: [], allStoresRecords: [], allStoresEmployees: {} };
+let appData = { employees: [], records: [], allStoresRecords: [], allStoresEmployees: {}, leaveRequests: [] };
 let currentWeekDates = [];
 let virtualRowNames = [];
 let undoStack = [];
@@ -1505,6 +1507,14 @@ async function fetchAllStoreData() {
 
     await Promise.all(allFetches);
 
+    // u2705 u8b80u53d6u5283u4f11u7533u8acbuff08leaveRequestsuff09u2014u2014 u672cu9031u7bc4u570d
+    try {
+      const lrSnap = await window.db.collection('stores').doc(store).collection('leaveRequests')
+        .where('week', '==', weekStr).get();
+      appData.leaveRequests = [];
+      lrSnap.forEach(d => appData.leaveRequests.push({ id: d.id, ...d.data() }));
+    } catch(e) { appData.leaveRequests = []; }
+
     appData.allStoresEmployees[store] = appData.employees.map(e=>e.name);
     appData.records = appData.allStoresRecords.filter(r => r._store === store);
     virtualRowNames = [...new Set(mainWeekRecs.map(r=>r.name).filter(n=>n&&n.startsWith('🆘')))];
@@ -1960,6 +1970,30 @@ function updateCellUI(btn, extraHtml='') {
   if(hasConflict) { btn.classList.add('conflict'); txt+=`<br><span style="background:var(--danger);color:white;padding:1px 3px;border-radius:3px;font-size:10px;">⚠️ 衝突</span>`; }
   else if(requestOff) txt+=`<br><span class="req-tag">🙋‍♀️ 排休</span>`;
 
+  // ✅ 疊加 leaveRequests 劃休申請標籤（只在管理者視角 + 班別尚未填入時顯示）
+  if(!isVirtual && (appData.leaveRequests||[]).length > 0) {
+    const empName = btn.dataset.emp;
+    const day = btn.dataset.day;
+    const weekStr = document.getElementById('weekSelector')?.value;
+    const lr = appData.leaveRequests.find(r =>
+      r.empName === empName && r.day === day && r.week === weekStr &&
+      !['cancelled','unfulfilled'].includes(r.status)
+    );
+    if(lr) {
+      // 若班別已對應假別 → 申請已處理，不再顯示標籤
+      const alreadyHandled =
+        (lr.type === 'annual' && s === '特休') ||
+        (lr.type === 'comp'   && s === '補休') ||
+        (lr.type === 'off'    && (s === '排休' || s === '指休'));
+      if(!alreadyHandled) {
+        const lrLabel = lr.type==='annual'?'🏖️特休申請':lr.type==='comp'?'🗓️補休申請':'📝排休許願';
+        const lrColor = lr.type==='annual'?'#9334e6':lr.type==='comp'?'#0891b2':'var(--primary)';
+        const lrBg   = lr.type==='annual'?'#f3e8ff':lr.type==='comp'?'#ecfeff':'#e8f0fe';
+        txt += `<br><span style="background:${lrBg};color:${lrColor};padding:1px 4px;border-radius:4px;font-size:10px;font-weight:700;">${lrLabel}</span>`;
+      }
+    }
+  }
+
   btn.innerHTML=txt+extraHtml;
 }
 
@@ -1993,6 +2027,44 @@ function handleCellClick(btn, eIdx, isVirtual) {
     }
   }
   renderQuickShiftBtns();
+
+  // ✅ 劃休申請提示橫幅
+  const lrBanner = document.getElementById('leaveReqBanner');
+  if(lrBanner && !isVirtual) {
+    const weekStr = document.getElementById('weekSelector')?.value;
+    const lr = (appData.leaveRequests||[]).find(r =>
+      r.empName === btn.dataset.emp && r.day === btn.dataset.day &&
+      r.week === weekStr && !['cancelled','unfulfilled'].includes(r.status)
+    );
+    if(lr) {
+      const typeLabel = lr.type==='annual'?'🏖️ 特休':lr.type==='comp'?'🗓️ 補休':'📝 排休許願';
+      const shiftLabel = lr.shift==='morning'?'（早班）':lr.shift==='evening'?'（晚班）':'（全日）';
+      const alreadyHandled =
+        (lr.type==='annual' && btn.dataset.shift==='特休') ||
+        (lr.type==='comp'   && btn.dataset.shift==='補休') ||
+        (lr.type==='off'    && (btn.dataset.shift==='排休'||btn.dataset.shift==='指休'));
+
+      if(alreadyHandled) {
+        lrBanner.style.display = 'none';
+      } else {
+        const bgColor = lr.type==='annual'?'#f3e8ff':lr.type==='comp'?'#ecfeff':'#e8f0fe';
+        const color   = lr.type==='annual'?'#6b21a8':lr.type==='comp'?'#0e7490':'#1557b0';
+        const hint    = lr.type==='annual'||lr.type==='comp'
+          ? `排入「${lr.type==='annual'?'特休':'補休'}」即視為核准，店長排班前請確認餘額充足。`
+          : '排休為許願性質，店長排班時參考即可。';
+        lrBanner.style.display = 'block';
+        lrBanner.style.background = bgColor;
+        lrBanner.style.border = `1px solid ${color}40`;
+        lrBanner.style.color = color;
+        lrBanner.innerHTML = `<strong>${typeLabel} 申請中</strong>${shiftLabel}${lr.note?` · ${lr.note}`:''}<br><span style="opacity:0.8;">${hint}</span>`;
+      }
+    } else {
+      lrBanner.style.display = 'none';
+    }
+  } else if(lrBanner) {
+    lrBanner.style.display = 'none';
+  }
+
   openModal('shiftModal');
 }
 
@@ -2054,6 +2126,25 @@ function applyShift() {
     currentCell.dataset.loc=document.getElementById('modalLocation').value;
     if(document.getElementById('clearReqWrap').style.display!=='none' && document.getElementById('clearReqCheck').checked) {
       currentCell.dataset.reqoff='false';
+      // ✅ bug fix：取消 requestOff 後，若格子無任何實際資料，清除 records 裡的空記錄
+      // 防止備註欄（或其他欄位）殘留空字串導致 updateCellUI 顯示異常
+      const _weekStr = document.getElementById('weekSelector').value;
+      const _empName = currentCell.dataset.emp;
+      const _day = currentCell.dataset.day;
+      const _newShift = document.getElementById('modalShift').value.trim();
+      const _newNote = document.getElementById('modalNote').value.trim();
+      if(!_newShift && !_newNote) {
+        const _idx = appData.records.findIndex(r =>
+          r.name===_empName && r.day===_day && r.week===_weekStr
+        );
+        if(_idx !== -1) {
+          const _rec = appData.records[_idx];
+          // 若沒有其他有意義的資料，直接移除
+          if(!_rec.shift && !_rec.note && !_rec.supportEmp) {
+            appData.records.splice(_idx, 1);
+          }
+        }
+      }
     }
   }
   // ✅ 特休/補休：扣天數（非虛擬行才扣）
