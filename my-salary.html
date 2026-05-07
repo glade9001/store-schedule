@@ -28,6 +28,25 @@
   emailjs.init('OfG65y3BH5AMGcN-U');
 </script>
   <style>
+    .layout-3col-scroll {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto; /* 手機版左右滑動 */
+  scroll-snap-type: x mandatory;
+  padding-bottom: 10px;
+}
+.layout-3col-scroll .col-card {
+  min-width: 300px; /* 確保每一欄在手機上不會縮太小 */
+  flex: 1;
+  scroll-snap-align: start;
+}
+@media (min-width: 900px) {
+  .layout-3col-scroll {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr; /* 電腦版三欄平鋪 */
+    overflow-x: visible;
+  }
+}
   /* ===== 全新 3 欄式版面與按鈕 ===== */
 .layout-3col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; align-items: start; }
 @media(max-width: 900px) { .layout-3col { grid-template-columns: 1fr; } }
@@ -1877,51 +1896,39 @@ function updateStatusBadge() {
 // ===== 渲染員工列表 =====
 function renderEmpList() {
   const el = document.getElementById('empList');
-  
-  // 1. 核心過濾：只看自己
-  let emps = empList.filter(e => e.name === currentUser.empName);
-
-  // 2. 額外檢查：如果薪資尚未發布，員工端顯示「尚未結算」
   const status = salaryData.status || 'draft';
-  if (status !== 'published' && currentUser.permission === 'employee') {
+
+  // 1. 權限與狀態雙重過濾
+  // 如果是員工，且薪資狀態不是「已發布」，則不顯示任何卡片
+  if (currentUser.permission === 'employee' && status !== 'published') {
     el.innerHTML = `
       <div class="empty-state">
         <div class="empty-icon">⏳</div>
         <div style="font-weight:700;">${currentMonth.replace('-','年')}月薪資計算中</div>
-        <div style="font-size:12px;margin-top:4px;">請待管理員發布後查看</div>
+        <div style="font-size:12px;margin-top:4px;">請待管理員發布後查看。若先前已發布但現在消失，表示管理員正在修正中。</div>
       </div>`;
     return;
   }
+
+  // 2. 僅過濾出本人的紀錄
+  let emps = empList.filter(e => e.name === currentUser.empName);
 
   if (emps.length === 0) {
     el.innerHTML = `<div class="empty-state"><div class="empty-icon">👤</div><div>找不到您的薪資紀錄</div></div>`;
     return;
   }
 
+  // 3. 渲染個人卡片
   el.innerHTML = emps.map((emp, idx) => {
     let rec = getSalaryRecord(emp.name) || buildDefaultRecord(emp);
-    
-    // (工讀國假自動計算邏輯保持不變...)
-    if(emp.role === ROLE_PART && parseFloat(rec.holidayHours||0) === 0) {
-      /* ...你的自動計算邏輯... */
-    }
-
     const total = calcTotal(rec);
-    
-    // 3. 簡化員工端顯示：拿掉確認標籤，改為顯示發布狀態
-    const statusLabel = status === 'published' ? 
-      `<div style="font-size:10px;background:#e3f2fd;color:#1565c0;border-radius:6px;padding:2px 7px;font-weight:700;margin-top:2px;display:inline-block;">✅ 已發布</div>` : 
-      `<div style="font-size:10px;background:#f1f3f4;color:#64748b;border-radius:6px;padding:2px 7px;font-weight:700;margin-top:2px;display:inline-block;">計算中</div>`;
-
     return `
-      <div class="emp-salary-card" id="card-${idx}">
+      <div class="emp-salary-card">
         <div class="emp-salary-header" onclick="openEmpModal('${emp.name.replace(/'/g, "\\'")}')">
-          <div class="emp-salary-avatar" style="background:${emp.role===ROLE_MANAGER?'linear-gradient(135deg,#9334e6,#6a1bb5)':emp.role===ROLE_FULL?'linear-gradient(135deg,#34a853,#1e7e34)':'linear-gradient(135deg,#1a73e8,#0d47a1)'};">
-            ${getDisplayName(emp.name)[0]}
-          </div>
+          <div class="emp-salary-avatar" style="background:linear-gradient(135deg,#1a73e8,#0d47a1);">${getDisplayName(emp.name)[0]}</div>
           <div class="emp-salary-info">
-            <div class="emp-salary-name">${getDisplayName(emp.name)} <span style="font-size:11px;background:#f1f3f4;padding:2px 6px;border-radius:4px;font-weight:600;">${emp.role||''}</span></div>
-            <div class="emp-salary-role">${currentMonth.replace('-','年')}月 薪資 ${statusLabel}</div>
+            <div class="emp-salary-name">${getDisplayName(emp.name)}</div>
+            <div class="emp-salary-role">${currentMonth.replace('-','年')}月 · 已確認發布</div>
           </div>
           <div class="emp-salary-total">$${total.toLocaleString()}</div>
           <div style="font-size:18px;color:var(--text-muted);">›</div>
@@ -2060,133 +2067,82 @@ function buildDefaultRecord(emp) {
 
 function renderSalaryForm(emp, rec, idx, readonly) {
   const isPart = rec.role === ROLE_PART;
-  const isMgr = rec.role === ROLE_MANAGER;
-  const ro = readonly;
+  const ro = true; // 強制設定為唯讀檢視模式
   const { totalH } = calcEmpHours(emp.name);
-
-  // 輸入框元件
-  const inp = (key, val, label, ph="0", cls="salary-input") => {
-    if(ro) return `<div class="salary-row"><span class="salary-row-label">${label}</span><span class="salary-row-val">${parseFloat(val||0)>0?`$${parseFloat(val||0).toLocaleString()}`:'-'}</span></div>`;
-    return `<div class="salary-row">
-      <span class="salary-row-label">${label}</span>
-      <input class="${cls}" type="number" value="${parseFloat(val||0)||''}" placeholder="${ph}" onchange="updateFieldModal('${emp.name}','${key}',this.value)">
-    </div>`;
-  };
-
+  const rph = isPart ? 0 : hourlyRate(rec);
   const gross = calcGross(rec);
   const deduct = calcDeduct(rec);
-  const rph = isPart ? 0 : hourlyRate(rec);
 
-  // === 第一欄：薪資考勤項目 ===
-  let col1 = `<div class="col-card"><div class="col-header c1"><span>1. 薪資考勤項目</span><span style="font-size:11px;">(加減項)</span></div>`;
-  if(isPart) {
-    col1 += `<div class="salary-row"><span class="salary-row-label">本薪 <span style="font-size:10px;color:var(--text-muted);">${totalH}h × $${rec.wage||0}</span></span>
-             <span class="salary-row-val">$${Math.round(totalH*(rec.wage||0)).toLocaleString()}</span></div>`;
-    col1 += inp('roleBonus', rec.roleBonus, '職務津貼');
-  } else {
-    col1 += `<div class="salary-row"><span class="salary-row-label">本薪 <span style="font-size:10px;color:var(--text-muted);">系統帶入</span></span><span class="salary-row-val">$${(rec.baseSalary||0).toLocaleString()}</span></div>`;
-    col1 += inp('fullAttendBonus', rec.fullAttendBonus, '全勤獎金');
-    if(isMgr) {
-      const mgmtTotal = ['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+parseFloat(rec[k]||0),0);
-      col1 += `<div class="salary-row"><span class="salary-row-label">管理責任獎金 <button class="btn-sm primary" onclick="openMgmtModal('${emp.name}')" ${ro?'disabled':''}>設定</button></span>
-               <span class="salary-row-val">$${mgmtTotal.toLocaleString()}</span></div>`;
-    } else {
-      col1 += inp('roleBonus', rec.roleBonus, '職務津貼');
-    }
-  }
-  
-  col1 += inp('laborAllowance', rec.laborAllowance, '勞務津貼');
-  col1 += inp('performance', rec.performance, '績效津貼');
-  col1 += inp('nightAllowance', rec.nightAllowance, '夜點費金額');
-  col1 += inp('otherBonus', rec.otherBonus, '其他獎金/津貼');
-  
-  col1 += `<div class="salary-row"><span class="salary-row-label">特別假津貼 <span style="font-size:10px;color:var(--text-muted);">特補休系統</span></span>
-           <span class="salary-row-val">$${(rec.annualLeaveEncash||0).toLocaleString()}</span></div>`;
-  col1 += `<div class="salary-row"><span class="salary-row-label">補休結算金額 <span style="font-size:10px;color:var(--text-muted);">特補休系統</span></span>
-           <span class="salary-row-val">$${(rec.compLeaveEncash||0).toLocaleString()}</span></div>`;
-  
-  // 平日加班：支援自訂時薪
-  const hasCustomOt = !isPart && parseFloat(rec.customOtRate||0) > 0;
-  const otBaseRate = hasCustomOt ? parseFloat(rec.customOtRate) : (isPart ? 0 : Math.ceil(rph));
-  const otMultiplier = hasCustomOt ? (rec.customOtX134 !== false ? 1.34 : 1) : 1.34;
-  const wdOtAmt = isPart ? 0 : Math.ceil(otBaseRate * otMultiplier * (rec.otHours||0));
-  const otDetail = !isPart && (rec.otHours||0) > 0
-    ? `<div style="font-size:10px;color:var(--text-muted);margin-top:2px;">$${otBaseRate}${otMultiplier>1?' ×1.34':''} × ${rec.otHours}h = $${wdOtAmt.toLocaleString()}</div>`
-    : '';
-  const customOtBtn = !isPart && !ro
-    ? `<button class="btn-sm primary" onclick="openCustomOtModal('${emp.name}')" style="margin-left:4px;">${hasCustomOt?'✏️自訂':'自訂'}</button>`
-    : (hasCustomOt ? '<span style="font-size:10px;color:var(--primary);margin-left:4px;">自訂</span>' : '<span style="font-size:10px;color:var(--text-muted);">系統結算</span>');
-  col1 += `<div class="salary-row"><span class="salary-row-label">平日加班 ${customOtBtn}</span>
-           <span class="salary-row-val" style="color:var(--accent);">+$${wdOtAmt.toLocaleString()}</span></div>${otDetail}`;
-  col1 += inp('restDayOtPay', rec.restDayOtPay, '休息日加班金額');
-  
-  // 工讀國定假日：正常工資已含1倍，額外加給1倍（不是×2）
-  const holOtAmt = isPart
-    ? Math.round((rec.wage||0)*(rec.holidayHours||0)*1)
-    : parseFloat(rec.holidayOtPay||0);
-  const holDetail = isPart && (rec.holidayHours||0) > 0
-    ? `<div style="font-size:10px;color:var(--text-muted);margin-top:2px;">$${rec.wage||0} × ${rec.holidayHours}h × 1（額外加給） = $${holOtAmt.toLocaleString()}</div>`
-    : '';
-  const holLabel = isPart
-    ? '國定假日加給 <span style="font-size:10px;color:var(--text-muted);">額外+1倍</span>'
-    : '國定假日加班 <span style="font-size:10px;color:var(--text-muted);">系統結算</span>';
-  col1 += `<div class="salary-row"><span class="salary-row-label">${holLabel}</span>
-           <span class="salary-row-val" style="color:var(--accent);">+$${holOtAmt.toLocaleString()}</span></div>${holDetail}`;
-  
-  // 事病假與遲到扣款
-  if(ro) {
-    col1 += `<div class="salary-row"><span class="salary-row-label">事病假扣款</span><span class="salary-row-val" style="color:var(--danger);">-$${Math.abs(rec.personalSickLeave||0).toLocaleString()}</span></div>`;
-  } else {
-    col1 += `<div class="salary-row"><span class="salary-row-label">事病假扣款</span>
-             <input class="salary-input" style="color:var(--danger);" type="number" value="${Math.abs(rec.personalSickLeave||0)||''}" placeholder="0" onchange="updateFieldModal('${emp.name}','personalSickLeave',this.value)"></div>`;
-  }
-  
-  const lateDeduct = isPart ? 0 : Math.round(rph/60 * parseFloat(rec.lateMinutes||0));
-  col1 += `<div class="salary-row"><span class="salary-row-label">遲到扣款 <span style="font-size:10px;color:var(--text-muted);">系統結算</span></span>
-           <span class="salary-row-val" style="color:var(--danger);">-$${lateDeduct.toLocaleString()}</span></div>`;
-           
-  col1 += `<div class="salary-total-row"><span class="salary-total-label">小計 (應發薪資)</span><span class="salary-total-val" style="color:#1e3a8a;">$${gross.toLocaleString()}</span></div></div>`;
-
-  // === 第二欄：代扣項目 ===
-  let col2 = `<div class="col-card"><div class="col-header c2"><span>2. 代扣項目</span><span style="font-size:11px;">(減項)</span></div>`;
-  col2 += inp('laborInsurance', rec.laborInsurance, '勞保費');
-  col2 += inp('healthInsurance', rec.healthInsurance, '健保費');
-  col2 += inp('dependentInsurance', rec.dependentInsurance, '眷屬健保費');
-  col2 += inp('laborPension', rec.laborPension, '勞退個人自提');
-  col2 += inp('otherDeduction', rec.otherDeduction, '其他扣款');
-  
-  if(!ro) {
-    col2 += `<div style="margin-top:4px;"><input class="salary-input input-text" type="text" value="${rec.otherDeductionNote||''}" placeholder="請輸入扣款備註內容..." onchange="updateFieldModal('${emp.name}','otherDeductionNote',this.value)"></div>`;
-  } else if(rec.otherDeductionNote) {
-    col2 += `<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">備註：${rec.otherDeductionNote}</div>`;
-  }
-  
-  col2 += `<div class="salary-total-row"><span class="salary-total-label">小計 (代扣合計)</span><span class="salary-total-val" style="color:var(--danger);">-$${deduct.toLocaleString()}</span></div></div>`;
-
-  // === 第 2.5 欄 + 第三欄：考勤紀錄 ===
-  const leaveInfo = leaveDataMap[emp.name] || {};
-  const annualDays = leaveInfo.annualDays ?? '--';
-  const usedAnnual = leaveInfo.usedAnnual ?? '--';
-  const remainAnnual = (typeof annualDays==='number' && typeof usedAnnual==='number') ? annualDays-usedAnnual : '--';
-  const remainComp = (typeof leaveInfo.earnedComp==='number' && typeof leaveInfo.usedComp==='number') ? leaveInfo.earnedComp-leaveInfo.usedComp : '--';
-
-  let col3 = `<div class="col-card"><div class="col-header c3"><span>3. 考勤紀錄與餘額</span><span style="font-size:11px;">(紀錄)</span></div>`;
-  
-  if(!isPart) {
-    const actOff = calcMonthOffDays(emp.name, currentMonth);
-    const wHols = detectHolidayWork(emp.name, currentMonth);
-    const shortRest = Math.max(0, getMonthWeekendDays(currentMonth).total - actOff);
-    const compChecked = rec.unworkedCompGranted || false;
-
-    col3 += `<div style="background:#fffbeb;border:1px dashed #fcd34d;padding:10px;border-radius:8px;margin-bottom:12px;">
-      <div style="font-size:12px;font-weight:800;color:#b45309;margin-bottom:6px;">⚡ 應休未休補休發放</div>
-      <div class="salary-row"><span class="salary-row-label">應休天數（六日）</span><span class="salary-row-val">${getMonthWeekendDays(currentMonth).total} 天</span></div>
-      <div class="salary-row"><span class="salary-row-label">已休天數</span><span class="salary-row-val">${actOff} 天</span></div>
-      <div class="salary-row"><span class="salary-row-label">未休天數（應補休）</span><span class="salary-row-val" style="color:${shortRest>0?'#d93025':'#1e293b'};">${shortRest} 天</span></div>
-      <div class="salary-row" style="font-size:11px;color:var(--text-muted);"><span>※ 國定假日補休已由排班系統處理</span></div>
-      ${!ro ? `<button class="btn-sm accent" style="width:100%;margin-top:8px;padding:8px;background:${compChecked?'#b7f5d0':'#dcfce7'};color:${compChecked?'#065f46':'#16a34a'};" onclick="confirmCompEarned('${emp.name}')">${compChecked?`✅ 已發放 ${rec.unworkedCompDays||shortRest} 天（點擊撤回）`:`${shortRest>0?'點擊發放應休未休補休':'✅ 本月無需補休'}`}</button>` : `<div style="text-align:center;font-size:12px;color:var(--accent);font-weight:700;margin-top:8px;">${compChecked?`✅ 已發放 ${rec.unworkedCompDays||0} 天`:'未發放'}</div>`}
+  // 輔助函式：快速生成列
+  const rowHtml = (label, val, unit="$") => `
+    <div class="salary-row">
+      <span class="salary-row-label">${label}</span>
+      <span class="salary-row-val">${val !== 0 ? `${unit}${val.toLocaleString()}` : '-'}</span>
     </div>`;
-  }
+
+  // --- 欄位 1：考勤紀錄與餘額 (原第三欄) ---
+  const leaveInfo = leaveDataMap[emp.name] || {};
+  const remainComp = (typeof leaveInfo.earnedComp==='number') ? (leaveInfo.earnedComp-leaveInfo.usedComp) : '--';
+  
+  let col1 = `<div class="col-card">
+    <div class="col-header c3">1. 考勤紀錄與餘額</div>
+    ${rowHtml('平日加班時數', rec.otHours||0, '')}
+    ${rowHtml('遲到分鐘數', rec.lateMinutes||0, '')}
+    ${rowHtml('剩餘補休天數', remainComp, '')}
+    ${!isPart ? `<div class="salary-row"><span class="salary-row-label">時薪計算基準</span><span class="salary-row-val">$${Math.round(rph)}/hr</span></div>` : ''}
+    <div style="border-top:1px solid #eee; margin:12px 0;"></div>
+    ${renderCalendar(emp.name, emp.role)} 
+  </div>`;
+
+  // --- 欄位 2：薪資項目 (原第一欄) ---
+  let col2 = `<div class="col-card">
+    <div class="col-header c1">2. 薪資項目明細</div>
+    ${isPart ? rowHtml('本薪 ('+totalH+'h)', Math.round(totalH*(rec.wage||0))) : rowHtml('本薪 (底薪)', rec.baseSalary)}
+    ${fieldIfExist('全勤獎金', rec.fullAttendBonus)}
+    ${fieldIfExist('職務津貼', rec.roleBonus)}
+    ${fieldIfExist('平日加班費', Math.ceil(rph * (rec.otHours||0) * 1.34))}
+    ${fieldIfExist('績效獎金', rec.performance)}
+    ${fieldIfExist('其他津貼', rec.otherBonus)}
+    <div class="salary-total-row">
+      <span class="salary-total-label">應發薪資總計</span>
+      <span class="salary-total-val">$${gross.toLocaleString()}</span>
+    </div>
+  </div>`;
+
+  // --- 欄位 3：代扣項目 (原第二欄) ---
+  let col3 = `<div class="col-card">
+    <div class="col-header c2">3. 代扣與實支項目</div>
+    ${rowHtml('勞保費', rec.laborInsurance)}
+    ${rowHtml('健保費 (含眷屬)', (rec.healthInsurance||0) + (rec.dependentInsurance||0))}
+    ${rowHtml('勞退個人自提', rec.laborPension)}
+    ${fieldIfExist('其他扣款', rec.otherDeduction)}
+    <div class="salary-total-row">
+      <span class="salary-total-label">代扣款總計</span>
+      <span class="salary-total-val" style="color:var(--danger);">-$${deduct.toLocaleString()}</span>
+    </div>
+  </div>`;
+
+  return `
+    <div class="layout-3col-scroll">
+      ${col1}
+      ${col2}
+      ${col3}
+    </div>
+    <div style="text-align:center; font-size:11px; color:var(--text-muted); margin-top:15px; border-top:1px solid #eee; padding-top:10px;">
+      💡 左右滑動可查閱不同分欄內容
+    </div>
+  `;
+}
+
+// 輔助：若數值為 0 則不顯示該行 (美化用)
+function fieldIfExist(label, val) {
+  if (!val || val === 0) return '';
+  return `
+    <div class="salary-row">
+      <span class="salary-row-label">${label}</span>
+      <span class="salary-row-val">$${val.toLocaleString()}</span>
+    </div>`;
+}
 
   col3 += `<div class="salary-row"><span class="salary-row-label">年度剩餘補休天數</span><span class="salary-row-val" style="color:var(--accent);">${remainComp} 天</span></div>`;
   col3 += `<div class="salary-row"><span class="salary-row-label">年度特休 (發放/已用/剩餘)</span><span class="salary-row-val">${annualDays} / ${usedAnnual} / ${remainAnnual}</span></div>`;
