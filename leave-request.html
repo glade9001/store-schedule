@@ -233,7 +233,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);
       <div class="form-field">
         <label>假別</label>
         <div class="type-btns">
-          <button class="type-btn active-off" id="btn-type-off" onclick="selectType('off')">📝 排休<br><small style="font-size:10px;font-weight:600;color:var(--text-muted);">許願制</small></button>
+          <button class="type-btn active-off" id="btn-type-off" onclick="selectType('off')">📝 排休</button>
           <button class="type-btn" id="btn-type-annual" onclick="selectType('annual')">🏖️ 特休<br><small id="annual-remain-hint" style="font-size:10px;font-weight:600;color:var(--text-muted);">--天</small></button>
           <button class="type-btn" id="btn-type-comp" onclick="selectType('comp')">🗓️ 補休<br><small id="comp-remain-hint" style="font-size:10px;font-weight:600;color:var(--text-muted);">--天</small></button>
         </div>
@@ -247,7 +247,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);
           <button class="shift-btn" id="btn-shift-morning" onclick="selectShift('morning')">🌅 早班</button>
           <button class="shift-btn" id="btn-shift-evening" onclick="selectShift('evening')">🌆 晚班</button>
         </div>
-        <div class="info-box warn" id="shiftWarn" style="display:none;">⚠️ 半日假扣 0.5 天餘額</div>
+
       </div>
 
       <!-- 限制資訊 -->
@@ -374,10 +374,10 @@ function getAllowedMonthRange(){
   let nnM = nextM + 1, nnY = nextY;
   if(nnM > 11){ nnM = 0; nnY++; }
 
-  const min = { year: nextY, month: nextM }; // 最早可申請月份（員工：下個月）
+  const min = { year: curY, month: curM }; // 最早可申請月份：當月
   const max = canSchedule()
-    ? { year: nnY, month: nnM }   // 店長：下下個月
-    : { year: nextY, month: nextM }; // 員工：下個月
+    ? { year: nnY, month: nnM }   // 店長：當月 + 下月 + 下下月
+    : { year: nextY, month: nextM }; // 員工：當月 + 下月
   return { min, max };
 }
 
@@ -419,7 +419,7 @@ window.onload = async () => {
     // 讀取餘額
     await loadBalance();
 
-    // 預設顯示下個月
+    // 預設顯示當月
     const { min } = getAllowedMonthRange();
     viewYear = min.year;
     viewMonth = min.month;
@@ -500,7 +500,7 @@ function calcWeekOffCount(){
     if(r.type !== 'off') return;
     if(['noted','pending'].includes(r.status)){
       const wk = dateToWeekStr(r.date);
-      weekReqCount[wk] = (weekReqCount[wk]||0) + (r.shift === 'full' ? 1 : 0.5);
+      weekReqCount[wk] = (weekReqCount[wk]||0) + 1;
     }
   });
 }
@@ -740,7 +740,7 @@ function selectShift(shift){
   ['full','morning','evening'].forEach(s=>{
     document.getElementById('btn-shift-'+s).classList.toggle('active', s===shift);
   });
-  document.getElementById('shiftWarn').style.display = (shift!=='full') ? 'block' : 'none';
+
   updateQuotaWarn();
   updateWeekQuotaWarn();
 }
@@ -799,15 +799,15 @@ async function submitApply(){
   if(isFullTime() && applyType==='off'){
     const wk = dateToWeekStr(applyDate);
     const used = weekReqCount[wk] || 0;
-    const cost = applyShift==='full' ? 1 : 0.5;
+    const cost = 1;
     if(used + cost > WEEKLY_OFF_LIMIT_FULL){
       showToast('🚫 本週排休許願已達上限');
       return;
     }
   }
 
-  // 餘額檢查（特補休）
-  const cost = applyShift==='full' ? 1 : 0.5;
+  // 餘額檢查（特補休）全日/早班/晚班皆扣 1 天
+  const cost = 1;
   if(applyType==='annual' && annualBalance < cost){
     showToast('⚠️ 特休餘額不足');
     return;
