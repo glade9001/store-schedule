@@ -1963,8 +1963,7 @@ function updateCellUI(btn, extraHtml='') {
   else if(s==='特休') { txt='🏖️<br><small>特休</small>'; btn.classList.add('annual-leave'); }
   else if(s==='補休') { txt='🗓️<br><small>補休</small>'; btn.classList.add('comp-leave'); }
   else if(s) {
-    if(isHourly) txt=`<span style="color:#7c3aed;font-weight:900;">${s}⏱</span>`;
-  else if(isOT) txt=`<span class="ot-text">${s}</span>`;
+    if(isOT) txt=`<span class="ot-text">${s}</span>`;
     else if(hVal>8 && s.includes('-')) {
       const p=s.split('-');
       txt=p.length===2 ? `${p[0]}-<span class="ot-text">${p[1]}</span>` : s;
@@ -1989,6 +1988,11 @@ function updateCellUI(btn, extraHtml='') {
   const hasConflict=(s && s!=='排休' && s!=='指休' && requestOff);
   if(hasConflict) { btn.classList.add('conflict'); txt+=`<br><span style="background:var(--danger);color:white;padding:1px 3px;border-radius:3px;font-size:10px;">⚠️ 衝突</span>`; }
   else if(requestOff) txt+=`<br><span class="req-tag">🙋‍♀️ 排休</span>`;
+  // 時薪另計：休假樣式 + 顯示時數
+  if(isHourly) {
+    const hVal = btn.dataset.hours || '0';
+    txt += `<br><span style="background:#f3e8ff;color:#7c3aed;padding:1px 4px;border-radius:3px;font-size:10px;font-weight:700;">時 ${hVal}h</span>`;
+  }
 
   // ✅ 疊加 leaveRequests 劃休申請標籤（只在管理者視角 + 班別尚未填入時顯示）
   if(!isVirtual && (appData.leaveRequests||[]).length > 0) {
@@ -2360,6 +2364,7 @@ async function updateSummary(idx, emp) {
     const h = parseFloat(r.actualHours || 0);
     const isOff = (r.shift === '排休' || r.shift === '指休' || r.shift === '特休' || r.shift === '補休');
     if(isOff) { wOff++; }
+    else if(r.isHourly) { /* 時薪另計算休假，不計工時 */ }
     else if(r.shift) {
       wH += h;
       if(r.isOT || h > 8) wOT += Math.max(0, h - 8);
@@ -2385,7 +2390,8 @@ async function updateSummary(idx, emp) {
     const isOff = (r.shift === '排休' || r.shift === '指休' || r.shift === '特休' || r.shift === '補休');
     if(isOff) {
       monthStats[currentMonthKey].off++;
-    } else if(r.shift) {
+    } else if(r.isHourly) { /* 時薪另計算休假，不計月工時 */ }
+    else if(r.shift) {
       monthStats[currentMonthKey].h += h;
       if(r.isOT || h > 8) monthStats[currentMonthKey].ot += Math.max(0, h - 8);
     }
