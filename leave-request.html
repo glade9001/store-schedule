@@ -99,10 +99,15 @@ html,body{height:100%;overflow:hidden;background:var(--bg);
 .cal-cell.other-month{background:#f8f8f8;opacity:0.5;cursor:default;}
 .cal-cell.today .cal-date{background:var(--primary);color:white;border-radius:50%;}
 .cal-cell.sunday .cal-date{color:var(--danger);}
-.cal-cell.past{opacity:0.4;cursor:not-allowed;}
-.cal-cell.locked{opacity:0.5;cursor:not-allowed;}
+.cal-cell.saturday .cal-date{color:#0891b2;}
+.cal-cell.past{background:#f0f0f0 !important;cursor:not-allowed;}
+.cal-cell.past .cal-date{color:#bbb;}
+.cal-cell.locked{background:#efefef !important;cursor:not-allowed;}
+.cal-cell.locked .cal-date{color:#bbb;}
 .cal-cell.closed{background:#f5f5f5;cursor:not-allowed;}
-.cal-cell:not(.empty):not(.other-month):not(.past):not(.closed):hover{background:#f0f7ff;}
+.cal-cell.unavailable{background:#f0f0f0 !important;cursor:not-allowed;}
+.cal-cell.unavailable .cal-date{color:#bbb;}
+.cal-cell:not(.empty):not(.other-month):not(.past):not(.locked):not(.unavailable):not(.closed):hover{background:#f0f7ff;}
 .cal-date{width:22px;height:22px;display:flex;align-items:center;justify-content:center;
   font-size:12px;font-weight:700;margin-bottom:2px;}
 .cal-tags{display:flex;flex-direction:column;gap:2px;}
@@ -111,9 +116,9 @@ html,body{height:100%;overflow:hidden;background:var(--bg);
 .cal-tag.mine-off{background:#e8f0fe;color:var(--primary);}
 .cal-tag.mine-annual{background:#f3e8ff;color:var(--purple);}
 .cal-tag.mine-comp{background:#ecfeff;color:var(--comp-blue);}
-.cal-tag.others{background:#f1f3f4;color:var(--text-muted);}
-.cal-tag.quota-warn{background:#fff3e0;color:#e65100;}
-.cal-tag.quota-full{background:#fce8e6;color:var(--danger);}
+.cal-tag.others-off{background:#e8f0fe;color:var(--primary);}
+.cal-tag.others-annual{background:#f3e8ff;color:var(--purple);}
+.cal-tag.others-comp{background:#ecfeff;color:var(--comp-blue);}
 .cal-tag.locked-tag{background:#f1f3f4;color:#aaa;}
 .cal-tag.published-tag{background:#e8f5e9;color:var(--accent);}
 .cal-tag.shift-tag{background:#e8f5e9;color:var(--accent);}
@@ -405,11 +410,15 @@ window.onload = async () => {
       }
     }catch(e){}
 
-    // 讀取每日上限設定
-    if(appConfig.leaveQuota){
-      dailyLimits.fullTime = appConfig.leaveQuota.fullTime ?? 2;
-      dailyLimits.partTime = appConfig.leaveQuota.partTime ?? 1;
-    }
+    // 讀取每日上限設定（從門市 config/shifts 文件）
+    try {
+      const store = currentUser.store || appConfig.stores?.[0] || '';
+      const cfgSnap = await window.db.collection('stores').doc(store).collection('config').doc('shifts').get();
+      if(cfgSnap.exists && cfgSnap.data().leaveQuota){
+        dailyLimits.fullTime = cfgSnap.data().leaveQuota.fullTime ?? 2;
+        dailyLimits.partTime = cfgSnap.data().leaveQuota.partTime ?? 1;
+      }
+    } catch(e) {}
 
     // 讀取顯示名稱
     const store = currentUser.store || appConfig.stores?.[0] || '';
@@ -524,8 +533,6 @@ function renderCalendar(){
   const { min, max } = getAllowedMonthRange();
 
   // 餘額卡片
-  const weekOffUsed = weekReqCount[dateToWeekStr(getNextMonday())] || 0;
-  const weekOffLeft = isFullTime() ? Math.max(0, WEEKLY_OFF_LIMIT_FULL - weekOffUsed) : '∞';
   let html = `<div class="balance-row">
     <div class="balance-card">
       <div class="balance-label">🏖️ 特休可用</div>
@@ -536,11 +543,6 @@ function renderCalendar(){
       <div class="balance-label">🗓️ 補休可用</div>
       <div class="balance-val comp">${compBalance}</div>
       <div class="balance-sub">天</div>
-    </div>
-    <div class="balance-card">
-      <div class="balance-label">📝 排休配額</div>
-      <div class="balance-val week">${isFullTime() ? weekOffLeft : '∞'}</div>
-      <div class="balance-sub">${isFullTime() ? '天/週剩餘' : '無限制'}</div>
     </div>
   </div>`;
 
@@ -581,17 +583,15 @@ function renderCalBody(){
   const todayStr = today();
   const firstDay = new Date(viewYear, viewMonth, 1);
   const lastDay = new Date(viewYear, viewMonth+1, 0);
-  // 月的第一天是週幾（調整：週一=0）
   let startDow = firstDay.getDay() - 1;
   if(startDow < 0) startDow = 6;
 
   let html = '';
-  // 前面補空格
   for(let i=0;i<startDow;i++) html += `<div class="cal-cell empty"></div>`;
 
   for(let d=1; d<=lastDay.getDate(); d++){
     const dateStr = `${viewYear}-${String(viewMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const dow = new Date(dateStr).getDay(); // 0=Sun
+    const dow = new Date(dateStr).getDay();
     const isSunday = dow === 0;
     const isToday = dateStr === todayStr;
     const isPast = dateStr < todayStr;
@@ -599,50 +599,46 @@ function renderCalBody(){
 
     // 我的申請
     const myReqs = myRequests.filter(r=>r.date===dateStr && !['cancelled','unfulfilled'].includes(r.status));
-    // 其他人的申請（同店）
+    // 其他人（不顯示備註）
     const othersReqs = storeRequests.filter(r=>r.date===dateStr && r.empName!==currentUser.empName && !['cancelled','unfulfilled'].includes(r.status));
 
-    // 名額計算
-    const fullUsed = storeRequests.filter(r=>r.date===dateStr && !['cancelled','unfulfilled'].includes(r.status) && isFullTimeReq(r)).length;
-    const partUsed = storeRequests.filter(r=>r.date===dateStr && !['cancelled','unfulfilled'].includes(r.status) && !isFullTimeReq(r)).length;
-    const myType = isFullTime() ? 'fullTime' : 'partTime';
-    const myUsed = myType === 'fullTime' ? fullUsed : partUsed;
-    const myLimit = dailyLimits[myType];
-    const quotaFull = myUsed >= myLimit;
+    // 可不可以點
+    const canClick = !isPast && !isSunday && !isLocked;
+    const hasMyReq = myReqs.length > 0;
 
     let cls = 'cal-cell';
-    if(isSunday) cls += ' sunday';
+    if(isSunday) cls += ' unavailable';         // 週日：灰
+    else if(isPast) cls += ' past';              // 過去：灰
+    else if(isLocked && !hasMyReq) cls += ' locked'; // 截止：灰（但有我的申請還是顯示）
     if(isToday) cls += ' today';
-    if(isPast) cls += ' past';
-    else if(isLocked && myReqs.length===0) cls += ' locked';
+    if(!isSunday && dow === 6) cls += ' saturday'; // 週六不灰但日期可標色
 
     let tags = '';
-    // 我的申請標籤
-    myReqs.forEach(r=>{
-      const typeLabel = r.type==='annual'?'🏖️特':r.type==='comp'?'🗓️補':'📝排';
-      const shiftLabel = r.shift==='morning'?'早':r.shift==='evening'?'晚':'';
-      const typeClass = r.type==='annual'?'mine-annual':r.type==='comp'?'mine-comp':'mine-off';
-      tags += `<div class="cal-tag ${typeClass}">${typeLabel}${shiftLabel}</div>`;
-    });
-    // 名額資訊
-    if(!isPast && !isLocked && myReqs.length===0){
-      if(quotaFull) tags += `<div class="cal-tag quota-full">滿</div>`;
-      else if(myUsed >= myLimit-1) tags += `<div class="cal-tag quota-warn">剩1</div>`;
-    }
-    // 其他人標籤（最多顯示2個）
-    othersReqs.slice(0,2).forEach(r=>{
-      tags += `<div class="cal-tag others">${getDN(r.empName).slice(-1)}</div>`;
-    });
-    if(othersReqs.length>2) tags += `<div class="cal-tag others">+${othersReqs.length-2}</div>`;
 
-    const clickable = !isPast && !isSunday;
-    const onclick = clickable ? `onclick="openApplyModal('${dateStr}')"` : '';
+    // ── 我的申請（優先顯示）──
+    myReqs.forEach(r=>{
+      const shiftLabel = r.shift==='morning'?' 早':r.shift==='evening'?' 晚':'';
+      if(r.type==='annual')      tags += `<div class="cal-tag mine-annual">我 排特休${shiftLabel}</div>`;
+      else if(r.type==='comp')   tags += `<div class="cal-tag mine-comp">我 排補休${shiftLabel}</div>`;
+      else                        tags += `<div class="cal-tag mine-off">我 排休${shiftLabel}</div>`;
+    });
+
+    // ── 其他人：顯示「某某 排休/特休/補休」，不顯示備註 ──
+    othersReqs.forEach(r=>{
+      const name = getDN(r.empName);
+      const shiftLabel = r.shift==='morning'?' 早':r.shift==='evening'?' 晚':'';
+      if(r.type==='annual')      tags += `<div class="cal-tag others-annual">${name} 排特休${shiftLabel}</div>`;
+      else if(r.type==='comp')   tags += `<div class="cal-tag others-comp">${name} 排補休${shiftLabel}</div>`;
+      else                        tags += `<div class="cal-tag others-off">${name} 排休${shiftLabel}</div>`;
+    });
+
+    const onclick = (canClick || hasMyReq) ? `onclick="openApplyModal('${dateStr}')"` : '';
     html += `<div class="${cls}" ${onclick}>
       <div class="cal-date">${d}</div>
       <div class="cal-tags">${tags}</div>
     </div>`;
   }
-  // 後面補空格
+
   const totalCells = startDow + lastDay.getDate();
   const rem = totalCells % 7;
   if(rem > 0) for(let i=0;i<7-rem;i++) html += `<div class="cal-cell empty"></div>`;
