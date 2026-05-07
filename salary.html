@@ -975,7 +975,7 @@ function calcEmpHours(empName) {
     (weekRecs || []).forEach(r => {
       if(r.name !== empName) return;
       const h = parseFloat(r.actualHours || 0);
-      if(r.shift === '排休' || r.shift === '指休' || !r.shift) return;
+      if(r.shift === '排休' || r.shift === '指休' || !r.shift || r.isHourly) return;
 
       // 確認是當月日期
       const wDates = getWeekDatesFromStr(ws);
@@ -2348,23 +2348,23 @@ function renderSalaryForm(emp, rec, idx, readonly) {
 
   const isLastTab = currentModalTab === 2;
   const confirmBtn = !isReadonly() ? `
-    <div style="padding:12px 0 0;border-top:1px solid var(--border);margin-top:12px;">
+    <div style="padding:12px 0 0;border-top:1px solid var(--border);margin-top:12px;display:flex;gap:8px;">
+      <button onclick="triggerAutoSave(); closeEmpModal();"
+        style="flex:1;padding:13px;background:#f1f3f4;color:var(--text);border:none;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;">
+        儲存並關閉
+      </button>
       <button onclick="confirmModalTab('${empNameEsc}', ${currentModalTab})"
-        style="width:100%;padding:13px;background:var(--primary);color:white;border:none;border-radius:12px;
+        style="flex:2;padding:13px;background:var(--primary);color:white;border:none;border-radius:12px;
         font-size:15px;font-weight:800;cursor:pointer;">
         ${isLastTab ? '✅ 確認完成' : '確認並繼續 →'}
       </button>
     </div>` : '';
 
-  const _reminderBanner = !ro ? `<div style="background:#fff3e0;border:1.5px solid #fcd34d;border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12px;font-weight:700;color:#b45309;">⚠️ 請依序確認每頁資料，三頁都按確認才算完成本月薪資作業。</div>` : '';
   const _calHtml = renderCalendar(emp.name, emp.role);
-
-  // 重新組合 Tab 內容（每頁含月曆）
-  const _tab0 = document.getElementById ? '' : ''; // 佔位
   const _tabContentsNew = [
-    `<div id="modal-tab-0">${_reminderBanner}${col3}${_calHtml}</div>`,
-    `<div id="modal-tab-1" style="display:none;">${_reminderBanner}${col1}${_calHtml}</div>`,
-    `<div id="modal-tab-2" style="display:none;">${_reminderBanner}${col2}${_calHtml}</div>`,
+    `<div id="modal-tab-0">${col3}${_calHtml}</div>`,
+    `<div id="modal-tab-1" style="display:none;">${col1}${_calHtml}</div>`,
+    `<div id="modal-tab-2" style="display:none;">${col2}${_calHtml}</div>`,
   ].join('');
 
   return `
@@ -2560,11 +2560,13 @@ function renderCalendar(empName, role) {
     const rec = empRecs[d];
     const shift = rec?.shift || '';
     const h = parseFloat(rec?.actualHours || 0);
+    const isHourlyDay = rec?.isHourly || false;
     const isOff = shift === '排休' || shift === '指休';
     const isOT = rec?.isOT || h > 8;
     const otH = isOT ? Math.max(0, h-8) : 0;
     
     if(isOff) { totalOff++; }
+    else if(isHourlyDay) { /* 時薪另計算休假，不計工時 */ }
     else if(shift) { workDays++; totalH += h; totalOT += otH; }
     
     let cellClass = 'cal-cell';
@@ -2575,7 +2577,11 @@ function renderCalendar(empName, role) {
     const holiday = TW_HOLIDAYS[dateStr2];
     const isHoliday = !!holiday;
 
-    if(isOff) {
+    if(isHourlyDay) {
+      // 時薪另計：紫色，顯示「時 Xh」
+      cellClass += ' leave';
+      valHtml = `<div class="cal-cell-val" style="color:#7c3aed;font-size:10px;font-weight:800;">時${h}h</div>`;
+    } else if(isOff) {
       cellClass += ' leave';
       valHtml = `<div class="cal-cell-val">休</div>`;
     } else if(shift) {
