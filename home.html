@@ -1149,6 +1149,29 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 </div>
 
 <!-- ===== 更多管理 Bottom Sheet ===== -->
+<div class="bottom-sheet-overlay" id="leaveOverlay" onclick="closeLeaveSheet()"></div>
+<div class="bottom-sheet" id="leaveSheet">
+  <div class="bs-handle"></div>
+  <div class="bs-title">特補休 · 劃休</div>
+  <div class="bs-item" onclick="closeLeaveSheet(); window.location.href='leave-request.html';">
+    <div class="bs-item-icon" style="background:#e8f0fe;">📅</div>
+    <div class="bs-item-text">
+      <div class="bs-item-label">劃休申請</div>
+      <div class="bs-item-sub">排休、特休、補休月曆申請</div>
+    </div>
+    <div class="bs-item-arrow">›</div>
+  </div>
+  <div class="bs-item" onclick="closeLeaveSheet(); window.location.href='leave.html?mode=self';">
+    <div class="bs-item-icon" style="background:#f3e8ff;">🏖️</div>
+    <div class="bs-item-text">
+      <div class="bs-item-label">特補休紀錄</div>
+      <div class="bs-item-sub">餘額查詢、批次與異動明細</div>
+    </div>
+    <div class="bs-item-arrow">›</div>
+  </div>
+  <div style="height:16px;"></div>
+</div>
+
 <div class="bottom-sheet-overlay" id="moreMgmtOverlay" onclick="closeMoreMgmtSheet()"></div>
 <div class="bottom-sheet" id="moreMgmtSheet">
   <div class="bs-handle"></div>
@@ -2229,8 +2252,8 @@ function renderQuickBtns() {
     <button class="func-btn blue-dark" onclick="window.location.href='schedule-V2.html'">
       <div class="func-icon">📅</div><div class="func-label">班表</div>
     </button>
-    <button class="func-btn purple" onclick="window.location.href='leave.html?mode=self'">
-      <div class="func-icon">🏖️</div><div class="func-label">特補休紀錄</div>
+    <button class="func-btn purple" onclick="openLeaveSheet()">
+      <div class="func-icon">🏖️</div><div class="func-label" style="text-align:center;line-height:1.4;">特補休<br>劃休</div>
     </button>
     ${currentUser.empName ? `
     <button class="func-btn orange" onclick="window.location.href='my-salary.html'">
@@ -2289,6 +2312,14 @@ function openMoreMgmtSheet() {
 function closeMoreMgmtSheet() {
   document.getElementById('moreMgmtOverlay').classList.remove('active');
   document.getElementById('moreMgmtSheet').classList.remove('active');
+}
+function openLeaveSheet() {
+  document.getElementById('leaveOverlay').classList.add('active');
+  document.getElementById('leaveSheet').classList.add('active');
+}
+function closeLeaveSheet() {
+  document.getElementById('leaveOverlay').classList.remove('active');
+  document.getElementById('leaveSheet').classList.remove('active');
 }
 
 // ===== 離職員工清單 =====
