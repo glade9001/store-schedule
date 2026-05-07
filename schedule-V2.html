@@ -418,6 +418,9 @@ th:first-child { background: #1557b0; z-index: 12; }
           <label style="display:flex; align-items:center; gap:4px; font-size:13px; font-weight:700; color:var(--danger); cursor:pointer; white-space:nowrap;">
             <input type="checkbox" id="modalOT" style="width:15px; height:15px;"> 加班
           </label>
+          <label style="display:flex; align-items:center; gap:4px; font-size:13px; font-weight:700; color:#7c3aed; cursor:pointer; white-space:nowrap;" title="正職以時薪另計（非加班費）">
+            <input type="checkbox" id="modalHourly" style="width:15px; height:15px;"> 時薪另計
+          </label>
         </div>
       </div>
     </div>
@@ -1282,6 +1285,7 @@ function saveShiftModal() {
   const shift = document.getElementById('modalShift').value.trim();
   const hours = parseFloat(document.getElementById('modalHours').value) || 0;
   const ot = document.getElementById('modalOT').checked;
+  const hourly = (document.getElementById('modalHourly')?.checked) || false;
   const note = document.getElementById('modalNote').value.trim();
   const loc = document.getElementById('modalLoc').value || '本店';
   const support = document.getElementById('modalSupportEmp').value;
@@ -1301,7 +1305,7 @@ function saveShiftModal() {
     r.name===currentBtn.dataset.emp && r.day===currentBtn.dataset.day && r.week===weekStr);
   const data = {
     week:weekStr, day:currentBtn.dataset.day, name:currentBtn.dataset.emp,
-    shift, location:loc, note, actualHours:hours, isOT:ot,
+    shift, location:loc, note, actualHours:hours, isOT:ot, isHourly:hourly,
     supportEmp:support, approvalStatus:approval, requestOff:false
   };
   const hasData = shift||note||ot||support;
@@ -1866,7 +1870,7 @@ function renderTable() {
       if(supportOutRec) {
         rec = { shift: supportOutRec.shift, location: `支援${supportOutRec._store}`, note: supportOutRec.note, actualHours: supportOutRec.actualHours, isOT: supportOutRec.isOT, supportEmp:'', approvalStatus:'', requestOff:false };
       } else if(!rec) {
-        rec = { shift:'', location:'本店', note:'', actualHours:0, isOT:false, supportEmp:'', approvalStatus:'', requestOff:false };
+        rec = { shift:'', location:'本店', note:'', actualHours:0, isOT:false, isHourly:false, supportEmp:'', approvalStatus:'', requestOff:false };
       }
 
       const td = document.createElement('td');
@@ -1879,6 +1883,7 @@ function renderTable() {
       btn.dataset.loc = rec.location || '本店';
       btn.dataset.note = rec.note || '';
       btn.dataset.ot = rec.isOT || false;
+      btn.dataset.hourly = rec.isHourly || false;
       btn.dataset.support = rec.supportEmp || '';
       btn.dataset.approval = rec.approvalStatus || '';
       btn.dataset.reqoff = rec.requestOff || false;
@@ -1936,7 +1941,7 @@ function renderTable() {
 
 function updateCellUI(btn, extraHtml='') {
   const s=btn.dataset.shift, h=btn.dataset.hours, l=btn.dataset.loc, n=btn.dataset.note;
-  const isOT=(btn.dataset.ot==='true'), w=btn.dataset.warn||'';
+  const isOT=(btn.dataset.ot==='true'), isHourly=(btn.dataset.hourly==='true'), w=btn.dataset.warn||'';
   const supportEmp=btn.dataset.support, approvalStatus=btn.dataset.approval;
   const requestOff=(btn.dataset.reqoff==='true');
   const isVirtual=btn.dataset.emp.startsWith('🆘');
@@ -1958,7 +1963,8 @@ function updateCellUI(btn, extraHtml='') {
   else if(s==='特休') { txt='🏖️<br><small>特休</small>'; btn.classList.add('annual-leave'); }
   else if(s==='補休') { txt='🗓️<br><small>補休</small>'; btn.classList.add('comp-leave'); }
   else if(s) {
-    if(isOT) txt=`<span class="ot-text">${s}</span>`;
+    if(isHourly) txt=`<span style="color:#7c3aed;font-weight:900;">${s}⏱</span>`;
+  else if(isOT) txt=`<span class="ot-text">${s}</span>`;
     else if(hVal>8 && s.includes('-')) {
       const p=s.split('-');
       txt=p.length===2 ? `${p[0]}-<span class="ot-text">${p[1]}</span>` : s;
@@ -2019,6 +2025,7 @@ function handleCellClick(btn, eIdx, isVirtual) {
   document.getElementById('modalShift').value = btn.dataset.shift;
   document.getElementById('modalHours').value = btn.dataset.hours;
   document.getElementById('modalOT').checked = btn.dataset.ot==='true';
+  document.getElementById('modalHourly').checked = btn.dataset.hourly==='true';
   document.getElementById('modalNote').value = btn.dataset.note;
   document.getElementById('conflictWarn').style.display = btn.dataset.reqoff==='true' && btn.dataset.shift ? 'block' : 'none';
 
@@ -2109,6 +2116,7 @@ function clearModalShift() {
   document.getElementById('modalShift').value='';
   document.getElementById('modalHours').value='';
   document.getElementById('modalOT').checked=false;
+  if(document.getElementById('modalHourly')) document.getElementById('modalHourly').checked=false;
   document.getElementById('modalNote').value='';
   document.getElementById('modalSupportEmp').value='';
   toggleApprovalVis();
@@ -2133,6 +2141,7 @@ function applyShift() {
   currentCell.dataset.shift=document.getElementById('modalShift').value;
   currentCell.dataset.hours=document.getElementById('modalHours').value;
   currentCell.dataset.ot=document.getElementById('modalOT').checked;
+  currentCell.dataset.hourly=document.getElementById('modalHourly').checked;
   currentCell.dataset.note=document.getElementById('modalNote').value;
   if(isVirtual) {
     currentCell.dataset.loc='本店';
@@ -2270,7 +2279,7 @@ function applyPaintToCell(btn, eIdx) {
   // 局部更新記憶體
   const week=document.getElementById('weekSelector').value;
   const idx=appData.records.findIndex(r=>r.name===btn.dataset.emp&&r.day===btn.dataset.day&&r.week===week);
-  const data={ week, day:btn.dataset.day, name:btn.dataset.emp, shift:btn.dataset.shift||'', location:btn.dataset.loc||'本店', note:btn.dataset.note||'', actualHours:parseFloat(btn.dataset.hours||0), isOT:btn.dataset.ot==='true', supportEmp:btn.dataset.support||'', approvalStatus:btn.dataset.approval||'', requestOff:btn.dataset.reqoff==='true' };
+  const data={ week, day:btn.dataset.day, name:btn.dataset.emp, shift:btn.dataset.shift||'', location:btn.dataset.loc||'本店', note:btn.dataset.note||'', actualHours:parseFloat(btn.dataset.hours||0), isOT:btn.dataset.ot==='true', isHourly:btn.dataset.hourly==='true', supportEmp:btn.dataset.support||'', approvalStatus:btn.dataset.approval||'', requestOff:btn.dataset.reqoff==='true' };
   const hasData=btn.dataset.shift||btn.dataset.note||btn.dataset.ot==='true'||btn.dataset.support||btn.dataset.reqoff==='true';
   if(hasData) { if(idx!==-1) appData.records[idx]=data; else appData.records.push(data); }
   else { if(idx!==-1) appData.records.splice(idx,1); }
@@ -2459,7 +2468,7 @@ function syncUIToMemory() {
   const week=document.getElementById('weekSelector').value;
   document.querySelectorAll('.cell-btn').forEach(btn=>{
     const idx=appData.records.findIndex(r=>r.name===btn.dataset.emp&&r.day===btn.dataset.day&&r.week===week);
-    const data={ week, day:btn.dataset.day, name:btn.dataset.emp, shift:btn.dataset.shift||'', location:btn.dataset.loc||'本店', note:btn.dataset.note||'', actualHours:parseFloat(btn.dataset.hours||0), isOT:btn.dataset.ot==='true', supportEmp:btn.dataset.support||'', approvalStatus:btn.dataset.approval||'', requestOff:btn.dataset.reqoff==='true' };
+    const data={ week, day:btn.dataset.day, name:btn.dataset.emp, shift:btn.dataset.shift||'', location:btn.dataset.loc||'本店', note:btn.dataset.note||'', actualHours:parseFloat(btn.dataset.hours||0), isOT:btn.dataset.ot==='true', isHourly:btn.dataset.hourly==='true', supportEmp:btn.dataset.support||'', approvalStatus:btn.dataset.approval||'', requestOff:btn.dataset.reqoff==='true' };
     const hasData=btn.dataset.shift||btn.dataset.note||btn.dataset.ot==='true'||btn.dataset.support||btn.dataset.reqoff==='true';
     if(hasData) { if(idx!==-1) appData.records[idx]=data; else appData.records.push(data); }
     else { if(idx!==-1) appData.records.splice(idx,1); }
