@@ -519,6 +519,15 @@ let isDragging = false;
 let empWeekStr = '';
 
 const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
+// weekStr + dayName → 'YYYY-MM-DD'
+function dayToFullDate(weekStr, dayName) {
+  const dIdx = dayNames.indexOf(dayName);
+  if(dIdx < 0) return '';
+  const mon = weekStringToDate(weekStr);
+  const d = new Date(mon);
+  d.setDate(mon.getDate() + dIdx);
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
 
 // 台灣國定假日 2026-2027
 const TW_HOLIDAYS_SCHED = {
@@ -1507,10 +1516,15 @@ async function fetchAllStoreData() {
 
     await Promise.all(allFetches);
 
-    // u2705 u8b80u53d6u5283u4f11u7533u8acbuff08leaveRequestsuff09u2014u2014 u672cu9031u7bc4u570d
+    // leaveRequests: 用 date 範圍讀本週七天
     try {
-      const lrSnap = await window.db.collection('stores').doc(store).collection('leaveRequests')
-        .where('week', '==', weekStr).get();
+      const wMon = weekStringToDate(weekStr);
+      const wSun = new Date(wMon); wSun.setDate(wMon.getDate() + 6);
+      const pad = n => String(n).padStart(2,"0");
+      const dateFrom = wMon.getFullYear()+"-"+pad(wMon.getMonth()+1)+"-"+pad(wMon.getDate());
+      const dateTo   = wSun.getFullYear()+"-"+pad(wSun.getMonth()+1)+"-"+pad(wSun.getDate());
+      const lrSnap = await window.db.collection("stores").doc(store).collection("leaveRequests")
+        .where("date",">=",dateFrom).where("date","<=",dateTo).get();
       appData.leaveRequests = [];
       lrSnap.forEach(d => appData.leaveRequests.push({ id: d.id, ...d.data() }));
     } catch(e) { appData.leaveRequests = []; }
@@ -1975,8 +1989,9 @@ function updateCellUI(btn, extraHtml='') {
     const empName = btn.dataset.emp;
     const day = btn.dataset.day;
     const weekStr = document.getElementById('weekSelector')?.value;
+    const fullDate = dayToFullDate(weekStr, day);
     const lr = appData.leaveRequests.find(r =>
-      r.empName === empName && r.day === day && r.week === weekStr &&
+      r.empName === empName && r.date === fullDate &&
       !['cancelled','unfulfilled'].includes(r.status)
     );
     if(lr) {
@@ -2032,9 +2047,10 @@ function handleCellClick(btn, eIdx, isVirtual) {
   const lrBanner = document.getElementById('leaveReqBanner');
   if(lrBanner && !isVirtual) {
     const weekStr = document.getElementById('weekSelector')?.value;
+    const fullDate = dayToFullDate(weekStr, btn.dataset.day);
     const lr = (appData.leaveRequests||[]).find(r =>
-      r.empName === btn.dataset.emp && r.day === btn.dataset.day &&
-      r.week === weekStr && !['cancelled','unfulfilled'].includes(r.status)
+      r.empName === btn.dataset.emp && r.date === fullDate &&
+      !['cancelled','unfulfilled'].includes(r.status)
     );
     if(lr) {
       const typeLabel = lr.type==='annual'?'🏖️ 特休':lr.type==='comp'?'🗓️ 補休':'📝 排休許願';
