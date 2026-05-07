@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="莉學商行">
+<link rel="apple-touch-icon" href="icon-192.svg">
+<meta name="theme-color" content="#1a73e8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>📅 劃休申請</title>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyAmVwq-Wny1KMRGNSdOnBEJ_A-3HmTO-hM",
+    authDomain: "store-schedule-3b056.firebaseapp.com",
+    projectId: "store-schedule-3b056",
+    storageBucket: "store-schedule-3b056.firebasestorage.app",
+    messagingSenderId: "296522693619",
+    appId: "1:296522693619:web:f90ec5d666c7a4a5943086"
+  };
+  firebase.initializeApp(firebaseConfig);
+  window.db = firebase.firestore();
+</script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --primary:#1a73e8;--primary-dark:#1557b0;--accent:#34a853;
+  --danger:#d93025;--warn:#f9ab00;--purple:#9334e6;--comp-blue:#0891b2;
+  --bg:#f0f4ff;--text:#1e293b;--text-muted:#64748b;--border:#e2e8f0;
+  --header-h:56px;--radius:14px;
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);
+  font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;color:var(--text);}
+
+/* Loading */
+#loadingOverlay{display:flex;position:fixed;inset:0;background:linear-gradient(135deg,#1a73e8,#0d47a1);
+  z-index:99999;flex-direction:column;justify-content:center;align-items:center;color:white;transition:opacity 0.4s;}
+#loadingOverlay.hidden{opacity:0;pointer-events:none;}
+.spinner{width:40px;height:40px;border:4px solid rgba(255,255,255,0.3);border-top-color:white;
+  border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:16px;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+/* App Shell */
+#appShell{display:none;flex-direction:column;height:100%;}
+#appShell.active{display:flex;}
+
+/* Header */
+.header{background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:white;
+  padding:0 16px;height:var(--header-h);display:flex;align-items:center;gap:10px;
+  flex-shrink:0;box-shadow:0 2px 12px rgba(26,115,232,0.3);}
+.header-back{background:rgba(255,255,255,0.2);border:none;color:white;height:34px;
+  border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;padding:0 12px;}
+.header-title{font-size:17px;font-weight:800;flex:1;}
+.header-emp{background:rgba(255,255,255,0.2);border-radius:8px;padding:4px 10px;font-size:12px;font-weight:700;}
+
+/* Tab Bar */
+.tab-bar{display:flex;background:white;border-bottom:1px solid var(--border);flex-shrink:0;}
+.tab-item{flex:1;padding:11px 6px;text-align:center;font-size:13px;font-weight:700;
+  color:var(--text-muted);cursor:pointer;border-bottom:3px solid transparent;}
+.tab-item.active{color:var(--primary);border-bottom-color:var(--primary);}
+
+/* Content */
+.content{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px 14px 90px;}
+
+/* 餘額卡片 */
+.balance-row{display:flex;gap:8px;margin-bottom:14px;}
+.balance-card{flex:1;background:white;border-radius:12px;padding:12px 14px;
+  box-shadow:0 1px 6px rgba(0,0,0,0.07);text-align:center;}
+.balance-label{font-size:10px;font-weight:700;color:var(--text-muted);margin-bottom:3px;}
+.balance-val{font-size:20px;font-weight:900;}
+.balance-val.annual{color:var(--purple);}
+.balance-val.comp{color:var(--comp-blue);}
+.balance-val.week{color:var(--accent);}
+.balance-sub{font-size:10px;color:var(--text-muted);margin-top:2px;}
+
+/* 月份導航 */
+.month-nav{display:flex;align-items:center;justify-content:space-between;
+  background:white;border-radius:12px;padding:10px 14px;margin-bottom:10px;
+  box-shadow:0 1px 6px rgba(0,0,0,0.06);}
+.month-nav-btn{background:none;border:1.5px solid var(--border);border-radius:8px;
+  width:34px;height:34px;font-size:16px;cursor:pointer;color:var(--text-muted);}
+.month-label{font-size:16px;font-weight:800;}
+
+/* 日曆 */
+.calendar{background:white;border-radius:12px;overflow:hidden;
+  box-shadow:0 1px 6px rgba(0,0,0,0.06);margin-bottom:14px;}
+.cal-header{display:grid;grid-template-columns:repeat(7,1fr);
+  background:var(--primary);color:white;}
+.cal-dow{padding:7px 0;text-align:center;font-size:11px;font-weight:700;}
+.cal-dow:nth-child(7){color:#ffcdd2;}
+.cal-body{display:grid;grid-template-columns:repeat(7,1fr);}
+.cal-cell{border-right:1px solid #f1f3f4;border-bottom:1px solid #f1f3f4;
+  min-height:68px;padding:4px 3px;cursor:pointer;position:relative;transition:background 0.15s;}
+.cal-cell:nth-child(7n){border-right:none;}
+.cal-cell.empty{background:#fafafa;cursor:default;}
+.cal-cell.other-month{background:#f8f8f8;opacity:0.5;cursor:default;}
+.cal-cell.today .cal-date{background:var(--primary);color:white;border-radius:50%;}
+.cal-cell.sunday .cal-date{color:var(--danger);}
+.cal-cell.past{opacity:0.4;cursor:not-allowed;}
+.cal-cell.locked{opacity:0.5;cursor:not-allowed;}
+.cal-cell.closed{background:#f5f5f5;cursor:not-allowed;}
+.cal-cell:not(.empty):not(.other-month):not(.past):not(.closed):hover{background:#f0f7ff;}
+.cal-date{width:22px;height:22px;display:flex;align-items:center;justify-content:center;
+  font-size:12px;font-weight:700;margin-bottom:2px;}
+.cal-tags{display:flex;flex-direction:column;gap:2px;}
+.cal-tag{font-size:9px;font-weight:700;padding:1px 4px;border-radius:4px;line-height:1.4;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.cal-tag.mine-off{background:#e8f0fe;color:var(--primary);}
+.cal-tag.mine-annual{background:#f3e8ff;color:var(--purple);}
+.cal-tag.mine-comp{background:#ecfeff;color:var(--comp-blue);}
+.cal-tag.others{background:#f1f3f4;color:var(--text-muted);}
+.cal-tag.quota-warn{background:#fff3e0;color:#e65100;}
+.cal-tag.quota-full{background:#fce8e6;color:var(--danger);}
+.cal-tag.locked-tag{background:#f1f3f4;color:#aaa;}
+.cal-tag.published-tag{background:#e8f5e9;color:var(--accent);}
+.cal-tag.shift-tag{background:#e8f5e9;color:var(--accent);}
+
+/* 申請清單 */
+.req-section-title{font-size:12px;font-weight:800;color:var(--text-muted);
+  letter-spacing:0.5px;margin-bottom:8px;text-transform:uppercase;}
+.req-card{background:white;border-radius:12px;margin-bottom:8px;
+  box-shadow:0 1px 5px rgba(0,0,0,0.06);overflow:hidden;}
+.req-card-body{display:flex;align-items:center;padding:12px 14px;gap:10px;}
+.req-type-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+.req-info{flex:1;}
+.req-date{font-size:13px;font-weight:800;}
+.req-meta{font-size:11px;color:var(--text-muted);margin-top:2px;}
+.req-status{font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px;}
+.req-status.noted{background:#e8f0fe;color:var(--primary);}
+.req-status.pending{background:#fff3e0;color:#e65100;}
+.req-status.fulfilled{background:#e8f5e9;color:var(--accent);}
+.req-status.unfulfilled{background:#fce8e6;color:var(--danger);}
+.req-delete{background:none;border:none;color:var(--text-muted);font-size:16px;
+  cursor:pointer;padding:4px;border-radius:6px;}
+.req-delete:hover{background:#fce8e6;color:var(--danger);}
+
+/* Modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9000;
+  display:flex;align-items:flex-end;justify-content:center;
+  opacity:0;pointer-events:none;transition:opacity 0.25s;}
+.modal-overlay.active{opacity:1;pointer-events:all;}
+.modal-box{background:white;border-radius:22px 22px 0 0;width:100%;max-width:520px;
+  padding:0 0 32px;max-height:88vh;overflow-y:auto;
+  animation:slideUp 0.28s cubic-bezier(0.34,1.56,0.64,1);}
+@keyframes slideUp{from{transform:translateY(100%);}to{transform:translateY(0);}}
+.modal-handle{width:36px;height:4px;background:#e2e8f0;border-radius:2px;margin:12px auto 16px;}
+.modal-title{font-size:17px;font-weight:900;padding:0 20px;margin-bottom:6px;}
+.modal-sub{font-size:12px;color:var(--text-muted);padding:0 20px;margin-bottom:14px;}
+.modal-body{padding:0 20px;}
+.form-field{margin-bottom:13px;}
+.form-field label{display:block;font-size:11px;font-weight:700;color:var(--text-muted);margin-bottom:5px;}
+.form-field select,.form-field textarea{width:100%;padding:11px 13px;
+  border:1.5px solid var(--border);border-radius:10px;font-size:14px;font-weight:600;
+  outline:none;background:#f8fafc;font-family:inherit;}
+.form-field select:focus{border-color:var(--primary);background:white;}
+.modal-action{width:100%;padding:14px;background:var(--primary);color:white;border:none;
+  border-radius:12px;font-size:15px;font-weight:800;cursor:pointer;margin-top:8px;}
+.modal-action.danger{background:var(--danger);}
+.modal-cancel{width:100%;padding:10px;background:none;border:none;
+  color:var(--text-muted);font-size:14px;cursor:pointer;margin-top:4px;}
+
+/* 假別選項按鈕 */
+.type-btns{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;}
+.type-btn{padding:12px 6px;border:2px solid var(--border);border-radius:10px;
+  background:white;font-size:13px;font-weight:700;cursor:pointer;text-align:center;transition:all 0.15s;}
+.type-btn.active-off{border-color:var(--primary);background:#e8f0fe;color:var(--primary);}
+.type-btn.active-annual{border-color:var(--purple);background:#f3e8ff;color:var(--purple);}
+.type-btn.active-comp{border-color:var(--comp-blue);background:#ecfeff;color:var(--comp-blue);}
+
+/* 時段選項 */
+.shift-btns{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px;}
+.shift-btn{padding:11px 8px;border:2px solid var(--border);border-radius:10px;
+  background:white;font-size:13px;font-weight:700;cursor:pointer;text-align:center;}
+.shift-btn.active{border-color:var(--primary);background:#e8f0fe;color:var(--primary);}
+
+/* 資訊提示框 */
+.info-box{border-radius:10px;padding:10px 13px;margin-bottom:12px;font-size:12px;line-height:1.7;}
+.info-box.blue{background:#e8f0fe;border:1px solid #b0c4f5;color:var(--primary-dark);}
+.info-box.warn{background:#fff3e0;border:1px solid #ffcc80;color:#e65100;}
+.info-box.danger{background:#fce8e6;border:1px solid #f5c6c6;color:var(--danger);}
+.info-box.green{background:#e8f5e9;border:1px solid #a5d6a7;color:#2e7d32;}
+
+/* Others 顯示 */
+.others-list{background:#f8fafc;border-radius:8px;padding:8px 10px;margin-bottom:10px;}
+.others-title{font-size:10px;font-weight:700;color:var(--text-muted);margin-bottom:4px;}
+.other-item{font-size:12px;color:var(--text);padding:2px 0;display:flex;gap:6px;align-items:center;}
+.other-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+
+/* Toast */
+.toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(20px);
+  background:#1e293b;color:white;padding:10px 20px;border-radius:20px;
+  font-size:13px;font-weight:700;z-index:9999;opacity:0;transition:all 0.3s;
+  pointer-events:none;white-space:nowrap;}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+.empty-state{text-align:center;padding:30px 16px;color:var(--text-muted);}
+.empty-icon{font-size:36px;margin-bottom:8px;}
+</style>
+</head>
+<body>
+<div id="loadingOverlay"><div class="spinner"></div><div style="font-size:14px;font-weight:600;">載入中...</div></div>
+
+<div id="appShell">
+  <div class="header">
+    <button class="header-back" onclick="window.location.href='home.html'">← 首頁</button>
+    <div class="header-title">📅 劃休申請</div>
+    <div class="header-emp" id="headerEmp">--</div>
+  </div>
+
+  <div class="tab-bar">
+    <div class="tab-item active" id="tab-cal" onclick="switchTab('cal')">📆 月曆</div>
+    <div class="tab-item" id="tab-list" onclick="switchTab('list')">📋 我的申請</div>
+  </div>
+
+  <div class="content" id="mainContent"></div>
+</div>
+
+<!-- ===== 申請 Modal ===== -->
+<div class="modal-overlay" id="applyModal" onclick="if(event.target===this)closeModal('applyModal')">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="applyModalTitle">申請劃休</div>
+    <div class="modal-sub" id="applyModalSub"></div>
+    <div class="modal-body">
+
+      <!-- 同日劃休者 -->
+      <div id="othersBox" style="display:none;"></div>
+
+      <!-- 假別選擇 -->
+      <div class="form-field">
+        <label>假別</label>
+        <div class="type-btns">
+          <button class="type-btn active-off" id="btn-type-off" onclick="selectType('off')">📝 排休<br><small style="font-size:10px;font-weight:600;color:var(--text-muted);">許願制</small></button>
+          <button class="type-btn" id="btn-type-annual" onclick="selectType('annual')">🏖️ 特休<br><small id="annual-remain-hint" style="font-size:10px;font-weight:600;color:var(--text-muted);">--天</small></button>
+          <button class="type-btn" id="btn-type-comp" onclick="selectType('comp')">🗓️ 補休<br><small id="comp-remain-hint" style="font-size:10px;font-weight:600;color:var(--text-muted);">--天</small></button>
+        </div>
+      </div>
+
+      <!-- 時段選擇 -->
+      <div class="form-field" id="shiftGroup">
+        <label>時段</label>
+        <div class="shift-btns">
+          <button class="shift-btn active" id="btn-shift-full" onclick="selectShift('full')">🌕 全日</button>
+          <button class="shift-btn" id="btn-shift-morning" onclick="selectShift('morning')">🌅 早班</button>
+          <button class="shift-btn" id="btn-shift-evening" onclick="selectShift('evening')">🌆 晚班</button>
+        </div>
+        <div class="info-box warn" id="shiftWarn" style="display:none;">⚠️ 半日假扣 0.5 天餘額</div>
+      </div>
+
+      <!-- 限制資訊 -->
+      <div id="limitBox"></div>
+
+      <!-- 配額警告 -->
+      <div id="quotaWarn" style="display:none;"></div>
+
+      <!-- 週配額提醒（排休正職） -->
+      <div id="weekQuotaWarn" style="display:none;"></div>
+
+      <!-- 備註 -->
+      <div class="form-field">
+        <label>備註（選填）</label>
+        <textarea id="applyNote" rows="2" style="resize:none;" placeholder="例如：家庭因素、特殊需求..."></textarea>
+      </div>
+
+      <button class="modal-action" id="applyConfirmBtn" onclick="submitApply()">確認送出</button>
+      <button class="modal-cancel" onclick="closeModal('applyModal')">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 取消確認 Modal ===== -->
+<div class="modal-overlay" id="cancelModal" onclick="if(event.target===this)closeModal('cancelModal')">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-title">取消申請</div>
+    <div class="modal-body">
+      <div class="info-box warn" id="cancelDesc"></div>
+      <button class="modal-action danger" onclick="confirmCancel()">確定取消申請</button>
+      <button class="modal-cancel" onclick="closeModal('cancelModal')">返回</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ===== 全域狀態 =====
+let currentUser = null, appConfig = { stores:[], shifts:[] };
+let currentTab = 'cal';
+let viewYear = 0, viewMonth = 0; // 0-based month
+let myRequests = []; // 本人所有申請
+let storeRequests = []; // 本店所有申請（看名額）
+let publishData = {}; // weekStr -> published bool
+let annualBalance = 0; // 特休可用天數
+let compBalance = 0;   // 補休可用天數
+let weekReqCount = 0;  // 本週排休已申請天數（正職用）
+let displayNameMap = {};
+
+// 申請 Modal 狀態
+let applyDate = '';    // YYYY-MM-DD
+let applyType = 'off'; // off | annual | comp
+let applyShift = 'full'; // full | morning | evening
+let cancelTargetId = '';
+
+// 設定值
+const MAX_FULL_PER_DAY_SEATING = { full: 2, part: 1 }; // 預設，後面從 config 讀
+let dailyLimits = { fullTime: 2, partTime: 1 };
+const WEEKLY_OFF_LIMIT_FULL = 2; // 正職排休每週上限
+
+// ===== 工具函式 =====
+function showLoading(m){ const o=document.getElementById('loadingOverlay'); o.classList.remove('hidden'); o.style.display='flex'; o.querySelector('div+div').textContent=m||'載入中...'; }
+function hideLoading(){ document.getElementById('loadingOverlay').classList.add('hidden'); setTimeout(()=>{ document.getElementById('loadingOverlay').style.display='none'; },400); }
+function showToast(m){ const t=document.getElementById('toast'); t.textContent=m; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2500); }
+function openModal(id){ document.getElementById(id).classList.add('active'); }
+function closeModal(id){ document.getElementById(id).classList.remove('active'); }
+function today(){ return new Date().toISOString().split('T')[0]; }
+function fmtDate(s){ if(!s)return '--'; const[y,m,d]=s.split('-'); return `${parseInt(m)}/${parseInt(d)}`; }
+function fmtDateFull(s){ if(!s)return '--'; const[y,m,d]=s.split('-'); return `${y}年${parseInt(m)}月${parseInt(d)}日`; }
+function getDN(n){ return displayNameMap[n]||n; }
+function isFullTime(){ return !((currentUser?.role||'').includes('工讀')); }
+function canSchedule(){ return ['manager','owner','admin'].includes(currentUser?.permission); }
+
+// 判斷是否為正職
+function isFullTimeEmp(name){
+  // 若是查自己，用 currentUser.role
+  if(name === currentUser.empName) return isFullTime();
+  return true; // 預設正職（申請時只管自己）
+}
+
+// ===== 週次工具 =====
+function dateToWeekStr(dateStr){
+  const d = new Date(dateStr + 'T00:00:00');
+  const day = d.getDay() || 7;
+  const mon = new Date(d); mon.setDate(d.getDate() - day + 1);
+  const yr = mon.getFullYear();
+  const firstMon = new Date(yr, 0, 1);
+  const dayOfYear = Math.floor((mon - firstMon) / 86400000);
+  const weekNum = Math.ceil((dayOfYear + (firstMon.getDay()||7) - 1) / 7) + 1;
+  return `${yr}-W${String(weekNum).padStart(2,'0')}`;
+}
+
+// 目標週的申請截止日（前兩週的週日）
+function getDeadlineForWeek(weekStr){
+  const [yr, wk] = weekStr.split('-W').map(Number);
+  const d = new Date(yr, 0, 1);
+  const day = d.getDay();
+  d.setDate(d.getDate() + (wk-1)*7);
+  const offset = day <= 4 ? 1 - day : 8 - day;
+  const weekMon = new Date(yr, d.getMonth(), d.getDate() + offset);
+  // 前兩週週一 = weekMon - 14天，前兩週週日 = weekMon - 14 + 6 = weekMon - 8
+  const deadline = new Date(weekMon);
+  deadline.setDate(weekMon.getDate() - 8);
+  deadline.setHours(23, 59, 59, 0);
+  return deadline;
+}
+
+function isDateLocked(dateStr){
+  const weekStr = dateToWeekStr(dateStr);
+  const deadline = getDeadlineForWeek(weekStr);
+  return new Date() > deadline;
+}
+
+// 員工可申請的月份範圍
+function getAllowedMonthRange(){
+  const now = new Date();
+  const curY = now.getFullYear(), curM = now.getMonth();
+  // 下個月
+  let nextM = curM + 1, nextY = curY;
+  if(nextM > 11){ nextM = 0; nextY++; }
+  // 下下個月（只有店長以上）
+  let nnM = nextM + 1, nnY = nextY;
+  if(nnM > 11){ nnM = 0; nnY++; }
+
+  const min = { year: nextY, month: nextM }; // 最早可申請月份（員工：下個月）
+  const max = canSchedule()
+    ? { year: nnY, month: nnM }   // 店長：下下個月
+    : { year: nextY, month: nextM }; // 員工：下個月
+  return { min, max };
+}
+
+// ===== 初始化 =====
+window.onload = async () => {
+  showLoading('驗證登入狀態...');
+  const saved = localStorage.getItem('currentUser') || sessionStorage.getItem('currentUser');
+  if(!saved){ window.location.replace('home.html'); return; }
+  try{ currentUser = JSON.parse(saved); } catch(e){ window.location.replace('home.html'); return; }
+
+  document.getElementById('headerEmp').textContent = currentUser.displayName || currentUser.empName || '--';
+
+  showLoading('載入設定...');
+  try{
+    const cached = localStorage.getItem('appConfig');
+    if(cached) try{ appConfig = JSON.parse(cached); }catch(e){}
+    try{
+      const snap = await Promise.race([
+        window.db.collection('settings').doc('globalConfig').get(),
+        new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')),5000))
+      ]);
+      if(snap.exists){
+        appConfig = snap.data();
+        localStorage.setItem('appConfig', JSON.stringify(appConfig));
+      }
+    }catch(e){}
+
+    // 讀取每日上限設定
+    if(appConfig.leaveQuota){
+      dailyLimits.fullTime = appConfig.leaveQuota.fullTime ?? 2;
+      dailyLimits.partTime = appConfig.leaveQuota.partTime ?? 1;
+    }
+
+    // 讀取顯示名稱
+    const store = currentUser.store || appConfig.stores?.[0] || '';
+    const accSnap = await window.db.collection('account').where('store','==',store).get().catch(()=>null);
+    if(accSnap) accSnap.forEach(d=>{ const a=d.data(); if(a.empName&&a.displayName) displayNameMap[a.empName]=a.displayName; });
+
+    // 讀取餘額
+    await loadBalance();
+
+    // 預設顯示下個月
+    const { min } = getAllowedMonthRange();
+    viewYear = min.year;
+    viewMonth = min.month;
+
+    // 讀取申請資料
+    await loadRequests();
+
+    document.getElementById('appShell').classList.add('active');
+    renderTab();
+    hideLoading();
+  }catch(e){ hideLoading(); alert('載入失敗：'+e.message); }
+};
+
+// ===== 讀取餘額 =====
+async function loadBalance(){
+  const empName = currentUser.empName;
+  const yr = new Date().getFullYear();
+
+  // 特休：leaveBatches
+  const bSnap = await window.db.collection('employees').doc(empName).collection('leaveBatches').get().catch(()=>null);
+  const todayStr = today();
+  annualBalance = 0;
+  if(bSnap){
+    bSnap.forEach(d=>{
+      const b = d.data();
+      if(b.settled) return;
+      const rem = (b.days||0) - (b.used||0);
+      const exp = b.carried ? addMonths(b.expireDate, 12) : b.expireDate;
+      if(rem > 0 && exp >= todayStr) annualBalance += rem;
+    });
+  }
+
+  // 補休：comp/{year}
+  const cSnap = await window.db.collection('employees').doc(empName).collection('comp').doc(String(yr)).get().catch(()=>null);
+  const cData = cSnap?.exists ? cSnap.data() : { earned:0, used:0 };
+  compBalance = Math.max(0, (cData.earned||0) - (cData.used||0));
+  // 加上遞延
+  const prevSnap = await window.db.collection('employees').doc(empName).collection('comp').doc(String(yr-1)).get().catch(()=>null);
+  if(prevSnap?.exists){
+    const pd = prevSnap.data();
+    if(pd.carried && !pd.settled){
+      const carriedRem = Math.max(0, (pd.earned||0) - (pd.used||0) - (pd.carriedUsed||0));
+      compBalance += carriedRem;
+    }
+  }
+}
+
+function addMonths(dateStr, months){
+  if(!dateStr) return '';
+  const d = new Date(dateStr);
+  d.setMonth(d.getMonth() + months);
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().split('T')[0];
+}
+
+// ===== 讀取申請資料 =====
+async function loadRequests(){
+  const store = currentUser.store || appConfig.stores?.[0] || '';
+  const snap = await window.db.collection('stores').doc(store).collection('leaveRequests')
+    .orderBy('createdAt','desc').get().catch(()=>null);
+  storeRequests = [];
+  myRequests = [];
+  if(snap){
+    snap.forEach(d=>{
+      const r = { id: d.id, ...d.data() };
+      storeRequests.push(r);
+      if(r.empName === currentUser.empName) myRequests.push(r);
+    });
+  }
+  // 計算本週排休已申請數（正職）
+  calcWeekOffCount();
+}
+
+function calcWeekOffCount(){
+  // 找「本週」（下週，即預設申請週）排休申請數
+  weekReqCount = {};
+  myRequests.forEach(r=>{
+    if(r.type !== 'off') return;
+    if(['noted','pending'].includes(r.status)){
+      const wk = dateToWeekStr(r.date);
+      weekReqCount[wk] = (weekReqCount[wk]||0) + (r.shift === 'full' ? 1 : 0.5);
+    }
+  });
+}
+
+// ===== Tab 切換 =====
+function switchTab(tab){
+  currentTab = tab;
+  document.querySelectorAll('.tab-item').forEach(el=>el.classList.remove('active'));
+  document.getElementById('tab-'+tab)?.classList.add('active');
+  renderTab();
+}
+
+function renderTab(){
+  if(currentTab === 'cal') renderCalendar();
+  else renderMyList();
+}
+
+// ===== 月曆渲染 =====
+function renderCalendar(){
+  const el = document.getElementById('mainContent');
+  const { min, max } = getAllowedMonthRange();
+
+  // 餘額卡片
+  const weekOffUsed = weekReqCount[dateToWeekStr(getNextMonday())] || 0;
+  const weekOffLeft = isFullTime() ? Math.max(0, WEEKLY_OFF_LIMIT_FULL - weekOffUsed) : '∞';
+  let html = `<div class="balance-row">
+    <div class="balance-card">
+      <div class="balance-label">🏖️ 特休可用</div>
+      <div class="balance-val annual">${annualBalance}</div>
+      <div class="balance-sub">天</div>
+    </div>
+    <div class="balance-card">
+      <div class="balance-label">🗓️ 補休可用</div>
+      <div class="balance-val comp">${compBalance}</div>
+      <div class="balance-sub">天</div>
+    </div>
+    <div class="balance-card">
+      <div class="balance-label">📝 排休配額</div>
+      <div class="balance-val week">${isFullTime() ? weekOffLeft : '∞'}</div>
+      <div class="balance-sub">${isFullTime() ? '天/週剩餘' : '無限制'}</div>
+    </div>
+  </div>`;
+
+  // 月份導航
+  const canPrev = !(viewYear === min.year && viewMonth === min.month);
+  const canNext = !(viewYear === max.year && viewMonth === max.month);
+  html += `<div class="month-nav">
+    <button class="month-nav-btn" onclick="changeMonth(-1)" ${canPrev?'':'disabled style="opacity:0.3;"'}>‹</button>
+    <div class="month-label">${viewYear} 年 ${viewMonth+1} 月</div>
+    <button class="month-nav-btn" onclick="changeMonth(1)" ${canNext?'':'disabled style="opacity:0.3;"'}>›</button>
+  </div>`;
+
+  // 日曆本體
+  html += `<div class="calendar">
+    <div class="cal-header">
+      <div class="cal-dow">一</div><div class="cal-dow">二</div><div class="cal-dow">三</div>
+      <div class="cal-dow">四</div><div class="cal-dow">五</div><div class="cal-dow">六</div>
+      <div class="cal-dow" style="color:#ffcdd2;">日</div>
+    </div>
+    <div class="cal-body" id="calBody"></div>
+  </div>`;
+
+  el.innerHTML = html;
+  renderCalBody();
+}
+
+function getNextMonday(){
+  const d = new Date();
+  const day = d.getDay()||7;
+  d.setDate(d.getDate() + (8-day));
+  return d.toISOString().split('T')[0];
+}
+
+function renderCalBody(){
+  const body = document.getElementById('calBody');
+  if(!body) return;
+
+  const todayStr = today();
+  const firstDay = new Date(viewYear, viewMonth, 1);
+  const lastDay = new Date(viewYear, viewMonth+1, 0);
+  // 月的第一天是週幾（調整：週一=0）
+  let startDow = firstDay.getDay() - 1;
+  if(startDow < 0) startDow = 6;
+
+  let html = '';
+  // 前面補空格
+  for(let i=0;i<startDow;i++) html += `<div class="cal-cell empty"></div>`;
+
+  for(let d=1; d<=lastDay.getDate(); d++){
+    const dateStr = `${viewYear}-${String(viewMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const dow = new Date(dateStr).getDay(); // 0=Sun
+    const isSunday = dow === 0;
+    const isToday = dateStr === todayStr;
+    const isPast = dateStr < todayStr;
+    const isLocked = isDateLocked(dateStr);
+
+    // 我的申請
+    const myReqs = myRequests.filter(r=>r.date===dateStr && !['cancelled','unfulfilled'].includes(r.status));
+    // 其他人的申請（同店）
+    const othersReqs = storeRequests.filter(r=>r.date===dateStr && r.empName!==currentUser.empName && !['cancelled','unfulfilled'].includes(r.status));
+
+    // 名額計算
+    const fullUsed = storeRequests.filter(r=>r.date===dateStr && !['cancelled','unfulfilled'].includes(r.status) && isFullTimeReq(r)).length;
+    const partUsed = storeRequests.filter(r=>r.date===dateStr && !['cancelled','unfulfilled'].includes(r.status) && !isFullTimeReq(r)).length;
+    const myType = isFullTime() ? 'fullTime' : 'partTime';
+    const myUsed = myType === 'fullTime' ? fullUsed : partUsed;
+    const myLimit = dailyLimits[myType];
+    const quotaFull = myUsed >= myLimit;
+
+    let cls = 'cal-cell';
+    if(isSunday) cls += ' sunday';
+    if(isToday) cls += ' today';
+    if(isPast) cls += ' past';
+    else if(isLocked && myReqs.length===0) cls += ' locked';
+
+    let tags = '';
+    // 我的申請標籤
+    myReqs.forEach(r=>{
+      const typeLabel = r.type==='annual'?'🏖️特':r.type==='comp'?'🗓️補':'📝排';
+      const shiftLabel = r.shift==='morning'?'早':r.shift==='evening'?'晚':'';
+      const typeClass = r.type==='annual'?'mine-annual':r.type==='comp'?'mine-comp':'mine-off';
+      tags += `<div class="cal-tag ${typeClass}">${typeLabel}${shiftLabel}</div>`;
+    });
+    // 名額資訊
+    if(!isPast && !isLocked && myReqs.length===0){
+      if(quotaFull) tags += `<div class="cal-tag quota-full">滿</div>`;
+      else if(myUsed >= myLimit-1) tags += `<div class="cal-tag quota-warn">剩1</div>`;
+    }
+    // 其他人標籤（最多顯示2個）
+    othersReqs.slice(0,2).forEach(r=>{
+      tags += `<div class="cal-tag others">${getDN(r.empName).slice(-1)}</div>`;
+    });
+    if(othersReqs.length>2) tags += `<div class="cal-tag others">+${othersReqs.length-2}</div>`;
+
+    const clickable = !isPast && !isSunday;
+    const onclick = clickable ? `onclick="openApplyModal('${dateStr}')"` : '';
+    html += `<div class="${cls}" ${onclick}>
+      <div class="cal-date">${d}</div>
+      <div class="cal-tags">${tags}</div>
+    </div>`;
+  }
+  // 後面補空格
+  const totalCells = startDow + lastDay.getDate();
+  const rem = totalCells % 7;
+  if(rem > 0) for(let i=0;i<7-rem;i++) html += `<div class="cal-cell empty"></div>`;
+
+  body.innerHTML = html;
+}
+
+function isFullTimeReq(r){
+  // 用 empType 欄位判斷
+  return r.empType !== 'part';
+}
+
+function changeMonth(dir){
+  viewMonth += dir;
+  if(viewMonth > 11){ viewMonth = 0; viewYear++; }
+  if(viewMonth < 0){ viewMonth = 11; viewYear--; }
+  renderCalendar();
+}
+
+// ===== 開啟申請 Modal =====
+function openApplyModal(dateStr){
+  const isPast = dateStr < today();
+  const isSunday = new Date(dateStr).getDay() === 0;
+  if(isPast || isSunday) return;
+
+  applyDate = dateStr;
+  applyType = 'off';
+  applyShift = 'full';
+
+  const dObj = new Date(dateStr + 'T00:00:00');
+  const dowLabel = ['日','一','二','三','四','五','六'][dObj.getDay()];
+  document.getElementById('applyModalTitle').textContent = `申請劃休`;
+  document.getElementById('applyModalSub').textContent = `${fmtDateFull(dateStr)}（週${dowLabel}）`;
+  document.getElementById('applyNote').value = '';
+
+  // 更新假別按鈕餘額提示
+  document.getElementById('annual-remain-hint').textContent = `剩 ${annualBalance} 天`;
+  document.getElementById('comp-remain-hint').textContent = `剩 ${compBalance} 天`;
+
+  selectType('off');
+  selectShift('full');
+  renderOthersBox(dateStr);
+  renderLimitBox(dateStr);
+
+  openModal('applyModal');
+}
+
+function renderOthersBox(dateStr){
+  const others = storeRequests.filter(r=>r.date===dateStr && r.empName!==currentUser.empName && !['cancelled','unfulfilled'].includes(r.status));
+  const box = document.getElementById('othersBox');
+  if(!others.length){ box.style.display='none'; return; }
+  box.style.display = 'block';
+  const items = others.map(r=>{
+    const color = r.type==='annual'?'var(--purple)':r.type==='comp'?'var(--comp-blue)':'var(--primary)';
+    const typeLabel = r.type==='annual'?'特休':r.type==='comp'?'補休':'排休';
+    return `<div class="other-item"><div class="other-dot" style="background:${color};"></div>${getDN(r.empName)} — ${typeLabel}</div>`;
+  }).join('');
+  box.innerHTML = `<div class="others-list"><div class="others-title">同日已劃休的同事</div>${items}</div>`;
+}
+
+function renderLimitBox(dateStr){
+  const isLocked = isDateLocked(dateStr);
+  const box = document.getElementById('limitBox');
+  if(isLocked){
+    box.innerHTML = `<div class="info-box warn">🔒 此日申請截止日已過，僅可查看，無法新申請。</div>`;
+    document.getElementById('applyConfirmBtn').disabled = true;
+    document.getElementById('applyConfirmBtn').style.opacity = '0.5';
+  } else {
+    box.innerHTML = '';
+    document.getElementById('applyConfirmBtn').disabled = false;
+    document.getElementById('applyConfirmBtn').style.opacity = '1';
+  }
+}
+
+function selectType(type){
+  applyType = type;
+  ['off','annual','comp'].forEach(t=>{
+    const btn = document.getElementById('btn-type-'+t);
+    btn.className = 'type-btn';
+    if(t===type) btn.classList.add('active-'+t==='off'?'active-off':t==='annual'?'active-annual':'active-comp');
+  });
+  // 修正：單獨處理 active class
+  document.getElementById('btn-type-off').classList.toggle('active-off', type==='off');
+  document.getElementById('btn-type-annual').classList.toggle('active-annual', type==='annual');
+  document.getElementById('btn-type-comp').classList.toggle('active-comp', type==='comp');
+
+  // 排休不顯示時段（全日為主，但可選早/晚班）
+  updateShiftWarn();
+  updateQuotaWarn();
+  updateWeekQuotaWarn();
+}
+
+function selectShift(shift){
+  applyShift = shift;
+  ['full','morning','evening'].forEach(s=>{
+    document.getElementById('btn-shift-'+s).classList.toggle('active', s===shift);
+  });
+  document.getElementById('shiftWarn').style.display = (shift!=='full') ? 'block' : 'none';
+  updateQuotaWarn();
+  updateWeekQuotaWarn();
+}
+
+function updateShiftWarn(){
+  // 排休：說明僅供許願
+  const qWarn = document.getElementById('quotaWarn');
+  if(applyType==='off'){
+    qWarn.style.display='none';
+  }
+}
+
+function updateQuotaWarn(){
+  const qWarn = document.getElementById('quotaWarn');
+  if(!applyDate){ qWarn.style.display='none'; return; }
+  const myType = isFullTime() ? 'fullTime' : 'partTime';
+  const myLimit = dailyLimits[myType];
+  const used = storeRequests.filter(r=>r.date===applyDate && !['cancelled','unfulfilled'].includes(r.status) && isFullTimeReq(r)===isFullTime()).length;
+  if(used >= myLimit){
+    qWarn.style.display='block';
+    qWarn.innerHTML = `<div class="info-box warn">⚠️ 此日${isFullTime()?'正職':'工讀'}名額已滿（上限 ${myLimit} 人），申請仍可送出，請自行與店長協調。</div>`;
+  } else {
+    qWarn.style.display='none';
+  }
+}
+
+function updateWeekQuotaWarn(){
+  const box = document.getElementById('weekQuotaWarn');
+  if(!isFullTime() || applyType!=='off' || !applyDate){ box.style.display='none'; return; }
+  const wk = dateToWeekStr(applyDate);
+  const used = weekReqCount[wk] || 0;
+  const left = WEEKLY_OFF_LIMIT_FULL - used;
+  if(left <= 0){
+    box.style.display='block';
+    box.innerHTML = `<div class="info-box danger">🚫 本週排休許願已達上限（每週最多 ${WEEKLY_OFF_LIMIT_FULL} 天），無法再送出排休申請。</div>`;
+    document.getElementById('applyConfirmBtn').disabled = true;
+    document.getElementById('applyConfirmBtn').style.opacity = '0.5';
+  } else {
+    box.style.display = left===1 ? 'block' : 'none';
+    if(left===1) box.innerHTML = `<div class="info-box warn">⚠️ 本週排休許願剩餘 1 天配額。</div>`;
+    document.getElementById('applyConfirmBtn').disabled = false;
+    document.getElementById('applyConfirmBtn').style.opacity = '1';
+  }
+}
+
+// ===== 送出申請 =====
+async function submitApply(){
+  if(!applyDate) return;
+  if(isDateLocked(applyDate)){
+    showToast('⚠️ 此日申請截止日已過');
+    closeModal('applyModal');
+    return;
+  }
+
+  // 週配額檢查（正職排休）
+  if(isFullTime() && applyType==='off'){
+    const wk = dateToWeekStr(applyDate);
+    const used = weekReqCount[wk] || 0;
+    const cost = applyShift==='full' ? 1 : 0.5;
+    if(used + cost > WEEKLY_OFF_LIMIT_FULL){
+      showToast('🚫 本週排休許願已達上限');
+      return;
+    }
+  }
+
+  // 餘額檢查（特補休）
+  const cost = applyShift==='full' ? 1 : 0.5;
+  if(applyType==='annual' && annualBalance < cost){
+    showToast('⚠️ 特休餘額不足');
+    return;
+  }
+  if(applyType==='comp' && compBalance < cost){
+    showToast('⚠️ 補休餘額不足');
+    return;
+  }
+
+  // 重複申請檢查
+  const dup = myRequests.find(r=>r.date===applyDate && !['cancelled','unfulfilled'].includes(r.status));
+  if(dup){
+    showToast('⚠️ 此日已有申請記錄');
+    return;
+  }
+
+  const note = document.getElementById('applyNote').value.trim();
+  const store = currentUser.store || appConfig.stores?.[0] || '';
+
+  showLoading('送出申請中...');
+  try{
+    const now = new Date();
+    const data = {
+      empName: currentUser.empName,
+      empType: isFullTime() ? 'full' : 'part',
+      type: applyType,
+      date: applyDate,
+      shift: applyShift,
+      status: applyType==='off' ? 'noted' : 'pending',
+      note,
+      managerNote: '',
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      week: dateToWeekStr(applyDate),
+      store
+    };
+    await window.db.collection('stores').doc(store).collection('leaveRequests').add(data);
+    showToast('✅ 申請已送出');
+    closeModal('applyModal');
+    await loadRequests();
+    renderTab();
+  }catch(e){ showToast('❌ 失敗：'+e.message); }
+  hideLoading();
+}
+
+// ===== 我的申請清單 =====
+function renderMyList(){
+  const el = document.getElementById('mainContent');
+
+  if(!myRequests.length){
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">📋</div><div>尚無申請記錄</div><div style="font-size:12px;margin-top:6px;">點選月曆上的日期來申請劃休</div></div>`;
+    return;
+  }
+
+  const pending = myRequests.filter(r=>['noted','pending'].includes(r.status));
+  const done = myRequests.filter(r=>['fulfilled','unfulfilled','cancelled'].includes(r.status));
+
+  let html = '';
+  if(pending.length){
+    html += `<div class="req-section-title">進行中的申請</div>`;
+    html += pending.map(r=>renderReqCard(r)).join('');
+  }
+  if(done.length){
+    html += `<div class="req-section-title" style="margin-top:16px;">已結案</div>`;
+    html += done.slice(0,20).map(r=>renderReqCard(r)).join('');
+  }
+  el.innerHTML = html;
+}
+
+function renderReqCard(r){
+  const typeLabel = r.type==='annual'?'🏖️ 特休':r.type==='comp'?'🗓️ 補休':'📝 排休';
+  const typeColor = r.type==='annual'?'var(--purple)':r.type==='comp'?'var(--comp-blue)':'var(--primary)';
+  const shiftLabel = r.shift==='morning'?'（早班）':r.shift==='evening'?'（晚班）':'（全日）';
+  const statusMap = { noted:'排休許願', pending:'待確認', fulfilled:'已安排', unfulfilled:'未安排', cancelled:'已取消' };
+  const statusCls = { noted:'noted', pending:'pending', fulfilled:'fulfilled', unfulfilled:'unfulfilled', cancelled:'noted' };
+  const dObj = new Date(r.date+'T00:00:00');
+  const dowLabel = ['日','一','二','三','四','五','六'][dObj.getDay()];
+  const canCancel = ['noted','pending'].includes(r.status) && !isDateLocked(r.date);
+
+  return `<div class="req-card">
+    <div class="req-card-body">
+      <div class="req-type-dot" style="background:${typeColor};"></div>
+      <div class="req-info">
+        <div class="req-date">${fmtDateFull(r.date)}（週${dowLabel}）</div>
+        <div class="req-meta">${typeLabel} ${shiftLabel}${r.note?` · ${r.note}`:''}</div>
+        ${r.managerNote?`<div class="req-meta" style="color:var(--danger);">店長備註：${r.managerNote}</div>`:''}
+      </div>
+      <div class="req-status ${statusCls[r.status]||'noted'}">${statusMap[r.status]||r.status}</div>
+      ${canCancel?`<button class="req-delete" onclick="openCancelModal('${r.id}')" title="取消申請">✕</button>`:''}
+    </div>
+  </div>`;
+}
+
+// ===== 取消申請 =====
+function openCancelModal(reqId){
+  cancelTargetId = reqId;
+  const r = myRequests.find(x=>x.id===reqId);
+  if(!r) return;
+  const typeLabel = r.type==='annual'?'特休':r.type==='comp'?'補休':'排休';
+  document.getElementById('cancelDesc').textContent = `確定取消 ${fmtDateFull(r.date)} 的${typeLabel}申請嗎？`;
+  openModal('cancelModal');
+}
+
+async function confirmCancel(){
+  if(!cancelTargetId) return;
+  const store = currentUser.store || appConfig.stores?.[0] || '';
+  showLoading('取消中...');
+  try{
+    await window.db.collection('stores').doc(store).collection('leaveRequests').doc(cancelTargetId).update({
+      status: 'cancelled',
+      updatedAt: new Date().toISOString()
+    });
+    showToast('✅ 已取消申請');
+    closeModal('cancelModal');
+    cancelTargetId = '';
+    await loadRequests();
+    renderTab();
+  }catch(e){ showToast('❌ 失敗：'+e.message); }
+  hideLoading();
+}
+</script>
+</body>
+</html>
