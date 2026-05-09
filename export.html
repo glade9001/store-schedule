@@ -27,73 +27,90 @@
   --text:#1e293b;--text-muted:#64748b;--border:#e2e8f0;--radius:14px;
 }
 html,body{min-height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;color:var(--text);}
-
-/* Loading */
 #loadingOverlay{display:flex;position:fixed;inset:0;background:linear-gradient(135deg,#1a73e8,#0d47a1);z-index:99999;flex-direction:column;justify-content:center;align-items:center;color:white;transition:opacity 0.4s;}
 #loadingOverlay.hidden{opacity:0;pointer-events:none;}
 .spinner{width:40px;height:40px;border:4px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:16px;}
 @keyframes spin{to{transform:rotate(360deg);}}
 #loadingText{font-size:14px;font-weight:600;opacity:0.9;text-align:center;padding:0 24px;}
-
-/* Header */
 .header{background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:white;padding:0 16px;height:56px;display:flex;align-items:center;gap:10px;box-shadow:0 2px 12px rgba(26,115,232,0.3);}
 .header-back{background:rgba(255,255,255,0.2);border:none;color:white;height:34px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;padding:0 12px;}
 .header-title{font-size:16px;font-weight:800;flex:1;}
-
-/* Content */
-.content{max-width:600px;margin:0 auto;padding:20px 16px 40px;}
-
-/* Card */
-.card{background:white;border-radius:var(--radius);padding:20px;margin-bottom:16px;box-shadow:0 2px 8px rgba(0,0,0,0.06);}
-.card-title{font-size:15px;font-weight:900;color:var(--primary);margin-bottom:16px;display:flex;align-items:center;gap:8px;}
-
-/* Form rows */
-.form-row{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;}
-.form-label{font-size:13px;font-weight:700;color:var(--text-muted);width:72px;flex-shrink:0;}
-.form-select,.form-input{flex:1;min-width:0;padding:10px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:14px;font-weight:600;background:white;color:var(--text);}
-.form-select:focus,.form-input:focus{outline:none;border-color:var(--primary);}
-
-/* Month selectors */
-.month-row{display:flex;gap:8px;align-items:center;}
-.month-select{padding:10px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:14px;font-weight:600;background:white;flex:1;}
-
-/* 資料項目勾選 */
-.check-list{display:flex;flex-direction:column;gap:10px;}
-.check-item{display:flex;align-items:flex-start;gap:10px;padding:12px;border-radius:10px;border:1.5px solid var(--border);cursor:pointer;transition:border-color 0.2s,background 0.2s;}
+.content{max-width:600px;margin:0 auto;padding:20px 16px 60px;}
+.card{background:white;border-radius:var(--radius);padding:20px;margin-bottom:14px;box-shadow:0 2px 8px rgba(0,0,0,0.06);}
+.card-title{font-size:14px;font-weight:900;color:var(--primary);margin-bottom:14px;}
+.form-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.form-label{font-size:13px;font-weight:700;color:var(--text-muted);width:68px;flex-shrink:0;}
+.form-select{flex:1;padding:10px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:14px;font-weight:600;background:white;color:var(--text);}
+.form-select:focus{outline:none;border-color:var(--primary);}
+.hint{font-size:11px;color:var(--text-muted);margin-top:4px;line-height:1.5;}
+.check-list{display:flex;flex-direction:column;gap:8px;}
+.check-item{display:flex;align-items:flex-start;gap:10px;padding:11px 13px;border-radius:10px;border:1.5px solid var(--border);cursor:pointer;transition:border-color .2s,background .2s;}
 .check-item.checked{border-color:var(--primary);background:#eff6ff;}
 .check-item input[type=checkbox]{width:18px;height:18px;margin-top:1px;cursor:pointer;flex-shrink:0;accent-color:var(--primary);}
-.check-item-text{flex:1;}
 .check-item-title{font-size:13px;font-weight:800;color:var(--text);}
 .check-item-desc{font-size:11px;color:var(--text-muted);margin-top:2px;line-height:1.5;}
-
-/* 格式選擇 */
 .format-row{display:flex;gap:8px;}
-.format-btn{flex:1;padding:10px;border:1.5px solid var(--border);border-radius:10px;background:white;font-size:13px;font-weight:700;cursor:pointer;text-align:center;color:var(--text-muted);transition:all 0.2s;}
+.format-btn{flex:1;padding:10px;border:1.5px solid var(--border);border-radius:10px;background:white;font-size:13px;font-weight:700;cursor:pointer;text-align:center;color:var(--text-muted);transition:all .2s;}
 .format-btn.active{border-color:var(--primary);background:#eff6ff;color:var(--primary);}
-
-/* Export button */
-.export-btn{width:100%;padding:16px;background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:white;border:none;border-radius:12px;font-size:16px;font-weight:900;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 16px rgba(26,115,232,0.35);transition:opacity 0.2s;}
-.export-btn:hover{opacity:0.92;}
-.export-btn:disabled{opacity:0.4;cursor:not-allowed;}
-
-/* Progress */
-.progress-area{margin-top:16px;display:none;}
+.export-btn{width:100%;padding:16px;background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:white;border:none;border-radius:12px;font-size:16px;font-weight:900;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 16px rgba(26,115,232,.35);transition:opacity .2s;}
+.export-btn:hover{opacity:.92;}
+.export-btn:disabled{opacity:.4;cursor:not-allowed;}
+.progress-area{margin-top:14px;display:none;}
 .progress-bar-wrap{background:#e2e8f0;border-radius:8px;height:8px;overflow:hidden;margin-bottom:8px;}
-.progress-bar{height:100%;background:linear-gradient(90deg,var(--primary),var(--accent));border-radius:8px;transition:width 0.3s;}
+.progress-bar{height:100%;background:linear-gradient(90deg,var(--primary),var(--accent));border-radius:8px;transition:width .3s;}
 .progress-text{font-size:12px;color:var(--text-muted);font-weight:600;}
-.progress-log{margin-top:8px;font-size:11px;color:var(--text-muted);line-height:1.8;max-height:120px;overflow-y:auto;}
-
-/* Toast */
-.toast{position:fixed;bottom:40px;left:50%;transform:translateX(-50%);background:#1e293b;color:white;padding:10px 20px;border-radius:20px;font-size:13px;font-weight:700;z-index:9999;opacity:0;transition:opacity 0.3s;pointer-events:none;white-space:nowrap;}
+.progress-log{margin-top:6px;font-size:11px;color:var(--text-muted);line-height:1.8;max-height:100px;overflow-y:auto;}
+.summary-card{background:#f0f7ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:14px 16px;margin-top:12px;display:none;}
+.summary-title{font-size:12px;font-weight:800;color:#1e3a8a;margin-bottom:10px;}
+.summary-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;}
+.summary-item{text-align:center;background:white;border-radius:8px;padding:8px 4px;}
+.summary-num{font-size:18px;font-weight:900;color:var(--primary);}
+.summary-label{font-size:10px;color:var(--text-muted);font-weight:600;margin-top:2px;}
+.toast{position:fixed;bottom:40px;left:50%;transform:translateX(-50%);background:#1e293b;color:white;padding:10px 20px;border-radius:20px;font-size:13px;font-weight:700;z-index:9999;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap;}
 .toast.show{opacity:1;}
 
-/* 摘要卡片 */
-.summary-card{background:#f0f7ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:12px 16px;margin-top:12px;display:none;}
-.summary-title{font-size:12px;font-weight:800;color:#1e3a8a;margin-bottom:8px;}
-.summary-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;}
-.summary-item{text-align:center;background:white;border-radius:8px;padding:8px;}
-.summary-num{font-size:20px;font-weight:900;color:var(--primary);}
-.summary-label{font-size:10px;color:var(--text-muted);font-weight:600;}
+/* ===== PDF 列印樣式 ===== */
+#pdfContent { font-family:"Noto Sans TC","Microsoft JhengHei","PingFang TC",Arial,sans-serif; font-size:11px; color:#1e293b; }
+.pdf-page { background:white; width:100%; max-width:1100px; margin:0 auto 24px; border-radius:8px; overflow:hidden; box-shadow:0 2px 12px rgba(0,0,0,0.12); }
+.pdf-page-landscape { max-width:100%; }
+.pdf-header { background:linear-gradient(135deg,#1a73e8,#1557b0); color:white; padding:14px 20px; display:flex; justify-content:space-between; align-items:center; }
+.pdf-header-title { font-size:16px; font-weight:900; }
+.pdf-header-sub { font-size:11px; opacity:0.85; }
+.pdf-body { padding:16px 20px; }
+.pdf-section { margin-bottom:18px; }
+.pdf-section-title { font-size:12px; font-weight:900; color:#1a73e8; border-left:4px solid #1a73e8; padding-left:8px; margin-bottom:8px; }
+.pdf-table { width:100%; border-collapse:collapse; font-size:10.5px; }
+.pdf-table th { background:#1a73e8; color:white; padding:5px 7px; text-align:center; font-weight:700; white-space:nowrap; }
+.pdf-table td { padding:4px 7px; border-bottom:1px solid #e2e8f0; text-align:center; }
+.pdf-table tr:nth-child(even) td { background:#f8fafc; }
+.pdf-table .subtotal td { background:#dbeafe; font-weight:800; }
+.pdf-table .grand-total td { background:#1e3a8a; color:white; font-weight:900; font-size:11px; }
+.pdf-table .section-header td { background:#f1f5f9; font-weight:800; color:#475569; text-align:left; padding-left:10px; }
+.pdf-table .warn-red td { color:#dc2626; }
+.pdf-table .warn-orange td { color:#ea580c; }
+.pdf-table .warn-yellow td { color:#ca8a04; }
+.badge-green { background:#dcfce7; color:#16a34a; border-radius:4px; padding:1px 6px; font-weight:700; font-size:10px; }
+.badge-red { background:#fee2e2; color:#dc2626; border-radius:4px; padding:1px 6px; font-weight:700; font-size:10px; }
+.badge-orange { background:#ffedd5; color:#ea580c; border-radius:4px; padding:1px 6px; font-weight:700; font-size:10px; }
+.badge-blue { background:#dbeafe; color:#1d4ed8; border-radius:4px; padding:1px 6px; font-weight:700; font-size:10px; }
+.pdf-summary-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:16px; }
+.pdf-summary-box { background:#f0f7ff; border:1.5px solid #bfdbfe; border-radius:8px; padding:10px; text-align:center; }
+.pdf-summary-num { font-size:20px; font-weight:900; color:#1a73e8; }
+.pdf-summary-label { font-size:10px; color:#64748b; margin-top:2px; }
+.pdf-alert { background:#fffbeb; border:1.5px solid #fde68a; border-radius:8px; padding:10px 14px; margin-bottom:10px; font-size:11px; }
+.pdf-alert-title { font-weight:800; color:#92400e; margin-bottom:4px; }
+.pdf-footer { background:#f8fafc; border-top:1px solid #e2e8f0; padding:8px 20px; font-size:10px; color:#94a3b8; display:flex; justify-content:space-between; }
+
+@media print {
+  body > *:not(#pdfModal) { display:none !important; }
+  #pdfModal { position:static !important; background:none !important; display:block !important; }
+  #pdfModal > div:first-child { display:none !important; }
+  #pdfPreviewBody { padding:0 !important; background:none !important; overflow:visible !important; }
+  .pdf-page { box-shadow:none; border-radius:0; margin:0; page-break-after:always; }
+  .pdf-page:last-child { page-break-after:auto; }
+  @page { size:A4 portrait; margin:8mm; }
+  @page.landscape { size:A4 landscape; }
+}
 </style>
 </head>
 <body>
@@ -105,8 +122,6 @@ html,body{min-height:100%;background:var(--bg);font-family:"Noto Sans TC","PingF
 </div>
 
 <div class="content">
-
-  <!-- 月份選擇 -->
   <div class="card">
     <div class="card-title">📅 選擇匯出月份</div>
     <div class="form-row">
@@ -124,98 +139,105 @@ html,body{min-height:100%;background:var(--bg);font-family:"Noto Sans TC","PingF
         <option value="11">11 月</option><option value="12">12 月</option>
       </select>
     </div>
-    <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">
-      ※ 特補休紀錄將匯出所選年度 1 月至所選月份的完整紀錄
-    </div>
+    <div class="hint">特補休紀錄將匯出所選年度 1 月至所選月份的完整紀錄</div>
   </div>
 
-  <!-- 匯出內容 -->
   <div class="card">
-    <div class="card-title">📋 匯出內容（三個工作表）</div>
+    <div class="card-title">📋 匯出內容（四個工作表）</div>
     <div class="check-list">
+      <label class="check-item checked" id="ci-summary">
+        <input type="checkbox" id="chk-summary" checked onchange="toggleCheck('summary')">
+        <div class="check-item-text">
+          <div class="check-item-title">① 人事費用摘要</div>
+          <div class="check-item-desc">各門市薪資合計・實際人事成本・特補休警示・異常提示</div>
+        </div>
+      </label>
       <label class="check-item checked" id="ci-emp">
         <input type="checkbox" id="chk-emp" checked onchange="toggleCheck('emp')">
         <div class="check-item-text">
-          <div class="check-item-title">① 員工資料</div>
-          <div class="check-item-desc">姓名・職稱・到職日・底薪/時薪・勞保・健保・勞退自提<br>來源：salary/{month} 薪資記錄</div>
+          <div class="check-item-title">② 員工資料</div>
+          <div class="check-item-desc">在職年資・底薪/時薪說明・保費・特補休餘額・特休發放狀態・到期警示</div>
         </div>
       </label>
       <label class="check-item checked" id="ci-leave">
         <input type="checkbox" id="chk-leave" checked onchange="toggleCheck('leave')">
         <div class="check-item-text">
-          <div class="check-item-title">② 特休紀錄</div>
-          <div class="check-item-desc">當年度特休取得／使用明細 + 各員工統計表 + 特休到期日<br>來源：leaveLog / leaveBatches</div>
+          <div class="check-item-title">③ 特補休紀錄</div>
+          <div class="check-item-desc">特休＋補休流水明細（含操作人）・各員工統計・年度折現金額・到期日</div>
         </div>
       </label>
       <label class="check-item checked" id="ci-salary">
         <input type="checkbox" id="chk-salary" checked onchange="toggleCheck('salary')">
         <div class="check-item-text">
-          <div class="check-item-title">③ 薪資明細</div>
-          <div class="check-item-desc">底薪・加班費・獎金・代扣・實發金額完整明細<br>來源：stores/{store}/salary/{month}</div>
+          <div class="check-item-title">④ 薪資明細</div>
+          <div class="check-item-desc">完整薪資項目・門市小計・全店合計・公司勞退提撥(6%)・實際人事成本</div>
         </div>
       </label>
     </div>
   </div>
 
-  <!-- 匯出格式 -->
   <div class="card">
     <div class="card-title">💾 匯出格式</div>
     <div class="format-row">
       <button class="format-btn active" id="fmt-xlsx" onclick="setFormat('xlsx')">📊 Excel (.xlsx)</button>
       <button class="format-btn" id="fmt-csv" onclick="setFormat('csv')">📄 CSV (.csv)</button>
     </div>
-    <div style="font-size:11px;color:var(--text-muted);margin-top:10px;" id="fmt-note">
-      Excel 格式：三個工作表整合在同一個檔案，含格式與顏色標記
-    </div>
+    <div class="hint" id="fmt-note" style="margin-top:8px;">Excel 格式：四個工作表整合在同一個檔案，含凍結欄列</div>
   </div>
 
-  <!-- 匯出按鈕 -->
-  <button class="export-btn" id="exportBtn" onclick="startExport()">
-    <span>⬇️</span><span id="exportBtnText">開始匯出</span>
-  </button>
+  <div style="display:flex;gap:8px;margin-bottom:0;">
+    <button class="export-btn" id="exportBtn" onclick="startExport()" style="flex:1;">
+      <span>⬇️</span><span id="exportBtnText">Excel 匯出</span>
+    </button>
+    <button class="export-btn" id="pdfBtn" onclick="startPdfPreview()" style="flex:1;background:linear-gradient(135deg,#9334e6,#6a1bb5);box-shadow:0 4px 16px rgba(147,52,230,.35);">
+      <span>🖨️</span><span>預覽 PDF</span>
+    </button>
+  </div>
 
-  <!-- 進度 -->
+  <!-- PDF 預覽 Modal -->
+  <div id="pdfModal" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,0.7);flex-direction:column;">
+    <div style="background:white;display:flex;align-items:center;gap:10px;padding:12px 16px;box-shadow:0 2px 8px rgba(0,0,0,0.2);flex-shrink:0;">
+      <div style="font-size:15px;font-weight:900;flex:1;">🖨️ PDF 預覽</div>
+      <button onclick="window.print()" style="background:#9334e6;color:white;border:none;border-radius:10px;padding:8px 18px;font-size:14px;font-weight:800;cursor:pointer;">列印 / 存 PDF</button>
+      <button onclick="closePdfModal()" style="background:#f1f3f4;border:none;border-radius:10px;padding:8px 14px;font-size:14px;font-weight:700;cursor:pointer;">✕ 關閉</button>
+    </div>
+    <div id="pdfPreviewBody" style="flex:1;overflow-y:auto;padding:20px;background:#e5e7eb;"></div>
+  </div>
+
   <div class="progress-area" id="progressArea">
     <div class="progress-bar-wrap"><div class="progress-bar" id="progressBar" style="width:0%"></div></div>
     <div class="progress-text" id="progressText">準備中...</div>
     <div class="progress-log" id="progressLog"></div>
   </div>
 
-  <!-- 摘要 -->
   <div class="summary-card" id="summaryCard">
     <div class="summary-title">✅ 匯出完成</div>
     <div class="summary-grid">
       <div class="summary-item"><div class="summary-num" id="sum-emp">0</div><div class="summary-label">員工人數</div></div>
-      <div class="summary-item"><div class="summary-num" id="sum-leave">0</div><div class="summary-label">特休紀錄筆數</div></div>
+      <div class="summary-item"><div class="summary-num" id="sum-leave">0</div><div class="summary-label">特補休筆數</div></div>
       <div class="summary-item"><div class="summary-num" id="sum-salary">0</div><div class="summary-label">薪資記錄筆數</div></div>
+      <div class="summary-item"><div class="summary-num" id="sum-cost">0</div><div class="summary-label">全店人事成本</div></div>
     </div>
   </div>
-
 </div>
-
 <div class="toast" id="toast"></div>
 
 <script>
-// ===== 狀態 =====
 let currentUser = null;
-let appConfig = { stores: [] };
+let appConfig   = { stores: [] };
 let exportFormat = 'xlsx';
 
-// ===== 工具 =====
-function showToast(msg) {
+const showToast = msg => {
   const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.add('show');
+  t.textContent = msg; t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 2800);
-}
-function showLoading(msg) {
+};
+const showLoading = msg => {
   document.getElementById('loadingOverlay').classList.remove('hidden');
   document.getElementById('loadingText').textContent = msg || '載入中...';
-}
-function hideLoading() {
-  document.getElementById('loadingOverlay').classList.add('hidden');
-}
-function setProgress(pct, msg, log) {
+};
+const hideLoading = () => document.getElementById('loadingOverlay').classList.add('hidden');
+const setProgress = (pct, msg, log) => {
   document.getElementById('progressBar').style.width = pct + '%';
   document.getElementById('progressText').textContent = msg;
   if(log) {
@@ -223,658 +245,1172 @@ function setProgress(pct, msg, log) {
     el.innerHTML += `<div>• ${log}</div>`;
     el.scrollTop = el.scrollHeight;
   }
-}
-function toggleCheck(key) {
+};
+const toggleCheck = key => {
   const chk = document.getElementById('chk-' + key);
-  const ci  = document.getElementById('ci-'  + key);
-  ci.classList.toggle('checked', chk.checked);
-}
-function setFormat(fmt) {
+  document.getElementById('ci-' + key).classList.toggle('checked', chk.checked);
+};
+const setFormat = fmt => {
   exportFormat = fmt;
   document.getElementById('fmt-xlsx').classList.toggle('active', fmt === 'xlsx');
   document.getElementById('fmt-csv').classList.toggle('active', fmt === 'csv');
   document.getElementById('fmt-note').textContent = fmt === 'xlsx'
-    ? 'Excel 格式：三個工作表整合在同一個檔案，含格式與顏色標記'
-    : 'CSV 格式：每個工作表個別下載為獨立 .csv 檔案（不含格式）';
-}
+    ? 'Excel 格式：四個工作表整合在同一個檔案，含凍結欄列'
+    : 'CSV 格式：每個工作表分開下載為獨立 .csv 檔案（不含格式）';
+};
 
-// ===== 民國年轉換 =====
-function toROC(dateStr) {
+// 數字工具
+const n = v => parseFloat(v) || 0;
+const comma = v => n(v).toLocaleString();
+
+// 民國年轉換
+const toROC = dateStr => {
   if(!dateStr) return '--';
   try {
-    const [y, m, d] = dateStr.split('-').map(Number);
-    return `${y - 1911}/${String(m).padStart(2,'0')}/${String(d).padStart(2,'0')}`;
+    const [y,m,d] = dateStr.split('-').map(Number);
+    return `${y-1911}/${String(m).padStart(2,'0')}/${String(d).padStart(2,'0')}`;
   } catch { return dateStr; }
-}
+};
 
-// ===== 特休到期日計算（依到職日）=====
-// 台灣勞基法：6個月後首批，之後每年週年日
-// 到期日 = 到職週年日 + 2年（特休有效期2年）
-function calcAnnualLeaveExpire(startDate, year) {
+// 在職年資
+const calcSeniority = startDate => {
   if(!startDate) return '--';
   try {
-    const [sy, sm, sd] = startDate.split('-').map(Number);
-    // 當年度的週年日
-    const anniversaryYear = parseInt(year);
-    // 找本年度或上一個週年日（取得時間點）
-    // 特休到期：取得日起2年內使用
-    // 回傳：本年度週年日起算2年到期
-    const expireY = anniversaryYear + 1; // 到職週年日的次年底到期（簡化：取得年+1年底）
-    // 實際計算：特休取得日=週年日，到期=取得後2年
-    // 找最近一個週年日
-    let grantYear = anniversaryYear;
-    const grantDate = new Date(grantYear, sm - 1, sd);
-    const now = new Date(anniversaryYear, 11, 31); // 年底
-    // 到期 = 取得日 + 2年
-    const expire = new Date(grantDate);
-    expire.setFullYear(expire.getFullYear() + 2);
-    return `${expire.getFullYear() - 1911}/${String(expire.getMonth()+1).padStart(2,'0')}/${String(expire.getDate()).padStart(2,'0')}`;
+    const s = new Date(startDate), now = new Date();
+    let years = now.getFullYear()-s.getFullYear();
+    let months = now.getMonth()-s.getMonth();
+    if(months<0){years--;months+=12;}
+    return years>0 ? `${years}年${months}月` : `${months}個月`;
   } catch { return '--'; }
-}
+};
 
-// ===== 格式工具：數字 =====
-function n(v) { return parseFloat(v) || 0; }
-function fmt(v) { return n(v) === 0 ? '-' : n(v).toLocaleString(); }
+// 特休到期日（從 leaveBatches）
+const getAnnualExpire = (empName, batchMap, year) => {
+  const batches = (batchMap[empName]||[]).filter(b=>!b.carried);
+  if(!batches.length) return '--';
+  const target = batches.find(b=>b.grantDate&&b.grantDate.startsWith(year)) || batches[batches.length-1];
+  if(target.expireDate) return toROC(target.expireDate);
+  try {
+    const d = new Date(target.grantDate);
+    d.setFullYear(d.getFullYear()+2);
+    return toROC(d.toISOString().split('T')[0]);
+  } catch { return '--'; }
+};
 
-// ===== 初始化 =====
+// 距到期天數
+const daysUntilExpire = expROC => {
+  if(expROC==='--') return 9999;
+  try {
+    const [ry,rm,rd] = expROC.split('/').map(Number);
+    return Math.ceil((new Date(ry+1911,rm-1,rd)-new Date())/86400000);
+  } catch { return 9999; }
+};
+
+// 本月是否週年日
+const shouldGrantThisMonth = (startDate, ym) => {
+  if(!startDate) return false;
+  try {
+    const sm = parseInt(startDate.split('-')[1]);
+    const cm = parseInt(ym.split('-')[1]);
+    return sm === cm;
+  } catch { return false; }
+};
+
+// 特休是否已發放
+const checkAnnualGranted = (empName, batchMap, year) =>
+  (batchMap[empName]||[]).filter(b=>!b.carried).some(b=>b.grantDate&&b.grantDate.startsWith(year));
+
+// 薪資計算
+const calcHourlyRate = rec =>
+  (n(rec.baseSalary)+n(rec.fullAttendBase)+n(rec.otherBase))/30/8;
+
+const calcOtPay = rec => {
+  const rph = calcHourlyRate(rec);
+  const hasCustom = n(rec.customOtRate)>0;
+  const rate = hasCustom ? n(rec.customOtRate) : Math.ceil(rph);
+  const mult = hasCustom ? (rec.customOtX134!==false?1.34:1) : 1.34;
+  return Math.ceil(rate*mult*n(rec.otHours));
+};
+
+const calcGross = (rec, role) => {
+  if(role==='工讀') {
+    const w=n(rec.wage), h=n(rec.hours||0);
+    return Math.max(0,
+      Math.round(w*h)+Math.round(w*n(rec.holidayHours))+
+      n(rec.roleBonus)+Math.round(n(rec.extraHours)*w)-
+      Math.abs(n(rec.personalSickLeave)));
+  }
+  const mgmt=['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+n(rec[k]),0);
+  const rph=calcHourlyRate(rec);
+  return Math.max(0,
+    n(rec.baseSalary)+n(rec.fullAttendBonus)+mgmt+
+    n(rec.laborAllowance)+n(rec.performance)+n(rec.nightAllowance)+
+    n(rec.roleBonus)+n(rec.otherBonus)+
+    n(rec.annualLeaveEncash)+n(rec.compLeaveEncash)+
+    calcOtPay(rec)+n(rec.restDayOtPay)+n(rec.holidayOtPay)-
+    Math.round(rph/60*n(rec.lateMinutes))-
+    Math.abs(n(rec.personalSickLeave)));
+};
+
+const calcDeduct = rec =>
+  n(rec.laborInsurance)+n(rec.healthInsurance)+
+  n(rec.dependentInsurance)+n(rec.laborPension)+n(rec.otherDeduction);
+
+const calcNet = (rec, role) => calcGross(rec,role)-calcDeduct(rec);
+
+const calcCompPension = (rec, role) =>
+  role==='工讀' ? 0 : Math.round((n(rec.baseSalary)+n(rec.fullAttendBonus))*0.06);
+
+const calcRealCost = (rec, role) => calcNet(rec,role)+calcCompPension(rec,role);
+
+const chunkArray = (arr,size) => {
+  const out=[];
+  for(let i=0;i<arr.length;i+=size) out.push(arr.slice(i,i+size));
+  return out;
+};
+
+// 初始化
 window.onload = async () => {
   showLoading('驗證登入...');
-  const saved = localStorage.getItem('currentUser') || sessionStorage.getItem('currentUser');
-  if(!saved) { window.location.replace('home.html'); return; }
-  try { currentUser = JSON.parse(saved); } catch(e) { window.location.replace('home.html'); return; }
-
-  // 只有加盟主/管理者能用
-  if(!['owner','admin'].includes(currentUser?.permission)) {
+  const saved = localStorage.getItem('currentUser')||sessionStorage.getItem('currentUser');
+  if(!saved){window.location.replace('home.html');return;}
+  try{currentUser=JSON.parse(saved);}catch{window.location.replace('home.html');return;}
+  if(!['owner','admin'].includes(currentUser?.permission)){
     alert('⚠️ 此功能僅限加盟主以上權限');
-    window.location.replace('home.html');
-    return;
+    window.location.replace('home.html');return;
   }
-
-  try {
-    const snap = await window.db.collection('settings').doc('globalConfig').get();
-    if(snap.exists) appConfig = snap.data();
-  } catch(e) {}
-
-  // 填充年份選單（近3年）
-  const now = new Date();
-  const selYear = document.getElementById('selYear');
-  for(let y = now.getFullYear(); y >= now.getFullYear() - 2; y--) {
-    selYear.innerHTML += `<option value="${y}">${y} 年（民國 ${y-1911} 年）</option>`;
-  }
-  selYear.value = now.getFullYear();
-
-  // 預設當月
-  const curM = String(now.getMonth() + 1).padStart(2, '0');
-  document.getElementById('selMonth').value = curM;
-
+  try{
+    const snap=await window.db.collection('settings').doc('globalConfig').get();
+    if(snap.exists) appConfig=snap.data();
+  }catch{}
+  const now=new Date();
+  const sel=document.getElementById('selYear');
+  for(let y=now.getFullYear();y>=now.getFullYear()-2;y--)
+    sel.innerHTML+=`<option value="${y}">${y} 年（民國 ${y-1911} 年）</option>`;
+  sel.value=now.getFullYear();
+  document.getElementById('selMonth').value=String(now.getMonth()+1).padStart(2,'0');
   hideLoading();
 };
 
-// ===== 主匯出流程 =====
+// ═══ 主匯出 ═══
 async function startExport() {
-  const doEmp    = document.getElementById('chk-emp').checked;
-  const doLeave  = document.getElementById('chk-leave').checked;
-  const doSalary = document.getElementById('chk-salary').checked;
-  if(!doEmp && !doLeave && !doSalary) { showToast('⚠️ 請至少選擇一項匯出內容'); return; }
+  const doSummary=document.getElementById('chk-summary').checked;
+  const doEmp=document.getElementById('chk-emp').checked;
+  const doLeave=document.getElementById('chk-leave').checked;
+  const doSalary=document.getElementById('chk-salary').checked;
+  if(!doSummary&&!doEmp&&!doLeave&&!doSalary){showToast('⚠️ 請至少選擇一項');return;}
 
+  const year=document.getElementById('selYear').value;
+  const month=document.getElementById('selMonth').value;
+  const ym=`${year}-${month}`;
+  const stores=appConfig.stores||[];
+  if(!stores.length){showToast('⚠️ 無門市資料');return;}
+
+  document.getElementById('exportBtn').disabled=true;
+  document.getElementById('exportBtnText').textContent='匯出中...';
+  document.getElementById('progressArea').style.display='block';
+  document.getElementById('progressLog').innerHTML='';
+  document.getElementById('summaryCard').style.display='none';
+  setProgress(0,'開始讀取資料...');
+
+  try {
+    // 1. 員工名單
+    setProgress(5,'讀取員工名單...');
+    let allEmps=[];
+    for(const store of stores){
+      const snap=await window.db.collection('stores').doc(store).collection('employees').get();
+      snap.forEach(d=>{
+        const data=d.data();
+        if(['離職','調走'].includes(data.status)) return;
+        if(data.startDate){
+          const [sy,sm]=data.startDate.split('-').map(Number);
+          const [cy,cm]=ym.split('-').map(Number);
+          if(sy>cy||(sy===cy&&sm>cm)) return;
+        }
+        allEmps.push({name:d.id,store,...data});
+      });
+    }
+    allEmps.sort((a,b)=>{
+      const si=stores.indexOf(a.store)-stores.indexOf(b.store);
+      return si!==0?si:(a.sortKey||0)-(b.sortKey||0);
+    });
+    setProgress(12,`員工 ${allEmps.length} 人`,`員工名單讀取完成：${allEmps.length} 人`);
+
+    // 2. 薪資記錄
+    setProgress(15,'讀取薪資記錄...');
+    let salaryRecMap={};
+    for(const store of stores){
+      try{
+        const snap=await window.db.collection('stores').doc(store).collection('salary').doc(ym).get();
+        if(snap.exists)
+          (snap.data().records||[]).forEach(r=>{salaryRecMap[r.empName]={...r,_store:store};});
+      }catch{}
+    }
+    setProgress(25,`薪資記錄 ${Object.keys(salaryRecMap).length} 筆`,`薪資讀取完成`);
+
+    // 3. 特補休
+    setProgress(28,'讀取特補休資料...');
+    let leaveStatMap={}, compStatMap={}, leaveLogAll=[], batchMap={};
+    const chunks=chunkArray(allEmps,6);
+    for(let ci=0;ci<chunks.length;ci++){
+      setProgress(28+ci*4,`特補休 ${Math.min((ci+1)*6,allEmps.length)}/${allEmps.length}...`);
+      await Promise.all(chunks[ci].map(async emp=>{
+        try{
+          const lSnap=await window.db.collection('employees').doc(emp.name).collection('leaves').doc(year).get();
+          leaveStatMap[emp.name]=lSnap.exists?lSnap.data():{};
+          const cSnap=await window.db.collection('employees').doc(emp.name).collection('comp').doc(year).get();
+          compStatMap[emp.name]=cSnap.exists?cSnap.data():{earned:0,used:0};
+          const bSnap=await window.db.collection('employees').doc(emp.name).collection('leaveBatches').get();
+          const batches=[];
+          bSnap.forEach(d=>batches.push({id:d.id,...d.data()}));
+          batchMap[emp.name]=batches.sort((a,b)=>(a.grantDate||'').localeCompare(b.grantDate||''));
+          const months=[];
+          for(let m2=1;m2<=parseInt(month);m2++)
+            months.push(`${year}-${String(m2).padStart(2,'0')}`);
+          await Promise.all(months.map(async ym2=>{
+            try{
+              const logSnap=await window.db.collection('employees').doc(emp.name).collection('leaveLog').doc(ym2).get();
+              if(!logSnap.exists) return;
+              const typeMap={
+                'annual_use':       {label:'特休・使用',  cat:'annual'},
+                'annual_encash':    {label:'特休・折現',  cat:'annual'},
+                'annual_use_cancel':{label:'特休・取消',  cat:'annual'},
+                'comp_earn':        {label:'補休・取得',  cat:'comp'},
+                'comp_use':         {label:'補休・使用',  cat:'comp'},
+                'comp_cancel':      {label:'補休・撤回',  cat:'comp'},
+                'comp_encash':      {label:'補休・折現',  cat:'comp'},
+                'comp_use_cancel':  {label:'補休・取消',  cat:'comp'},
+              };
+              (logSnap.data().records||[]).forEach(r=>{
+                if(!typeMap[r.type]) return;
+                leaveLogAll.push({
+                  empName:emp.name, store:emp.store, role:emp.role||'',
+                  date:r.date||ym2+'-01', typeKey:r.type,
+                  typeLabel:typeMap[r.type].label, cat:typeMap[r.type].cat,
+                  days:r.days||0, note:r.note||'', savedBy:r.savedBy||''
+                });
+              });
+            }catch{}
+          }));
+        }catch{}
+      }));
+    }
+    leaveLogAll.sort((a,b)=>a.date.localeCompare(b.date));
+    setProgress(68,'特補休讀取完成',`特補休紀錄：${leaveLogAll.length} 筆`);
+
+    // 4. 產生 Workbook
+    setProgress(72,'產生工作表...');
+    const wb=XLSX.utils.book_new();
+
+    if(doSummary){
+      setProgress(74,'產生摘要工作表...');
+      XLSX.utils.book_append_sheet(wb,
+        buildSummarySheet(allEmps,salaryRecMap,leaveStatMap,compStatMap,batchMap,stores,year,ym),
+        '人事費用摘要');
+    }
+    if(doEmp){
+      setProgress(80,'產生員工資料工作表...');
+      XLSX.utils.book_append_sheet(wb,
+        buildEmpSheet(allEmps,salaryRecMap,leaveStatMap,compStatMap,batchMap,year,ym),
+        '員工資料');
+    }
+    if(doLeave){
+      setProgress(87,'產生特補休工作表...');
+      XLSX.utils.book_append_sheet(wb,
+        buildLeaveSheet(allEmps,leaveLogAll,leaveStatMap,compStatMap,batchMap,year,ym,month),
+        '特補休紀錄');
+    }
+    if(doSalary){
+      setProgress(93,'產生薪資明細工作表...');
+      XLSX.utils.book_append_sheet(wb,
+        buildSalarySheet(allEmps,salaryRecMap,stores,ym),
+        '薪資明細');
+    }
+
+    // 5. 下載
+    setProgress(97,'產生檔案...');
+    const rocY=parseInt(year)-1911;
+    const fileName=`莉學商行-民國${rocY}年${parseInt(month)}月薪資清冊`;
+    if(exportFormat==='xlsx'){
+      XLSX.writeFile(wb,`${fileName}.xlsx`);
+    } else {
+      wb.SheetNames.forEach((name,i)=>{
+        setTimeout(()=>{
+          const csv=XLSX.utils.sheet_to_csv(wb.Sheets[name]);
+          const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
+          const a=document.createElement('a');
+          a.href=URL.createObjectURL(blob);
+          a.download=`${fileName}_${name}.csv`;
+          a.click();
+        },i*700);
+      });
+    }
+
+    setProgress(100,'✅ 匯出完成！');
+    const totalCost=allEmps.reduce((s,emp)=>{
+      const rec=salaryRecMap[emp.name];
+      return rec?s+calcRealCost(rec,emp.role):s;
+    },0);
+    document.getElementById('sum-emp').textContent=allEmps.length;
+    document.getElementById('sum-leave').textContent=leaveLogAll.length;
+    document.getElementById('sum-salary').textContent=Object.keys(salaryRecMap).length;
+    document.getElementById('sum-cost').textContent='$'+Math.round(totalCost/1000)+'K';
+    document.getElementById('summaryCard').style.display='block';
+    showToast('✅ 匯出成功！');
+
+  }catch(e){
+    setProgress(0,'❌ 匯出失敗：'+e.message);
+    showToast('❌ 匯出失敗：'+e.message);
+    console.error(e);
+  }
+  document.getElementById('exportBtn').disabled=false;
+  document.getElementById('exportBtnText').textContent='再次匯出';
+}
+
+// ═══ Sheet ① 人事費用摘要 ═══
+function buildSummarySheet(allEmps,salaryRecMap,leaveStatMap,compStatMap,batchMap,stores,year,ym){
+  const [y,m]=ym.split('-').map(Number);
+  const rocY=y-1911;
+  const rows=[];
+
+  rows.push([`莉學商行 民國${rocY}年${m}月 人事費用摘要`]);
+  rows.push([`匯出時間：${new Date().toLocaleString('zh-TW')}`]);
+  rows.push([]);
+
+  // A. 各門市薪資匯總
+  rows.push(['▌ 各門市薪資匯總']);
+  rows.push(['門市','員工人數','正職','工讀','應發薪資','代扣合計','實發合計','公司勞退提撥(6%)','★ 本月人事總成本']);
+  let gGross=0,gDeduct=0,gNet=0,gPension=0,gCost=0,gFull=0,gPart=0;
+  stores.forEach(store=>{
+    const emps=allEmps.filter(e=>e.store===store);
+    const full=emps.filter(e=>e.role!=='工讀').length;
+    const part=emps.filter(e=>e.role==='工讀').length;
+    let gross=0,deduct=0,net=0,pension=0;
+    emps.forEach(emp=>{
+      const rec=salaryRecMap[emp.name];
+      if(!rec) return;
+      gross+=calcGross(rec,emp.role);
+      deduct+=calcDeduct(rec);
+      net+=calcNet(rec,emp.role);
+      pension+=calcCompPension(rec,emp.role);
+    });
+    const cost=net+pension;
+    gGross+=gross;gDeduct+=deduct;gNet+=net;gPension+=pension;gCost+=cost;
+    gFull+=full;gPart+=part;
+    rows.push([store,emps.length,full,part,gross,deduct,net,pension,cost]);
+  });
+  rows.push(['全店合計',allEmps.length,gFull,gPart,gGross,gDeduct,gNet,gPension,gCost]);
+  rows.push([]);
+
+  // B. 特休到期警示（90天內）
+  rows.push(['▌ 特休到期警示（90天內）']);
+  rows.push(['員工','門市','剩餘特休天數','到期日','距到期','狀態']);
+  let hasWarn=false;
+  allEmps.forEach(emp=>{
+    const stat=leaveStatMap[emp.name]||{};
+    const remain=Math.max(0,n(stat.annualDays)-n(stat.usedAnnual));
+    const exp=getAnnualExpire(emp.name,batchMap,year);
+    const days=daysUntilExpire(exp);
+    if(days<=90&&remain>0){
+      hasWarn=true;
+      const status=days<=30?'🔴 緊急':days<=60?'🟠 警示':'🟡 注意';
+      rows.push([emp.name,emp.store,remain+'天',exp,days+'天後',status]);
+    }
+  });
+  if(!hasWarn) rows.push(['（近90天無到期警示）']);
+  rows.push([]);
+
+  // C. 本月應發特休
+  rows.push(['▌ 本月週年日應發特休提醒']);
+  rows.push(['員工','門市','到職日','發放狀態']);
+  let hasGrant=false;
+  allEmps.forEach(emp=>{
+    if(!shouldGrantThisMonth(emp.startDate,ym)) return;
+    hasGrant=true;
+    const granted=checkAnnualGranted(emp.name,batchMap,year);
+    rows.push([emp.name,emp.store,toROC(emp.startDate),granted?'✅ 已發放':'⚠️ 尚未發放']);
+  });
+  if(!hasGrant) rows.push(['（本月無週年日員工）']);
+  rows.push([]);
+
+  // D. 補休餘額偏高（>5天）
+  rows.push(['▌ 補休餘額偏高警示（>5天）']);
+  rows.push(['員工','門市','補休餘額','建議']);
+  let hasComp=false;
+  allEmps.forEach(emp=>{
+    const cd=compStatMap[emp.name]||{};
+    const remain=Math.max(0,n(cd.earned)-n(cd.used));
+    if(remain>5){
+      hasComp=true;
+      rows.push([emp.name,emp.store,remain+'天','建議儘速安排補休或折現']);
+    }
+  });
+  if(!hasComp) rows.push(['（無補休餘額偏高員工）']);
+  rows.push([]);
+
+  // E. 異常提示
+  rows.push(['▌ 異常提示']);
+  const noRec=allEmps.filter(e=>!salaryRecMap[e.name]);
+  rows.push(noRec.length
+    ?[`⚠️ 以下 ${noRec.length} 位員工本月無薪資記錄：`+noRec.map(e=>e.name).join('、')]
+    :['✅ 所有在職員工均有薪資記錄']);
+
+  const ws=XLSX.utils.aoa_to_sheet(rows);
+  ws['!merges']=[
+    {s:{r:0,c:0},e:{r:0,c:8}},
+    {s:{r:1,c:0},e:{r:1,c:8}},
+  ];
+  ws['!cols']=[
+    {wch:12},{wch:10},{wch:6},{wch:6},
+    {wch:14},{wch:12},{wch:12},{wch:16},{wch:16}
+  ];
+  return ws;
+}
+
+// ═══ Sheet ② 員工資料 ═══
+function buildEmpSheet(allEmps,salaryRecMap,leaveStatMap,compStatMap,batchMap,year,ym){
+  const [y,m]=ym.split('-').map(Number);
+  const rocY=y-1911;
+  const rows=[];
+  const headers=[
+    '編號','門市','姓名','職稱','到職日','在職年資',
+    '底薪/時薪（本月說明）','勞保費','健保費','勞退個人自提',
+    '年度特休（發/用/餘）','年度補休（取/用/餘）','剩餘特+補休',
+    '特休到期日','特休發放狀態','到期警示'
+  ];
+
+  rows.push([`莉學商行 民國${rocY}年${m}月 員工資料`]);
+  rows.push([]);
+  rows.push(headers);
+
+  // 正職/店長區塊
+  const fulls=allEmps.filter(e=>e.role!=='工讀');
+  if(fulls.length){
+    rows.push(['── 正職 / 店長 ──']);
+    let seq=1;
+    fulls.forEach(emp=>{
+      const rec=salaryRecMap[emp.name]||{};
+      const stat=leaveStatMap[emp.name]||{};
+      const cd=compStatMap[emp.name]||{};
+      const annD=n(stat.annualDays),usedA=n(stat.usedAnnual);
+      const earnC=n(cd.earned),usedC=n(cd.used);
+      const remA=Math.max(0,annD-usedA), remC=Math.max(0,earnC-usedC);
+      const exp=getAnnualExpire(emp.name,batchMap,year);
+      const days=daysUntilExpire(exp);
+      const granted=checkAnnualGranted(emp.name,batchMap,year);
+      const warn=days<=30?'🔴 緊急':days<=60?'🟠 警示':days<=90?'🟡 注意':'';
+      const baseSal=n(rec.baseSalary)||n(emp.baseSalary);
+      rows.push([
+        seq++,emp.store,emp.name,emp.role,toROC(emp.startDate),calcSeniority(emp.startDate),
+        `底薪 $${comma(baseSal)}`,
+        n(rec.laborInsurance),n(rec.healthInsurance)+n(rec.dependentInsurance),n(rec.laborPension),
+        `${annD}/${usedA}/${remA}`,`${earnC}/${usedC}/${remC}`,remA+remC,
+        exp,
+        granted?'✅ 已發放':(shouldGrantThisMonth(emp.startDate,ym)?'⚠️ 本月應發':'--'),
+        warn
+      ]);
+    });
+  }
+
+  rows.push([]);
+
+  // 工讀區塊
+  const parts=allEmps.filter(e=>e.role==='工讀');
+  if(parts.length){
+    rows.push(['── 工讀生 ──']);
+    let seq=fulls.length+1;
+    parts.forEach(emp=>{
+      const rec=salaryRecMap[emp.name]||{};
+      const cd=compStatMap[emp.name]||{};
+      const earnC=n(cd.earned),usedC=n(cd.used);
+      const remC=Math.max(0,earnC-usedC);
+      const wage=n(rec.wage)||n(emp.wage);
+      const hrs=n(rec.hours||0);
+      rows.push([
+        seq++,emp.store,emp.name,emp.role,toROC(emp.startDate),calcSeniority(emp.startDate),
+        `時薪 $${wage}，本月 ${hrs}h → $${comma(Math.round(wage*hrs))}`,
+        n(rec.laborInsurance),n(rec.healthInsurance)+n(rec.dependentInsurance),n(rec.laborPension),
+        '--',`${earnC}/${usedC}/${remC}`,remC,'--','--',''
+      ]);
+    });
+  }
+
+  const ws=XLSX.utils.aoa_to_sheet(rows);
+  ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:headers.length-1}}];
+  ws['!cols']=[
+    {wch:5},{wch:8},{wch:10},{wch:8},{wch:12},{wch:10},
+    {wch:30},{wch:10},{wch:10},{wch:12},
+    {wch:16},{wch:16},{wch:12},
+    {wch:14},{wch:14},{wch:10}
+  ];
+  ws['!freeze']={xSplit:3,ySplit:3};
+  return ws;
+}
+
+// ═══ Sheet ③ 特補休紀錄 ═══
+function buildLeaveSheet(allEmps,leaveLogAll,leaveStatMap,compStatMap,batchMap,year,ym,month){
+  const [y,m]=ym.split('-').map(Number);
+  const rocY=y-1911;
+  const rows=[];
+
+  // 左9欄 + 空白1 + 右11欄 = 21欄
+  const STAT=10;
+  const TOTAL=STAT+11;
+  const mkRow=()=>new Array(TOTAL).fill('');
+
+  let r=mkRow();
+  r[0]=`莉學商行 民國${rocY}年 特補休紀錄（1月至${m}月）`;
+  r[STAT]=`民國${rocY}年 特補休統計表`;
+  rows.push(r);
+  rows.push(mkRow());
+
+  r=mkRow();
+  ['日期','門市','姓名','職稱','類型','天數','備註','操作人','特休到期日'].forEach((h,i)=>r[i]=h);
+  ['編號','門市','姓名','職稱','取得特休','使用特休','剩餘特休','年度折現天數',
+   '取得補休','使用補休','剩餘補休'].forEach((h,i)=>r[STAT+i]=h);
+  rows.push(r);
+
+  // 計算折現天數（annual_encash 筆數加總）
+  const encashMap={};
+  leaveLogAll.filter(l=>l.typeKey==='annual_encash').forEach(l=>{
+    encashMap[l.empName]=(encashMap[l.empName]||0)+n(l.days);
+  });
+
+  const total=Math.max(leaveLogAll.length,allEmps.length);
+  let seq=1;
+  for(let i=0;i<total;i++){
+    r=mkRow();
+    if(i<leaveLogAll.length){
+      const log=leaveLogAll[i];
+      r[0]=toROC(log.date);r[1]=log.store;r[2]=log.empName;r[3]=log.role;
+      r[4]=log.typeLabel;r[5]=log.days;r[6]=log.note;r[7]=log.savedBy;
+      r[8]=log.cat==='annual'?getAnnualExpire(log.empName,batchMap,year):'';
+    }
+    if(i<allEmps.length){
+      const emp=allEmps[i];
+      const stat=leaveStatMap[emp.name]||{};
+      const cd=compStatMap[emp.name]||{};
+      const annD=n(stat.annualDays),usedA=n(stat.usedAnnual);
+      const earnC=n(cd.earned),usedC=n(cd.used);
+      r[STAT+0]=seq++;r[STAT+1]=emp.store;r[STAT+2]=emp.name;r[STAT+3]=emp.role||'';
+      r[STAT+4]=annD;r[STAT+5]=usedA;r[STAT+6]=Math.max(0,annD-usedA);
+      r[STAT+7]=encashMap[emp.name]||0;
+      r[STAT+8]=earnC;r[STAT+9]=usedC;r[STAT+10]=Math.max(0,earnC-usedC);
+    }
+    rows.push(r);
+  }
+
+  const ws=XLSX.utils.aoa_to_sheet(rows);
+  ws['!merges']=[
+    {s:{r:0,c:0},e:{r:0,c:8}},
+    {s:{r:0,c:STAT},e:{r:0,c:TOTAL-1}},
+  ];
+  ws['!cols']=[
+    {wch:12},{wch:8},{wch:10},{wch:8},{wch:14},{wch:6},{wch:20},{wch:12},{wch:14},
+    {wch:2},
+    {wch:5},{wch:8},{wch:10},{wch:8},{wch:10},{wch:10},{wch:10},{wch:12},
+    {wch:10},{wch:10},{wch:10}
+  ];
+  return ws;
+}
+
+// ═══ Sheet ④ 薪資明細 ═══
+function buildSalarySheet(allEmps,salaryRecMap,stores,ym){
+  const [y,m]=ym.split('-').map(Number);
+  const rocY=y-1911;
+  const rows=[];
+
+  const headers=[
+    '編號','門市','姓名','職稱',
+    '底薪(B1)','工讀時數','工讀本薪','全勤獎金(B2)',
+    '管理責任獎金','勞務津貼','績效獎金','夜點費','其他津貼','職務津貼',
+    '特休折現','補休折現',
+    '平日加班時數','國假時數','平日加班費','休息日加班費','國假加班費',
+    '遲到分鐘','遲到扣款','事病假扣款',
+    '應發薪資',
+    '勞保費','健保費','眷屬健保','勞退個人自提','其他扣款',
+    '實發金額','公司勞退提撥(6%)','★ 實際人事成本'
+  ];
+  const NC=headers.length; // 33欄
+
+  rows.push([`莉學商行 民國${rocY}年${m}月 薪資明細`]);
+  rows.push([]);
+  rows.push(headers);
+
+  let seq=1;
+  stores.forEach(store=>{
+    const storeEmps=allEmps.filter(e=>e.store===store);
+    if(!storeEmps.length) return;
+
+    // 正職/店長
+    const fulls=storeEmps.filter(e=>e.role!=='工讀');
+    if(fulls.length){
+      const divRow=new Array(NC).fill(''); divRow[1]=`── ${store} 正職/店長 ──`;
+      rows.push(divRow);
+      fulls.forEach(emp=>rows.push(buildSalaryRow(seq++,emp,salaryRecMap[emp.name],NC)));
+    }
+    // 工讀
+    const parts=storeEmps.filter(e=>e.role==='工讀');
+    if(parts.length){
+      const divRow=new Array(NC).fill(''); divRow[1]=`── ${store} 工讀生 ──`;
+      rows.push(divRow);
+      parts.forEach(emp=>rows.push(buildSalaryRow(seq++,emp,salaryRecMap[emp.name],NC)));
+    }
+
+    // 門市小計
+    const subRow=new Array(NC).fill('');
+    subRow[2]=`${store} 小計`;
+    const sGross=storeEmps.reduce((s,e)=>s+(salaryRecMap[e.name]?calcGross(salaryRecMap[e.name],e.role):0),0);
+    const sNet=storeEmps.reduce((s,e)=>s+(salaryRecMap[e.name]?calcNet(salaryRecMap[e.name],e.role):0),0);
+    const sPension=storeEmps.reduce((s,e)=>s+(salaryRecMap[e.name]?calcCompPension(salaryRecMap[e.name],e.role):0),0);
+    subRow[24]=sGross; subRow[30]=sNet; subRow[31]=sPension; subRow[32]=sNet+sPension;
+    rows.push(subRow);
+    rows.push(new Array(NC).fill(''));
+  });
+
+  // 全店合計（Excel公式）
+  const dataStart=4, dataEnd=rows.length+1;
+  const totalRow=new Array(NC).fill('');
+  totalRow[2]='★ 全店合計';
+  [24,30,31,32].forEach(ci=>{
+    const col=XLSX.utils.encode_col(ci);
+    totalRow[ci]={f:`SUM(${col}${dataStart}:${col}${dataEnd})`,t:'n'};
+  });
+  rows.push(totalRow);
+
+  const ws=XLSX.utils.aoa_to_sheet(rows);
+  ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:NC-1}}];
+  ws['!cols']=[
+    {wch:5},{wch:10},{wch:10},{wch:8},
+    {wch:10},{wch:8},{wch:10},{wch:10},
+    {wch:14},{wch:10},{wch:10},{wch:8},{wch:10},{wch:8},
+    {wch:10},{wch:10},
+    {wch:10},{wch:8},{wch:10},{wch:12},{wch:12},
+    {wch:8},{wch:10},{wch:10},
+    {wch:12},
+    {wch:10},{wch:10},{wch:10},{wch:10},{wch:8},
+    {wch:12},{wch:14},{wch:14}
+  ];
+  ws['!freeze']={xSplit:4,ySplit:3};
+  return ws;
+}
+
+// 單一員工薪資列
+function buildSalaryRow(seq,emp,rec,NC){
+  const row=new Array(NC).fill('');
+  row[0]=seq; row[1]=emp.store; row[2]=emp.name; row[3]=emp.role||'';
+  if(!rec) return row;
+  const isPart=emp.role==='工讀';
+  const mgmt=['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+n(rec[k]),0);
+  const rph=isPart?0:calcHourlyRate(rec);
+  const late=isPart?0:Math.round(rph/60*n(rec.lateMinutes));
+  const otPay=isPart?0:calcOtPay(rec);
+  const gross=calcGross(rec,emp.role);
+  const deduct=calcDeduct(rec);
+  const net=gross-deduct;
+  const comp=calcCompPension(rec,emp.role);
+  if(!isPart){
+    row[4]=n(rec.baseSalary);
+    row[7]=n(rec.fullAttendBonus);
+    row[8]=mgmt||'';
+    row[9]=n(rec.laborAllowance)||'';
+    row[10]=n(rec.performance)||'';
+    row[11]=n(rec.nightAllowance)||'';
+    row[12]=n(rec.otherBonus)||'';
+    row[13]=n(rec.roleBonus)||'';
+    row[16]=n(rec.otHours)||'';
+    row[17]=n(rec.holidayHours)||'';
+    row[18]=otPay||'';
+    row[19]=n(rec.restDayOtPay)||'';
+    row[20]=n(rec.holidayOtPay)||'';
+    row[21]=n(rec.lateMinutes)||'';
+    row[22]=late||'';
+  } else {
+    row[5]=n(rec.hours||0)||'';
+    row[6]=Math.round(n(rec.wage)*n(rec.hours||0))||'';
+    row[13]=n(rec.roleBonus)||'';
+  }
+  row[14]=n(rec.annualLeaveEncash)||'';
+  row[15]=n(rec.compLeaveEncash)||'';
+  row[23]=Math.abs(n(rec.personalSickLeave))||'';
+  row[24]=gross;
+  row[25]=n(rec.laborInsurance);
+  row[26]=n(rec.healthInsurance);
+  row[27]=n(rec.dependentInsurance)||'';
+  row[28]=n(rec.laborPension);
+  row[29]=n(rec.otherDeduction)||'';
+  row[30]=net;
+  row[31]=comp||'';
+  row[32]=net+comp;
+  return row;
+}
+
+// ══════════════════════════════════════════
+// PDF 預覽
+// ══════════════════════════════════════════
+let _pdfData = null; // 快取上次讀取的資料
+
+function closePdfModal() {
+  const modal = document.getElementById('pdfModal');
+  modal.style.display = 'none';
+}
+
+async function startPdfPreview() {
   const year  = document.getElementById('selYear').value;
   const month = document.getElementById('selMonth').value;
   const ym    = `${year}-${month}`;
   const stores = appConfig.stores || [];
   if(!stores.length) { showToast('⚠️ 無門市資料'); return; }
 
-  // UI 重置
-  document.getElementById('exportBtn').disabled = true;
-  document.getElementById('exportBtnText').textContent = '匯出中...';
-  const progressArea = document.getElementById('progressArea');
-  progressArea.style.display = 'block';
-  document.getElementById('progressLog').innerHTML = '';
-  document.getElementById('summaryCard').style.display = 'none';
-  setProgress(0, '開始讀取資料...');
+  document.getElementById('pdfBtn').disabled = true;
+  showLoading('讀取資料中...');
 
   try {
-    // ===== 步驟 1：讀取所有門市員工 =====
-    setProgress(5, '讀取員工名單...', `讀取 ${stores.length} 間門市`);
-    let allEmps = []; // { name, store, role, startDate, sortKey, ... }
+    // ── 讀取資料（與 Excel 匯出共用邏輯）──
+    let allEmps = [];
     for(const store of stores) {
       const snap = await window.db.collection('stores').doc(store).collection('employees').get();
       snap.forEach(d => {
         const data = d.data();
         if(['離職','調走'].includes(data.status)) return;
-        // 到職日篩選：當月前到職才算
         if(data.startDate) {
-          const [sy, sm] = data.startDate.split('-').map(Number);
-          const [cy, cm] = ym.split('-').map(Number);
-          if(sy > cy || (sy === cy && sm > cm)) return;
+          const [sy,sm] = data.startDate.split('-').map(Number);
+          const [cy,cm] = ym.split('-').map(Number);
+          if(sy > cy || (sy===cy && sm>cm)) return;
         }
-        allEmps.push({ name: d.id, store, ...data });
+        allEmps.push({ name:d.id, store, ...data });
       });
     }
     allEmps.sort((a,b) => {
-      const si = stores.indexOf(a.store) - stores.indexOf(b.store);
-      if(si !== 0) return si;
-      return (a.sortKey||0) - (b.sortKey||0);
+      const si = stores.indexOf(a.store)-stores.indexOf(b.store);
+      return si!==0 ? si : (a.sortKey||0)-(b.sortKey||0);
     });
-    setProgress(12, `讀取員工完成，共 ${allEmps.length} 人`, `員工名單：${allEmps.length} 人`);
 
-    // ===== 步驟 2：讀取薪資記錄 =====
-    setProgress(15, '讀取薪資記錄...');
-    let salaryRecMap = {}; // { empName: record }
+    let salaryRecMap = {};
     for(const store of stores) {
       try {
         const snap = await window.db.collection('stores').doc(store).collection('salary').doc(ym).get();
-        if(snap.exists) {
-          (snap.data().records || []).forEach(r => { salaryRecMap[r.empName] = { ...r, _store: store }; });
-        }
-      } catch(e) {}
+        if(snap.exists)
+          (snap.data().records||[]).forEach(r => { salaryRecMap[r.empName]={...r,_store:store}; });
+      } catch {}
     }
-    setProgress(25, '薪資記錄讀取完成', `薪資記錄：${Object.keys(salaryRecMap).length} 筆`);
 
-    // ===== 步驟 3：讀取特休資料 =====
-    setProgress(28, '讀取特補休資料...');
-    let leaveStatMap  = {}; // { empName: { annualDays, usedAnnual, earnedComp, usedComp } }
-    let leaveLogAll   = []; // [ { empName, store, role, date, type, days, note, ... } ]
-    let batchMap      = {}; // { empName: [ batch ] }
-
-    const empChunks = chunkArray(allEmps, 6);
-    let chunkIdx = 0;
-    for(const chunk of empChunks) {
-      chunkIdx++;
-      setProgress(28 + chunkIdx * 3, `讀取特休資料 ${Math.min(chunkIdx*6, allEmps.length)}/${allEmps.length}...`);
+    let leaveStatMap={}, compStatMap={}, leaveLogAll=[], batchMap={};
+    const chunks = chunkArray(allEmps, 6);
+    for(const chunk of chunks) {
       await Promise.all(chunk.map(async emp => {
         try {
-          // leaves/{year} 統計
           const lSnap = await window.db.collection('employees').doc(emp.name).collection('leaves').doc(year).get();
-          leaveStatMap[emp.name] = lSnap.exists ? lSnap.data() : { annualDays:0, usedAnnual:0, earnedComp:0, usedComp:0 };
-
-          // leaveBatches（計算到期日）
+          leaveStatMap[emp.name] = lSnap.exists ? lSnap.data() : {};
+          const cSnap = await window.db.collection('employees').doc(emp.name).collection('comp').doc(year).get();
+          compStatMap[emp.name] = cSnap.exists ? cSnap.data() : { earned:0, used:0 };
           const bSnap = await window.db.collection('employees').doc(emp.name).collection('leaveBatches').get();
-          const batches = [];
-          bSnap.forEach(d => batches.push({ id: d.id, ...d.data() }));
-          batchMap[emp.name] = batches.sort((a,b) => (a.grantDate||'').localeCompare(b.grantDate||''));
-
-          // leaveLog：當年度 1 月 ~ 選取月份
-          const months = [];
-          for(let m = 1; m <= parseInt(month); m++) {
-            months.push(`${year}-${String(m).padStart(2,'0')}`);
-          }
+          const batches=[];
+          bSnap.forEach(d => batches.push({id:d.id,...d.data()}));
+          batchMap[emp.name] = batches.sort((a,b)=>(a.grantDate||'').localeCompare(b.grantDate||''));
+          const months=[];
+          for(let m2=1; m2<=parseInt(month); m2++)
+            months.push(`${year}-${String(m2).padStart(2,'0')}`);
           await Promise.all(months.map(async ym2 => {
             try {
               const logSnap = await window.db.collection('employees').doc(emp.name).collection('leaveLog').doc(ym2).get();
               if(!logSnap.exists) return;
-              (logSnap.data().records || []).forEach(r => {
-                // 只紀錄特休相關 type（排除補休）
-                const allowTypes = ['annual_use','annual_encash','annual_use_cancel'];
-                if(!allowTypes.includes(r.type)) return;
+              const typeMap = {
+                'annual_use':'特休・使用','annual_encash':'特休・折現','annual_use_cancel':'特休・取消',
+                'comp_earn':'補休・取得','comp_use':'補休・使用','comp_cancel':'補休・撤回',
+                'comp_encash':'補休・折現','comp_use_cancel':'補休・取消',
+              };
+              (logSnap.data().records||[]).forEach(r => {
+                if(!typeMap[r.type]) return;
                 leaveLogAll.push({
-                  empName: emp.name,
-                  store:   emp.store,
-                  role:    emp.role || '',
-                  date:    r.date   || ym2 + '-01',
-                  type:    r.type,
-                  days:    r.days   || 0,
-                  note:    r.note   || '',
-                  logMonth: ym2
+                  empName:emp.name, store:emp.store, role:emp.role||'',
+                  date:r.date||ym2+'-01', typeLabel:typeMap[r.type],
+                  cat: r.type.startsWith('annual') ? 'annual' : 'comp',
+                  days:r.days||0, note:r.note||''
                 });
               });
-            } catch(e) {}
+            } catch {}
           }));
-        } catch(e) {}
+        } catch {}
       }));
     }
-
-    // leaveLog 依日期排序
     leaveLogAll.sort((a,b) => a.date.localeCompare(b.date));
-    setProgress(65, '特休資料讀取完成', `特休紀錄：${leaveLogAll.length} 筆`);
 
-    // ===== 步驟 4：產生工作表 =====
-    setProgress(70, '產生工作表...');
-    const wb = XLSX.utils.book_new();
+    hideLoading();
 
-    // --- Sheet 1：員工資料 ---
-    if(doEmp) {
-      setProgress(72, '產生員工資料工作表...', '建立員工資料 Sheet');
-      const empSheet = buildEmpSheet(allEmps, salaryRecMap, leaveStatMap, batchMap, year, ym);
-      XLSX.utils.book_append_sheet(wb, empSheet, '員工資料');
-    }
-
-    // --- Sheet 2：特休紀錄 ---
-    if(doLeave) {
-      setProgress(80, '產生特休紀錄工作表...', '建立特休紀錄 Sheet');
-      const leaveSheet = buildLeaveSheet(allEmps, leaveLogAll, leaveStatMap, batchMap, year, ym);
-      XLSX.utils.book_append_sheet(wb, leaveSheet, '特休紀錄');
-    }
-
-    // --- Sheet 3：薪資明細 ---
-    if(doSalary) {
-      setProgress(90, '產生薪資明細工作表...', '建立薪資明細 Sheet');
-      const salarySheet = buildSalarySheet(allEmps, salaryRecMap, ym);
-      XLSX.utils.book_append_sheet(wb, salarySheet, '薪資明細');
-    }
-
-    // ===== 步驟 5：下載 =====
-    setProgress(96, '產生檔案中...');
-    const rocYear  = parseInt(year) - 1911;
-    const fileName = `莉學商行-民國${rocYear}年${parseInt(month)}月薪資清冊`;
-
-    if(exportFormat === 'xlsx') {
-      XLSX.writeFile(wb, `${fileName}.xlsx`);
-    } else {
-      // CSV：每個 Sheet 分開下載
-      wb.SheetNames.forEach((name, i) => {
-        setTimeout(() => {
-          const csv = XLSX.utils.sheet_to_csv(wb.Sheets[name]);
-          const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-          const a = document.createElement('a');
-          a.href = URL.createObjectURL(blob);
-          a.download = `${fileName}_${name}.csv`;
-          a.click();
-        }, i * 600);
-      });
-    }
-
-    setProgress(100, '✅ 匯出完成！');
-
-    // 摘要
-    document.getElementById('sum-emp').textContent    = allEmps.length;
-    document.getElementById('sum-leave').textContent  = leaveLogAll.length;
-    document.getElementById('sum-salary').textContent = Object.keys(salaryRecMap).length;
-    document.getElementById('summaryCard').style.display = 'block';
-    showToast('✅ 匯出成功！');
+    // ── 產生 PDF HTML ──
+    const html = buildPdfHtml(allEmps, salaryRecMap, leaveStatMap, compStatMap, batchMap, leaveLogAll, stores, year, month, ym);
+    document.getElementById('pdfPreviewBody').innerHTML = `<div id="pdfContent">${html}</div>`;
+    const modal = document.getElementById('pdfModal');
+    modal.style.display = 'flex';
 
   } catch(e) {
-    setProgress(0, '❌ 匯出失敗：' + e.message);
-    showToast('❌ 匯出失敗：' + e.message);
+    hideLoading();
+    showToast('❌ 讀取失敗：' + e.message);
     console.error(e);
   }
-
-  document.getElementById('exportBtn').disabled = false;
-  document.getElementById('exportBtnText').textContent = '再次匯出';
+  document.getElementById('pdfBtn').disabled = false;
 }
 
-// ===== 輔助：切分陣列 =====
-function chunkArray(arr, size) {
-  const out = [];
-  for(let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
-
-// ===== 取得員工底薪/時薪（優先薪資記錄）=====
-function getWage(emp, rec) {
-  if(!rec) return emp.baseSalary || emp.wage || 0;
-  if(emp.role === '工讀') return rec.wage || emp.wage || 0;
-  return rec.baseSalary || emp.baseSalary || 0;
-}
-
-// ===== 特休到期日（從 leaveBatches 計算）=====
-// 到職後 6 個月取得第一批，之後每年週年日取得
-// 每批到期 = 取得日起 2 年（依勞基法）
-function getAnnualExpire(empName, batchMap, year) {
-  const batches = (batchMap[empName] || []).filter(b => !b.carried);
-  if(!batches.length) return '--';
-  // 找當年度取得的批次（grantDate 在當年）
-  const yearBatch = batches.find(b => b.grantDate && b.grantDate.startsWith(year));
-  if(yearBatch) {
-    if(yearBatch.expireDate) {
-      return toROC(yearBatch.expireDate);
-    }
-    // 計算到期日：取得日+2年
-    try {
-      const d = new Date(yearBatch.grantDate);
-      d.setFullYear(d.getFullYear() + 2);
-      return toROC(d.toISOString().split('T')[0]);
-    } catch { return '--'; }
-  }
-  // 否則取最新一批
-  const latest = batches[batches.length - 1];
-  if(latest.expireDate) return toROC(latest.expireDate);
-  try {
-    const d = new Date(latest.grantDate);
-    d.setFullYear(d.getFullYear() + 2);
-    return toROC(d.toISOString().split('T')[0]);
-  } catch { return '--'; }
-}
-
-// ===== XLSX 樣式工具 =====
-// SheetJS 社群版不支援 cellStyles，改用 html2canvas 模式
-// 此處直接用 aoa_to_sheet，格式透過 !cols 控制欄寬
-
-function makeCell(v, t='s') {
-  return { v, t };
-}
-
-// ===== Sheet 1：員工資料 =====
-function buildEmpSheet(allEmps, salaryRecMap, leaveStatMap, batchMap, year, ym) {
+function buildPdfHtml(allEmps, salaryRecMap, leaveStatMap, compStatMap, batchMap, leaveLogAll, stores, year, month, ym) {
   const [y, m] = ym.split('-').map(Number);
-  const rocY = y - 1911;
+  const rocY   = y - 1911;
+  const now    = new Date().toLocaleString('zh-TW');
+  const title  = `莉學商行 民國${rocY}年${m}月 薪資清冊`;
+  let html     = '';
 
-  // 標題列
-  const headers = [
-    '編號', '門市', '姓名', '職稱', '到職日',
-    '底薪/時薪', '勞保費', '健保費', '勞退個人自提',
-    '年度剩餘特休', '年度剩餘補休', '剩餘特+補休',
-    '特休到期日'
-  ];
+  // ════ Page 1：人事費用摘要 ════
+  let gGross=0,gNet=0,gPension=0,gCost=0;
+  const storeStats = stores.map(store => {
+    const emps = allEmps.filter(e => e.store===store);
+    let gross=0,deduct=0,net=0,pension=0;
+    emps.forEach(emp => {
+      const rec = salaryRecMap[emp.name];
+      if(!rec) return;
+      gross+=calcGross(rec,emp.role); deduct+=calcDeduct(rec);
+      net+=calcNet(rec,emp.role); pension+=calcCompPension(rec,emp.role);
+    });
+    gGross+=gross; gNet+=net; gPension+=pension; gCost+=net+pension;
+    return { store, count:emps.length,
+      full:emps.filter(e=>e.role!=='工讀').length,
+      part:emps.filter(e=>e.role==='工讀').length,
+      gross, deduct, net, pension, cost:net+pension };
+  });
 
-  const rows = [];
-  // 第一列：標題
-  rows.push([`莉學商行 民國${rocY}年${m}月 員工資料`]);
-  rows.push([]);
-  rows.push(headers);
-
-  let seq = 1;
+  // 警示列表
+  const warnList = [];
   allEmps.forEach(emp => {
-    const rec  = salaryRecMap[emp.name] || {};
-    const stat = leaveStatMap[emp.name] || {};
-    const wage = getWage(emp, rec);
-    const remainAnnual = Math.max(0, n(stat.annualDays) - n(stat.usedAnnual));
-    const remainComp   = Math.max(0, n(stat.earnedComp) - n(stat.usedComp));
-    const expireDate   = getAnnualExpire(emp.name, batchMap, year);
-
-    rows.push([
-      seq++,
-      emp.store,
-      emp.name,
-      emp.role || '',
-      toROC(emp.startDate),
-      wage,
-      n(rec.laborInsurance),
-      n(rec.healthInsurance) + n(rec.dependentInsurance),
-      n(rec.laborPension),
-      remainAnnual,
-      remainComp,
-      remainAnnual + remainComp,
-      expireDate
-    ]);
+    const stat  = leaveStatMap[emp.name]||{};
+    const remain= Math.max(0,n(stat.annualDays)-n(stat.usedAnnual));
+    const exp   = getAnnualExpire(emp.name,batchMap,year);
+    const days  = daysUntilExpire(exp);
+    if(days<=90 && remain>0)
+      warnList.push({ name:emp.name, store:emp.store, remain, exp, days,
+        cls: days<=30?'warn-red':days<=60?'warn-orange':'warn-yellow',
+        badge: days<=30?'badge-red':days<=60?'badge-orange':'badge-blue',
+        label: days<=30?'🔴 緊急':days<=60?'🟠 警示':'🟡 注意' });
   });
 
-  const ws = XLSX.utils.aoa_to_sheet(rows);
-  // 合併標題列
-  ws['!merges'] = [{ s:{r:0,c:0}, e:{r:0,c:headers.length-1} }];
-  // 欄寬
-  ws['!cols'] = [
-    {wch:6},{wch:8},{wch:10},{wch:8},{wch:12},
-    {wch:12},{wch:10},{wch:10},{wch:12},
-    {wch:12},{wch:12},{wch:14},{wch:14}
-  ];
-  return ws;
-}
-
-// ===== Sheet 2：特休紀錄 =====
-function buildLeaveSheet(allEmps, leaveLogAll, leaveStatMap, batchMap, year, ym) {
-  const [y, m] = ym.split('-').map(Number);
-  const rocY = y - 1911;
-
-  // === 左側：流水明細 ===
-  const LEFT_COLS = 8; // A~H
-  const logHeaders = ['日期','門市','姓名','職稱','類型','天數','備註','到期日'];
-
-  // type 轉中文
-  const typeMap = {
-    'annual_use':        '特休・使用',
-    'annual_encash':     '特休・折現',
-    'annual_use_cancel': '特休・取消'
-  };
-
-  // === 右側：統計表 ===
-  // 從 J 欄開始（留一欄空）
-  const statHeaders = ['編號','門市','姓名','職稱','取得特休','使用特休','剩餘特休','特休到期日'];
-
-  // 計算總列數（取較大值）
-  const logRows  = leaveLogAll.length;
-  const statRows = allEmps.length;
-  const totalDataRows = Math.max(logRows, statRows);
-
-  // 建 aoa（rows * 16 cols）
-  const STAT_START = 9; // 第 J 欄 index=9（留 I 欄空白分隔）
-  const totalCols  = STAT_START + statHeaders.length;
-
-  // 初始化空白 2D 陣列
-  const data = [];
-  // 第一列：大標題
-  const titleRow = new Array(totalCols).fill('');
-  titleRow[0] = `莉學商行 民國${rocY}年 特休紀錄（1月至${m}月）`;
-  titleRow[STAT_START] = `民國${rocY}年 特休統計表`;
-  data.push(titleRow);
-
-  // 第二列：空白
-  data.push(new Array(totalCols).fill(''));
-
-  // 第三列：欄位標題
-  const headerRow = new Array(totalCols).fill('');
-  logHeaders.forEach((h,i)  => headerRow[i]            = h);
-  statHeaders.forEach((h,i) => headerRow[STAT_START+i] = h);
-  data.push(headerRow);
-
-  // 資料列
-  let seq = 1;
-  for(let i = 0; i < totalDataRows; i++) {
-    const row = new Array(totalCols).fill('');
-
-    // 左側：流水
-    if(i < leaveLogAll.length) {
-      const log = leaveLogAll[i];
-      const expDate = getAnnualExpire(log.empName, batchMap, year);
-      row[0] = toROC(log.date);
-      row[1] = log.store;
-      row[2] = log.empName;
-      row[3] = log.role;
-      row[4] = typeMap[log.type] || log.type;
-      row[5] = log.days;
-      row[6] = log.note;
-      row[7] = expDate;
-    }
-
-    // 右側：統計
-    if(i < allEmps.length) {
-      const emp  = allEmps[i];
-      const stat = leaveStatMap[emp.name] || {};
-      const remainAnnual = Math.max(0, n(stat.annualDays) - n(stat.usedAnnual));
-      const expDate = getAnnualExpire(emp.name, batchMap, year);
-      row[STAT_START+0] = seq++;
-      row[STAT_START+1] = emp.store;
-      row[STAT_START+2] = emp.name;
-      row[STAT_START+3] = emp.role || '';
-      row[STAT_START+4] = n(stat.annualDays);
-      row[STAT_START+5] = n(stat.usedAnnual);
-      row[STAT_START+6] = remainAnnual;
-      row[STAT_START+7] = expDate;
-    }
-
-    data.push(row);
-  }
-
-  const ws = XLSX.utils.aoa_to_sheet(data);
-
-  // 合併標題
-  ws['!merges'] = [
-    { s:{r:0,c:0},            e:{r:0,c:LEFT_COLS-1} },
-    { s:{r:0,c:STAT_START},   e:{r:0,c:totalCols-1} }
-  ];
-
-  // 欄寬
-  ws['!cols'] = [
-    {wch:12},{wch:8},{wch:10},{wch:8},{wch:14},{wch:6},{wch:20},{wch:14}, // 左側
-    {wch:2},  // 空白分隔
-    {wch:6},{wch:8},{wch:10},{wch:8},{wch:10},{wch:10},{wch:10},{wch:14}  // 右側
-  ];
-
-  return ws;
-}
-
-// ===== Sheet 3：薪資明細 =====
-function buildSalarySheet(allEmps, salaryRecMap, ym) {
-  const [y, m] = ym.split('-').map(Number);
-  const rocY = y - 1911;
-
-  // ===== 加班費計算（與 salary.html 一致）=====
-  function calcHourlyRate(rec) {
-    const base      = n(rec.baseSalary);
-    const attendBase = n(rec.fullAttendBase);
-    const otherBase  = n(rec.otherBase);
-    return (base + attendBase + otherBase) / 30 / 8;
-  }
-  function calcOtPay(rec) {
-    const rph = calcHourlyRate(rec);
-    const hasCustom = n(rec.customOtRate) > 0;
-    const rate = hasCustom ? n(rec.customOtRate) : Math.ceil(rph);
-    const mult = hasCustom ? (rec.customOtX134 !== false ? 1.34 : 1) : 1.34;
-    return Math.ceil(rate * mult * n(rec.otHours));
-  }
-  function calcGross(rec, emp) {
-    if(emp?.role === '工讀') {
-      const wage = n(rec.wage);
-      // 時數從 rec.hours 或薪資記錄裡讀
-      // 這裡因為沒有排班資料，直接用 rec 裡記錄的計算結果
-      const gross = n(rec.baseSalaryTotal) ||
-        Math.round(wage * n(rec.hours)) +
-        Math.round(wage * n(rec.holidayHours)) +
-        n(rec.roleBonus) + n(rec.extraHours) * wage;
-      return Math.max(0, gross - Math.abs(n(rec.personalSickLeave)));
-    }
-    const mgmt = ['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+n(rec[k]),0);
-    return Math.max(0,
-      n(rec.baseSalary) + n(rec.fullAttendBonus) + mgmt +
-      n(rec.laborAllowance) + n(rec.performance) + n(rec.nightAllowance) +
-      n(rec.roleBonus) + n(rec.otherBonus) +
-      n(rec.annualLeaveEncash) + n(rec.compLeaveEncash) +
-      calcOtPay(rec) + n(rec.restDayOtPay) + n(rec.holidayOtPay) +
-      Math.round(n(rec.hourlySupportRate) * 0) - // hourlySupport 需排班資料，此處略
-      Math.round(calcHourlyRate(rec) / 60 * n(rec.lateMinutes)) -
-      Math.abs(n(rec.personalSickLeave))
-    );
-  }
-  function calcDeduct(rec) {
-    return n(rec.laborInsurance) + n(rec.healthInsurance) + n(rec.dependentInsurance) + n(rec.laborPension) + n(rec.otherDeduction);
-  }
-
-  // 欄位定義
-  const headers = [
-    // 基本
-    '編號','門市','姓名','職稱',
-    // 正常薪資
-    '底薪(B1)','工讀時數','全勤獎金(B2)','正常薪資小計(A)',
-    // 加給
-    '管理責任獎金(C1)','勞務津貼(C2)','績效獎金(C3)','夜點費(C4)','其他津貼(C5)','職務津貼',
-    // 特補休結算
-    '特休結算金額(F)','補休結算金額',
-    // 加班
-    '加班時數(G1)','國假時數(G2)','加班費(H1)','休息日加班費(H2)','國假加班費(H3)',
-    // 考勤
-    '遲到分鐘','遲到扣款','事病假扣款',
-    // 應發
-    '應發薪資(I)',
-    // 代扣
-    '勞保費(J1)','健保費(J2)','眷屬健保','勞退自提(J3)','其他扣款',
-    // 實發
-    '實發金額'
-  ];
-
-  const rows = [];
-  rows.push([`莉學商行 民國${rocY}年${m}月 薪資明細`]);
-  rows.push([]);
-  rows.push(headers);
-
-  let seq = 1;
-  allEmps.forEach(emp => {
-    const rec = salaryRecMap[emp.name];
-    if(!rec) {
-      // 無薪資記錄：填基本資料，其餘空白
-      const row = new Array(headers.length).fill('');
-      row[0] = seq++; row[1] = emp.store; row[2] = emp.name; row[3] = emp.role || '';
-      rows.push(row);
-      return;
-    }
-
-    const isPart = emp.role === '工讀';
-    const mgmtTotal = ['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+n(rec[k]),0);
-    const rph = isPart ? 0 : calcHourlyRate(rec);
-    const lateDeduct = isPart ? 0 : Math.round(rph / 60 * n(rec.lateMinutes));
-    const otPay = isPart ? 0 : calcOtPay(rec);
-    const gross = calcGross(rec, emp);
-    const deduct = calcDeduct(rec);
-    const net = gross - deduct;
-
-    // 正常薪資小計 A = B1 + B2（正職）或 工讀本薪
-    const normalWage = isPart
-      ? Math.round(n(rec.wage) * n(rec.hours || 0))
-      : n(rec.baseSalary) + n(rec.fullAttendBonus);
-
-    rows.push([
-      seq++, emp.store, emp.name, emp.role || '',
-      // 正常薪資
-      isPart ? '' : n(rec.baseSalary),
-      isPart ? (n(rec.hours || 0) || '') : '-',
-      isPart ? '' : n(rec.fullAttendBonus),
-      normalWage,
-      // 加給
-      mgmtTotal || '',
-      n(rec.laborAllowance) || '',
-      n(rec.performance)    || '',
-      n(rec.nightAllowance) || '',
-      n(rec.otherBonus)     || '',
-      n(rec.roleBonus)      || '',
-      // 特補休結算
-      n(rec.annualLeaveEncash) || '',
-      n(rec.compLeaveEncash)   || '',
-      // 加班
-      n(rec.otHours)        || '',
-      n(rec.holidayHours)   || '',
-      otPay                 || '',
-      n(rec.restDayOtPay)   || '',
-      n(rec.holidayOtPay)   || '',
-      // 考勤
-      n(rec.lateMinutes)        || '',
-      lateDeduct                || '',
-      Math.abs(n(rec.personalSickLeave)) || '',
-      // 應發
-      gross,
-      // 代扣
-      n(rec.laborInsurance),
-      n(rec.healthInsurance),
-      n(rec.dependentInsurance) || '',
-      n(rec.laborPension),
-      n(rec.otherDeduction)     || '',
-      // 實發
-      net
-    ]);
+  const grantList = allEmps.filter(e => shouldGrantThisMonth(e.startDate,ym));
+  const compWarnList = allEmps.filter(e => {
+    const cd = compStatMap[e.name]||{};
+    return Math.max(0,n(cd.earned)-n(cd.used)) > 5;
   });
 
-  // 合計列
-  const sumRow = new Array(headers.length).fill('');
-  sumRow[2] = '合計';
-  // 用 Excel 公式加總
-  const dataStartRow = 4; // 資料從第4列開始（0-indexed=3）
-  const dataEndRow   = 3 + allEmps.length;
-  const numericCols  = [4,7,8,9,10,11,12,13,14,15,18,19,20,23,24,25,26,27,28,29]; // 需要加總的欄 index
-  numericCols.forEach(ci => {
-    const col = XLSX.utils.encode_col(ci);
-    sumRow[ci] = { f: `SUM(${col}${dataStartRow}:${col}${dataEndRow})`, t:'n' };
+  html += `<div class="pdf-page">
+    <div class="pdf-header">
+      <div><div class="pdf-header-title">📊 ${title}</div><div class="pdf-header-sub">人事費用摘要</div></div>
+      <div style="text-align:right;font-size:10px;opacity:0.8;">匯出時間：${now}</div>
+    </div>
+    <div class="pdf-body">
+      <!-- 總覽數字 -->
+      <div class="pdf-summary-grid">
+        <div class="pdf-summary-box"><div class="pdf-summary-num">${allEmps.length}</div><div class="pdf-summary-label">全店員工人數</div></div>
+        <div class="pdf-summary-box"><div class="pdf-summary-num">$${Math.round(gGross/1000)}K</div><div class="pdf-summary-label">應發薪資合計</div></div>
+        <div class="pdf-summary-box"><div class="pdf-summary-num">$${Math.round(gNet/1000)}K</div><div class="pdf-summary-label">實發薪資合計</div></div>
+        <div class="pdf-summary-box" style="background:#f0fdf4;border-color:#bbf7d0;"><div class="pdf-summary-num" style="color:#16a34a;">$${Math.round(gCost/1000)}K</div><div class="pdf-summary-label">★ 實際人事總成本</div></div>
+      </div>
+
+      <!-- 門市薪資匯總 -->
+      <div class="pdf-section">
+        <div class="pdf-section-title">各門市薪資匯總</div>
+        <table class="pdf-table">
+          <tr><th>門市</th><th>人數</th><th>正職</th><th>工讀</th><th>應發薪資</th><th>代扣合計</th><th>實發合計</th><th>公司勞退(6%)</th><th style="background:#1e3a8a;">★ 人事總成本</th></tr>
+          ${storeStats.map(s=>`<tr>
+            <td style="font-weight:700;text-align:left;">${s.store}</td>
+            <td>${s.count}</td><td>${s.full}</td><td>${s.part}</td>
+            <td>$${comma(s.gross)}</td><td style="color:#dc2626;">$${comma(s.deduct)}</td>
+            <td style="font-weight:700;">$${comma(s.net)}</td>
+            <td>$${comma(s.pension)}</td>
+            <td style="font-weight:900;color:#1a73e8;">$${comma(s.cost)}</td>
+          </tr>`).join('')}
+          <tr class="grand-total">
+            <td style="text-align:left;">全店合計</td>
+            <td>${allEmps.length}</td>
+            <td>${allEmps.filter(e=>e.role!=='工讀').length}</td>
+            <td>${allEmps.filter(e=>e.role==='工讀').length}</td>
+            <td>$${comma(gGross)}</td><td>$${comma(gGross-gNet)}</td>
+            <td>$${comma(gNet)}</td><td>$${comma(gPension)}</td>
+            <td>$${comma(gCost)}</td>
+          </tr>
+        </table>
+      </div>
+
+      <!-- 警示區 -->
+      ${warnList.length ? `<div class="pdf-section">
+        <div class="pdf-section-title" style="color:#dc2626;">⚠️ 特休到期警示（90天內）</div>
+        <table class="pdf-table">
+          <tr><th>員工</th><th>門市</th><th>剩餘特休</th><th>到期日</th><th>距到期</th><th>狀態</th></tr>
+          ${warnList.map(w=>`<tr class="${w.cls}">
+            <td style="font-weight:700;">${w.name}</td><td>${w.store}</td>
+            <td>${w.remain}天</td><td>${w.exp}</td><td>${w.days}天後</td>
+            <td><span class="${w.badge}">${w.label}</span></td>
+          </tr>`).join('')}
+        </table>
+      </div>` : `<div class="pdf-alert"><div class="pdf-alert-title">✅ 特休到期</div>近90天無到期警示</div>`}
+
+      ${grantList.length ? `<div class="pdf-section">
+        <div class="pdf-section-title" style="color:#9334e6;">📅 本月週年日應發特休</div>
+        <table class="pdf-table">
+          <tr><th>員工</th><th>門市</th><th>到職日</th><th>發放狀態</th></tr>
+          ${grantList.map(e=>{
+            const granted = checkAnnualGranted(e.name,batchMap,year);
+            return `<tr>
+              <td style="font-weight:700;">${e.name}</td><td>${e.store}</td>
+              <td>${toROC(e.startDate)}</td>
+              <td><span class="${granted?'badge-green':'badge-red'}">${granted?'✅ 已發放':'⚠️ 尚未發放'}</span></td>
+            </tr>`;
+          }).join('')}
+        </table>
+      </div>` : ''}
+
+      ${compWarnList.length ? `<div class="pdf-section">
+        <div class="pdf-section-title" style="color:#ea580c;">⏰ 補休餘額偏高（>5天）</div>
+        <table class="pdf-table">
+          <tr><th>員工</th><th>門市</th><th>補休餘額</th><th>建議</th></tr>
+          ${compWarnList.map(e=>{
+            const cd=compStatMap[e.name]||{};
+            const rem=Math.max(0,n(cd.earned)-n(cd.used));
+            return `<tr><td style="font-weight:700;">${e.name}</td><td>${e.store}</td><td style="color:#ea580c;font-weight:700;">${rem}天</td><td>建議儘速安排補休或折現</td></tr>`;
+          }).join('')}
+        </table>
+      </div>` : ''}
+    </div>
+    <div class="pdf-footer"><span>${title} · 人事費用摘要</span><span>第 1 頁</span></div>
+  </div>`;
+
+  // ════ Page 2：員工資料 ════
+  const empRows = allEmps.map((emp,i) => {
+    const rec   = salaryRecMap[emp.name]||{};
+    const stat  = leaveStatMap[emp.name]||{};
+    const cd    = compStatMap[emp.name]||{};
+    const isPart= emp.role==='工讀';
+    const annD  = n(stat.annualDays), usedA=n(stat.usedAnnual);
+    const earnC = n(cd.earned), usedC=n(cd.used);
+    const remA  = Math.max(0,annD-usedA), remC=Math.max(0,earnC-usedC);
+    const exp   = isPart?'--':getAnnualExpire(emp.name,batchMap,year);
+    const expDays=daysUntilExpire(exp);
+    const granted=!isPart&&checkAnnualGranted(emp.name,batchMap,year);
+    const warn=expDays<=30?'badge-red':expDays<=60?'badge-orange':expDays<=90?'badge-blue':'';
+    const warnLabel=expDays<=30?'🔴':expDays<=60?'🟠':expDays<=90?'🟡':'';
+    const wage=isPart?(n(rec.wage)||n(emp.wage)):(n(rec.baseSalary)||n(emp.baseSalary));
+    const hrs=n(rec.hours||0);
+    return `<tr ${i%2===1?'style="background:#f8fafc;"':''}>
+      <td>${i+1}</td><td style="font-weight:700;">${emp.store}</td>
+      <td style="font-weight:800;">${emp.name}</td>
+      <td><span class="${emp.role==='工讀'?'badge-blue':emp.role==='店長'?'badge-red':'badge-green'}">${emp.role||''}</span></td>
+      <td>${toROC(emp.startDate)}</td>
+      <td>${calcSeniority(emp.startDate)}</td>
+      <td style="text-align:right;">${isPart?`$${wage}/hr × ${hrs}h = $${comma(Math.round(wage*hrs))}`:`$${comma(wage)}`}</td>
+      <td style="text-align:right;">${n(rec.laborInsurance)||'--'}</td>
+      <td style="text-align:right;">${(n(rec.healthInsurance)+n(rec.dependentInsurance))||'--'}</td>
+      <td style="text-align:right;">${n(rec.laborPension)||'--'}</td>
+      <td>${isPart?'--':`${annD}/${usedA}/${remA}`}</td>
+      <td>${`${earnC}/${usedC}/${remC}`}</td>
+      <td style="font-weight:700;">${isPart?remC:remA+remC}</td>
+      <td>${isPart?'--':exp}</td>
+      <td>${isPart?'--':`<span class="${granted?'badge-green':'badge-orange'}">${granted?'✅ 已發':'⚠️ 未發'}</span>`}</td>
+      <td>${warn?`<span class="${warn}">${warnLabel}</span>`:''}</td>
+    </tr>`;
+  }).join('');
+
+  html += `<div class="pdf-page">
+    <div class="pdf-header">
+      <div><div class="pdf-header-title">👥 ${title}</div><div class="pdf-header-sub">員工資料</div></div>
+    </div>
+    <div class="pdf-body">
+      <table class="pdf-table">
+        <tr>
+          <th>#</th><th>門市</th><th>姓名</th><th>職稱</th><th>到職日</th><th>年資</th>
+          <th>底薪/時薪（本月）</th><th>勞保</th><th>健保</th><th>勞退</th>
+          <th>特休發/用/餘</th><th>補休取/用/餘</th><th>特+補餘</th>
+          <th>特休到期</th><th>發放</th><th>警示</th>
+        </tr>
+        ${empRows}
+      </table>
+    </div>
+    <div class="pdf-footer"><span>${title} · 員工資料</span><span>第 2 頁</span></div>
+  </div>`;
+
+  // ════ Page 3：特補休紀錄 ════
+  const leaveRows = leaveLogAll.map((log,i) => {
+    const exp = log.cat==='annual' ? getAnnualExpire(log.empName,batchMap,year) : '--';
+    const isAnnual = log.cat==='annual';
+    return `<tr ${i%2===1?'style="background:#f8fafc;"':''}>
+      <td>${toROC(log.date)}</td>
+      <td>${log.store}</td>
+      <td style="font-weight:700;">${log.empName}</td>
+      <td>${log.role}</td>
+      <td><span class="${isAnnual?'badge-orange':'badge-blue'}">${log.typeLabel}</span></td>
+      <td style="font-weight:700;">${log.days}</td>
+      <td style="text-align:left;font-size:10px;">${log.note}</td>
+      <td>${isAnnual?exp:'--'}</td>
+    </tr>`;
+  }).join('');
+
+  // 統計表
+  const statRows = allEmps.map((emp,i) => {
+    const stat  = leaveStatMap[emp.name]||{};
+    const cd    = compStatMap[emp.name]||{};
+    const annD  = n(stat.annualDays), usedA=n(stat.usedAnnual), remA=Math.max(0,annD-usedA);
+    const earnC = n(cd.earned), usedC=n(cd.used), remC=Math.max(0,earnC-usedC);
+    const encash= leaveLogAll.filter(l=>l.empName===emp.name&&l.typeLabel==='特休・折現').reduce((s,l)=>s+n(l.days),0);
+    const exp   = emp.role!=='工讀' ? getAnnualExpire(emp.name,batchMap,year) : '--';
+    return `<tr ${i%2===1?'style="background:#f8fafc;"':''}>
+      <td>${i+1}</td><td>${emp.store}</td>
+      <td style="font-weight:700;">${emp.name}</td>
+      <td>${emp.role||''}</td>
+      <td>${annD}</td><td>${usedA}</td>
+      <td style="font-weight:700;color:${remA>0?'#1a73e8':'#64748b'};">${remA}</td>
+      <td style="color:#9334e6;">${encash||'--'}</td>
+      <td>${earnC}</td><td>${usedC}</td>
+      <td style="font-weight:700;color:${remC>0?'#16a34a':'#64748b'};">${remC}</td>
+      <td style="font-size:10px;">${exp}</td>
+    </tr>`;
+  }).join('');
+
+  html += `<div class="pdf-page">
+    <div class="pdf-header" style="background:linear-gradient(135deg,#9334e6,#6a1bb5);">
+      <div><div class="pdf-header-title">📋 ${title}</div><div class="pdf-header-sub">特補休紀錄（民國${rocY}年 1月至${m}月）</div></div>
+    </div>
+    <div class="pdf-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <div>
+          <div class="pdf-section-title" style="color:#9334e6;">流水明細</div>
+          <table class="pdf-table">
+            <tr><th>日期</th><th>門市</th><th>姓名</th><th>職稱</th><th>類型</th><th>天數</th><th>備註</th><th>到期日</th></tr>
+            ${leaveRows||'<tr><td colspan="8" style="color:#94a3b8;">本年度無紀錄</td></tr>'}
+          </table>
+        </div>
+        <div>
+          <div class="pdf-section-title" style="color:#9334e6;">統計表</div>
+          <table class="pdf-table">
+            <tr><th>#</th><th>門市</th><th>姓名</th><th>職稱</th><th>取得</th><th>使用</th><th>餘特</th><th>折現</th><th>取補</th><th>用補</th><th>餘補</th><th>到期日</th></tr>
+            ${statRows}
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="pdf-footer"><span>${title} · 特補休紀錄</span><span>第 3 頁</span></div>
+  </div>`;
+
+  // ════ Page 4：薪資明細 ════
+  let salRows = '';
+  stores.forEach(store => {
+    const storeEmps = allEmps.filter(e => e.store===store);
+    if(!storeEmps.length) return;
+    let sGross=0,sNet=0,sPension=0;
+    // 正職
+    const fulls=storeEmps.filter(e=>e.role!=='工讀');
+    if(fulls.length) {
+      salRows+=`<tr class="section-header"><td colspan="21">── ${store} 正職/店長 ──</td></tr>`;
+      fulls.forEach((emp,i) => {
+        const rec=salaryRecMap[emp.name];
+        if(!rec){salRows+=`<tr><td>${emp.name}</td><td colspan="20" style="color:#94a3b8;">無薪資記錄</td></tr>`;return;}
+        const mgmt=['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+n(rec[k]),0);
+        const rph=calcHourlyRate(rec),late=Math.round(rph/60*n(rec.lateMinutes));
+        const otPay=calcOtPay(rec),gross=calcGross(rec,emp.role);
+        const deduct=calcDeduct(rec),net=gross-deduct,comp=calcCompPension(rec,emp.role);
+        sGross+=gross;sNet+=net;sPension+=comp;
+        salRows+=`<tr style="${i%2===1?'background:#f8fafc':''}">
+          <td style="font-weight:800;">${emp.name}</td>
+          <td style="text-align:right;">$${comma(n(rec.baseSalary))}</td>
+          <td style="text-align:right;">$${comma(n(rec.fullAttendBonus))}</td>
+          <td style="text-align:right;">${mgmt?`$${comma(mgmt)}`:'-'}</td>
+          <td style="text-align:right;">${n(rec.laborAllowance)?`$${comma(n(rec.laborAllowance))}`:'-'}</td>
+          <td style="text-align:right;">${n(rec.performance)?`$${comma(n(rec.performance))}`:'-'}</td>
+          <td style="text-align:right;">${n(rec.otherBonus)?`$${comma(n(rec.otherBonus))}`:'-'}</td>
+          <td style="text-align:right;">${n(rec.annualLeaveEncash)||n(rec.compLeaveEncash)?`$${comma(n(rec.annualLeaveEncash)+n(rec.compLeaveEncash))}`:'-'}</td>
+          <td style="text-align:right;">${n(rec.otHours)?`${n(rec.otHours)}h`:'-'}</td>
+          <td style="text-align:right;color:#16a34a;">${otPay?`+$${comma(otPay)}`:'-'}</td>
+          <td style="text-align:right;">${n(rec.lateMinutes)?`${n(rec.lateMinutes)}分 -$${comma(late)}`:'-'}</td>
+          <td style="text-align:right;">${Math.abs(n(rec.personalSickLeave))?`-$${comma(Math.abs(n(rec.personalSickLeave)))}`:'-'}</td>
+          <td style="text-align:right;font-weight:700;background:#eff6ff;">$${comma(gross)}</td>
+          <td style="text-align:right;color:#dc2626;">$${comma(n(rec.laborInsurance))}</td>
+          <td style="text-align:right;color:#dc2626;">$${comma(n(rec.healthInsurance)+n(rec.dependentInsurance))}</td>
+          <td style="text-align:right;color:#dc2626;">$${comma(n(rec.laborPension))}</td>
+          <td style="text-align:right;font-weight:800;background:#dcfce7;">$${comma(net)}</td>
+          <td style="text-align:right;">$${comma(comp)||'-'}</td>
+          <td style="text-align:right;font-weight:900;color:#1a73e8;">$${comma(net+comp)}</td>
+        </tr>`;
+      });
+    }
+    // 工讀
+    const parts=storeEmps.filter(e=>e.role==='工讀');
+    if(parts.length) {
+      salRows+=`<tr class="section-header"><td colspan="21">── ${store} 工讀生 ──</td></tr>`;
+      parts.forEach((emp,i) => {
+        const rec=salaryRecMap[emp.name];
+        if(!rec){salRows+=`<tr><td>${emp.name}</td><td colspan="20" style="color:#94a3b8;">無薪資記錄</td></tr>`;return;}
+        const wage=n(rec.wage),hrs=n(rec.hours||0);
+        const gross=calcGross(rec,emp.role),deduct=calcDeduct(rec),net=gross-deduct;
+        sGross+=gross;sNet+=net;
+        salRows+=`<tr style="${i%2===1?'background:#f8fafc':''}">
+          <td style="font-weight:800;">${emp.name}</td>
+          <td style="text-align:right;">$${wage}/hr×${hrs}h</td>
+          <td colspan="6" style="text-align:center;color:#94a3b8;">（工讀生）</td>
+          <td style="text-align:right;">${n(rec.holidayHours)?`${n(rec.holidayHours)}h`:'-'}</td>
+          <td style="text-align:right;color:#16a34a;">${n(rec.holidayHours)?`+$${comma(Math.round(wage*n(rec.holidayHours)))}`:'-'}</td>
+          <td>-</td><td style="text-align:right;">${Math.abs(n(rec.personalSickLeave))?`-$${comma(Math.abs(n(rec.personalSickLeave)))}`:'-'}</td>
+          <td style="text-align:right;font-weight:700;background:#eff6ff;">$${comma(gross)}</td>
+          <td style="text-align:right;color:#dc2626;">$${comma(n(rec.laborInsurance))}</td>
+          <td style="text-align:right;color:#dc2626;">$${comma(n(rec.healthInsurance)+n(rec.dependentInsurance))}</td>
+          <td style="text-align:right;color:#dc2626;">$${comma(n(rec.laborPension))}</td>
+          <td style="text-align:right;font-weight:800;background:#dcfce7;">$${comma(net)}</td>
+          <td>-</td>
+          <td style="text-align:right;font-weight:900;color:#1a73e8;">$${comma(net)}</td>
+        </tr>`;
+      });
+    }
+    // 門市小計
+    salRows+=`<tr class="subtotal">
+      <td style="text-align:left;font-weight:900;">${store} 小計</td>
+      <td colspan="11"></td>
+      <td style="text-align:right;">$${comma(sGross)}</td>
+      <td colspan="3"></td>
+      <td style="text-align:right;">$${comma(sNet)}</td>
+      <td style="text-align:right;">$${comma(sPension)}</td>
+      <td style="text-align:right;">$${comma(sNet+sPension)}</td>
+    </tr><tr><td colspan="21" style="height:6px;"></td></tr>`;
   });
-  rows.push(sumRow);
 
-  const ws = XLSX.utils.aoa_to_sheet(rows);
+  // 全店合計
+  const totalGross=allEmps.reduce((s,e)=>{const r=salaryRecMap[e.name];return r?s+calcGross(r,e.role):s;},0);
+  const totalNet=allEmps.reduce((s,e)=>{const r=salaryRecMap[e.name];return r?s+calcNet(r,e.role):s;},0);
+  const totalPension=allEmps.reduce((s,e)=>{const r=salaryRecMap[e.name];return r?s+calcCompPension(r,e.role):s;},0);
 
-  // 合併標題
-  ws['!merges'] = [{ s:{r:0,c:0}, e:{r:0,c:headers.length-1} }];
+  html += `<div class="pdf-page pdf-page-landscape" style="page-break-before:always;">
+    <div class="pdf-header" style="background:linear-gradient(135deg,#34a853,#1e7e34);">
+      <div><div class="pdf-header-title">💰 ${title}</div><div class="pdf-header-sub">薪資明細</div></div>
+    </div>
+    <div class="pdf-body" style="overflow-x:auto;">
+      <table class="pdf-table" style="min-width:1200px;">
+        <tr>
+          <th style="min-width:70px;">姓名</th>
+          <th>底薪/時薪</th><th>全勤</th><th>管理獎金</th>
+          <th>勞務津貼</th><th>績效</th><th>其他津貼</th><th>假日結算</th>
+          <th>加班時數</th><th>加班費</th><th>遲到扣</th><th>事病假</th>
+          <th style="background:#1e3a8a;">應發薪資</th>
+          <th style="background:#7f1d1d;">勞保</th><th style="background:#7f1d1d;">健保</th><th style="background:#7f1d1d;">勞退</th>
+          <th style="background:#14532d;">實發金額</th>
+          <th>公司勞退</th><th style="background:#1e3a8a;">人事成本</th>
+        </tr>
+        ${salRows}
+        <tr class="grand-total">
+          <td style="text-align:left;">★ 全店合計</td>
+          <td colspan="11"></td>
+          <td>$${comma(totalGross)}</td>
+          <td colspan="3"></td>
+          <td>$${comma(totalNet)}</td>
+          <td>$${comma(totalPension)}</td>
+          <td>$${comma(totalNet+totalPension)}</td>
+        </tr>
+      </table>
+    </div>
+    <div class="pdf-footer"><span>${title} · 薪資明細</span><span>第 4 頁</span></div>
+  </div>`;
 
-  // 欄寬
-  ws['!cols'] = [
-    {wch:5},{wch:8},{wch:10},{wch:8},  // 基本
-    {wch:10},{wch:8},{wch:10},{wch:12}, // 正常薪資
-    {wch:14},{wch:10},{wch:10},{wch:8},{wch:10},{wch:8}, // 加給
-    {wch:14},{wch:12}, // 特補休
-    {wch:8},{wch:8},{wch:10},{wch:12},{wch:12}, // 加班
-    {wch:8},{wch:10},{wch:10}, // 考勤
-    {wch:12}, // 應發
-    {wch:10},{wch:10},{wch:10},{wch:10},{wch:8}, // 代扣
-    {wch:12}  // 實發
-  ];
-
-  // 凍結前 4 欄（門市、姓名等基本資料）
-  ws['!freeze'] = { xSplit: 4, ySplit: 3 };
-
-  return ws;
+  return html;
 }
 </script>
 </body>
