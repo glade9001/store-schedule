@@ -258,7 +258,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
     <div class="modal-handle"></div>
     <div class="modal-title">加班費/遲到計算基礎設定</div>
     <div style="margin-top:16px;">
-      <div class="salary-row"><span class="salary-row-label">底薪（薪資頁可調整）</span><span class="salary-row-val" id="ot_baseSalary"></span></div>
+      <div class="salary-row"><span class="salary-row-label">底薪 (不可改)</span><span class="salary-row-val" id="ot_baseSalary"></span></div>
       <div class="salary-row"><span class="salary-row-label">全勤獎金基準</span><input id="ot_fullAttend" type="number" class="salary-input"></div>
       <div class="salary-row"><span class="salary-row-label">其他計入基準</span><input id="ot_otherBase" type="number" class="salary-input"></div>
       <div style="background:#f8fafc;padding:12px;border-radius:8px;margin-top:12px;font-size:13px;line-height:1.6;">
@@ -886,10 +886,7 @@ let empList = []; // 員工資料
 let scheduleData = {}; // 排班記錄（當月）
 let prevSalaryData = {}; // 上月薪資（預設用）
 let expandedCards = new Set();
-// Tab 確認狀態 { empName: { tab0: bool, tab1: bool, tab2: bool } }
-let tabConfirmed = {};
-// 加盟主開Modal時的快照 { empName: jsonStr }
-let modalSnapshot = {};
+// （確認功能已移除）
 // 目前 Modal 開啟的 Tab index
 let currentModalTab = 0;
 
@@ -1821,23 +1818,12 @@ async function loadSalaryData() {
     // 員工名單
     empList = [];
     const todaySal = new Date().toISOString().split('T')[0];
-    const [curY, curM] = currentMonth.split('-').map(Number);
     empSnap.forEach(d => {
       const data = d.data();
       const status = data.status;
       const effectDate = data.retireDate || data.transferDate;
       const isEffective = ['離職','調走'].includes(status) && (!effectDate || todaySal >= effectDate);
-      if(isEffective) return; // 已離職/調走，跳過
-
-      // ✅ 到職日篩選：若 startDate 存在且尚未到達當月，則不顯示
-      // 例：currentMonth = 2026-05，startDate = 2026-06-01 → 跳過
-      //     currentMonth = 2026-05，startDate = 2026-05-20 → 顯示（當月任何時間到職都算）
-      if(data.startDate) {
-        const [sy, sm] = data.startDate.split('-').map(Number);
-        if(sy > curY || (sy === curY && sm > curM)) return; // 下個月（含）之後才到職 → 不顯示
-      }
-
-      empList.push({ name: d.id, ...data });
+      if(!isEffective) empList.push({ name: d.id, ...data });
     });
     empList.sort((a,b) => (a.sortKey||0)-(b.sortKey||0));
 
@@ -2007,13 +1993,6 @@ function renderEmpList() {
     }
     const total = calcTotal(rec);
     const isOpen = expandedCards.has(emp.name);
-    // 未確認 Tab badge
-    const _tabCfm = tabConfirmed[emp.name] || {};
-    const _tabNames = ['考勤','薪資','代扣'];
-    const _incomp = !isReadonly() ? [0,1,2].filter(i => !_tabCfm[i]).map(i => _tabNames[i]) : [];
-    const _badge = _incomp.length > 0
-      ? `<div style="font-size:10px;background:#fff3e0;color:#e65100;border-radius:6px;padding:2px 7px;font-weight:700;margin-top:2px;display:inline-block;">⚠️ ${_incomp.join('、')} 未確認</div>`
-      : (Object.keys(_tabCfm).length > 0 && !isReadonly() ? `<div style="font-size:10px;background:#e8f5e9;color:#2e7d32;border-radius:6px;padding:2px 7px;font-weight:700;margin-top:2px;display:inline-block;">✅ 已完成確認</div>` : '');
     return `<div class="emp-salary-card" id="card-${idx}">
       <div class="emp-salary-header" onclick="openEmpModal('${emp.name}')">
         <div class="emp-salary-avatar" style="background:${emp.role===ROLE_MANAGER?'linear-gradient(135deg,#9334e6,#6a1bb5)':emp.role===ROLE_FULL?'linear-gradient(135deg,#34a853,#1e7e34)':'linear-gradient(135deg,#1a73e8,#0d47a1)'};">
@@ -2021,7 +2000,7 @@ function renderEmpList() {
         </div>
         <div class="emp-salary-info">
           <div class="emp-salary-name">${getDisplayName(emp.name)} <span style="font-size:11px;background:#f1f3f4;padding:2px 6px;border-radius:4px;font-weight:600;">${emp.role||''}</span></div>
-          <div class="emp-salary-role">${currentMonth.replace('-','年')}月 薪資${_badge}</div>
+          <div class="emp-salary-role">${currentMonth.replace('-','年')}月 薪資</div>
         </div>
         <div class="emp-salary-total">$${total.toLocaleString()}</div>
         <div style="font-size:18px;color:var(--text-muted);">›</div>
@@ -2041,12 +2020,6 @@ function openEmpModal(empName, tabIdx) {
   let rec = getSalaryRecord(empName) || buildDefaultRecord(emp);
   if(!getSalaryRecord(empName)) salaryData.records.push(rec);
 
-  // 加盟主：開 Modal 時記錄快照（用於偵測是否修改）
-  if(canApprove()) {
-    modalSnapshot[empName] = JSON.stringify(rec);
-  }
-  if(!tabConfirmed[empName]) tabConfirmed[empName] = { 0: false, 1: false, 2: false };
-
   const readonly = isReadonly();
   const total = calcTotal(rec);
 
@@ -2059,19 +2032,6 @@ function openEmpModal(empName, tabIdx) {
 }
 
 function closeEmpModal() {
-  // 加盟主：關閉時比對快照，有修改則重置 Tab 確認
-  if(canApprove() && currentEmpModal) {
-    const rec = getSalaryRecord(currentEmpModal);
-    if(rec && modalSnapshot[currentEmpModal]) {
-      const before = modalSnapshot[currentEmpModal];
-      const after = JSON.stringify(rec);
-      if(before !== after) {
-        tabConfirmed[currentEmpModal] = { 0: false, 1: false, 2: false };
-        renderEmpList(); // 更新卡片 badge
-      }
-    }
-    delete modalSnapshot[currentEmpModal];
-  }
   closeModal('empEditModal');
   currentEmpModal = null;
   currentModalTab = 0;
@@ -2180,8 +2140,7 @@ function renderSalaryForm(emp, rec, idx, readonly) {
   // === 第一欄：薪資考勤項目 ===
   let col1 = `<div class="col-card"><div class="col-header c1"><span>2. 薪資考勤項目</span><span style="font-size:11px;">(加減項)</span></div>`;
   if(isPart) {
-    col1 += inp('wage', rec.wage, '時薪（元/hr）');
-    col1 += `<div class="salary-row"><span class="salary-row-label">本薪小計 <span style="font-size:10px;color:var(--text-muted);">${totalH}h × $${rec.wage||0}</span></span>
+    col1 += `<div class="salary-row"><span class="salary-row-label">本薪 <span style="font-size:10px;color:var(--text-muted);">${totalH}h × $${rec.wage||0}</span></span>
              <span class="salary-row-val">$${Math.round(totalH*(rec.wage||0)).toLocaleString()}</span></div>`;
     col1 += inp('roleBonus', rec.roleBonus, '職務津貼');
     col1 += `<div class="salary-row">
@@ -2195,7 +2154,7 @@ function renderSalaryForm(emp, rec, idx, readonly) {
            </div>`
       }</div>`;
   } else {
-    col1 += inp('baseSalary', rec.baseSalary, '底薪');
+    col1 += `<div class="salary-row"><span class="salary-row-label">本薪 <span style="font-size:10px;color:var(--text-muted);">系統帶入</span></span><span class="salary-row-val">$${(rec.baseSalary||0).toLocaleString()}</span></div>`;
     col1 += inp('fullAttendBonus', rec.fullAttendBonus, '全勤獎金');
     if(isMgr) {
       const mgmtTotal = ['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+parseFloat(rec[k]||0),0);
@@ -2337,14 +2296,12 @@ function renderSalaryForm(emp, rec, idx, readonly) {
   const empNameEsc = emp.name.replace(/'/g, "\\'");
   const tabs = ['考勤紀錄', '薪資項目', '代扣項目'];
   const tabBar = tabs.map((t, i) => {
-    const confirmed = tabConfirmed[emp.name]?.[i];
     const isActive = i === currentModalTab;
-    const needConfirm = !confirmed && !isReadonly();
     return `<button onclick="switchModalTab(${i})"
       style="flex:1;padding:10px 4px;border:none;border-bottom:3px solid ${isActive?'var(--primary)':'transparent'};
       background:${isActive?'#f0f7ff':'white'};font-size:13px;font-weight:800;cursor:pointer;
-      color:${isActive?'var(--primary)':'var(--text-muted)'};position:relative;">
-      ${t}${needConfirm?'<span style="position:absolute;top:4px;right:4px;width:8px;height:8px;background:#f9ab00;border-radius:50%;"></span>':''}
+      color:${isActive?'var(--primary)':'var(--text-muted)'};">
+      ${t}
     </button>`;
   }).join('');
 
@@ -2358,17 +2315,11 @@ function renderSalaryForm(emp, rec, idx, readonly) {
     `<div id="modal-tab-2" style="display:none;">${col2}</div>`,
   ].join('');
 
-  const isLastTab = currentModalTab === 2;
   const confirmBtn = !isReadonly() ? `
-    <div style="padding:12px 0 0;border-top:1px solid var(--border);margin-top:12px;display:flex;gap:8px;">
+    <div style="padding:12px 0 0;border-top:1px solid var(--border);margin-top:12px;">
       <button onclick="triggerAutoSave(); closeEmpModal();"
-        style="flex:1;padding:13px;background:#f1f3f4;color:var(--text);border:none;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;">
-        儲存並關閉
-      </button>
-      <button onclick="confirmModalTab('${empNameEsc}', ${currentModalTab})"
-        style="flex:2;padding:13px;background:var(--primary);color:white;border:none;border-radius:12px;
-        font-size:15px;font-weight:800;cursor:pointer;">
-        ${isLastTab ? '✅ 確認完成' : '確認並繼續 →'}
+        style="width:100%;padding:13px;background:var(--primary);color:white;border:none;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer;">
+        💾 儲存並關閉
       </button>
     </div>` : '';
 
@@ -2404,28 +2355,7 @@ function switchModalTab(idx, saveState) {
   }
 }
 
-async function confirmModalTab(empName, tabIdx) {
-  if(!tabConfirmed[empName]) tabConfirmed[empName] = { 0:false, 1:false, 2:false };
-  tabConfirmed[empName][tabIdx] = true;
-  // 存檔
-  triggerAutoSave();
-  // 若是最後一頁，關閉 Modal 並更新卡片 badge
-  if(tabIdx === 2) {
-    renderEmpList();
-    closeEmpModal();
-    showToast('✅ 已確認完成');
-    return;
-  }
-  // 否則跳下一頁
-  const nextTab = tabIdx + 1;
-  currentModalTab = nextTab;
-  const emp = empList.find(e => e.name === empName);
-  const rec = getSalaryRecord(empName);
-  if(emp && rec) {
-    document.getElementById('empModalBody').innerHTML = renderSalaryForm(emp, rec, 0, isReadonly());
-    switchModalTab(nextTab, false);
-  }
-}
+// （Tab 確認功能已移除）
 
 // ===== 應休/補休區塊 =====
 function renderLeaveSection(empName, rec, idx, readonly) {
@@ -2876,8 +2806,6 @@ async function submitSalary() {
 
 async function publishSalary() {
   if(!confirm(`確定發布 ${getMonthLabel(currentMonth)} 薪資？\n發布後員工可查看。`)) return;
-  // 加盟主：若未修改，直接發布（不檢查 Tab 確認狀態）
-  // 若有修改（快照比對），tabConfirmed 已被重置，繼續正常流程
   collectRecords();
   showLoading('發布中...');
   try {
