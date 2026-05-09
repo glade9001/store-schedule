@@ -165,10 +165,12 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 <div id="loadingOverlay"><div class="spinner"></div><div id="loadingText">載入薪資系統...</div></div>
 
 <div id="appShell">
+  <!-- 預覽模式提示條 -->
   <div id="salaryPreviewBanner" style="display:none; background:linear-gradient(135deg,#9334e6,#6a1bb5); color:white; padding:8px 16px; font-size:12px; font-weight:700; text-align:center; cursor:pointer; flex-shrink:0;" onclick="window.location.href='home.html'">
     🎭 預覽模式 — 點此返回首頁切換角色
   </div>
 
+  <!-- Header -->
   <div class="header" style="gap:8px;">
     <button class="header-back" onclick="window.location.href='home.html'" style="flex-shrink:0;">← 首頁</button>
     <div class="header-title" style="font-size:15px;white-space:nowrap;">📋 薪資管理</div>
@@ -182,17 +184,22 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
     </div>
   </div>
 
+  <!-- Month Nav -->
   <div style="background:white;border-bottom:1px solid var(--border);flex-shrink:0;">
+    <!-- 第一行：月份切換 + 門市 -->
     <div style="display:flex;align-items:center;gap:8px;padding:10px 14px 6px;">
       <button class="month-btn" onclick="changeMonth(-1)">‹</button>
       <div class="month-label" id="monthLabel" style="flex:1;">--</div>
       <button class="month-btn" onclick="changeMonth(1)">›</button>
       <select class="store-select" id="storeSelector" onchange="loadSalaryData()" style="display:none;"></select>
     </div>
+    <!-- 第二行：動作按鈕 -->
     <div id="bottomAction" style="display:none;padding:0 14px 10px;gap:8px;flex-wrap:wrap;"></div>
   </div>
 
+  <!-- Content -->
   <div class="content">
+    <!-- 遞延假年底結算提示（1月份才顯示）-->
     <div id="carrySettleBanner" style="display:none; background:linear-gradient(135deg,#fff3e0,#fff8e1); border:1.5px solid var(--warn); border-radius:12px; padding:12px 16px; margin-bottom:12px; align-items:center; gap:10px;">
       <div style="font-size:20px;">⏰</div>
       <div style="flex:1;">
@@ -200,15 +207,19 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
         <div style="font-size:11px;color:var(--text-muted);">有員工的遞延假應在去年 12/31 結算為工資，請在各員工薪資卡片中確認。</div>
       </div>
     </div>
+    <!-- 本月說明區 -->
     <div id="monthInfoArea"></div>
+    <!-- 員工列表 -->
     <div id="empList">
       <div class="empty-state"><div class="empty-icon">💰</div><div>載入中...</div></div>
     </div>
   </div>
 
-  </div>
+  <!-- Bottom Action 已移至上方 -->
+</div>
 
 
+<!-- ===== 員工薪資編輯 Modal ===== -->
 <div class="modal-overlay" id="empEditModal" onclick="if(event.target===this)closeEmpModal()">
   <div class="modal-box" style="max-width: 1100px; max-height:92vh; border-radius:22px 22px 0 0;">
     <div class="modal-handle"></div>
@@ -247,6 +258,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
     <div class="modal-handle"></div>
     <div class="modal-title">加班費/遲到計算基礎設定</div>
     <div style="margin-top:16px;">
+      <!-- 快速勾選：依勞基法 -->
       <div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:12px;margin-bottom:14px;">
         <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
           <input type="checkbox" id="ot_useStatutory" style="width:18px;height:18px;margin-top:1px;accent-color:#1a73e8;flex-shrink:0;" onchange="applyStatutoryBase()">
@@ -270,6 +282,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
     <button onclick="saveOtBase()" style="width:100%;padding:12px;background:var(--primary);color:white;border:none;border-radius:10px;font-size:14px;font-weight:800;margin-top:16px;cursor:pointer;">儲存確認</button>
   </div>
 </div>
+<!-- ===== 時薪支援設定 Modal ===== -->
 <div class="modal-overlay" id="hourlySupportModal" onclick="if(event.target===this)closeModal('hourlySupportModal')">
   <div class="modal-box" style="max-width:380px;">
     <div class="modal-handle"></div>
@@ -285,6 +298,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
   </div>
 </div>
 
+<!-- ===== 自訂加班時薪 Modal ===== -->
 <div class="modal-overlay" id="customOtModal" onclick="if(event.target===this)closeModal('customOtModal')">
   <div class="modal-box" style="max-width:400px;">
     <div class="modal-handle"></div>
@@ -308,6 +322,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
   </div>
 </div>
 
+<!-- ===== 特休/補休折現 Modal ===== -->
 <div class="modal-overlay" id="encashModal" onclick="if(event.target===this)closeModal('encashModal')">
   <div class="modal-box" style="max-height:70vh;">
     <div class="modal-handle"></div>
@@ -329,6 +344,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
   </div>
 </div>
 
+<!-- ===== 管理責任獎金明細 Modal ===== -->
 <div class="modal-overlay" id="mgmtDetailModal" onclick="if(event.target===this)closeModal('mgmtDetailModal')">
   <div class="modal-box" style="max-height:70vh;">
     <div class="modal-handle"></div>
@@ -338,6 +354,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
   </div>
 </div>
 
+<!-- ===== 薪資單 Modal ===== -->
 <div class="modal-overlay" id="payslipModal" onclick="if(event.target===this)closeModal('payslipModal')">
   <div class="modal-box" style="max-height:90vh;">
     <div class="modal-handle"></div>
@@ -349,28 +366,34 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
         <button onclick="closeModal('payslipModal')" style="background:#f1f3f4;border:none;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer;font-size:13px;">關閉</button>
       </div>
     </div>
+    <!-- 選擇員工 -->
     <select id="payslipEmpSelect" onchange="renderPayslip()" style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:10px;font-size:14px;margin-bottom:12px;"></select>
+    <!-- 薪資單內容 -->
     <div id="payslipContent"></div>
   </div>
 </div>
 
+<!-- ===== Email 寄送 Modal ===== -->
 <div class="modal-overlay" id="emailModal" onclick="if(event.target===this)closeModal('emailModal')">
   <div class="modal-box">
     <div class="modal-handle"></div>
     <div class="modal-title">📧 寄送薪資單</div>
     <div class="modal-sub" id="emailModalSub">將全店薪資單寄送至指定 Email</div>
 
+    <!-- 收件人 Email -->
     <div style="margin-bottom:16px;">
       <label style="font-size:13px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:6px;">收件人 Email</label>
       <input type="email" id="ownerEmail" placeholder="請填寫收件人 Email"
         style="width:100%;padding:12px;border:1.5px solid var(--border);border-radius:10px;font-size:14px;font-weight:600;">
     </div>
 
+    <!-- 預覽按鈕 -->
     <button onclick="previewEmail()" style="width:100%;padding:12px;background:#f1f3f4;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:8px;">
       👀 預覽薪資單
     </button>
     <div id="emailPreview" style="display:none;border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:12px;max-height:300px;overflow-y:auto;background:#f8fafc;font-size:12px;"></div>
 
+    <!-- 寄送按鈕 -->
     <button onclick="sendAllPayslips()" id="sendBtn"
       style="width:100%;padding:14px;background:#34a853;color:white;border:none;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer;">
       📧 確認寄送
@@ -876,6 +899,10 @@ let empList = []; // 員工資料
 let scheduleData = {}; // 排班記錄（當月）
 let prevSalaryData = {}; // 上月薪資（預設用）
 let expandedCards = new Set();
+// Tab 確認狀態 { empName: { tab0: bool, tab1: bool, tab2: bool } }
+let tabConfirmed = {};
+// 加盟主開Modal時的快照 { empName: jsonStr }
+let modalSnapshot = {};
 // 目前 Modal 開啟的 Tab index
 let currentModalTab = 0;
 
@@ -1004,12 +1031,14 @@ function renderPayslip() {
   // 薪資單 HTML
   el.innerHTML = `
     <div id="payslipPrint" style="font-family:'Microsoft JhengHei','PingFang TC',sans-serif;background:white;border:2px solid #1a73e8;border-radius:12px;padding:20px;font-size:13px;">
+      <!-- 標題 -->
       <div style="text-align:center;margin-bottom:16px;border-bottom:2px solid #1a73e8;padding-bottom:12px;">
         <div style="font-size:20px;font-weight:900;color:#1a73e8;">莉學商行</div>
         <div style="font-size:15px;font-weight:700;margin-top:4px;">${y}年${m}月份薪資單</div>
         <div style="font-size:12px;color:#64748b;margin-top:2px;">${currentStore}</div>
       </div>
 
+      <!-- 員工資訊 -->
       <div style="display:flex;justify-content:space-between;margin-bottom:12px;background:#f8fafc;border-radius:8px;padding:10px 14px;">
         <div>
           <div style="font-size:15px;font-weight:900;">${empName}</div>
@@ -1021,6 +1050,7 @@ function renderPayslip() {
         </div>
       </div>
 
+      <!-- 薪資明細表 -->
       <table style="width:100%;border-collapse:collapse;font-size:12px;">
         <tr style="background:#1a73e8;color:white;">
           <th style="padding:8px;text-align:left;border-radius:6px 0 0 0;">薪資/考勤項目</th>
@@ -1031,6 +1061,7 @@ function renderPayslip() {
         ${buildPayslipRows(rec, emp, rate, isPartTime)}
       </table>
 
+      <!-- 合計 -->
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px;">
         <div style="background:#e8f0fe;border-radius:8px;padding:10px;text-align:center;">
           <div style="font-size:11px;color:#64748b;">應發薪資</div>
@@ -1046,11 +1077,13 @@ function renderPayslip() {
         </div>
       </div>
 
+      <!-- 考勤資訊 -->
       <div style="margin-top:12px;background:#f8fafc;border-radius:8px;padding:10px;">
         <div style="font-size:11px;font-weight:800;color:#64748b;margin-bottom:6px;">考勤記錄</div>
         ${buildAttendanceInfo(rec, emp, isPartTime)}
       </div>
 
+      <!-- 特補休 -->
       ${!isPartTime ? `
       <div style="margin-top:8px;background:#fffbf0;border-radius:8px;padding:10px;border:1px solid #fde68a;">
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;font-size:11px;text-align:center;">
@@ -1061,11 +1094,13 @@ function renderPayslip() {
         </div>
       </div>` : ''}
 
+      <!-- 溝通事項 -->
       <div style="margin-top:10px;border:1px solid #e2e8f0;border-radius:8px;padding:10px;">
         <div style="font-size:11px;font-weight:800;color:#64748b;margin-bottom:4px;">溝通事項：</div>
         <div style="min-height:40px;font-size:12px;color:#64748b;">（無）</div>
       </div>
 
+      <!-- 簽名 -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
         <div style="border-top:1px solid #e2e8f0;padding-top:8px;text-align:center;font-size:11px;color:#64748b;">員工簽名</div>
         <div style="border-top:1px solid #e2e8f0;padding-top:8px;text-align:center;font-size:11px;color:#64748b;">主管確認</div>
@@ -2020,6 +2055,13 @@ function renderEmpList() {
     }
     const total = calcTotal(rec);
     const isOpen = expandedCards.has(emp.name);
+    // 未確認 Tab badge
+    const _tabCfm = tabConfirmed[emp.name] || {};
+    const _tabNames = ['考勤','薪資','代扣'];
+    const _incomp = !isReadonly() ? [0,1,2].filter(i => !_tabCfm[i]).map(i => _tabNames[i]) : [];
+    const _badge = _incomp.length > 0
+      ? `<div style="font-size:10px;background:#fff3e0;color:#e65100;border-radius:6px;padding:2px 7px;font-weight:700;margin-top:2px;display:inline-block;">⚠️ ${_incomp.join('、')} 未確認</div>`
+      : (Object.keys(_tabCfm).length > 0 && !isReadonly() ? `<div style="font-size:10px;background:#e8f5e9;color:#2e7d32;border-radius:6px;padding:2px 7px;font-weight:700;margin-top:2px;display:inline-block;">✅ 已完成確認</div>` : '');
     return `<div class="emp-salary-card" id="card-${idx}">
       <div class="emp-salary-header" onclick="openEmpModal('${emp.name}')">
         <div class="emp-salary-avatar" style="background:${emp.role===ROLE_MANAGER?'linear-gradient(135deg,#9334e6,#6a1bb5)':emp.role===ROLE_FULL?'linear-gradient(135deg,#34a853,#1e7e34)':'linear-gradient(135deg,#1a73e8,#0d47a1)'};">
@@ -2027,7 +2069,7 @@ function renderEmpList() {
         </div>
         <div class="emp-salary-info">
           <div class="emp-salary-name">${getDisplayName(emp.name)} <span style="font-size:11px;background:#f1f3f4;padding:2px 6px;border-radius:4px;font-weight:600;">${emp.role||''}</span></div>
-          <div class="emp-salary-role">${currentMonth.replace('-','年')}月 薪資</div>
+          <div class="emp-salary-role">${currentMonth.replace('-','年')}月 薪資${_badge}</div>
         </div>
         <div class="emp-salary-total">$${total.toLocaleString()}</div>
         <div style="font-size:18px;color:var(--text-muted);">›</div>
@@ -2047,6 +2089,12 @@ function openEmpModal(empName, tabIdx) {
   let rec = getSalaryRecord(empName) || buildDefaultRecord(emp);
   if(!getSalaryRecord(empName)) salaryData.records.push(rec);
 
+  // 加盟主：開 Modal 時記錄快照（用於偵測是否修改）
+  if(canApprove()) {
+    modalSnapshot[empName] = JSON.stringify(rec);
+  }
+  if(!tabConfirmed[empName]) tabConfirmed[empName] = { 0: false, 1: false, 2: false };
+
   const readonly = isReadonly();
   const total = calcTotal(rec);
 
@@ -2059,6 +2107,19 @@ function openEmpModal(empName, tabIdx) {
 }
 
 function closeEmpModal() {
+  // 加盟主：關閉時比對快照，有修改則重置 Tab 確認
+  if(canApprove() && currentEmpModal) {
+    const rec = getSalaryRecord(currentEmpModal);
+    if(rec && modalSnapshot[currentEmpModal]) {
+      const before = modalSnapshot[currentEmpModal];
+      const after = JSON.stringify(rec);
+      if(before !== after) {
+        tabConfirmed[currentEmpModal] = { 0: false, 1: false, 2: false };
+        renderEmpList(); // 更新卡片 badge
+      }
+    }
+    delete modalSnapshot[currentEmpModal];
+  }
   closeModal('empEditModal');
   currentEmpModal = null;
   currentModalTab = 0;
@@ -2326,12 +2387,14 @@ function renderSalaryForm(emp, rec, idx, readonly) {
   const empNameEsc = emp.name.replace(/'/g, "\\'");
   const tabs = ['考勤紀錄', '薪資項目', '代扣項目'];
   const tabBar = tabs.map((t, i) => {
+    const confirmed = tabConfirmed[emp.name]?.[i];
     const isActive = i === currentModalTab;
+    const needConfirm = !confirmed && !isReadonly();
     return `<button onclick="switchModalTab(${i})"
       style="flex:1;padding:10px 4px;border:none;border-bottom:3px solid ${isActive?'var(--primary)':'transparent'};
       background:${isActive?'#f0f7ff':'white'};font-size:13px;font-weight:800;cursor:pointer;
       color:${isActive?'var(--primary)':'var(--text-muted)'};position:relative;">
-      ${t}
+      ${t}${needConfirm?'<span style="position:absolute;top:4px;right:4px;width:8px;height:8px;background:#f9ab00;border-radius:50%;"></span>':''}
     </button>`;
   }).join('');
 
@@ -2345,11 +2408,17 @@ function renderSalaryForm(emp, rec, idx, readonly) {
     `<div id="modal-tab-2" style="display:none;">${col2}</div>`,
   ].join('');
 
+  const isLastTab = currentModalTab === 2;
   const confirmBtn = !isReadonly() ? `
     <div style="padding:12px 0 0;border-top:1px solid var(--border);margin-top:12px;display:flex;gap:8px;">
       <button onclick="triggerAutoSave(); closeEmpModal();"
-        style="width:100%;padding:13px;background:var(--primary);color:white;border:none;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer;">
-        💾 儲存並關閉
+        style="flex:1;padding:13px;background:#f1f3f4;color:var(--text);border:none;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;">
+        儲存並關閉
+      </button>
+      <button onclick="confirmModalTab('${empNameEsc}', ${currentModalTab})"
+        style="flex:2;padding:13px;background:var(--primary);color:white;border:none;border-radius:12px;
+        font-size:15px;font-weight:800;cursor:pointer;">
+        ${isLastTab ? '✅ 確認完成' : '確認並繼續 →'}
       </button>
     </div>` : '';
 
@@ -2382,6 +2451,29 @@ function switchModalTab(idx, saveState) {
       document.getElementById('empModalBody').innerHTML = renderSalaryForm(emp, rec, 0, isReadonly());
       switchModalTab(idx, false);
     }
+  }
+}
+
+async function confirmModalTab(empName, tabIdx) {
+  if(!tabConfirmed[empName]) tabConfirmed[empName] = { 0:false, 1:false, 2:false };
+  tabConfirmed[empName][tabIdx] = true;
+  // 存檔
+  triggerAutoSave();
+  // 若是最後一頁，關閉 Modal 並更新卡片 badge
+  if(tabIdx === 2) {
+    renderEmpList();
+    closeEmpModal();
+    showToast('✅ 已確認完成');
+    return;
+  }
+  // 否則跳下一頁
+  const nextTab = tabIdx + 1;
+  currentModalTab = nextTab;
+  const emp = empList.find(e => e.name === empName);
+  const rec = getSalaryRecord(empName);
+  if(emp && rec) {
+    document.getElementById('empModalBody').innerHTML = renderSalaryForm(emp, rec, 0, isReadonly());
+    switchModalTab(nextTab, false);
   }
 }
 
@@ -2425,6 +2517,7 @@ function renderLeaveSection(empName, rec, idx, readonly) {
   return `<div class="salary-section" style="background:#fffbf0;border:1px solid #fde68a;border-radius:10px;padding:12px;">
     <div class="salary-section-title" style="color:#92400e;">📋 本月應休 / 補休</div>
 
+    <!-- 應休天數 -->
     <div class="salary-row">
       <span class="salary-row-label">本月應休天數</span>
       <span class="salary-row-val">${shouldRest}天
@@ -2442,6 +2535,7 @@ function renderLeaveSection(empName, rec, idx, readonly) {
       </span>
     </div>
 
+    <!-- 國定假日 -->
     ${holidays.length > 0 ? `
     <div style="margin:8px 0 4px;font-size:11px;font-weight:700;color:#92400e;">🎌 本月國定假日</div>
     <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">${holidayList}</div>
@@ -2452,6 +2546,7 @@ function renderLeaveSection(empName, rec, idx, readonly) {
       </span>
     </div>` : ''}
 
+    <!-- 應給補休合計 -->
     <div class="salary-row" style="border-top:1.5px solid #fde68a;margin-top:6px;padding-top:8px;">
       <span class="salary-row-label" style="font-weight:800;">應給補休合計</span>
       <span class="salary-row-val" style="color:${compColor};font-weight:900;">
@@ -2854,7 +2949,8 @@ async function submitSalary() {
 
 async function publishSalary() {
   if(!confirm(`確定發布 ${getMonthLabel(currentMonth)} 薪資？\n發布後員工可查看。`)) return;
-  
+  // 加盟主：若未修改，直接發布（不檢查 Tab 確認狀態）
+  // 若有修改（快照比對），tabConfirmed 已被重置，繼續正常流程
   collectRecords();
   showLoading('發布中...');
   try {
