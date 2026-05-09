@@ -254,13 +254,26 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 </div>
 
 <div class="modal-overlay" id="otBaseEditModal" onclick="if(event.target===this)closeModal('otBaseEditModal')">
-  <div class="modal-box" style="max-width:400px;">
+  <div class="modal-box" style="max-width:420px;">
     <div class="modal-handle"></div>
     <div class="modal-title">加班費/遲到計算基礎設定</div>
     <div style="margin-top:16px;">
-      <div class="salary-row"><span class="salary-row-label">底薪 (不可改)</span><span class="salary-row-val" id="ot_baseSalary"></span></div>
-      <div class="salary-row"><span class="salary-row-label">全勤獎金基準</span><input id="ot_fullAttend" type="number" class="salary-input"></div>
-      <div class="salary-row"><span class="salary-row-label">其他計入基準</span><input id="ot_otherBase" type="number" class="salary-input"></div>
+      <!-- 快速勾選：依勞基法 -->
+      <div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:12px;margin-bottom:14px;">
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
+          <input type="checkbox" id="ot_useStatutory" style="width:18px;height:18px;margin-top:1px;accent-color:#1a73e8;flex-shrink:0;" onchange="applyStatutoryBase()">
+          <div>
+            <div style="font-size:13px;font-weight:800;color:#1e3a8a;">依勞基法規定之經常性薪資計算</div>
+            <div style="font-size:11px;color:#64748b;margin-top:3px;line-height:1.6;">
+              包含：底薪、職務津貼、勞務津貼等經常性給付<br>
+              <span style="color:#d97706;font-weight:700;">※ 店長管理責任津貼不計入</span>
+            </div>
+          </div>
+        </label>
+      </div>
+      <div class="salary-row"><span class="salary-row-label">底薪（不可改）</span><span class="salary-row-val" id="ot_baseSalary"></span></div>
+      <div class="salary-row"><span class="salary-row-label">全勤獎金基準</span><input id="ot_fullAttend" type="number" class="salary-input" oninput="syncOtPreview()"></div>
+      <div class="salary-row"><span class="salary-row-label">其他計入基準</span><input id="ot_otherBase" type="number" class="salary-input" oninput="syncOtPreview()"></div>
       <div style="background:#f8fafc;padding:12px;border-radius:8px;margin-top:12px;font-size:13px;line-height:1.6;">
         <b>公式：</b> (底薪 + 全勤基準 + 其他基準) ÷ 30天 ÷ 8小時<br>
         <b>試算結果：</b> <span id="ot_previewRate" style="color:var(--primary);font-weight:800;">$0/hr</span>
@@ -1097,12 +1110,12 @@ function renderPayslip() {
 
 function buildPayslipRows(rec, emp, rate, isPartTime) {
   const rows = [];
-
-  // ===== 加班費統一計算（與 calcGross 一致）=====
-  const hasCustomOt = parseFloat(rec.customOtRate||0) > 0;
-  const otRate = hasCustomOt ? parseFloat(rec.customOtRate) : Math.ceil(rate);
-  const otMult = hasCustomOt ? (rec.customOtX134 !== false ? 1.34 : 1) : 1.34;
-  const wdOtAmt = isPartTime ? 0 : Math.ceil(otRate * otMult * parseFloat(rec.otHours||0));
+  const isMgr = emp.role === ROLE_MANAGER;
+  // 加班費正確計算
+  const hasCustomOt2 = rec.customOtEnabled === true;
+  const otRate2 = hasCustomOt2 ? parseFloat(rec.customOtRate||0) : Math.ceil(rate);
+  const otMult2 = hasCustomOt2 ? (rec.customOtX134 !== false ? 1.34 : 1) : 1.34;
+  const wdOtAmt2 = (isPartTime || isMgr) ? 0 : Math.ceil(otRate2 * otMult2 * parseFloat(rec.otHours||0));
 
   if(isPartTime) {
     const { totalH } = calcEmpHours(emp.name);
@@ -1111,7 +1124,7 @@ function buildPayslipRows(rec, emp, rate, isPartTime) {
     rows.push([`工時 ${totalH}h`, `$${Math.round(wage*totalH).toLocaleString()}`, `健保費${rec.hasDependent?'（有眷）':''}`, `$${((rec.healthInsurance||0)+(rec.dependentInsurance||0)).toLocaleString()}`]);
     rows.push([
       parseFloat(rec.holidayHours||0)>0 ? `國假加給 ${rec.holidayHours}h×1` : '',
-      parseFloat(rec.holidayHours||0)>0 ? `$${Math.round(wage*(rec.holidayHours||0)*1).toLocaleString()}` : '',
+      parseFloat(rec.holidayHours||0)>0 ? `$${Math.round(wage*(rec.holidayHours||0)).toLocaleString()}` : '',
       '勞退自提', `$${rec.laborPension||0}`
     ]);
     if(parseFloat(rec.extraHours||0)>0)
@@ -1123,25 +1136,18 @@ function buildPayslipRows(rec, emp, rate, isPartTime) {
     if(parseFloat(rec.personalSickLeave||0)>0)
       rows.push(['事病假扣款', `-$${Math.abs(parseFloat(rec.personalSickLeave)).toLocaleString()}`, '', '']);
     if(parseFloat(rec.otherDeduction||0)>0)
-      rows.push(['其他扣款', '', rec.otherDeductionNote||'其他扣款', `-$${parseFloat(rec.otherDeduction).toLocaleString()}`]);
+      rows.push(['', '', rec.otherDeductionNote||'其他扣款', `-$${parseFloat(rec.otherDeduction).toLocaleString()}`]);
   } else {
     rows.push(['底薪', `$${(rec.baseSalary||0).toLocaleString()}`, '勞保費', `$${rec.laborInsurance||0}`]);
     rows.push(['全勤獎金', `$${(rec.fullAttendBonus||0).toLocaleString()}`, `健保費${rec.hasDependent?'（有眷）':''}`, `$${((rec.healthInsurance||0)+(rec.dependentInsurance||0)).toLocaleString()}`]);
-
     if(emp.role === ROLE_FULL) {
       rows.push(['職務津貼', `$${(rec.roleBonus||0).toLocaleString()}`, '勞退自提', `$${rec.laborPension||0}`]);
     } else {
-      // 店長：管理責任獎金明細
-      const mgmtItems = [
-        ['mgmtOps','營運獎勵'],['mgmtQuality','品保獎勵'],['mgmtKPI','營運指標'],
-        ['mgmtAccount','帳務獎勵'],['mgmtLeader','卓越領導']
-      ];
+      const mgmtItems = [['mgmtOps','營運獎勵'],['mgmtQuality','品保獎勵'],['mgmtKPI','營運指標'],['mgmtAccount','帳務獎勵'],['mgmtLeader','卓越領導']];
       let firstMgmt = true;
-      mgmtItems.forEach(([k, label]) => {
-        if(parseFloat(rec[k]||0) > 0) {
-          rows.push([label, `$${parseFloat(rec[k]).toLocaleString()}`,
-            firstMgmt ? '勞退自提' : '',
-            firstMgmt ? `$${rec.laborPension||0}` : '']);
+      mgmtItems.forEach(([k,label]) => {
+        if(parseFloat(rec[k]||0)>0) {
+          rows.push([label, `$${parseFloat(rec[k]).toLocaleString()}`, firstMgmt?'勞退自提':'', firstMgmt?`$${rec.laborPension||0}`:'']);
           firstMgmt = false;
         }
       });
@@ -1149,7 +1155,6 @@ function buildPayslipRows(rec, emp, rate, isPartTime) {
       if(parseFloat(rec.performance||0)>0)
         rows.push(['績效獎金', `$${parseFloat(rec.performance).toLocaleString()}`, '', '']);
     }
-
     if(parseFloat(rec.laborAllowance||0)>0)
       rows.push(['勞務津貼', `$${parseFloat(rec.laborAllowance).toLocaleString()}`, '', '']);
     if(parseFloat(rec.nightAllowance||0)>0)
@@ -1160,30 +1165,26 @@ function buildPayslipRows(rec, emp, rate, isPartTime) {
       rows.push(['特休折現', `$${parseFloat(rec.annualLeaveEncash).toLocaleString()}`, '', '']);
     if(parseFloat(rec.compLeaveEncash||0)>0)
       rows.push(['補休折現', `$${parseFloat(rec.compLeaveEncash).toLocaleString()}`, '', '']);
-
-    // 加班費（自訂時薪或系統計算）
-    if(parseFloat(rec.otHours||0)>0) {
-      const otLabel = hasCustomOt
-        ? `平日加班 $${otRate}${otMult>1?'×1.34':''}×${rec.otHours}h`
-        : `平日加班 ${rec.otHours}h`;
-      rows.push([otLabel, `+$${wdOtAmt.toLocaleString()}`, '', '']);
+    // 店長不顯示加班
+    if(!isMgr) {
+      if(parseFloat(rec.otHours||0)>0) {
+        const otLabel2 = hasCustomOt2
+          ? `平日加班 $${otRate2}${otMult2>1?'×1.34':''}×${rec.otHours}h`
+          : `平日加班 ${rec.otHours}h`;
+        rows.push([otLabel2, `+$${wdOtAmt2.toLocaleString()}`, '', '']);
+      }
+      if(parseFloat(rec.restDayOtPay||0)>0)
+        rows.push(['休息日加班費', `+$${parseFloat(rec.restDayOtPay).toLocaleString()}`, '', '']);
+      if(parseFloat(rec.holidayOtPay||0)>0)
+        rows.push(['國假加班費', `+$${parseFloat(rec.holidayOtPay).toLocaleString()}`, '', '']);
     }
-    if(parseFloat(rec.restDayOtPay||0)>0)
-      rows.push(['休息日加班費', `+$${parseFloat(rec.restDayOtPay).toLocaleString()}`, '', '']);
-    if(parseFloat(rec.holidayOtPay||0)>0)
-      rows.push(['國假加班費', `+$${parseFloat(rec.holidayOtPay).toLocaleString()}`, '', '']);
-
-    // 遲到
-    if(parseFloat(rec.lateMinutes||0)>0) {
-      const lateAmt = Math.round(rate/60*parseFloat(rec.lateMinutes));
-      rows.push([`遲到 ${rec.lateMinutes}分`, `-$${lateAmt.toLocaleString()}`, '', '']);
-    }
+    if(parseFloat(rec.lateMinutes||0)>0)
+      rows.push([`遲到 ${rec.lateMinutes}分`, `-$${Math.round(rate/60*parseFloat(rec.lateMinutes)).toLocaleString()}`, '', '']);
     if(parseFloat(rec.personalSickLeave||0)>0)
       rows.push(['事病假扣款', `-$${Math.abs(parseFloat(rec.personalSickLeave)).toLocaleString()}`, '', '']);
     if(parseFloat(rec.otherDeduction||0)>0)
       rows.push(['', '', rec.otherDeductionNote||'其他扣款', `-$${parseFloat(rec.otherDeduction).toLocaleString()}`]);
   }
-
   return rows.map(([a,b,c,d]) => `
     <tr style="border-bottom:1px solid #f1f3f4;">
       <td style="padding:6px 8px;">${a}</td>
@@ -1244,8 +1245,8 @@ function calcGross(rec) {
     const compEncash = parseFloat(rec.compLeaveEncash || 0);
     
     // 平日加班：支援自訂時薪
-    const _hasCustomOt = parseFloat(rec.customOtRate||0) > 0;
-    const _otRate = _hasCustomOt ? parseFloat(rec.customOtRate) : Math.ceil(rph);
+    const _hasCustomOt = rec.customOtEnabled === true;
+    const _otRate = _hasCustomOt ? parseFloat(rec.customOtRate||0) : Math.ceil(rph);
     const _otMult = _hasCustomOt ? (rec.customOtX134 !== false ? 1.34 : 1) : 1.34;
     const wdOtAmt = Math.ceil(_otRate * _otMult * parseFloat(rec.otHours||0));
     const restOtAmt = parseFloat(rec.restDayOtPay || 0);
@@ -1411,15 +1412,15 @@ function updateCustomOtPreview() {
 
 function saveCustomOt() {
   if(!customOtTarget) return;
-  const rate = parseFloat(document.getElementById('customOt_rate').value) || 0;
+  const rate = parseFloat(document.getElementById('customOt_rate').value);
   const x134 = document.getElementById('customOt_x134').checked;
   let rec = getSalaryRecord(customOtTarget);
   const emp = empList.find(e => e.name === customOtTarget);
   if(!rec) { rec = buildDefaultRecord(emp); salaryData.records.push(rec); }
-  rec.customOtRate = rate;
+  rec.customOtEnabled = true;                    // ✅ 啟用旗標（允許 rate=0）
+  rec.customOtRate = isNaN(rate) ? 0 : rate;
   rec.customOtX134 = x134;
   closeModal('customOtModal');
-  // 重繪
   if(emp) {
     document.getElementById('empModalBody').innerHTML = renderSalaryForm(emp, rec, 0, isReadonly());
     switchModalTab(currentModalTab, false);
@@ -1431,7 +1432,7 @@ function saveCustomOt() {
 function clearCustomOt() {
   if(!customOtTarget) return;
   const rec = getSalaryRecord(customOtTarget);
-  if(rec) { rec.customOtRate = 0; rec.customOtX134 = true; }
+  if(rec) { rec.customOtEnabled = false; rec.customOtRate = 0; rec.customOtX134 = true; }
   document.getElementById('customOt_rate').value = '';
   document.getElementById('customOt_x134').checked = true;
   updateCustomOtPreview();
@@ -1617,16 +1618,17 @@ function buildSinglePayslipHtml(emp, y, m) {
   const deduct = calcDeduct(rec);
   const net = calcTotal(rec);
   const rph = isPartTime ? 0 : hourlyRate(rec);
+  const isMgr = role === ROLE_MANAGER;
   const { totalH, otH } = calcEmpHours(emp.name);
   const weekends = isPartTime ? null : getMonthWeekendDays(currentMonth);
   const offDays = isPartTime ? 0 : calcMonthOffDays(emp.name, currentMonth);
   const lateDeductAmt = isPartTime ? 0 : Math.round(rph/60*(rec.lateMinutes||0));
-  // ===== 加班費正確計算（與 calcGross 一致）=====
-  const _hasCustomOt = parseFloat(rec.customOtRate||0) > 0;
-  const _otRate = _hasCustomOt ? parseFloat(rec.customOtRate) : Math.ceil(rph);
+  // 加班費正確計算（customOtEnabled flag）
+  const _hasCustomOt = rec.customOtEnabled === true;
+  const _otRate = _hasCustomOt ? parseFloat(rec.customOtRate||0) : Math.ceil(rph);
   const _otMult = _hasCustomOt ? (rec.customOtX134 !== false ? 1.34 : 1) : 1.34;
-  const otPayAmt = isPartTime ? 0 : Math.ceil(_otRate * _otMult * parseFloat(rec.otHours||0));
-  const otPayLabel = isPartTime ? '' : (_hasCustomOt
+  const otPayAmt = (isPartTime || isMgr) ? 0 : Math.ceil(_otRate * _otMult * parseFloat(rec.otHours||0));
+  const otPayLabel = (isPartTime || isMgr) ? '' : (_hasCustomOt
     ? `$${_otRate}${_otMult>1?'×1.34':''}×${rec.otHours||0}h`
     : `$${Math.ceil(rph)}×1.34×${rec.otHours||0}h`);
   const workedH = detectHolidayWork(emp.name, currentMonth);
@@ -1636,7 +1638,6 @@ function buildSinglePayslipHtml(emp, y, m) {
   // 表格行生成
   const row = (label, val, cls='') =>
     `<tr><td style="padding:3px 6px;border:1px solid #ccc;${cls}">${label}</td><td style="padding:3px 6px;border:1px solid #ccc;text-align:right;${cls}">${val}</td></tr>`;
-  const emptyRow = () => `<tr><td style="padding:3px 6px;border:1px solid #ccc;">&nbsp;</td><td style="padding:3px 6px;border:1px solid #ccc;"></td></tr>`;
 
   // 薪資項目
   let earningRows = '';
@@ -1647,17 +1648,13 @@ function buildSinglePayslipHtml(emp, y, m) {
     earningRows += row('本薪', `$${Math.round((rec.wage||0)*totalH).toLocaleString()}`);
     earningRows += row('全勤獎金', '$0');
     earningRows += row('職務津貼', `$${(rec.roleBonus||0).toLocaleString()}`);
-    if(parseFloat(rec.extraHours||0)>0)
-      earningRows += row(`額外時數 ${rec.extraHours}h`, `$${Math.round((rec.wage||0)*(rec.extraHours||0)).toLocaleString()}`);
+    earningRows += row('績效獎金', '$0');
     earningRows += row('其他獎金/津貼', `$${(rec.otherBonus||0).toLocaleString()}`);
-    earningRows += row(`國假加給 ${rec.holidayHours||0}h×1`, `$${Math.round((rec.wage||0)*(rec.holidayHours||0)*1).toLocaleString()}`);
-    if(parseFloat(rec.personalSickLeave||0)>0)
-      earningRows += row('事病假扣款', `-$${Math.abs(parseFloat(rec.personalSickLeave)).toLocaleString()}`, 'color:#d93025;');
+    earningRows += row('國定假日加班', `$${Math.round((rec.wage||0)*(rec.holidayHours||0)*2).toLocaleString()}`);
     deductItemRows += row('勞保費', `$${(rec.laborInsurance||0).toLocaleString()}`);
     deductItemRows += row('健保費', `$${((rec.healthInsurance||0)+(rec.dependentInsurance||0)).toLocaleString()}`);
     deductItemRows += row('勞退個人自提', `$${(rec.laborPension||0).toLocaleString()}`);
-    if(parseFloat(rec.otherDeduction||0)>0)
-      deductItemRows += row(rec.otherDeductionNote||'其他扣款', `$${parseFloat(rec.otherDeduction).toLocaleString()}`);
+    deductItemRows += row('其他扣款', '$0');
     attendRows += row('平日加班時數', `${otH}h`);
     attendRows += row('國定假日時數', `${rec.holidayHours||0}h`);
     attendRows += row('遲到分鐘數', `${rec.lateMinutes||0}分`);
@@ -1667,41 +1664,23 @@ function buildSinglePayslipHtml(emp, y, m) {
     earningRows += row('全勤獎金', `$${(rec.fullAttendBonus||0).toLocaleString()}`);
     if(role === ROLE_FULL) {
       earningRows += row('職務津貼', `$${(rec.roleBonus||0).toLocaleString()}`);
+      earningRows += row('績效獎金', '$0');
     } else {
       const mgmtTotal = ['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+parseFloat(rec[k]||0),0);
       earningRows += row('管理責任獎金', `$${mgmtTotal.toLocaleString()}`);
-      if(parseFloat(rec.performance||0)>0)
-        earningRows += row('績效獎金', `$${parseFloat(rec.performance).toLocaleString()}`);
+      earningRows += row('績效獎金', `$${(rec.performance||0).toLocaleString()}`);
     }
-    if(parseFloat(rec.laborAllowance||0)>0)
-      earningRows += row('勞務津貼', `$${parseFloat(rec.laborAllowance).toLocaleString()}`);
-    if(parseFloat(rec.nightAllowance||0)>0)
-      earningRows += row('夜點費', `$${parseFloat(rec.nightAllowance).toLocaleString()}`);
-    if(parseFloat(rec.otherBonus||0)>0)
-      earningRows += row('其他獎金/津貼', `$${parseFloat(rec.otherBonus).toLocaleString()}`);
-    if(parseFloat(rec.annualLeaveEncash||0)>0)
-      earningRows += row('特休折現', `$${parseFloat(rec.annualLeaveEncash).toLocaleString()}`);
-    if(parseFloat(rec.compLeaveEncash||0)>0)
-      earningRows += row('補休折現', `$${parseFloat(rec.compLeaveEncash).toLocaleString()}`);
-    if(parseFloat(rec.otHours||0)>0)
-      earningRows += row(`平日加班（${otPayLabel}）`, `+$${otPayAmt.toLocaleString()}`);
-    if(parseFloat(rec.restDayOtPay||0)>0)
-      earningRows += row('休息日加班費', `+$${parseFloat(rec.restDayOtPay).toLocaleString()}`);
-    if(parseFloat(rec.holidayOtPay||0)>0)
-      earningRows += row('國假加班費', `+$${parseFloat(rec.holidayOtPay).toLocaleString()}`);
-    if(lateDeductAmt>0)
-      earningRows += row(`遲到 ${rec.lateMinutes}分`, `-$${lateDeductAmt.toLocaleString()}`, 'color:#d93025;');
-    if(parseFloat(rec.personalSickLeave||0)>0)
-      earningRows += row('事病假扣款', `-$${Math.abs(parseFloat(rec.personalSickLeave)).toLocaleString()}`, 'color:#d93025;');
+    earningRows += row('其他獎金/津貼', `$${(rec.otherBonus||0).toLocaleString()}`);
+    earningRows += row('平日加班', `+$${otPayAmt.toLocaleString()}`);
+    earningRows += row('遲到扣款', `-$${lateDeductAmt.toLocaleString()}`, 'color:#d93025;');
     deductItemRows += row('勞保費', `$${(rec.laborInsurance||0).toLocaleString()}`);
     deductItemRows += row('健保費', `$${((rec.healthInsurance||0)+(rec.dependentInsurance||0)).toLocaleString()}`);
     deductItemRows += row('勞退個人自提', `$${(rec.laborPension||0).toLocaleString()}`);
-    if(parseFloat(rec.otherDeduction||0)>0)
-      deductItemRows += row(rec.otherDeductionNote||'其他扣款', `$${parseFloat(rec.otherDeduction).toLocaleString()}`);
+    deductItemRows += row('其他扣款', '$0');
     attendRows += row('平日加班時數', `${otH}h`);
     attendRows += row('國定假日時數', `${workedH.length}天`);
     attendRows += row('遲到分鐘數', `${rec.lateMinutes||0}分`);
-    attendRows += row('加班費計算基礎', _hasCustomOt?`自訂 $${_otRate}${_otMult<1.34?'':'×1.34'}`:`$${Math.round(rph)}`);
+    attendRows += row('加班費計算基礎', `$${Math.round(rph)}`);
   }
 
   // 補休資訊
@@ -1765,10 +1744,10 @@ function buildSinglePayslipHtml(emp, y, m) {
         <td colspan="6" style="padding:3px 6px;border:1px solid #ccc;">&nbsp;</td>
       </tr>
       <tr>
-        <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">平日加班</td>
-        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">+$${otPayAmt.toLocaleString()}</td>
+        <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">${isMgr?'平日加班':'平日加班'}${otPayLabel?`<br><span style="font-size:9px;color:#64748b;">${otPayLabel}</span>`:''}</td>
+        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${isMgr?'--':`+$${otPayAmt.toLocaleString()}`}</td>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;background:#d9e1f2;font-weight:800;">平日加班時數</td>
-        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${otH}h</td>
+        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${isMgr?'--':`${otH}h`}</td>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;background:#d9e1f2;font-weight:800;">國定假日時數</td>
         <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${isPartTime?rec.holidayHours||0:workedH.length}天</td>
       </tr>
@@ -1778,7 +1757,7 @@ function buildSinglePayslipHtml(emp, y, m) {
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;background:#d9e1f2;font-weight:800;">遲到分鐘數</td>
         <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${rec.lateMinutes||0}分</td>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;background:#d9e1f2;font-weight:800;">加班費計算基礎</td>
-        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">$${Math.round(rph)}</td>
+        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${isMgr?'--':(_hasCustomOt?`自訂 $${_otRate}${_otMult<1.34?'':'×1.34'}`:`$${Math.round(rph)}`)}</td>
       </tr>
       <tr>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">遲到扣款</td>
@@ -2249,7 +2228,8 @@ function renderSalaryForm(emp, rec, idx, readonly) {
   // === 第一欄：薪資考勤項目 ===
   let col1 = `<div class="col-card"><div class="col-header c1"><span>2. 薪資考勤項目</span><span style="font-size:11px;">(加減項)</span></div>`;
   if(isPart) {
-    col1 += `<div class="salary-row"><span class="salary-row-label">本薪 <span style="font-size:10px;color:var(--text-muted);">${totalH}h × $${rec.wage||0}</span></span>
+    col1 += inp('wage', rec.wage, '時薪（元/hr）');
+    col1 += `<div class="salary-row"><span class="salary-row-label">本薪小計 <span style="font-size:10px;color:var(--text-muted);">${totalH}h × $${rec.wage||0}</span></span>
              <span class="salary-row-val">$${Math.round(totalH*(rec.wage||0)).toLocaleString()}</span></div>`;
     col1 += inp('roleBonus', rec.roleBonus, '職務津貼');
     col1 += `<div class="salary-row">
@@ -2263,7 +2243,7 @@ function renderSalaryForm(emp, rec, idx, readonly) {
            </div>`
       }</div>`;
   } else {
-    col1 += `<div class="salary-row"><span class="salary-row-label">本薪 <span style="font-size:10px;color:var(--text-muted);">系統帶入</span></span><span class="salary-row-val">$${(rec.baseSalary||0).toLocaleString()}</span></div>`;
+    col1 += inp('baseSalary', rec.baseSalary, '底薪');
     col1 += inp('fullAttendBonus', rec.fullAttendBonus, '全勤獎金');
     if(isMgr) {
       const mgmtTotal = ['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+parseFloat(rec[k]||0),0);
@@ -2284,9 +2264,9 @@ function renderSalaryForm(emp, rec, idx, readonly) {
   col1 += `<div class="salary-row"><span class="salary-row-label">補休結算金額 <span style="font-size:9px;color:var(--warn);font-weight:700;">請先至特補休系統結算才會匯入</span></span>
            <span class="salary-row-val">$${(rec.compLeaveEncash||0).toLocaleString()}</span></div>`;
   
-  // 平日加班：支援自訂時薪
-  const hasCustomOt = !isPart && parseFloat(rec.customOtRate||0) > 0;
-  const otBaseRate = hasCustomOt ? parseFloat(rec.customOtRate) : (isPart ? 0 : Math.ceil(rph));
+  // 平日加班：支援自訂時薪（用 customOtEnabled 旗標，允許設為 0）
+  const hasCustomOt = !isPart && rec.customOtEnabled === true;
+  const otBaseRate = hasCustomOt ? parseFloat(rec.customOtRate||0) : (isPart ? 0 : Math.ceil(rph));
   const otMultiplier = hasCustomOt ? (rec.customOtX134 !== false ? 1.34 : 1) : 1.34;
   const wdOtAmt = isPart ? 0 : Math.ceil(otBaseRate * otMultiplier * (rec.otHours||0));
   const otDetail = !isPart && (rec.otHours||0) > 0
@@ -2388,9 +2368,11 @@ function renderSalaryForm(emp, rec, idx, readonly) {
   col3 += `<div class="salary-row"><span class="salary-row-label">前年度遞延特休剩餘</span><span class="salary-row-val">${carried} 天</span></div>`;
   
   col3 += `<div style="border-top:1px solid #e2e8f0;margin:8px 0;"></div>`;
-  col3 += `<div class="salary-row"><span class="salary-row-label">平日加班時數</span><span class="salary-row-val">${rec.otHours||0} h</span></div>`;
-  col3 += inp('restDayOtHours', rec.restDayOtHours, '休息日加班時數', '0', 'salary-input');
-  col3 += `<div class="salary-row"><span class="salary-row-label">國定假日時數</span><span class="salary-row-val">${rec.holidayHours||0} h</span></div>`;
+  if(!isMgr) {
+    col3 += `<div class="salary-row"><span class="salary-row-label">平日加班時數</span><span class="salary-row-val">${rec.otHours||0} h</span></div>`;
+    col3 += inp('restDayOtHours', rec.restDayOtHours, '休息日加班時數', '0', 'salary-input');
+    col3 += `<div class="salary-row"><span class="salary-row-label">國定假日時數</span><span class="salary-row-val">${rec.holidayHours||0} h</span></div>`;
+  }
   col3 += inp('lateMinutes', rec.lateMinutes, '遲到分鐘數', '0', 'salary-input');
   
   if(!isPart) {
@@ -2789,29 +2771,52 @@ function saveMgmtBonus() {
 function openOtBaseModal(empName) {
   currentEmpModal = empName;
   const rec = getSalaryRecord(empName);
+  const emp = empList.find(e => e.name === empName) || {};
   document.getElementById('ot_baseSalary').textContent = `$${(rec.baseSalary||0).toLocaleString()}`;
   document.getElementById('ot_fullAttend').value = rec.fullAttendBase || 0;
-  document.getElementById('ot_otherBase').value = rec.otherBase || 0;
-  
-  const calcPreview = () => {
-    const f = parseFloat(document.getElementById('ot_fullAttend').value||0);
-    const o = parseFloat(document.getElementById('ot_otherBase').value||0);
-    const rate = (parseFloat(rec.baseSalary||0) + f + o) / 30 / 8;
-    document.getElementById('ot_previewRate').textContent = `$${rate.toFixed(1)}/hr`;
-  };
-  document.getElementById('ot_fullAttend').oninput = calcPreview;
-  document.getElementById('ot_otherBase').oninput = calcPreview;
-  calcPreview();
+  document.getElementById('ot_otherBase').value  = rec.otherBase    || 0;
+
+  // 判斷是否目前已是勞基法模式（全勤基準 = 全勤獎金，其他基準 = 職務+勞務）
+  const statutoryFullAttend = rec.fullAttendBonus || 0;
+  const statutoryOther = (rec.roleBonus||0) + (rec.laborAllowance||0);
+  const isStatutory =
+    parseFloat(rec.fullAttendBase||0) === parseFloat(statutoryFullAttend) &&
+    parseFloat(rec.otherBase||0)       === parseFloat(statutoryOther);
+  document.getElementById('ot_useStatutory').checked = isStatutory;
+
+  syncOtPreview();
   openModal('otBaseEditModal');
+}
+
+// 勞基法快速填入
+function applyStatutoryBase() {
+  const checked = document.getElementById('ot_useStatutory').checked;
+  if(!checked) return;
+  const rec = getSalaryRecord(currentEmpModal) || {};
+  // 全勤獎金基準 = 全勤獎金
+  document.getElementById('ot_fullAttend').value = rec.fullAttendBonus || 0;
+  // 其他基準 = 職務津貼 + 勞務津貼（不含管理責任）
+  const other = (rec.roleBonus||0) + (rec.laborAllowance||0);
+  document.getElementById('ot_otherBase').value = other;
+  syncOtPreview();
+}
+
+function syncOtPreview() {
+  const rec  = getSalaryRecord(currentEmpModal) || {};
+  const base = parseFloat(rec.baseSalary||0);
+  const f    = parseFloat(document.getElementById('ot_fullAttend').value||0);
+  const o    = parseFloat(document.getElementById('ot_otherBase').value||0);
+  const rate = (base + f + o) / 30 / 8;
+  document.getElementById('ot_previewRate').textContent = `$${rate.toFixed(1)}/hr`;
 }
 
 function saveOtBase() {
   if(!currentEmpModal) return;
   let rec = getSalaryRecord(currentEmpModal);
   rec.fullAttendBase = parseFloat(document.getElementById('ot_fullAttend').value) || 0;
-  rec.otherBase = parseFloat(document.getElementById('ot_otherBase').value) || 0;
+  rec.otherBase      = parseFloat(document.getElementById('ot_otherBase').value)  || 0;
   closeModal('otBaseEditModal');
-  updateFieldModal(currentEmpModal, 'dummy', 0); // 觸發重新渲染
+  updateFieldModal(currentEmpModal, 'dummy', 0);
 }
 // ===== 自動儲存 =====
 let autoSaveTimer = null;
