@@ -258,7 +258,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
     <div class="modal-handle"></div>
     <div class="modal-title">加班費/遲到計算基礎設定</div>
     <div style="margin-top:16px;">
-      <div class="salary-row"><span class="salary-row-label">底薪 (不可改)</span><span class="salary-row-val" id="ot_baseSalary"></span></div>
+      <div class="salary-row"><span class="salary-row-label">底薪（薪資頁可調整）</span><span class="salary-row-val" id="ot_baseSalary"></span></div>
       <div class="salary-row"><span class="salary-row-label">全勤獎金基準</span><input id="ot_fullAttend" type="number" class="salary-input"></div>
       <div class="salary-row"><span class="salary-row-label">其他計入基準</span><input id="ot_otherBase" type="number" class="salary-input"></div>
       <div style="background:#f8fafc;padding:12px;border-radius:8px;margin-top:12px;font-size:13px;line-height:1.6;">
@@ -1821,12 +1821,23 @@ async function loadSalaryData() {
     // 員工名單
     empList = [];
     const todaySal = new Date().toISOString().split('T')[0];
+    const [curY, curM] = currentMonth.split('-').map(Number);
     empSnap.forEach(d => {
       const data = d.data();
       const status = data.status;
       const effectDate = data.retireDate || data.transferDate;
       const isEffective = ['離職','調走'].includes(status) && (!effectDate || todaySal >= effectDate);
-      if(!isEffective) empList.push({ name: d.id, ...data });
+      if(isEffective) return; // 已離職/調走，跳過
+
+      // ✅ 到職日篩選：若 startDate 存在且尚未到達當月，則不顯示
+      // 例：currentMonth = 2026-05，startDate = 2026-06-01 → 跳過
+      //     currentMonth = 2026-05，startDate = 2026-05-20 → 顯示（當月任何時間到職都算）
+      if(data.startDate) {
+        const [sy, sm] = data.startDate.split('-').map(Number);
+        if(sy > curY || (sy === curY && sm > curM)) return; // 下個月（含）之後才到職 → 不顯示
+      }
+
+      empList.push({ name: d.id, ...data });
     });
     empList.sort((a,b) => (a.sortKey||0)-(b.sortKey||0));
 
@@ -2169,7 +2180,8 @@ function renderSalaryForm(emp, rec, idx, readonly) {
   // === 第一欄：薪資考勤項目 ===
   let col1 = `<div class="col-card"><div class="col-header c1"><span>2. 薪資考勤項目</span><span style="font-size:11px;">(加減項)</span></div>`;
   if(isPart) {
-    col1 += `<div class="salary-row"><span class="salary-row-label">本薪 <span style="font-size:10px;color:var(--text-muted);">${totalH}h × $${rec.wage||0}</span></span>
+    col1 += inp('wage', rec.wage, '時薪（元/hr）');
+    col1 += `<div class="salary-row"><span class="salary-row-label">本薪小計 <span style="font-size:10px;color:var(--text-muted);">${totalH}h × $${rec.wage||0}</span></span>
              <span class="salary-row-val">$${Math.round(totalH*(rec.wage||0)).toLocaleString()}</span></div>`;
     col1 += inp('roleBonus', rec.roleBonus, '職務津貼');
     col1 += `<div class="salary-row">
@@ -2183,7 +2195,7 @@ function renderSalaryForm(emp, rec, idx, readonly) {
            </div>`
       }</div>`;
   } else {
-    col1 += `<div class="salary-row"><span class="salary-row-label">本薪 <span style="font-size:10px;color:var(--text-muted);">系統帶入</span></span><span class="salary-row-val">$${(rec.baseSalary||0).toLocaleString()}</span></div>`;
+    col1 += inp('baseSalary', rec.baseSalary, '底薪');
     col1 += inp('fullAttendBonus', rec.fullAttendBonus, '全勤獎金');
     if(isMgr) {
       const mgmtTotal = ['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+parseFloat(rec[k]||0),0);
