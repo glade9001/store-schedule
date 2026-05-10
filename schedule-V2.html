@@ -1708,30 +1708,31 @@ async function loadEmpView() {
       empSnap.forEach(d => { if(!['離職','調走'].includes(d.data().status)) emps.push({ name: d.id, ...d.data() }); });
       emps.sort((a,b) => (a.sortKey||0) - (b.sortKey||0));
 
-      // ✅ 收集其他門市的支援記錄（supportEmp 指向本店 且 approved）
-      const supportRecords = []; // 格式與本店 records 一致
-      const supportEmpsAdded = new Set(); // 避免重複加入員工列
+      // ✅ 從本店 weeks 記錄裡找支援人員
+      // 支援記錄存在「被支援門市」的 weeks，格式：
+      //   name: 虛擬行名稱（🆘開頭）或空
+      //   supportEmp: "來源門市-支援者姓名"  例如 "美德-鎧丞"
+      //   approvalStatus: "approved"
+      const supportRecords = [];
+      const supportEmpsAdded = new Set();
 
-      otherSnaps.forEach(({ store: fromStore, snap }) => {
-        if(!snap || !snap.exists) {
-          console.log('[支援偵測]', fromStore, '：無資料或讀取失敗');
-          return;
+      records.forEach(r => {
+        if(r.supportEmp && r.approvalStatus === 'approved') {
+          // supportEmp 格式："來源門市-支援者姓名"
+          // 找出支援者姓名（supportEmp 去掉 "來源門市-" 前綴）
+          const dashIdx = r.supportEmp.indexOf('-');
+          if(dashIdx < 0) return;
+          const fromStore = r.supportEmp.substring(0, dashIdx);
+          const empName   = r.supportEmp.substring(dashIdx + 1);
+          if(!empName) return;
+          console.log('[支援偵測] 本店找到支援記錄:', empName, '從', fromStore, '日：', r.day);
+          supportRecords.push({ ...r, name: empName, _fromStore: fromStore });
+          supportEmpsAdded.add(`${fromStore}||${empName}`);
         }
-        const allRecs = snap.data().records || [];
-        console.log('[支援偵測]', fromStore, '：共', allRecs.length, '筆記錄');
-        const candidates = allRecs.filter(r => r.supportEmp && r.supportEmp.startsWith(store + '-'));
-        console.log('[支援偵測]', fromStore, '：支援本店候選:', candidates.map(r => r.supportEmp + '/' + r.approvalStatus));
-        allRecs.forEach(r => {
-          // 找出「要來本店支援」且已核准的記錄
-          // r.supportEmp 格式："本店-支援者姓名"，例如 "美德-鎧丞"
-          if(r.supportEmp && r.supportEmp.startsWith(store + '-') && r.approvalStatus === 'approved') {
-            const empName = r.supportEmp.substring(store.length + 1); // 取出支援者姓名
-            console.log('[支援偵測] 找到支援記錄:', empName, '從', fromStore, '支援', store, '日：', r.day);
-            supportRecords.push({ ...r, name: empName, _fromStore: fromStore });
-            supportEmpsAdded.add(`${fromStore}||${empName}`);
-          }
-        });
       });
+
+      // 移除從其他門市讀取的邏輯（支援記錄已在本店 weeks）
+      console.log('[支援偵測] 本店支援記錄共', supportRecords.length, '筆');
 
       // ✅ 合併 records：本店記錄 + 支援者在本店的班別記錄
       const mergedRecords = [...records];
