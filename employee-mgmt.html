@@ -493,7 +493,7 @@ async function loadEmpAdminList(store) {
         <div class="emp-info">
           <div class="emp-name">${dName} <span style="font-size:11px;background:#f1f3f4;padding:2px 6px;border-radius:4px;font-weight:600;">${emp.role||''}</span></div>
           <div class="emp-role">${emp.startDate ? `到職：${emp.startDate}` : '尚未設定到職日'}</div>
-          <div class="emp-account">${acc ? `🔐 ${acc.username} · ${PERM_LABELS[acc.permission]||'👤 員工'}` : '⚠️ 尚未設定帳號'}</div>
+          <div class="emp-account">${acc ? `🔐 ${acc.ID || acc.username || '--'} · ${PERM_LABELS[acc.permission]||'👤 員工'}` : '⚠️ 尚未設定帳號'}</div>
         </div>
         <div class="emp-actions">
           ${canOwner()
@@ -527,7 +527,7 @@ async function openAccountModal(empName, store) {
     let existingDoc = null;
     accSnap.forEach(d => existingDoc = { id:d.id, ...d.data() });
 
-    document.getElementById('accountUsername').value = existingDoc?.username || '';
+    document.getElementById('accountUsername').value = existingDoc?.ID || existingDoc?.username || '';
     document.getElementById('accountDisplayName').value = existingDoc?.displayName || empName;
     document.getElementById('accountPassword').value = '';
     document.getElementById('accountPasswordConfirm').value = '';
@@ -597,15 +597,16 @@ async function saveAccountSetting() {
     if(!existing.empty) {
       docRef = existing.docs[0].ref;
     } else {
-      // 確認帳號未被使用
-      const dup = await window.db.collection('account').where('username','==',username).get();
+      // 確認帳號未被使用（原系統用 ID 欄位）
+      const dup = await window.db.collection('account').where('ID','==',username).get();
       if(!dup.empty && dup.docs[0].data().empName !== empName) {
         hideLoading(); showToast('⚠️ 此帳號已被其他員工使用'); return;
       }
       docRef = window.db.collection('account').doc();
     }
 
-    const data = { username, displayName: dispName || empName, empName, store, role, permission: perm, linked: isLinked };
+    // ✅ 使用 ID 欄位儲存帳號（與原系統 home.html 一致）
+    const data = { ID: username, displayName: dispName || empName, empName, store, role, permission: perm, linked: isLinked };
     if(pwd) data.password = pwd;
 
     // ✅ 調薪歷史：若角色或薪資有變動，記錄一筆歷史
@@ -660,7 +661,7 @@ async function doChangePwd() {
 
   showLoading('修改密碼中...');
   try {
-    const snap = await window.db.collection('account').where('username','==',currentUser.username).limit(1).get();
+    const snap = await window.db.collection('account').where('ID','==',currentUser.username).limit(1).get();
     if(snap.empty) { hideLoading(); showToast('❌ 找不到帳號資料'); return; }
     const doc = snap.docs[0];
     if(doc.data().password !== oldP) { hideLoading(); showToast('❌ 舊密碼錯誤'); return; }
@@ -710,7 +711,7 @@ async function saveNewEmployee() {
 
   showLoading('新增員工中...');
   try {
-    const dup = await window.db.collection('account').where('username','==',username).get();
+    const dup = await window.db.collection('account').where('ID','==',username).get();
     if(!dup.empty) { hideLoading(); showToast('⚠️ 此帳號已被使用'); return; }
 
     const empCount = await window.db.collection('stores').doc(store).collection('employees').get();
@@ -720,7 +721,7 @@ async function saveNewEmployee() {
       role, wage, sortKey, status: '在職'
     });
     await window.db.collection('account').add({
-      username, password,
+      ID: username, password,
       displayName: dispName || sysName,
       empName: sysName,
       store, role, permission: perm, linked: true
