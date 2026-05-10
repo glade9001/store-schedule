@@ -1667,16 +1667,22 @@ async function loadEmpView() {
   const reqCard = document.getElementById('reqOffCard');
 
   try {
-    // 平行讀取：班表 + 員工名單 + 其他門市本週記錄（跨店支援用）
-    const otherStores = (appConfig.stores || []).filter(s => s !== store);
-    const [weekSnap, empSnap, ...otherSnaps] = await Promise.all([
+    // 本店班表 + 員工名單
+    const [weekSnap, empSnap] = await Promise.all([
       window.db.collection('stores').doc(store).collection('weeks').doc(empWeekStr).get(),
       window.db.collection('stores').doc(store).collection('employees').get(),
-      ...otherStores.map(s =>
-        window.db.collection('stores').doc(s).collection('weeks').doc(empWeekStr).get()
-          .catch(() => null)
-      )
     ]);
+
+    // ✅ 其他門市本週記錄（跨店支援用）
+    const otherStores = (appConfig.stores || []).filter(s => s !== store);
+    const otherSnaps = await Promise.all(
+      otherStores.map(s =>
+        window.db.collection('stores').doc(s).collection('weeks').doc(empWeekStr).get()
+          .then(snap => ({ store: s, snap }))
+          .catch(() => ({ store: s, snap: null }))
+      )
+    );
+    console.log('[支援偵測] 其他門市:', otherStores, '，本店:', store, '，週次:', empWeekStr);
 
     const data = weekSnap.exists ? weekSnap.data() : {};
     const records = data.records || [];
@@ -1706,15 +1712,14 @@ async function loadEmpView() {
       const supportRecords = []; // 格式與本店 records 一致
       const supportEmpsAdded = new Set(); // 避免重複加入員工列
 
-      otherSnaps.forEach((snap, idx) => {
+      otherSnaps.forEach(({ store: fromStore, snap }) => {
         if(!snap || !snap.exists) return;
-        const fromStore = otherStores[idx];
         (snap.data().records || []).forEach(r => {
           // 找出「要來本店支援」且已核准的記錄
           if(r.supportEmp === `${store}-${r.name}` && r.approvalStatus === 'approved') {
-            // 把這筆記錄轉換成本店視角：name 就是支援者本人
+            console.log('[支援偵測] 找到支援記錄:', r.name, '從', fromStore, '支援', store);
             supportRecords.push({ ...r, _fromStore: fromStore });
-            supportEmpsAdded.add(`${fromStore}-${r.name}`);
+            supportEmpsAdded.add(`${fromStore}||${r.name}`);
           }
         });
       });
@@ -1722,7 +1727,10 @@ async function loadEmpView() {
       // ✅ 把支援人員加入員工列（如果本店沒有這個人）
       const supportEmpObjs = [];
       supportEmpsAdded.forEach(key => {
-        const [fromStore, empName] = key.split('-');
+        // key 格式："{fromStore}||{empName}"（用 || 避免門市/姓名含有 - 的問題）
+        const sepIdx = key.indexOf('||');
+        const fromStore = key.substring(0, sepIdx);
+        const empName   = key.substring(sepIdx + 2);
         if(!emps.find(e => e.name === empName)) {
           supportEmpObjs.push({
             name: empName,
