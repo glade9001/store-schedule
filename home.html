@@ -1802,6 +1802,9 @@ async function loadStats() {
       tempD.setDate(tempD.getDate() + 1);
     }
 
+    // 今天日期字串（YYYY-MM-DD），用於截止判斷
+    const todayStr = new Date().toISOString().split('T')[0];
+
     let monthHours = 0, monthOff = 0, monthOT = 0;
 
     // 🚀 優化 1：平行拉取所有週次的統計資料
@@ -1835,6 +1838,10 @@ async function loadStats() {
         const recMonthStr = `${recY}-${recM.padStart(2, '0')}`;
 
         if(recMonthStr === targetMonthStr) {
+          // 只統計到今天（含今天），未來日期不計入
+          const recDay = parseInt(wDates[dayIdx].split('/')[1]);
+          const recDateStr = `${recY}-${recM.padStart(2,'0')}-${String(recDay).padStart(2,'0')}`;
+          if(recDateStr > todayStr) return;
           const h = parseFloat(r.actualHours || 0);
           if(r.shift === '排休' || r.shift === '指休') {
             monthOff++;
