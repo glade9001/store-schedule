@@ -549,7 +549,14 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       <div class="header-role" id="headerRole">--</div>
     </div>
     <div class="header-store" id="headerStore">--</div>
+    <!-- 離線狀態圓點 -->
+    <div id="networkDot" title="連線狀態"
+      style="width:10px;height:10px;border-radius:50%;background:#34a853;flex-shrink:0;transition:background .4s;"></div>
     <button class="header-settings-btn" onclick="openSettingsSheet()">⚙️</button>
+  </div>
+  <!-- 離線警示條 -->
+  <div id="offlineBanner" style="display:none;background:#d93025;color:white;text-align:center;font-size:12px;font-weight:700;padding:6px 16px;">
+    📵 目前離線中，操作可能無法儲存，請確認網路連線
   </div>
 
   <div class="page-container">
@@ -633,14 +640,11 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
         <button class="sub-header-back" onclick="switchPage('home')">← 首頁</button>
         <div class="sub-header-title">假期申請</div>
       </div>
-      <div class="card" style="text-align:center; padding:32px 20px;">
-        <div class="wip-icon">📅</div>
-        <div class="wip-title">劃休申請</div>
-        <div class="wip-desc">點擊下方按鈕前往劃休申請系統</div>
-        <button onclick="window.location.href='leave-request.html'"
-          style="margin-top:16px; padding:13px 28px; background:var(--primary); color:white; border:none; border-radius:12px; font-size:15px; font-weight:800; cursor:pointer;">
-          📅 前往劃休申請
-        </button>
+      <div class="card" style="text-align:center; padding:40px 20px;">
+        <div class="wip-icon">🏗️</div>
+        <div class="wip-title">假期申請</div>
+        <div class="wip-desc">特休、補休、調班申請功能開發中，敬請期待！</div>
+        <div class="wip-badge">🔨 新增中</div>
       </div>
     </div>
 
@@ -654,6 +658,45 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
         <div class="wip-title">薪資計算</div>
         <div class="wip-desc">薪資結構試算、月結明細、加班費計算功能開發中，敬請期待！</div>
         <div class="wip-badge">🔨 新增中</div>
+      </div>
+    </div>
+
+    <div class="page" id="page-employee">
+      <div class="sub-header">
+        <button class="sub-header-back" onclick="switchPage('home')">← 首頁</button>
+        <div class="sub-header-title" id="empPageTitle">帳號管理</div>
+      </div>
+      <div id="empAdminView" style="display:none;">
+        <div class="store-tabs" id="empStoreTabs"></div>
+        <div class="section-header">
+          <div class="section-title">👥 員工帳號管理</div>
+          <div style="display:flex; gap:8px;">
+            <button onclick="openRetiredEmpModal()" style="background:#f1f3f4; color:var(--text-muted); border:none; border-radius:10px; padding:8px 12px; font-size:12px; font-weight:700; cursor:pointer;">📦 離職員工</button>
+            <button onclick="openAddEmpModal()" style="background:var(--primary); color:white; border:none; border-radius:10px; padding:8px 14px; font-size:12px; font-weight:700; cursor:pointer;">＋ 新增員工</button>
+          </div>
+        </div>
+        <div id="empAdminList" class="emp-list"></div>
+      </div>
+
+      <div id="empSelfView" style="display:none;">
+        <div class="profile-header">
+          <div class="profile-avatar" id="selfAvatar">👤</div>
+          <div class="profile-name" id="selfName">--</div>
+          <div class="profile-role" id="selfRole">--</div>
+          <div class="profile-store" id="selfStore">--</div>
+        </div>
+        <div class="card">
+          <div class="card-title">🔐 帳號資訊</div>
+          <div style="font-size:14px; margin-bottom:8px;"><span style="color:var(--text-muted);">帳號：</span><strong id="selfUsername">--</strong></div>
+          <div style="font-size:14px;"><span style="color:var(--text-muted);">密碼：</span><strong>••••••</strong></div>
+          <button onclick="openChangePwd()" style="width:100%; margin-top:14px; padding:12px; background:none; border:1.5px solid var(--primary); color:var(--primary); border-radius:10px; font-size:14px; font-weight:700; cursor:pointer;">🔑 修改密碼</button>
+        </div>
+        <div class="card">
+          <div class="card-title">📋 基本資料</div>
+          <div style="font-size:14px; margin-bottom:8px;"><span style="color:var(--text-muted);">姓名：</span><strong id="selfNameInfo">--</strong></div>
+          <div style="font-size:14px; margin-bottom:8px;"><span style="color:var(--text-muted);">職位：</span><strong id="selfRoleInfo">--</strong></div>
+          <div style="font-size:14px;"><span style="color:var(--text-muted);">所屬門市：</span><strong id="selfStoreInfo">--</strong></div>
+        </div>
       </div>
     </div>
 
@@ -671,7 +714,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       </div>
 
       <div class="menu-list">
-        <div class="menu-item" onclick="window.location.href='employee-mgmt.html?mode=self'">
+        <div class="menu-item" onclick="switchPage('employee')">
           <div class="menu-item-icon" style="background:#e8f0fe;">👤</div>
           <div class="menu-item-text">
             <div class="menu-item-title">帳號管理</div>
@@ -703,11 +746,11 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
           </div>
           <div class="menu-item-arrow">›</div>
         </div>
-        <div class="menu-item" id="menuSysConfig" style="display:none;" onclick="window.location.href='settings.html'">
+        <div class="menu-item" id="menuSysConfig" style="display:none;" onclick="openSysConfigModal()">
           <div class="menu-item-icon" style="background:#fce8e6;">⚙️</div>
           <div class="menu-item-text">
-            <div class="menu-item-title" style="color:var(--danger);">系統設定</div>
-            <div class="menu-item-sub">門市管理、假日設定</div>
+            <div class="menu-item-title" style="color:var(--danger);">系統基礎設定</div>
+            <div class="menu-item-sub">門市管理、班別設定</div>
           </div>
           <div class="menu-item-arrow">›</div>
         </div>
@@ -719,7 +762,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
           </div>
           <div class="menu-item-arrow">›</div>
         </div>
-        <div class="menu-item" id="menuStoreConfig" style="display:none;" onclick="window.location.href='settings.html'">
+        <div class="menu-item" id="menuStoreConfig" style="display:none;" onclick="openStoreConfigModal()">
           <div class="menu-item-icon" style="background:#e8f0fe;">🔧</div>
           <div class="menu-item-text">
             <div class="menu-item-title" style="color:var(--primary);">門市班別設定</div>
@@ -766,42 +809,288 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
   </div>
 </div>
 
-<div class="modal-overlay" id="rolePreviewModal" onclick="closeWip(event)">
+<div class="modal-overlay" id="addEmpModal" onclick="closeWip(event)">
   <div class="modal-box">
     <div class="modal-handle"></div>
-    <div class="modal-title">🎭 角色預覽</div>
-    <div class="modal-sub" id="rolePreviewSub">目前以真實身份登入</div>
+    <div class="modal-title">👤 新增員工</div>
+    <div class="modal-sub" id="addEmpStoreSub">新增員工並同時建立帳號</div>
+    <input type="hidden" id="addEmpStore">
+    <div class="form-field">
+      <label>排班系統名稱（顯示在班表上）</label>
+      <input type="text" id="addEmpSysName" placeholder="例如：楷岳">
+    </div>
+    <div class="form-field">
+      <label>顯示姓名（APP 顯示用）</label>
+      <input type="text" id="addEmpDisplayName" placeholder="例如：賴楷岳">
+    </div>
+    <div class="form-field">
+      <label>職稱</label>
+      <select id="addEmpRole">
+        <option value="工讀">工讀</option>
+        <option value="正職">正職</option>
+        <option value="店長">店長</option>
+        <option value="加盟主">加盟主</option>
+      </select>
+    </div>
+    <div class="form-field">
+      <label>時薪 / 月薪</label>
+      <input type="number" id="addEmpWage" placeholder="例如：183">
+    </div>
+    <div class="form-field">
+      <label>帳號（身分證字母 + 後5碼）</label>
+      <input type="text" id="addEmpUsername" maxlength="6" placeholder="例如：A56789"
+        style="text-transform:uppercase; letter-spacing:3px; font-size:16px; font-weight:900; text-align:center;"
+        oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'')">
+      <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">格式：1個英文字母 + 5碼數字</div>
+    </div>
+    <div class="form-field">
+      <label>密碼（建議用生日月日，例如 0101）</label>
+      <input type="password" id="addEmpPassword" placeholder="至少4碼">
+    </div>
+    <div class="form-field">
+      <label>權限等級</label>
+      <select id="addEmpPermission">
+        <option value="employee">👤 員工</option>
+        <option value="manager">🏪 店長</option>
+        <option value="owner">👑 加盟主</option>
+        <option value="admin">⚙️ 系統管理者</option>
+      </select>
+    </div>
+    <button class="save-btn" onclick="saveNewEmployee()">✅ 新增員工</button>
+    <button class="cancel-btn" onclick="closeModal('addEmpModal')">取消</button>
+  </div>
+</div>
 
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:20px;">
-      <div class="role-preview-btn" onclick="setPreviewRole('employee')" id="rpBtn-employee">
-        <div style="font-size:28px;">👤</div>
-        <div style="font-size:14px; font-weight:800; margin-top:6px;">員工</div>
-        <div style="font-size:11px; color:var(--text-muted);">查看班表、申請</div>
+<div class="modal-overlay" id="transferModal" onclick="closeWip(event)">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-title">🏪 調店</div>
+    <div class="modal-sub" id="transferSub">選擇調往的門市</div>
+    <input type="hidden" id="transferEmpId">
+    <input type="hidden" id="transferFromStore">
+    <div class="form-field">
+      <label>調往門市</label>
+      <select id="transferToStore" style="width:100%; padding:12px; border:1.5px solid var(--border); border-radius:10px; font-size:14px;"></select>
+    </div>
+    <div class="form-field">
+      <label>生效日期</label>
+      <input type="date" id="transferDate" style="width:100%; padding:12px; border:1.5px solid var(--border); border-radius:10px; font-size:14px;">
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">排班系統從生效日的下週一起生效，其他頁面當天起生效</div>
+    </div>
+    <div class="form-field">
+      <label>新門市職務</label>
+      <select id="transferRole" style="width:100%; padding:12px; border:1.5px solid var(--border); border-radius:10px; font-size:14px;">
+        <option value="工讀">工讀</option>
+        <option value="正職">正職</option>
+        <option value="店長">店長</option>
+      </select>
+    </div>
+    <button class="save-btn" onclick="confirmTransfer()" style="background:var(--warn); color:white;">🏪 確認調店</button>
+    <button class="cancel-btn" onclick="closeModal('transferModal')">取消</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="accountModal" onclick="closeWip(event)">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-title">🔐 帳號設定</div>
+    <div class="modal-sub" id="accountModalSub">設定員工的登入帳號與密碼</div>
+    <input type="hidden" id="accountEmpStore">
+
+    <div class="form-field">
+      <label>帳號（身分證字母 + 後5碼）</label>
+      <input type="text" id="accountUsername" maxlength="6" placeholder="例如：A56789"
+        style="text-transform:uppercase; letter-spacing:3px; font-size:18px; font-weight:900; text-align:center;"
+        oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'')">
+      <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">格式：1個英文字母 + 5碼數字</div>
+    </div>
+
+    <div class="form-field">
+      <label>顯示姓名（APP 顯示用）</label>
+      <input type="text" id="accountDisplayName" placeholder="例如：王小明">
+    </div>
+
+<div class="form-field">
+      <label>連動排班系統</label>
+      <div style="display:flex; gap:8px; margin-bottom:8px;">
+        <label style="display:flex; align-items:center; justify-content:center; gap:6px; font-size:14px; font-weight:600; cursor:pointer; flex:1; background:#f1f3f4; border-radius:10px; padding:12px 4px; text-align:center;">
+          <input type="radio" name="linkType" value="linked" id="linkTypeLinked" onchange="toggleLinkType()" checked style="margin:0; flex-shrink:0; width:18px; height:18px;">
+          <span style="line-height:1.3;">連動現有員工</span>
+        </label>
+        <label style="display:flex; align-items:center; justify-content:center; gap:6px; font-size:14px; font-weight:600; cursor:pointer; flex:1; background:#f1f3f4; border-radius:10px; padding:12px 4px; text-align:center;">
+          <input type="radio" name="linkType" value="new" id="linkTypeNew" onchange="toggleLinkType()" style="margin:0; flex-shrink:0; width:18px; height:18px;">
+          <span style="line-height:1.3;">全新員工</span>
+        </label>
       </div>
-      <div class="role-preview-btn" onclick="setPreviewRole('manager')" id="rpBtn-manager">
-        <div style="font-size:28px;">🏪</div>
-        <div style="font-size:14px; font-weight:800; margin-top:6px;">店長</div>
-        <div style="font-size:11px; color:var(--text-muted);">排班、員工管理</div>
+      <div id="linkEmpGroup">
+        <select id="accountEmpName" style="width:100%; padding:12px 14px; border:1.5px solid var(--border); border-radius:10px; font-size:14px; background:#f8fafc;">
+          <option value="">-- 選擇對應的排班系統員工 --</option>
+        </select>
+        <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">選擇後，班表資料將以此員工名稱查詢</div>
       </div>
-      <div class="role-preview-btn" onclick="setPreviewRole('owner')" id="rpBtn-owner">
-        <div style="font-size:28px;">👑</div>
-        <div style="font-size:14px; font-weight:800; margin-top:6px;">加盟主</div>
-        <div style="font-size:11px; color:var(--text-muted);">全門市管理</div>
-      </div>
-      <div class="role-preview-btn" onclick="setPreviewRole('admin')" id="rpBtn-admin">
-        <div style="font-size:28px;">⚙️</div>
-        <div style="font-size:14px; font-weight:800; margin-top:6px;">系統管理員</div>
-        <div style="font-size:11px; color:var(--text-muted);">最高權限</div>
+      <div id="newEmpGroup" style="display:none;">
+        <input type="text" id="accountNewEmpName" placeholder="排班系統中的員工名稱（之後新增）"
+          style="width:100%; padding:12px 14px; border:1.5px solid var(--border); border-radius:10px; font-size:14px; background:#f8fafc;">
+        <div style="font-size:11px; color:var(--warn); margin-top:4px;">⚠️ 請之後在排班系統中新增同名員工</div>
       </div>
     </div>
 
-    <div id="rolePreviewWarning" style="display:none; background:#fff3e0; border:1px solid #ffcc80; border-radius:10px; padding:10px 14px; font-size:12px; color:#e65100; margin-bottom:16px;">
-      ⚠️ 目前以預覽模式體驗「<span id="previewRoleName"></span>」角色介面，資料為真實資料但操作權限受限。
+    <div class="form-field">
+      <label>到職日 <span style="color:var(--primary); font-size:10px;">(與特補休系統自動連動)</span></label>
+      <div style="display:flex; gap:8px;">
+        <input type="text" id="accountStartDate" readonly placeholder="尚未設定（點擊前往設定）"
+          style="width:100%; padding:12px; border:1.5px solid var(--border); border-radius:10px; font-size:14px; background:#f8fafc; cursor:pointer; color:var(--primary); font-weight:700;"
+          onclick="window.location.href='leave.html'">
+        <button onclick="window.location.href='leave.html'" style="background:var(--primary); color:white; border:none; border-radius:10px; padding:0 16px; font-weight:700; cursor:pointer; white-space:nowrap; font-size:13px;">前往特休系統</button>
+      </div>
+      <div style="font-size:11px; color:var(--text-muted); margin-top:6px;">⚠️ 統一由「特補休管理」系統計算與控制，點選跳轉修改</div>
     </div>
 
-    <button class="save-btn" onclick="confirmRolePreview()" style="background:#9334e6;">🎭 套用預覽角色</button>
-    <button class="save-btn" id="restoreRealBtn" style="display:none; background:#34a853;" onclick="restoreRealRole()">↩️ 恢復真實身份</button>
-    <button class="cancel-btn" onclick="closeModal('rolePreviewModal')">取消</button>
+    <div class="form-field">
+      <label>密碼 <span style="color:var(--text-muted); font-weight:400;">（留空則不修改）</span></label>
+      <input type="password" id="accountPassword" placeholder="預設建議：生日月日，例如 0101">
+    </div>
+    <div class="form-field">
+      <label>確認密碼</label>
+      <input type="password" id="accountPasswordConfirm" placeholder="再輸入一次密碼">
+    </div>
+
+    <div class="form-field">
+      <label>職稱</label>
+      <select id="accountRole">
+        <option value="工讀">工讀</option>
+        <option value="正職">正職</option>
+        <option value="店長">店長</option>
+        <option value="加盟主">加盟主</option>
+      </select>
+    </div>
+
+    <div class="form-field">
+      <label>權限等級</label>
+      <select id="accountPermission"></select>
+    </div>
+
+    <button class="save-btn" onclick="saveAccountSetting()">💾 儲存帳號設定</button>
+    <button class="cancel-btn" onclick="closeModal('accountModal')">取消</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="changePwdModal" onclick="closeWip(event)">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-title">🔑 修改密碼</div>
+    <div class="modal-sub">修改自己的登入密碼</div>
+    <div class="form-field">
+      <label>舊密碼</label>
+      <input type="password" id="oldPassword" placeholder="請輸入舊密碼">
+    </div>
+    <div class="form-field">
+      <label>新密碼</label>
+      <input type="password" id="newPassword" placeholder="至少 4 位數字或英文">
+    </div>
+    <div class="form-field">
+      <label>確認新密碼</label>
+      <input type="password" id="newPasswordConfirm" placeholder="再輸入一次新密碼">
+    </div>
+    <button class="save-btn green" onclick="doChangePwd()">✅ 確認修改</button>
+    <button class="cancel-btn" onclick="closeModal('changePwdModal')">取消</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="sysConfigModal" onclick="closeWip(event)">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-title">⚙️ 系統基礎設定</div>
+    <div class="card-title">🏪 門市管理</div>
+    <div id="sysStoreList" style="margin-bottom:10px;"></div>
+    <div style="display:flex; gap:8px; margin-bottom:20px;">
+      <input type="text" id="sysNewStore" placeholder="新增門市名稱" style="flex:1; padding:10px; border:1.5px solid var(--border); border-radius:10px; font-size:14px;">
+      <button onclick="addSysStore()" style="background:var(--accent); color:white; border:none; border-radius:10px; padding:10px 16px; font-weight:700; cursor:pointer;">新增</button>
+    </div>
+    <div id="sysHolidaySection" style="display:none; border-top:1px solid var(--border); padding-top:14px; margin-bottom:4px;">
+      <div class="card-title">📅 國定假日管理</div>
+      <div style="font-size:11px; color:var(--text-muted); margin-bottom:10px;">每年初自動帶入內建假日，可手動新增或刪除</div>
+      <div style="display:flex; gap:6px; margin-bottom:10px;" id="holidayYearTabs"></div>
+      <div id="holidayList" style="max-height:200px; overflow-y:auto; margin-bottom:10px; border:1px solid var(--border); border-radius:10px; padding:4px 0;"></div>
+      <div style="display:flex; gap:6px; margin-bottom:14px;">
+        <input type="date" id="newHolidayDate" style="flex:1; padding:9px; border:1.5px solid var(--border); border-radius:10px; font-size:13px; min-width:0;">
+        <input type="text" id="newHolidayName" placeholder="假日名稱" style="flex:2; padding:9px; border:1.5px solid var(--border); border-radius:10px; font-size:13px; min-width:0;">
+        <button onclick="addHoliday()" style="background:var(--accent); color:white; border:none; border-radius:10px; padding:9px 14px; font-weight:700; cursor:pointer; flex-shrink:0;">加入</button>
+      </div>
+    </div>
+
+    <div id="sysRolePreviewSection" style="display:none; border-top:1px solid var(--border); padding-top:14px; margin-bottom:14px;">
+      <div class="card-title">🎭 角色預覽</div>
+      <div style="font-size:13px; color:var(--text-muted); margin-bottom:10px;">以員工視角體驗介面，方便確認員工看到的內容。</div>
+      <button onclick="closeModal('sysConfigModal'); openRolePreviewModal();" style="width:100%; padding:12px; background:linear-gradient(135deg,#9334e6,#6a1bb5); color:white; border:none; border-radius:12px; font-size:14px; font-weight:800; cursor:pointer;">🎭 開啟角色預覽</button>
+    </div>
+    <button class="save-btn" onclick="saveSysConfig()">💾 儲存系統設定</button>
+    <button class="cancel-btn" onclick="closeModal('sysConfigModal')">取消</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="storeConfigModal" onclick="closeWip(event)">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-title">🔧 門市班別設定</div>
+    <div id="storeConfigTabs" style="display:none;flex-wrap:wrap;gap:6px;padding:0 20px 10px;"></div>
+    <div class="modal-sub" id="storeConfigSub">設定門市的班別快捷按鈕</div>
+    <input type="hidden" id="storeConfigStore">
+
+    <div class="card-title" style="margin-top:8px;">📋 班別快捷按鈕</div>
+    <div style="font-size:11px; color:var(--text-muted); margin-bottom:8px;">預設班別（7-15、15-23、23-07、18-23、清空、指休、排休）不可刪除</div>
+    <div id="shiftBtnList" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; max-width:100%; overflow:hidden;"></div>
+    <div style="display:flex; gap:6px; margin-bottom:16px;">
+      <input type="text" id="newShiftBtn" placeholder="如：8-16" style="flex:2; padding:10px; border:1.5px solid var(--border); border-radius:10px; font-size:14px; min-width:0;">
+      <input type="number" id="newShiftHours" placeholder="時數" style="flex:1; padding:10px; border:1.5px solid var(--border); border-radius:10px; font-size:14px; min-width:0;">
+      <button onclick="addShiftBtn()" style="background:var(--primary); color:white; border:none; border-radius:10px; padding:10px 14px; font-weight:700; cursor:pointer; flex-shrink:0;">加入</button>
+    </div>
+
+    <div class="card-title">💬 備註快捷按鈕</div>
+    <div id="noteBtnList" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; max-width:100%; overflow:hidden;"></div>
+    <div style="display:flex; gap:6px; margin-bottom:16px;">
+      <input type="text" id="newNoteBtn" placeholder="如：訂鮮食" style="flex:1; padding:10px; border:1.5px solid var(--border); border-radius:10px; font-size:14px; min-width:0;">
+      <button onclick="addNoteBtn()" style="background:var(--accent); color:white; border:none; border-radius:10px; padding:10px 14px; font-weight:700; cursor:pointer; flex-shrink:0;">加入</button>
+    </div>
+
+    <div id="storeConfigFirstSave" style="display:none;background:#fff3e0;border:1.5px solid #ffcc80;border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#e65100;font-weight:600;">
+      ⚠️ 首次開啟門市設定，已自動帶入目前班別。請確認後儲存，往後以此設定為主。
+    </div>
+
+    <div class="card-title" style="margin-top:4px;">📅 每日劃休人數上限</div>
+    <div style="font-size:11px; color:var(--text-muted); margin-bottom:10px;">特休、補休、排休合計，達上限仍可送出但系統會提示</div>
+    <div style="display:flex; gap:12px; margin-bottom:16px;">
+      <div style="flex:1;">
+        <div style="font-size:11px; font-weight:700; color:var(--text-muted); margin-bottom:6px;">正職（人/天）</div>
+        <input type="number" id="quotaFullTime" min="1" max="10" step="1" value="2"
+          style="width:100%; padding:10px; border:1.5px solid var(--border); border-radius:10px; font-size:16px; font-weight:800; text-align:center;">
+      </div>
+      <div style="flex:1;">
+        <div style="font-size:11px; font-weight:700; color:var(--text-muted); margin-bottom:6px;">工讀（人/天）</div>
+        <input type="number" id="quotaPartTime" min="1" max="10" step="1" value="1"
+          style="width:100%; padding:10px; border:1.5px solid var(--border); border-radius:10px; font-size:16px; font-weight:800; text-align:center;">
+      </div>
+    </div>
+
+    <button class="save-btn" onclick="saveStoreConfig()">💾 儲存設定</button>
+    <button class="cancel-btn" onclick="closeModal('storeConfigModal')">取消</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="retireModal" onclick="if(event.target===this)closeModal('retireModal')">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-title">⛔ 設定離職</div>
+    <div class="modal-sub" id="retireModalSub"></div>
+    <input type="hidden" id="retireEmpId">
+    <input type="hidden" id="retireStore">
+    <div class="form-field" style="margin-top:14px;">
+      <label>離職生效日期</label>
+      <input type="date" id="retireDate" style="width:100%; padding:12px; border:1.5px solid var(--border); border-radius:10px; font-size:14px;">
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">排班系統從下週一起生效，其他頁面當天起生效</div>
+    </div>
+    <button class="save-btn" onclick="confirmRetire()" style="background:var(--danger); color:white;">⛔ 確認離職</button>
+    <button class="cancel-btn" onclick="closeModal('retireModal')">取消</button>
   </div>
 </div>
 
@@ -816,7 +1105,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
     </div>
   </div>
   <div class="bs-title">帳號與設定</div>
-  <div class="bs-item" onclick="closeSettingsSheet(); window.location.href='employee-mgmt.html?mode=self';">
+  <div class="bs-item" onclick="closeSettingsSheet(); loadAccountPage();">
     <div class="bs-item-icon" style="background:#e8f0fe;">👤</div>
     <div class="bs-item-text">
       <div class="bs-item-label">帳號管理</div>
@@ -824,7 +1113,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
     </div>
     <div class="bs-item-arrow">›</div>
   </div>
-  <div class="bs-item" id="bsStoreConfig" style="display:none;" onclick="closeSettingsSheet(); window.location.href='settings.html';">
+  <div class="bs-item" id="bsStoreConfig" style="display:none;" onclick="closeSettingsSheet(); openStoreConfigModal();">
     <div class="bs-item-icon" style="background:#e8f5e9;">🔧</div>
     <div class="bs-item-text">
       <div class="bs-item-label">門市設定</div>
@@ -832,11 +1121,11 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
     </div>
     <div class="bs-item-arrow">›</div>
   </div>
-  <div class="bs-item" id="bsSysConfig" style="display:none;" onclick="closeSettingsSheet(); window.location.href='settings.html';">
+  <div class="bs-item" id="bsSysConfig" style="display:none;" onclick="closeSettingsSheet(); openSysConfigModal();">
     <div class="bs-item-icon" style="background:#f3e8ff;">⚙️</div>
     <div class="bs-item-text">
       <div class="bs-item-label">系統設定</div>
-      <div class="bs-item-sub">門市管理、假日設定</div>
+      <div class="bs-item-sub">門市管理、角色預覽</div>
     </div>
     <div class="bs-item-arrow">›</div>
   </div>
@@ -878,7 +1167,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 <div class="bottom-sheet" id="moreMgmtSheet">
   <div class="bs-handle"></div>
   <div class="bs-title">管理功能</div>
-  <div class="bs-item" onclick="closeMoreMgmtSheet(); window.location.href='employee-mgmt.html';">
+  <div class="bs-item" onclick="closeMoreMgmtSheet(); loadEmpMgmtPage();">
     <div class="bs-item-icon" style="background:#e8f5e9;">👥</div>
     <div class="bs-item-text">
       <div class="bs-item-label">員工資料</div>
@@ -903,6 +1192,60 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
     <div class="bs-item-arrow">›</div>
   </div>
   <div style="height:16px;"></div>
+</div>
+
+<div class="modal-overlay" id="retiredEmpModal" onclick="if(event.target===this)closeModal('retiredEmpModal')">
+  <div class="modal-box" style="max-height:85vh;">
+    <div class="modal-handle"></div>
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
+      <div class="modal-title" style="margin:0;">📦 離職員工</div>
+      <div style="flex:1;"></div>
+      <button onclick="closeModal('retiredEmpModal')" style="background:#f1f3f4;border:none;border-radius:10px;padding:6px 10px;cursor:pointer;">✕</button>
+    </div>
+    <div style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">資料保留不刪除，可點選復職。</div>
+    <div id="retiredEmpList">
+      <div style="text-align:center; color:var(--text-muted); padding:20px 0;">載入中...</div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="rolePreviewModal" onclick="closeWip(event)">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-title">🎭 角色預覽</div>
+    <div class="modal-sub" id="rolePreviewSub">目前以真實身份登入</div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:20px;">
+      <div class="role-preview-btn" onclick="setPreviewRole('employee')" id="rpBtn-employee">
+        <div style="font-size:28px;">👤</div>
+        <div style="font-size:14px; font-weight:800; margin-top:6px;">員工</div>
+        <div style="font-size:11px; color:var(--text-muted);">查看班表、申請</div>
+      </div>
+      <div class="role-preview-btn" onclick="setPreviewRole('manager')" id="rpBtn-manager">
+        <div style="font-size:28px;">🏪</div>
+        <div style="font-size:14px; font-weight:800; margin-top:6px;">店長</div>
+        <div style="font-size:11px; color:var(--text-muted);">排班、員工管理</div>
+      </div>
+      <div class="role-preview-btn" onclick="setPreviewRole('owner')" id="rpBtn-owner">
+        <div style="font-size:28px;">👑</div>
+        <div style="font-size:14px; font-weight:800; margin-top:6px;">加盟主</div>
+        <div style="font-size:11px; color:var(--text-muted);">全門市管理</div>
+      </div>
+      <div class="role-preview-btn" onclick="setPreviewRole('admin')" id="rpBtn-admin">
+        <div style="font-size:28px;">⚙️</div>
+        <div style="font-size:14px; font-weight:800; margin-top:6px;">系統管理員</div>
+        <div style="font-size:11px; color:var(--text-muted);">最高權限</div>
+      </div>
+    </div>
+
+    <div id="rolePreviewWarning" style="display:none; background:#fff3e0; border:1px solid #ffcc80; border-radius:10px; padding:10px 14px; font-size:12px; color:#e65100; margin-bottom:16px;">
+      ⚠️ 目前以預覽模式體驗「<span id="previewRoleName"></span>」角色介面，資料為真實資料但操作權限受限。
+    </div>
+
+    <button class="save-btn" onclick="confirmRolePreview()" style="background:#9334e6;">🎭 套用預覽角色</button>
+    <button class="save-btn" id="restoreRealBtn" style="display:none; background:#34a853;" onclick="restoreRealRole()">↩️ 恢復真實身份</button>
+    <button class="cancel-btn" onclick="closeModal('rolePreviewModal')">取消</button>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -1108,6 +1451,23 @@ async function doLogin() {
       hideLoading();
       errEl.textContent = '⛔ 此帳號已被停用，請聯絡管理者';
       return;
+    }
+
+    // ✅ 離職生效日停用：若員工已離職且生效日 ≤ 今天，拒絕登入
+    if(acc.empName && acc.store) {
+      try {
+        const empSnap = await window.db.collection('stores').doc(acc.store)
+          .collection('employees').doc(acc.empName).get();
+        if(empSnap.exists) {
+          const empData = empSnap.data();
+          const today = new Date().toISOString().split('T')[0];
+          if(empData.status === '離職' && empData.retireDate && empData.retireDate <= today) {
+            hideLoading();
+            errEl.textContent = `⛔ 此帳號已於 ${empData.retireDate} 停用（離職生效）`;
+            return;
+          }
+        }
+      } catch(e) { /* 讀取失敗不阻擋登入，避免誤擋 */ }
     }
 
     const perm = acc.permission || 'employee';
@@ -1875,8 +2235,7 @@ async function loadPendingItems() {
 
 // ===== 頁面切換 =====
 function switchPage(name) {
-  if(name === 'salary')   { goToSalary(); return; }
-  if(name === 'employee') { window.location.href = 'employee-mgmt.html'; return; }
+  if(name === 'salary') { goToSalary(); return; }
 
   const pageEl = document.getElementById(`page-${name}`);
   if(!pageEl) { console.warn('找不到頁面:', name); return; }
@@ -1886,6 +2245,7 @@ function switchPage(name) {
   pageEl.classList.add('active');
   document.querySelector(`[data-page="${name}"]`)?.classList.add('active');
 
+  if(name === 'employee') loadEmployeePage();
   if(name === 'profile') loadProfilePage();
 }
 
@@ -1975,6 +2335,60 @@ function closeLeaveSheet() {
   document.getElementById('leaveSheet').classList.remove('active');
 }
 
+// ===== 離職員工清單 =====
+async function openRetiredEmpModal() {
+  openModal('retiredEmpModal');
+  const listEl = document.getElementById('retiredEmpList');
+  listEl.innerHTML = `<div style="text-align:center;color:var(--text-muted);padding:20px 0;">載入中...</div>`;
+  try {
+    const store = currentEmpAdminStore || currentUser.store || '';
+    const snap = await window.db.collection('stores').doc(store).collection('employees').get();
+    const retired = [];
+    snap.forEach(d => {
+      const s = d.data().status;
+      if(s === '離職' || s === '調走') retired.push({ id:d.id, ...d.data() });
+    });
+    if(retired.length === 0) {
+      listEl.innerHTML = `<div style="text-align:center;color:var(--text-muted);padding:30px 0;">📭 無離職/調走員工資料</div>`;
+      return;
+    }
+    listEl.innerHTML = retired.map(emp => {
+      const isRetired = emp.status === '離職';
+      const tagStyle = isRetired
+        ? 'background:#fce8e6;color:var(--danger);'
+        : 'background:#fff3e0;color:#e65100;';
+      const tagText = isRetired ? '已離職' : `已調走${emp.transferredTo?` → ${emp.transferredTo}`:''}`;
+      return `
+      <div style="display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--border);">
+        <div style="width:36px;height:36px;border-radius:10px;background:#f1f3f4;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;color:var(--text-muted);">${emp.id[0]}</div>
+        <div style="flex:1;">
+          <div style="font-size:14px;font-weight:700;color:var(--text-muted);">${emp.id}
+            <span style="font-size:11px;${tagStyle}padding:1px 6px;border-radius:4px;">${tagText}</span>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);">${emp.role||''}</div>
+        </div>
+        ${canManageEmployee() && isRetired ? `
+        <button onclick="reinstateEmp('${emp.id}','${store}')"
+          style="background:#e8f5e9;color:#2e7d32;border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;">✅ 復職</button>` : ''}
+      </div>`;
+    }).join('');
+  } catch(e) {
+    listEl.innerHTML = `<div style="text-align:center;color:var(--danger);padding:20px 0;">讀取失敗</div>`;
+  }
+}
+
+async function reinstateEmp(empName, store) {
+  if(!confirm(`確定將 ${empName} 設為復職？`)) return;
+  showLoading('更新中...');
+  try {
+    await window.db.collection('stores').doc(store).collection('employees').doc(empName).update({ status: '在職' });
+    showToast(`✅ ${empName} 已復職`);
+    closeModal('retiredEmpModal');
+    await loadEmpAdminList(store);
+  } catch(e) { showToast('❌ 失敗：' + e.message); }
+  hideLoading();
+}
+
 // 折疊/展開
 function toggleFuncSection(key) {
   const grid  = document.getElementById(`grid-${key}`);
@@ -1994,6 +2408,972 @@ function setFuncSectionState(key, open) {
 }
 
 function goToSchedule() { window.location.href = 'schedule-V2.html'; }
+// ===== 帳號管理（常用功能，強制顯示個人帳號介面）=====
+function loadAccountPage() {
+  const titleEl = document.getElementById('empPageTitle');
+  if(titleEl) titleEl.textContent = '帳號管理';
+  switchPage('employee');
+  // 強制顯示員工視圖，不管權限
+  document.getElementById('empAdminView').style.display = 'none';
+  document.getElementById('empSelfView').style.display = 'block';
+  loadSelfView();
+}
+
+// ===== 員工管理（管理功能，顯示員工管理介面）=====
+async function loadEmpMgmtPage() {
+  const titleEl = document.getElementById('empPageTitle');
+  if(titleEl) titleEl.textContent = '員工管理';
+  switchPage('employee');
+  document.getElementById('empAdminView').style.display = 'block';
+  document.getElementById('empSelfView').style.display = 'none';
+  const defaultStore = currentUser.store || (appConfig.stores && appConfig.stores[0]) || '';
+  await loadEmpAdminList(defaultStore);
+}
+
+// ===== 人員 / 帳號設定頁 =====
+async function loadEmployeePage() {
+  if(canManageEmployee()) {
+    document.getElementById('empAdminView').style.display = 'block';
+    document.getElementById('empSelfView').style.display = 'none';
+    const defaultStore = currentUser.store || (appConfig.stores && appConfig.stores[0]) || '';
+    await loadEmpAdminList(defaultStore);
+  } else {
+    document.getElementById('empAdminView').style.display = 'none';
+    document.getElementById('empSelfView').style.display = 'block';
+    loadSelfView();
+  }
+}
+
+async function loadEmpAdminList(store) {
+  currentEmpAdminStore = store;
+
+  const tabsEl = document.getElementById('empStoreTabs');
+  if(isManagerOnly()) {
+    tabsEl.innerHTML = `<div class="store-tab active">${store}</div>`;
+  } else {
+    tabsEl.innerHTML = (appConfig.stores || []).map(s =>
+      `<div class="store-tab ${s===store?'active':''}" onclick="loadEmpAdminList('${s}')">${s}</div>`
+    ).join('');
+  }
+
+  const showAccountBtn = canManageAccounts();
+
+  const listEl = document.getElementById('empAdminList');
+  listEl.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-muted);">載入中...</div>';
+
+  try {
+    const snap = await window.db.collection('stores').doc(store).collection('employees').get();
+    const todayStr = new Date().toISOString().split('T')[0];
+    let emps = [];
+    snap.forEach(d => {
+      const data = d.data();
+      const status = data.status;
+      const effectDate = data.retireDate || data.transferDate;
+      // ✅ 生效日判斷：狀態為離職/調走 且 今天已達生效日，才過濾掉
+      const isEffective = ['離職','調走'].includes(status) && (!effectDate || todayStr >= effectDate);
+      if(!isEffective) emps.push({id: d.id, ...data});
+    });
+    emps.sort((a,b) => (a.sortKey||0) - (b.sortKey||0));
+
+    const accSnap = await window.db.collection('account').where('store','==',store).get();
+    const accounts = {};
+    accSnap.forEach(d => { accounts[d.data().empName] = { username: d.data().ID, docId: d.id, ...d.data() }; });
+
+    listEl.innerHTML = emps.map(emp => {
+      const acc = accounts[emp.id];
+      const dispName = acc?.displayName || emp.id;
+      const roleClass = emp.role === '店長' ? 'role-manager' : emp.role === '正職' ? 'role-full' : 'role-part';
+      const initial = dispName ? dispName[0] : '?';
+      const isRetired = emp.status === '離職';
+      const actionBtn = showAccountBtn
+        ? `<button class="emp-action-btn" onclick="openAccountModal('${emp.id}','${store}')">${acc ? '編輯' : '設定帳號'}</button>`
+        : `<span style="font-size:11px; color:var(--text-muted);">${acc ? '已設定' : '未設定'}</span>`;
+      const moreBtn = showAccountBtn ? `
+        <div style="display:flex; gap:6px; margin-top:6px;">
+          <button onclick="toggleRetire('${emp.id}','${store}',${isRetired},'${dispName}')"
+            style="padding:4px 10px; border-radius:6px; border:1px solid ${isRetired?'var(--accent)':'var(--danger)'}; background:white; color:${isRetired?'var(--accent)':'var(--danger)'}; font-size:11px; font-weight:700; cursor:pointer;">
+            ${isRetired ? '✅ 復職' : '⛔ 離職'}
+          </button>
+          <button onclick="openTransferModal('${emp.id}','${store}','${dispName}')"
+            style="padding:4px 10px; border-radius:6px; border:1px solid var(--primary); background:white; color:var(--primary); font-size:11px; font-weight:700; cursor:pointer;">
+            🏪 調店
+          </button>
+        </div>` : '';
+      return `<div class="emp-row" style="${isRetired?'opacity:0.6;':''}">
+        <div class="emp-avatar" style="background:linear-gradient(135deg,${isRetired?'#999,#666':'#1a73e8,#0d47a1'});">${initial}</div>
+        <div class="emp-info" style="flex:1;">
+          <div class="emp-name">
+            ${dispName}
+            ${dispName !== emp.id ? `<span style="font-size:11px;color:var(--text-muted);">(${emp.id})</span>` : ''}
+            <span class="role-badge ${roleClass}">${emp.role||''}</span>
+            ${isRetired ? '<span style="color:var(--danger);font-size:10px;font-weight:700;"> 已離職</span>' : ''}
+          </div>
+          <div class="emp-account" style="font-size:11px; color:var(--text-muted);">
+            ${acc ? `🔐 ${acc.username} · ${PERM_LABELS[acc.permission]||'👤 員工'}` : '⚠️ 尚未設定帳號'}
+            ${emp.startDate ? ` · 📅 ${emp.startDate}到職` : ''}
+          </div>
+          ${moreBtn}
+        </div>
+        ${actionBtn}
+      </div>`;
+    }).join('');
+  } catch(e) {
+    listEl.innerHTML = '<div style="text-align:center; padding:20px; color:var(--danger);">載入失敗：' + e.message + '</div>';
+  }
+}
+
+function loadSelfView() {
+  const dName = currentUser.displayName || currentUser.empName || '使用者';
+  document.getElementById('selfAvatar').textContent = dName ? dName[0] : '👤';
+  document.getElementById('selfName').textContent = dName;
+  document.getElementById('selfRole').textContent = ROLE_LABELS[currentUser.role] || currentUser.role || '管理者';
+  document.getElementById('selfStore').textContent = currentUser.store || '全門市';
+  document.getElementById('selfUsername').textContent = currentUser.username;
+  document.getElementById('selfNameInfo').textContent = dName;
+  document.getElementById('selfRoleInfo').textContent = ROLE_LABELS[currentUser.role] || currentUser.role || '管理者';
+  document.getElementById('selfStoreInfo').textContent = currentUser.store || '全門市（無綁定）';
+  const linkStatus = currentUser.linked
+    ? `🔗 已連動排班系統（${currentUser.empName}）`
+    : `⚠️ 未連動排班系統`;
+  document.getElementById('selfStoreInfo').insertAdjacentHTML('afterend',
+    `<div style="font-size:12px; color:${currentUser.linked?'var(--accent)':'var(--warn)'}; margin-top:6px; font-weight:600;">${linkStatus}</div>`
+  );
+}
+
+function loadProfilePage() {
+  const dName = currentUser.displayName || currentUser.empName || '使用者';
+  document.getElementById('profileAvatar').textContent = dName ? dName[0] : '👤';
+  document.getElementById('profileName').textContent = dName;
+  document.getElementById('profileRoleText').textContent = (ROLE_LABELS[currentUser.role] || currentUser.role || '管理者') + ' · ' + (PERM_LABELS[currentUser.permission] || '');
+  document.getElementById('profileStoreText').textContent = currentUser.store ? `🏪 ${currentUser.store}` : '🏬 全門市';
+  const sysMenuItem = document.getElementById('menuSysConfig');
+  if(sysMenuItem) sysMenuItem.style.display = canSysConfig() ? 'flex' : 'none';
+  const storeConfigItem = document.getElementById('menuStoreConfig');
+  if(storeConfigItem) storeConfigItem.style.display = canSchedule() ? 'flex' : 'none';
+  const realPerm = realUser ? realUser.permission : currentUser.permission;
+  const rolePreviewItem = document.getElementById('menuRolePreview');
+  if(rolePreviewItem) rolePreviewItem.style.display = (realPerm === 'manager') ? 'flex' : 'none';
+  const rpSub = document.getElementById('menuRolePreviewSub');
+  if(rpSub) rpSub.textContent = previewRole ? `目前：${ROLE_PREVIEW_LABELS[previewRole]}` : '以不同角色體驗介面';
+}
+
+// ===== 帳號設定 MODAL =====
+async function openAccountModal(empName, store) {
+  document.getElementById('accountEmpStore').value = store;
+  document.getElementById('accountModalSub').textContent = `設定 ${empName} 的登入帳號`;
+  document.getElementById('accountPassword').value = '';
+  document.getElementById('accountPasswordConfirm').value = '';
+  document.getElementById('accountDisplayName').value = empName;
+  document.getElementById('accountUsername').value = '';
+  
+  document.getElementById('accountStartDate').value = '讀取中...';
+
+  try {
+    const empSnap = await window.db.collection('stores').doc(store).collection('employees').get();
+    let empOpts = '<option value="">-- 選擇排班系統員工 --</option>';
+    empSnap.forEach(d => {
+      if(d.data().status !== '離職') {
+        empOpts += `<option value="${d.id}" ${d.id === empName ? 'selected' : ''}>${d.id}（${d.data().role||''}）</option>`;
+      }
+    });
+    document.getElementById('accountEmpName').innerHTML = empOpts;
+    document.getElementById('accountEmpName').value = empName;
+  } catch(e) {}
+
+  const currentYear = new Date().getFullYear().toString();
+  try {
+    const leaveSnap = await window.db.collection('employees').doc(empName).collection('leaves').doc(currentYear).get();
+    if(leaveSnap.exists && leaveSnap.data().hireDate) {
+      document.getElementById('accountStartDate').value = leaveSnap.data().hireDate;
+    } else {
+      document.getElementById('accountStartDate').value = '';
+    }
+  } catch(e) {
+    document.getElementById('accountStartDate').value = '';
+  }
+
+  const permSel = document.getElementById('accountPermission');
+  const p = currentUser.permission;
+  let opts = `<option value="employee">👤 員工</option><option value="manager">🏪 店長</option>`;
+  if(p === 'owner' || p === 'admin') opts += `<option value="owner">👑 加盟主</option>`;
+  if(p === 'admin') opts += `<option value="admin">⚙️ 系統管理者</option>`;
+  permSel.innerHTML = opts;
+
+  try {
+    const snap = await window.db.collection('account').where('empName','==',empName).where('store','==',store).limit(1).get();
+    if(!snap.empty) {
+      const d = snap.docs[0];
+      const accData = d.data();
+      const uid = accData.ID || ''; 
+      document.getElementById('accountUsername').value = uid;
+      document.getElementById('accountDisplayName').value = accData.displayName || empName || '';
+      document.getElementById('accountRole').value = accData.role || 'employee';
+      permSel.value = accData.permission || 'employee';
+      
+      if(accData.linked === false) {
+        document.getElementById('linkTypeNew').checked = true;
+        toggleLinkType();
+        document.getElementById('accountNewEmpName').value = accData.empName || '';
+      } else {
+        document.getElementById('linkTypeLinked').checked = true;
+        toggleLinkType();
+        document.getElementById('accountEmpName').value = accData.empName || empName;
+      }
+    } else {
+      document.getElementById('linkTypeLinked').checked = true;
+      toggleLinkType();
+      permSel.value = 'employee';
+      try {
+        const empDocSnap = await window.db.collection('stores').doc(store).collection('employees').doc(empName).get();
+        if(empDocSnap.exists) {
+          document.getElementById('accountRole').value = empDocSnap.data().role || '工讀';
+        }
+      } catch(e) {}
+    }
+  } catch(e) {}
+
+  document.getElementById('accountModal').classList.add('active');
+}
+
+function toggleLinkType() {
+  const isLinked = document.getElementById('linkTypeLinked').checked;
+  document.getElementById('linkEmpGroup').style.display = isLinked ? 'block' : 'none';
+  document.getElementById('newEmpGroup').style.display = isLinked ? 'none' : 'block';
+}
+
+async function saveAccountSetting() {
+  const store = document.getElementById('accountEmpStore').value;
+  const username = document.getElementById('accountUsername').value.trim().toUpperCase();
+  const displayName = document.getElementById('accountDisplayName').value.trim();
+  const pwd = document.getElementById('accountPassword').value;
+  const pwdConfirm = document.getElementById('accountPasswordConfirm').value;
+  const permission = document.getElementById('accountPermission').value;
+  const isLinked = document.getElementById('linkTypeLinked').checked;
+  const empName = isLinked
+    ? document.getElementById('accountEmpName').value
+    : document.getElementById('accountNewEmpName').value.trim();
+
+  if(!/^[A-Z][0-9]{5}$/.test(username)) { showToast('⚠️ 帳號格式錯誤：需為1個字母+後5碼數字'); return; }
+  if(!displayName) { showToast('⚠️ 請填寫顯示姓名'); return; }
+  if(!empName) { showToast('⚠️ 請選擇或填寫排班系統員工名稱'); return; }
+  if(pwd && pwd !== pwdConfirm) { showToast('⚠️ 兩次密碼不一致'); return; }
+  if(pwd && pwd.length < 4) { showToast('⚠️ 密碼至少 4 碼'); return; }
+
+  showLoading('儲存帳號設定中...');
+  try {
+    const dupSnap = await window.db.collection('account').where('ID','==',username).limit(1).get();
+    if(!dupSnap.empty && dupSnap.docs[0].data().empName !== empName) {
+      hideLoading();
+      showToast('❌ 此帳號已被其他人使用');
+      return;
+    }
+
+    const newRole = document.getElementById('accountRole').value;
+    if(isLinked && empName) {
+      await window.db.collection('stores').doc(store).collection('employees').doc(empName).set(
+        { role: newRole }, { merge: true }
+      );
+    }
+
+    const oldSnap = await window.db.collection('account').where('empName','==',empName).where('store','==',store).limit(1).get();
+
+    let updateData = {
+      ID: username,
+      displayName: displayName,
+      empName: empName,
+      store: store,
+      permission: permission,
+      role: newRole,
+      linked: isLinked,
+      disabled: false
+    };
+    if(pwd) updateData.password = pwd;
+
+    if(!oldSnap.empty) {
+      await window.db.collection('account').doc(oldSnap.docs[0].id).set(updateData, { merge: true });
+    } else {
+      const allSnap = await window.db.collection('account').get();
+      const nextNum = String(allSnap.size + 1).padStart(4, '0');
+      await window.db.collection('account').doc(nextNum).set(updateData);
+    }
+
+    closeModal('accountModal');
+    hideLoading();
+    showToast(`✅ ${displayName} 的帳號（${username}）已儲存`);
+    await loadEmpAdminList(store);
+  } catch(e) {
+    hideLoading();
+    showToast('❌ 儲存失敗：' + e.message);
+  }
+}
+
+// ===== 修改密碼 =====
+function openChangePwd() {
+  document.getElementById('oldPassword').value = '';
+  document.getElementById('newPassword').value = '';
+  document.getElementById('newPasswordConfirm').value = '';
+  document.getElementById('changePwdModal').classList.add('active');
+}
+
+async function doChangePwd() {
+  const oldPwd = document.getElementById('oldPassword').value;
+  const newPwd = document.getElementById('newPassword').value;
+  const newPwdConfirm = document.getElementById('newPasswordConfirm').value;
+
+  if(!oldPwd || !newPwd) { showToast('⚠️ 請填寫所有欄位'); return; }
+  if(newPwd !== newPwdConfirm) { showToast('⚠️ 兩次新密碼不一致'); return; }
+  if(newPwd.length < 4) { showToast('⚠️ 密碼至少需要 4 個字元'); return; }
+
+  showLoading('驗證中...');
+  try {
+    const snap = await window.db.collection('account').doc(currentUser.docId).get();
+    if(!snap.exists || snap.data().password !== oldPwd) {
+      hideLoading();
+      showToast('❌ 舊密碼錯誤');
+      return;
+    }
+    await window.db.collection('account').doc(currentUser.docId).update({ password: newPwd });
+    closeModal('changePwdModal');
+    hideLoading();
+    showToast('✅ 密碼修改成功');
+  } catch(e) {
+    hideLoading();
+    showToast('❌ 修改失敗：' + e.message);
+  }
+}
+
+// ===== 新增員工 =====
+function openAddEmpModal() {
+  const store = currentEmpAdminStore || currentUser.store || (appConfig.stores && appConfig.stores[0]);
+  document.getElementById('addEmpStore').value = store;
+  document.getElementById('addEmpStoreSub').textContent = `新增員工到「${store}」並建立帳號`;
+  document.getElementById('addEmpSysName').value = '';
+  document.getElementById('addEmpDisplayName').value = '';
+  document.getElementById('addEmpRole').value = '工讀';
+  document.getElementById('addEmpWage').value = '';
+  document.getElementById('addEmpUsername').value = '';
+  document.getElementById('addEmpPassword').value = '';
+  document.getElementById('addEmpPermission').value = 'employee';
+  const p = currentUser.permission;
+  const permSel = document.getElementById('addEmpPermission');
+  let opts = `<option value="employee">👤 員工</option><option value="manager">🏪 店長</option>`;
+  if(p === 'owner' || p === 'admin') opts += `<option value="owner">👑 加盟主</option>`;
+  if(p === 'admin') opts += `<option value="admin">⚙️ 系統管理者</option>`;
+  permSel.innerHTML = opts;
+  document.getElementById('addEmpModal').classList.add('active');
+}
+
+async function saveNewEmployee() {
+  const store = document.getElementById('addEmpStore').value;
+  const sysName = document.getElementById('addEmpSysName').value.trim();
+  const displayName = document.getElementById('addEmpDisplayName').value.trim();
+  const role = document.getElementById('addEmpRole').value;
+  const wage = document.getElementById('addEmpWage').value;
+  const username = document.getElementById('addEmpUsername').value.trim().toUpperCase();
+  const password = document.getElementById('addEmpPassword').value;
+  const permission = document.getElementById('addEmpPermission').value;
+
+  if(!sysName) { showToast('⚠️ 請填寫排班系統名稱'); return; }
+  if(!displayName) { showToast('⚠️ 請填寫顯示姓名'); return; }
+  if(username && !/^[A-Z][0-9]{5}$/.test(username)) { showToast('⚠️ 帳號格式錯誤'); return; }
+  if(username && password.length < 4) { showToast('⚠️ 密碼至少4碼'); return; }
+
+  showLoading('新增員工中...');
+  try {
+    const empSnap = await window.db.collection('stores').doc(store).collection('employees').get();
+    const sortKey = empSnap.size + 1;
+
+    await window.db.collection('stores').doc(store).collection('employees').doc(sysName).set({
+      role: role,
+      wage: parseFloat(wage) || 0,
+      status: '在職',
+      sortKey: sortKey
+    });
+
+    if(username && password) {
+      const dupSnap = await window.db.collection('account').where('ID','==',username).limit(1).get();
+      if(!dupSnap.empty) {
+        hideLoading();
+        showToast('❌ 此帳號已被使用，員工已建立但帳號未建立');
+        closeModal('addEmpModal');
+        await loadEmpAdminList(store);
+        return;
+      }
+      const allAccSnap = await window.db.collection('account').get();
+      const nextNum = String(allAccSnap.size + 1).padStart(4, '0');
+      await window.db.collection('account').doc(nextNum).set({
+        ID: username,
+        displayName: displayName,
+        empName: sysName,
+        store: store,
+        role: role,
+        permission: permission,
+        password: password,
+        linked: true,
+        disabled: false
+      });
+    }
+
+    closeModal('addEmpModal');
+    hideLoading();
+    showToast(`✅ ${displayName} 已新增${username ? '，帳號已建立' : '，請之後設定帳號'}`);
+    await loadEmpAdminList(store);
+  } catch(e) {
+    hideLoading();
+    showToast('❌ 新增失敗：' + e.message);
+  }
+}
+
+// ===== 離職 / 復職 =====
+function toggleRetire(empId, store, isRetired, dispName) {
+  if(isRetired) {
+    // 復職：直接操作，不需要日期
+    reinstateEmp(empId, store);
+    return;
+  }
+  // 離職：開啟日期 Modal
+  const name = dispName || empId;
+  document.getElementById('retireEmpId').value = empId;
+  document.getElementById('retireStore').value = store;
+  document.getElementById('retireModalSub').textContent = `將「${name}」標記為離職`;
+  const today = new Date();
+  document.getElementById('retireDate').value =
+    `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  openModal('retireModal');
+}
+
+async function confirmRetire() {
+  const empId      = document.getElementById('retireEmpId').value;
+  const store      = document.getElementById('retireStore').value;
+  const retireDate = document.getElementById('retireDate').value;
+  if(!retireDate) { showToast('⚠️ 請選擇生效日期'); return; }
+  const sub = document.getElementById('retireModalSub').textContent;
+  const nameMatch = sub.match(/將「(.+)」/);
+  const name = nameMatch ? nameMatch[1] : empId;
+
+  // ✅ 檢查該員工本月薪資是否已送出
+  const today = new Date();
+  const ym = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
+  const salSnap = await window.db.collection('stores').doc(store).collection('salary').doc(ym).get().catch(()=>null);
+  const salStatus = salSnap?.exists ? salSnap.data().status : 'draft';
+  if(salStatus === 'draft') {
+    const proceed = confirm(`⚠️ 注意：${name} 本月薪資尚未送出！\n\n依規定應先完成本月薪資（含特休遞延結算）再標記離職。\n\n確定要繼續嗎？（建議先至薪資系統處理）`);
+    if(!proceed) return;
+  }
+
+  // ✅ 計算離職特休結算（擇優）
+  const batchSnap = await window.db.collection('employees').doc(empId).collection('leaveBatches').get().catch(()=>null);
+  let batches = [];
+  if(batchSnap) batchSnap.forEach(d=>batches.push({id:d.id,...d.data()}));
+  const hireDate = batches[0]?.grantDate ? (() => { const d=new Date(batches[0].grantDate); d.setMonth(d.getMonth()-6); return d.toISOString().split('T')[0]; })() : null;
+
+  let settleMsg = '';
+  if(hireDate && batches.length > 0) {
+    const f=new Date(hireDate), t=new Date(retireDate);
+    const totalMonths=(t.getFullYear()-f.getFullYear())*12+(t.getMonth()-f.getMonth());
+    const weeklyRemain = batches.filter(b=>!b.settled).reduce((a,b)=>a+Math.max(0,(b.days||0)-(b.used||0)),0);
+    // 比例制
+    let propDays = 0;
+    if(totalMonths>=6){ const rule=totalMonths<12?3:totalMonths<24?7:totalMonths<36?10:totalMonths<48?14:totalMonths<120?15:Math.min(30,15+Math.floor(totalMonths/12)-9); propDays=Math.ceil(rule*(totalMonths%12||12)/12); }
+    const finalDays = Math.max(weeklyRemain, propDays);
+    const basis = finalDays===propDays&&propDays>weeklyRemain?'比例制（較優）':'週年制（較優）';
+    if(finalDays > 0) settleMsg = `\n\n📋 離職特休結算（擇優原則）\n週年制剩餘：${weeklyRemain} 天\n比例制應得：${propDays} 天\n最終補發：${finalDays} 天（${basis}）\n\n請在最後一個月薪資中手動加入此金額。`;
+  }
+
+  if(!confirm(`確定將「${name}」標記為離職？\n生效日：${retireDate}${settleMsg}`)) return;
+
+  showLoading('處理中...');
+  try {
+    await window.db.collection('stores').doc(store).collection('employees').doc(empId).update({ status:'離職', retireDate });
+    showToast(`✅ ${name} 已標記離職，生效日：${retireDate}`);
+    closeModal('retireModal');
+    await loadEmpAdminList(store);
+  } catch(e) { showToast('❌ 失敗：' + e.message); }
+  hideLoading();
+}
+
+// ===== 調店 =====
+function openTransferModal(empId, fromStore, dispName) {
+  document.getElementById('transferEmpId').value = empId;
+  document.getElementById('transferFromStore').value = fromStore;
+  const name = dispName || empId;
+  document.getElementById('transferSub').textContent = `將「${name}」從「${fromStore}」調往`;
+
+  const sel = document.getElementById('transferToStore');
+  sel.innerHTML = (appConfig.stores || [])
+    .filter(s => s !== fromStore)
+    .map(s => `<option value="${s}">${s}</option>`).join('');
+
+  // 生效日期預設今天
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  document.getElementById('transferDate').value = todayStr;
+
+  const empStore = fromStore;
+  window.db.collection('stores').doc(empStore).collection('employees').doc(empId).get()
+    .then(snap => {
+      if(snap.exists) {
+        const role = snap.data().role || '工讀';
+        document.getElementById('transferRole').value = role;
+      }
+    }).catch(()=>{});
+
+  openModal('transferModal');
+}
+
+async function confirmTransfer() {
+  const empId = document.getElementById('transferEmpId').value;
+  const fromStore = document.getElementById('transferFromStore').value;
+  const toStore = document.getElementById('transferToStore').value;
+  const effectDate = document.getElementById('transferDate').value; 
+  const newRole = document.getElementById('transferRole').value;
+  if(!toStore) { showToast('⚠️ 請選擇目標門市'); return; }
+  if(!effectDate) { showToast('⚠️ 請選擇生效日期'); return; }
+
+  const sub = document.getElementById('transferSub').textContent;
+  const nameMatch = sub.match(/將「(.+)」從/);
+  const displayedName = nameMatch ? nameMatch[1] : empId;
+
+  if(!confirm(`確定將「${displayedName}」\n從「${fromStore}」調往「${toStore}」？\n\n生效日：${effectDate}\n新職務：${newRole}\n\n排班系統從下週一起生效，其他頁面當天起生效`)) return;
+
+  showLoading('調店處理中...');
+  try {
+    const empSnap = await window.db.collection('stores').doc(fromStore).collection('employees').doc(empId).get();
+    const empData = empSnap.data() || {};
+
+    await window.db.collection('stores').doc(fromStore).collection('employees').doc(empId)
+      .update({ status: '調走', transferredTo: toStore, transferDate: effectDate });
+
+    const newEmpSnap = await window.db.collection('stores').doc(toStore).collection('employees').get();
+    const existsInNew = newEmpSnap.docs.some(d => d.id === empId);
+    await window.db.collection('stores').doc(toStore).collection('employees').doc(empId).set({
+      ...empData,
+      role: newRole,
+      status: '在職',
+      sortKey: existsInNew ? empData.sortKey : newEmpSnap.size + 1,
+      transferredFrom: fromStore,
+      transferDate: effectDate
+    });
+
+    const accSnap = await window.db.collection('account')
+      .where('empName','==',empId).where('store','==',fromStore).limit(1).get();
+    if(!accSnap.empty) {
+      const accDoc = accSnap.docs[0];
+      const accData = accDoc.data();
+      const prevHistory = accData.storeHistory || [];
+
+      const updatedHistory = prevHistory.map((h, i) =>
+        i === prevHistory.length - 1 && !h.to
+          ? { ...h, to: effectDate, role: empData.role || h.role }
+          : h
+      );
+      if(updatedHistory.length === 0) {
+        updatedHistory.push({
+          store: fromStore,
+          from: accData.createdAt ? accData.createdAt.substring(0,10) : '2026-01-01',
+          to: effectDate,
+          role: empData.role || ''
+        });
+      }
+      updatedHistory.push({
+        store: toStore,
+        from: effectDate,
+        to: null,
+        role: newRole
+      });
+
+      await window.db.collection('account').doc(accDoc.id).update({
+        store: toStore,
+        storeHistory: updatedHistory
+      });
+    }
+
+    showLoading('複製班表中...');
+    await transferSchedule(empId, fromStore, toStore, effectDate);
+
+    closeModal('transferModal');
+    hideLoading();
+    showToast(`✅ ${displayedName} 已調往 ${toStore}，班表已複製`);
+    await loadEmpAdminList(fromStore);
+  } catch(e) {
+    hideLoading();
+    showToast('❌ 調店失敗：' + e.message);
+    console.error(e);
+  }
+}
+
+async function transferSchedule(empId, fromStore, toStore, effectDate) {
+  const [ey, em] = effectDate.split('-').map(Number);
+  const effectTs = new Date(ey, em-1, 1).getTime();
+
+  const weeks = new Set();
+  for(let month = em; month <= em+1; month++) {
+    const m = month > 12 ? month-12 : month;
+    const y = month > 12 ? ey+1 : ey;
+    const d = new Date(y, m-1, 1);
+    const end = new Date(y, m, 0);
+    while(d <= end) {
+      const yr = d.getFullYear();
+      const first = new Date(yr, 0, 1);
+      const wk = Math.ceil((((d-first)/86400000)+first.getDay()+1)/7);
+      weeks.add(`${yr}-W${String(wk).padStart(2,'0')}`);
+      d.setDate(d.getDate()+7);
+    }
+  }
+
+  const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
+
+  await Promise.all([...weeks].map(async ws => {
+    const fromSnap = await window.db.collection('stores').doc(fromStore)
+      .collection('weeks').doc(ws).get();
+    if(!fromSnap.exists) return;
+
+    const records = fromSnap.data().records || [];
+    const empRecords = records.filter(r => {
+      if(r.name !== empId) return false;
+      const wDates = getWeekDates(ws);
+      const dIdx = dayNames.indexOf(r.day);
+      if(dIdx < 0) return false;
+      const [dm, dd] = (wDates[dIdx]||'').split('/').map(Number);
+      const recDate = new Date(parseInt(ws.split('-W')[0]), dm-1, dd).getTime();
+      return recDate >= effectTs;
+    });
+
+    if(empRecords.length === 0) return;
+
+    const toSnap = await window.db.collection('stores').doc(toStore)
+      .collection('weeks').doc(ws).get();
+    let toRecords = toSnap.exists ? (toSnap.data().records || []) : [];
+
+    toRecords = toRecords.filter(r => r.name !== empId);
+
+    const copied = empRecords.map(r => ({
+      ...r,
+      location: `支援${fromStore}`,
+      _transferredFrom: fromStore
+    }));
+
+    toRecords = [...toRecords, ...copied];
+
+    await window.db.collection('stores').doc(toStore)
+      .collection('weeks').doc(ws).set(
+        { records: toRecords },
+        { merge: true }
+      );
+  }));
+}
+
+const DEFAULT_SHIFTS = ['7-15','15-23','23-07','18-23','清空','指休','排休'];
+const DEFAULT_SHIFT_HOURS = { '7-15':8, '15-23':8, '23-07':8, '18-23':5 };
+let storeConfig = { shifts: [...DEFAULT_SHIFTS], shiftHours: {...DEFAULT_SHIFT_HOURS}, quickNotes: ['作帳','訂鮮食','訂捷盟','訂乳品18度C'] };
+
+// ===== 系統基礎設定（管理者）=====
+async function openSysConfigModal() {
+  const listEl = document.getElementById('sysStoreList');
+  listEl.innerHTML = '';
+  (appConfig.stores || []).forEach(s => {
+    listEl.innerHTML += `<div style="display:flex; align-items:center; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border);">
+      <span style="font-size:14px; font-weight:700;">${s}</span>
+      <button onclick="removeSysStore('${s}')" style="background:none; border:1px solid var(--danger); color:var(--danger); border-radius:6px; padding:4px 10px; font-size:11px; font-weight:700; cursor:pointer;">刪除</button>
+    </div>`;
+  });
+  // ✅ 角色預覽：只對 admin 顯示
+  const rpSection = document.getElementById('sysRolePreviewSection');
+  if(rpSection) rpSection.style.display = canSysConfig() ? 'block' : 'none';
+
+  // 國定假日管理：加盟主以上顯示
+  const canManageHoliday = ['owner','admin'].includes(currentUser?.permission);
+  const hSection = document.getElementById('sysHolidaySection');
+  if(hSection) hSection.style.display = canManageHoliday ? 'block' : 'none';
+  if(canManageHoliday) {
+    holidayMgrYear = new Date().getFullYear();
+    await loadHolidayMgrData(holidayMgrYear);
+    renderHolidayYearTabs();
+    renderHolidayList();
+  }
+
+  document.getElementById('sysNewStore').value = '';
+  openModal('sysConfigModal');
+}
+
+function addSysStore() {
+  const name = document.getElementById('sysNewStore').value.trim();
+  if(!name) { showToast('⚠️ 請輸入門市名稱'); return; }
+  if(appConfig.stores.includes(name)) { showToast('⚠️ 此門市名稱已存在'); return; }
+  appConfig.stores.push(name);
+  openSysConfigModal();
+}
+
+function removeSysStore(name) {
+  if(DEFAULT_SHIFTS.length === 0) return; 
+  if(!confirm(`確定刪除「${name}」門市？此操作不可逆。`)) return;
+  appConfig.stores = appConfig.stores.filter(s => s !== name);
+  openSysConfigModal();
+}
+
+async function saveSysConfig() {
+  showLoading('儲存系統設定中...');
+  try {
+    await window.db.collection('settings').doc('globalConfig').set(appConfig, { merge: true });
+    closeModal('sysConfigModal');
+    hideLoading();
+    showToast('✅ 系統設定已儲存');
+  } catch(e) {
+    hideLoading();
+    showToast('❌ 儲存失敗：' + e.message);
+  }
+}
+
+// ===== 國定假日管理（加盟主以上）=====
+// 內建假日（與 leave-request.html 同步）
+const BUILTIN_HOLIDAYS_HOME = {
+  '2026': {
+    '2026-01-01':'元旦','2026-01-28':'除夕','2026-01-29':'春節','2026-01-30':'春節',
+    '2026-01-31':'春節','2026-02-01':'春節','2026-02-02':'春節','2026-02-28':'和平紀念日',
+    '2026-04-03':'兒童節','2026-04-04':'清明節','2026-05-01':'勞動節',
+    '2026-06-19':'端午節','2026-09-26':'中秋節','2026-10-10':'國慶日'
+  },
+  '2027': {
+    '2027-01-01':'元旦','2027-02-17':'除夕','2027-02-18':'春節','2027-02-19':'春節',
+    '2027-02-20':'春節','2027-02-21':'春節','2027-02-22':'春節','2027-02-28':'和平紀念日',
+    '2027-04-03':'兒童節','2027-04-05':'清明節','2027-05-01':'勞動節',
+    '2027-06-09':'端午節','2027-10-01':'中秋節','2027-10-10':'國慶日'
+  }
+};
+
+let holidayMgrYear = new Date().getFullYear();
+let holidayMgrData = {}; // { year: { 'YYYY-MM-DD': '假日名' } }
+
+async function loadHolidayMgrData(year) {
+  if(holidayMgrData[year]) return; // 已快取
+  try {
+    const snap = await window.db.collection('settings').doc('holidays')
+      .collection('years').doc(String(year)).get();
+    if(snap.exists && snap.data().dates) {
+      holidayMgrData[year] = { ...snap.data().dates };
+    } else {
+      // Firestore 無資料 → 自動帶入內建並寫入
+      holidayMgrData[year] = { ...(BUILTIN_HOLIDAYS_HOME[String(year)] || {}) };
+      await saveHolidayYear(year);
+      showToast(`✅ 已自動帶入 ${year} 年內建假日`);
+    }
+  } catch(e) {
+    holidayMgrData[year] = { ...(BUILTIN_HOLIDAYS_HOME[String(year)] || {}) };
+  }
+}
+
+async function saveHolidayYear(year) {
+  await window.db.collection('settings').doc('holidays')
+    .collection('years').doc(String(year)).set({ dates: holidayMgrData[year] || {} });
+}
+
+function renderHolidayYearTabs() {
+  const el = document.getElementById('holidayYearTabs');
+  if(!el) return;
+  const curYear = new Date().getFullYear();
+  const years = [curYear, curYear+1];
+  el.innerHTML = years.map(y =>
+    `<button onclick="switchHolidayYear(${y})"
+      style="padding:5px 16px;border-radius:16px;border:1.5px solid ${y===holidayMgrYear?'var(--primary)':'var(--border)'};
+      background:${y===holidayMgrYear?'var(--primary)':'white'};color:${y===holidayMgrYear?'white':'var(--text-muted)'};
+      font-size:13px;font-weight:700;cursor:pointer;">${y} 年</button>`
+  ).join('');
+}
+
+async function switchHolidayYear(year) {
+  holidayMgrYear = year;
+  await loadHolidayMgrData(year);
+  renderHolidayYearTabs();
+  renderHolidayList();
+}
+
+function renderHolidayList() {
+  const el = document.getElementById('holidayList');
+  if(!el) return;
+  const dates = holidayMgrData[holidayMgrYear] || {};
+  const sorted = Object.keys(dates).sort();
+  if(!sorted.length) {
+    el.innerHTML = `<div style="text-align:center;color:var(--text-muted);font-size:13px;padding:12px 0;">尚無假日資料</div>`;
+    return;
+  }
+  const fmtD = s => { const [y,m,d]=s.split('-'); return `${parseInt(m)}/${parseInt(d)}`; };
+  el.innerHTML = sorted.map(dateStr =>
+    `<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;border-bottom:1px solid #f1f3f4;">
+      <span style="font-size:13px;font-weight:700;color:var(--danger);">${fmtD(dateStr)}</span>
+      <span style="font-size:13px;flex:1;margin-left:10px;">${dates[dateStr]}</span>
+      <button onclick="removeHoliday('${dateStr}')"
+        style="background:none;border:none;color:var(--danger);font-size:16px;cursor:pointer;padding:0 4px;font-weight:900;">✕</button>
+    </div>`
+  ).join('');
+}
+
+async function addHoliday() {
+  const dateStr = document.getElementById('newHolidayDate').value;
+  const name    = document.getElementById('newHolidayName').value.trim();
+  if(!dateStr || !name) { showToast('⚠️ 請填寫日期和假日名稱'); return; }
+  const year = parseInt(dateStr.split('-')[0]);
+  if(!holidayMgrData[year]) holidayMgrData[year] = {};
+  holidayMgrData[year][dateStr] = name;
+  // 自動切換到該年份
+  if(year !== holidayMgrYear) {
+    holidayMgrYear = year;
+    renderHolidayYearTabs();
+  }
+  showLoading('儲存中...');
+  await saveHolidayYear(year);
+  hideLoading();
+  document.getElementById('newHolidayDate').value = '';
+  document.getElementById('newHolidayName').value = '';
+  renderHolidayList();
+  showToast('✅ 假日已新增');
+}
+
+async function removeHoliday(dateStr) {
+  const year = parseInt(dateStr.split('-')[0]);
+  if(!confirm(`確定刪除「${dateStr} ${holidayMgrData[year]?.[dateStr]}」？`)) return;
+  delete holidayMgrData[year][dateStr];
+  showLoading('儲存中...');
+  await saveHolidayYear(year);
+  hideLoading();
+  renderHolidayList();
+  showToast('✅ 已刪除');
+}
+
+// ===== 門市班別設定（店長以上）=====
+async function openStoreConfigModal(targetStore) {
+  // 加盟主/admin 可切換門市；店長只看自己的店
+  const isMulti = ['owner','admin'].includes(currentUser?.permission);
+  const stores = isMulti ? (appConfig.stores || []) : [currentUser.store || appConfig.stores?.[0] || ''];
+  const store = targetStore || currentUser.store || stores[0] || '';
+
+  // 渲染門市 tab
+  const tabsEl = document.getElementById('storeConfigTabs');
+  if(isMulti && stores.length > 1) {
+    tabsEl.style.display = 'flex';
+    tabsEl.innerHTML = stores.map(s =>
+      `<button style="padding:5px 14px;border-radius:16px;border:1.5px solid ${s===store?'var(--primary)':'var(--border)'};background:${s===store?'var(--primary)':'white'};color:${s===store?'white':'var(--text-muted)'};font-size:12px;font-weight:700;cursor:pointer;"
+        onclick="openStoreConfigModal('${s}')">${s}</button>`
+    ).join('');
+  } else {
+    tabsEl.style.display = 'none';
+  }
+
+  document.getElementById('storeConfigStore').value = store;
+  document.getElementById('storeConfigSub').textContent = `「${store}」班別快捷設定`;
+  document.getElementById('storeConfigFirstSave').style.display = 'none';
+
+  showLoading('讀取門市設定...');
+  try {
+    const snap = await window.db.collection('stores').doc(store).collection('config').doc('shifts').get();
+    if(snap.exists) {
+      // 門市 config 存在：以門市 config 為主
+      storeConfig = {
+        shifts:     snap.data().shifts     || [...(appConfig.shifts || DEFAULT_SHIFTS)],
+        shiftHours: snap.data().shiftHours || {...(appConfig.shiftHours || DEFAULT_SHIFT_HOURS)},
+        quickNotes: snap.data().quickNotes || (appConfig.quickNotes ? [...appConfig.quickNotes] : ['作帳','訂鮮食','訂捷盟','訂乳品18度C']),
+        leaveQuota: snap.data().leaveQuota || { fullTime: 2, partTime: 1 }
+      };
+    } else {
+      // 門市 config 不存在：以 appConfig（globalConfig）為初始值，保留所有自訂班別
+      storeConfig = {
+        shifts:     [...(appConfig.shifts || DEFAULT_SHIFTS)],
+        shiftHours: {...(appConfig.shiftHours || DEFAULT_SHIFT_HOURS)},
+        quickNotes: appConfig.quickNotes ? [...appConfig.quickNotes] : ['作帳','訂鮮食','訂捷盟','訂乳品18度C'],
+        leaveQuota: { fullTime: 2, partTime: 1 }
+      };
+      // 第一次開啟：提示儲存一次以鎖定設定
+      document.getElementById('storeConfigFirstSave').style.display = 'block';
+    }
+  } catch(e) {}
+  hideLoading();
+
+  renderShiftBtnList();
+  renderNoteBtnList();
+  document.getElementById('newShiftBtn').value = '';
+  document.getElementById('newShiftHours').value = '';
+  document.getElementById('newNoteBtn').value = '';
+  // 填入劃休上限
+  document.getElementById('quotaFullTime').value = storeConfig.leaveQuota?.fullTime ?? 2;
+  document.getElementById('quotaPartTime').value = storeConfig.leaveQuota?.partTime ?? 1;
+  // 若 modal 尚未開啟才 open（切換 tab 時已開著）
+  if(!document.getElementById('storeConfigModal').classList.contains('active')) {
+    openModal('storeConfigModal');
+  }
+}
+
+function renderShiftBtnList() {
+  const el = document.getElementById('shiftBtnList');
+  el.innerHTML = storeConfig.shifts.map(s => {
+    const isDefault = DEFAULT_SHIFTS.includes(s);
+    const h = storeConfig.shiftHours[s] || '';
+    return `<div style="display:inline-flex; align-items:center; background:${isDefault?'#f1f3f4':'#e8f0fe'}; border-radius:8px; padding:5px 8px; gap:4px; font-size:12px; font-weight:700; max-width:100%;">
+      <span>${s}${h ? ` <span style="color:var(--text-muted);font-size:10px;">(${h}h)</span>` : ''}</span>
+      ${isDefault ? '<span style="color:var(--text-muted);font-size:10px;">預設</span>' :
+        `<span onclick="removeShiftBtn('${s}')" style="cursor:pointer;color:var(--danger);font-size:13px;font-weight:900;">✕</span>`}
+    </div>`;
+  }).join('');
+}
+
+function renderNoteBtnList() {
+  const el = document.getElementById('noteBtnList');
+  el.innerHTML = storeConfig.quickNotes.map(n =>
+    `<div style="display:inline-flex; align-items:center; background:#e8f0fe; border-radius:8px; padding:6px 10px; gap:6px; font-size:13px; font-weight:700;">
+      ${n}
+      <span onclick="removeNoteBtn('${n}')" style="cursor:pointer;color:var(--danger);font-size:14px;font-weight:900;">✕</span>
+    </div>`
+  ).join('');
+}
+
+function addShiftBtn() {
+  const name = document.getElementById('newShiftBtn').value.trim();
+  const hours = parseFloat(document.getElementById('newShiftHours').value) || 0;
+  if(!name) { showToast('⚠️ 請輸入班別名稱'); return; }
+  if(storeConfig.shifts.includes(name)) { showToast('⚠️ 此班別已存在'); return; }
+  storeConfig.shifts.push(name);
+  if(hours) storeConfig.shiftHours[name] = hours;
+  document.getElementById('newShiftBtn').value = '';
+  document.getElementById('newShiftHours').value = '';
+  renderShiftBtnList();
+}
+
+function removeShiftBtn(name) {
+  if(DEFAULT_SHIFTS.includes(name)) { showToast('⚠️ 預設班別不可刪除'); return; }
+  storeConfig.shifts = storeConfig.shifts.filter(s => s !== name);
+  delete storeConfig.shiftHours[name];
+  renderShiftBtnList();
+}
+
+function addNoteBtn() {
+  const name = document.getElementById('newNoteBtn').value.trim();
+  if(!name) { showToast('⚠️ 請輸入備註文字'); return; }
+  if(storeConfig.quickNotes.includes(name)) { showToast('⚠️ 此備註已存在'); return; }
+  storeConfig.quickNotes.push(name);
+  document.getElementById('newNoteBtn').value = '';
+  renderNoteBtnList();
+}
+
+function removeNoteBtn(name) {
+  storeConfig.quickNotes = storeConfig.quickNotes.filter(n => n !== name);
+  renderNoteBtnList();
+}
+
+async function saveStoreConfig() {
+  const store = document.getElementById('storeConfigStore').value;
+  const qFull = parseInt(document.getElementById('quotaFullTime').value) || 2;
+  const qPart = parseInt(document.getElementById('quotaPartTime').value) || 1;
+  storeConfig.leaveQuota = { fullTime: qFull, partTime: qPart };
+  showLoading('儲存門市設定中...');
+  try {
+    await window.db.collection('stores').doc(store).collection('config').doc('shifts').set(storeConfig);
+    closeModal('storeConfigModal');
+    hideLoading();
+    showToast('✅ 門市設定已儲存');
+  } catch(e) {
+    hideLoading();
+    showToast('❌ 儲存失敗：' + e.message);
+  }
+}
+
 // ===== 角色預覽 =====
 let realUser = null; 
 let previewRole = null; 
@@ -2130,6 +3510,20 @@ document.getElementById('loginPassword').addEventListener('keydown', (e) => {
 document.getElementById('loginUsername').addEventListener('keydown', (e) => {
   if(e.key === 'Enter') document.getElementById('loginPassword').focus();
 });
+
+// ===== 離線偵測 =====
+function updateNetworkStatus() {
+  const dot    = document.getElementById('networkDot');
+  const banner = document.getElementById('offlineBanner');
+  if(!dot || !banner) return;
+  const online = navigator.onLine;
+  dot.style.background = online ? '#34a853' : '#d93025';
+  dot.title = online ? '連線正常' : '離線中';
+  banner.style.display = online ? 'none' : 'block';
+}
+window.addEventListener('online',  updateNetworkStatus);
+window.addEventListener('offline', updateNetworkStatus);
+updateNetworkStatus(); // 初始執行一次
 </script>
 
 <script>
