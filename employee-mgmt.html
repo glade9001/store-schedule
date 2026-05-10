@@ -612,29 +612,47 @@ async function openAccountModal(empName, store) {
     document.getElementById('linkTypeNew').checked = !isLinked;
     toggleLinkType();
 
-   // 角色與權限
+// 角色與權限
     const empData = storeEmpSnap.docs.find(d=>d.id===empName)?.data() || {};
     document.getElementById('accountRole').value = existingDoc?.role || empData.role || '工讀';
 
-    // 📝 根據當前登入者權限，動態產生下拉選單
+    // 📝 權限防禦機制：判斷是否鎖死權限變更選單
     const permSel = document.getElementById('accountPermission');
-    const allowed = getAllowedPermissions();
     const currentTargetPerm = existingDoc?.permission || 'employee';
     
-    let optionsHtml = '';
-    ALL_PERMS.forEach(p => {
-      // 1. 如果是當前使用者可以設定的權限，就正常顯示
-      if (allowed.includes(p.v)) {
-        const isSelected = currentTargetPerm === p.v ? 'selected' : '';
-        optionsHtml += `<option value="${p.v}" ${isSelected}>${p.l}</option>`;
-      } 
-      // 2. 如果該帳號原先的權限比當前使用者大（例如加盟主點開管理員），必須顯示該選項並鎖定防呆，避免不小心被降級
-      else if (currentTargetPerm === p.v) {
-        optionsHtml += `<option value="${p.v}" selected disabled>${p.l} (無權變更)</option>`;
-      }
-    });
-    
-    permSel.innerHTML = optionsHtml;
+    // 定義階級大小：數字越大權限越高
+    const PERM_LEVELS = { admin: 4, owner: 3, manager: 2, employee: 1 };
+    const myLevel = PERM_LEVELS[currentUser?.permission || 'employee'];
+    const targetLevel = PERM_LEVELS[currentTargetPerm];
+
+    // 觸發鎖定條件：
+    // 1. 對方權限大於自己 (例如：店長看老闆或管理員)
+    // 2. 對方跟自己同級，且自己不是最高管理員 (例如：店長看自己或其他店長，避免誤降級)
+    if (myLevel < targetLevel || (myLevel === targetLevel && myLevel < 4)) {
+      
+      // 整組選單鎖死，直接不給點擊
+      permSel.innerHTML = `<option value="${currentTargetPerm}" selected>${PERM_LABELS[currentTargetPerm] || currentTargetPerm} (權限不足，無法變更)</option>`;
+      permSel.disabled = true;
+      permSel.style.background = '#e2e8f0'; // 視覺反灰
+      permSel.style.cursor = 'not-allowed';
+      
+    } else {
+      
+      // 權限足夠，正常開放選單
+      permSel.disabled = false;
+      permSel.style.background = '#fff';
+      permSel.style.cursor = 'default';
+      
+      const allowed = getAllowedPermissions();
+      let optionsHtml = '';
+      ALL_PERMS.forEach(p => {
+        if (allowed.includes(p.v)) {
+          const isSelected = currentTargetPerm === p.v ? 'selected' : '';
+          optionsHtml += `<option value="${p.v}" ${isSelected}>${p.l}</option>`;
+        }
+      });
+      permSel.innerHTML = optionsHtml;
+    }
 
   } catch(e) { showToast('❌ 讀取失敗：' + e.message); }
   hideLoading();
