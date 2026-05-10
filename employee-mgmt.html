@@ -497,15 +497,25 @@ async function loadEmpAdminList(store) {
       } catch(e) {}
     }));
 
-    active.forEach(emp => {
+    active.forEach((emp, idx) => {
       const acc = accounts[emp.id];
       const dName = acc?.displayName || emp.id;
       const isRetired = emp.status === '離職' || emp.status === '調走';
       const roleColor = emp.role === '店長' ? '#9334e6' : emp.role === '正職' ? '#34a853' : '#1a73e8';
+      const isFirst = idx === 0;
+      const isLast  = idx === active.length - 1;
 
       const row = document.createElement('div');
       row.className = 'emp-row';
       row.innerHTML = `
+        <div style="display:flex;flex-direction:column;gap:2px;margin-right:4px;">
+          <button onclick="moveEmp('${store}','${emp.id}','up')"
+            style="background:${isFirst?'#f1f3f4':'#e8f0fe'};border:none;border-radius:6px;width:26px;height:26px;font-size:13px;cursor:${isFirst?'default':'pointer'};color:${isFirst?'#ccc':'var(--primary)'};"
+            ${isFirst?'disabled':''}>▲</button>
+          <button onclick="moveEmp('${store}','${emp.id}','down')"
+            style="background:${isLast?'#f1f3f4':'#e8f0fe'};border:none;border-radius:6px;width:26px;height:26px;font-size:13px;cursor:${isLast?'default':'pointer'};color:${isLast?'#ccc':'var(--primary)'};"
+            ${isLast?'disabled':''}>▼</button>
+        </div>
         <div class="emp-avatar" style="background:linear-gradient(135deg,${roleColor},${roleColor}cc);">${dName[0]}</div>
         <div class="emp-info">
           <div class="emp-name">${dName} <span style="font-size:11px;background:#f1f3f4;padding:2px 6px;border-radius:4px;font-weight:600;">${emp.role||''}</span></div>
@@ -513,9 +523,11 @@ async function loadEmpAdminList(store) {
           <div class="emp-account">${acc ? `🔐 ${acc.ID || acc.username || '--'} · ${PERM_LABELS[acc.permission]||'👤 員工'}` : '⚠️ 尚未設定帳號'}</div>
         </div>
         <div class="emp-actions">
-          ${canOwner()
-            ? `<button class="emp-action-btn" onclick="openAccountModal('${emp.id}','${store}')">${acc ? '編輯' : '設定帳號'}</button>`
-            : ''}
+          <div style="display:flex;flex-direction:column;gap:2px;margin-right:2px;">
+            <button class="emp-action-btn" style="padding:3px 7px;font-size:11px;" onclick="moveEmp('${store}','${emp.id}',-1)">▲</button>
+            <button class="emp-action-btn" style="padding:3px 7px;font-size:11px;" onclick="moveEmp('${store}','${emp.id}',1)">▼</button>
+          </div>
+          <button class="emp-action-btn" onclick="openAccountModal('${emp.id}','${store}')">${acc ? '編輯' : '設定帳號'}</button>
           <button class="emp-action-btn" onclick="openTransferModal('${emp.id}','${store}','${dName}')">調店</button>
           <button class="emp-action-btn danger" onclick="toggleRetire('${emp.id}','${store}',${isRetired},'${dName}')">離職</button>
         </div>`;
@@ -525,6 +537,41 @@ async function loadEmpAdminList(store) {
     showToast('❌ 載入失敗：' + e.message);
   }
   hideLoading();
+}
+
+// ===== 員工排序（▲▼）=====
+async function moveEmp(store, empId, direction) {
+  showLoading('更新順序...');
+  try {
+    const snap = await window.db.collection('stores').doc(store).collection('employees').get();
+    let emps = [];
+    snap.forEach(d => {
+      if(!['離職','調走'].includes(d.data().status))
+        emps.push({ id: d.id, sortKey: d.data().sortKey ?? 0 });
+    });
+    emps.sort((a, b) => a.sortKey - b.sortKey);
+
+    const idx = emps.findIndex(e => e.id === empId);
+    if(idx < 0) { hideLoading(); return; }
+
+    // direction: -1 往上，1 往下
+    const swapIdx = idx + direction;
+    if(swapIdx < 0 || swapIdx >= emps.length) { hideLoading(); return; }
+
+    // 交換兩個人的 sortKey
+    const batch = window.db.batch();
+    const aRef = window.db.collection('stores').doc(store).collection('employees').doc(emps[idx].id);
+    const bRef = window.db.collection('stores').doc(store).collection('employees').doc(emps[swapIdx].id);
+    batch.update(aRef, { sortKey: emps[swapIdx].sortKey });
+    batch.update(bRef, { sortKey: emps[idx].sortKey });
+    await batch.commit();
+
+    await loadEmpAdminList(store);
+    hideLoading();
+  } catch(e) {
+    showToast('❌ 排序失敗：' + e.message);
+    hideLoading();
+  }
 }
 
 // ===== 帳號設定 Modal =====
