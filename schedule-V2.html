@@ -1723,18 +1723,45 @@ async function loadEmpView() {
         console.log('[支援偵測]', fromStore, '：支援本店候選:', candidates.map(r => r.supportEmp + '/' + r.approvalStatus));
         allRecs.forEach(r => {
           // 找出「要來本店支援」且已核准的記錄
-          if(r.supportEmp === `${store}-${r.name}` && r.approvalStatus === 'approved') {
-            console.log('[支援偵測] 找到支援記錄:', r.name, '從', fromStore, '支援', store);
-            supportRecords.push({ ...r, _fromStore: fromStore });
-            supportEmpsAdded.add(`${fromStore}||${r.name}`);
+          // r.supportEmp 格式："本店-支援者姓名"，例如 "美德-鎧丞"
+          if(r.supportEmp && r.supportEmp.startsWith(store + '-') && r.approvalStatus === 'approved') {
+            const empName = r.supportEmp.substring(store.length + 1); // 取出支援者姓名
+            console.log('[支援偵測] 找到支援記錄:', empName, '從', fromStore, '支援', store, '日：', r.day);
+            supportRecords.push({ ...r, name: empName, _fromStore: fromStore });
+            supportEmpsAdded.add(`${fromStore}||${empName}`);
           }
         });
       });
 
-      // ✅ 把支援人員加入員工列（如果本店沒有這個人）
+      // ✅ 合併 records：本店記錄 + 支援者在本店的班別記錄
+      const mergedRecords = [...records];
+      supportRecords.forEach(sr => {
+        const existIdx = mergedRecords.findIndex(r => r.name === sr.name && r.day === sr.day);
+        const supportedRec = {
+          name: sr.name,
+          day: sr.day,
+          week: sr.week,
+          shift: sr.shift,
+          location: `支援${sr._fromStore}`,
+          note: sr.note || '',
+          actualHours: sr.actualHours || 0,
+          isOT: sr.isOT || false,
+          supportEmp: '',
+          approvalStatus: 'approved',
+          requestOff: false
+        };
+        if(existIdx >= 0) {
+          // ✅ 本店員工列表已有此人 → 直接覆蓋該天記錄（顯示支援去哪）
+          mergedRecords[existIdx] = supportedRec;
+        } else {
+          // 本店沒有此人 → 加入記錄
+          mergedRecords.push(supportedRec);
+        }
+      });
+
+      // ✅ 把「本店沒有」的支援人員加入員工列（顯示在員工行底部）
       const supportEmpObjs = [];
       supportEmpsAdded.forEach(key => {
-        // key 格式："{fromStore}||{empName}"（用 || 避免門市/姓名含有 - 的問題）
         const sepIdx = key.indexOf('||');
         const fromStore = key.substring(0, sepIdx);
         const empName   = key.substring(sepIdx + 2);
@@ -1748,31 +1775,7 @@ async function loadEmpView() {
         }
       });
 
-      // 支援人員排在本店員工後面
       const allEmps = [...emps, ...supportEmpObjs];
-
-      // ✅ 合併 records：本店記錄 + 支援者在本店的班別記錄
-      // 支援者的記錄以 supportRecords 為主（因為班別存在對方門市）
-      const mergedRecords = [...records];
-      supportRecords.forEach(sr => {
-        // 只有在 mergedRecords 沒有這個人這天的記錄時才加
-        const exists = mergedRecords.find(r => r.name === sr.name && r.day === sr.day);
-        if(!exists) {
-          mergedRecords.push({
-            name: sr.name,
-            day: sr.day,
-            week: sr.week,
-            shift: sr.shift,
-            location: `來自${sr._fromStore}`,
-            note: sr.note || '',
-            actualHours: sr.actualHours || 0,
-            isOT: sr.isOT || false,
-            supportEmp: '',
-            approvalStatus: 'approved',
-            requestOff: false
-          });
-        }
-      });
 
       renderEmpCanvas(store, empWeekStr, mergedRecords, allEmps);
     } else {
