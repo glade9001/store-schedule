@@ -2891,6 +2891,34 @@ async function saveDraft() {
 }
 
 async function submitSalary() {
+  // ✅ 送審前：掃描加班時數差異
+  const mismatches = [];
+  empList.forEach(emp => {
+    if(emp.role === '工讀') return; // 工讀不需要檢查
+    const rec = getSalaryRecord(emp.name);
+    if(!rec) return;
+    const { otH: schedOtH } = calcEmpHours(emp.name);
+    const savedOtH = parseFloat(rec.otHours || 0);
+    if(schedOtH > 0 && Math.abs(schedOtH - savedOtH) >= 0.5) {
+      mismatches.push({
+        name: getDisplayName(emp.name),
+        saved: savedOtH,
+        sched: schedOtH
+      });
+    }
+  });
+
+  if(mismatches.length > 0) {
+    const detail = mismatches.map(m =>
+      `• ${m.name}：薪資記錄 ${m.saved}h，排班計算 ${m.sched}h`
+    ).join('\n');
+    const proceed = confirm(
+      `⚠️ 發現 ${mismatches.length} 位員工加班時數與排班不符：\n\n${detail}\n\n` +
+      `建議先至各員工薪資卡片點「同步」更新後再送出。\n\n確定要繼續送出嗎？`
+    );
+    if(!proceed) return;
+  }
+
   if(!confirm(`確定送出 ${getMonthLabel(currentMonth)} 薪資？\n送出後需加盟主審核才能修改。`)) return;
   collectRecords();
   showLoading('送出中...');
