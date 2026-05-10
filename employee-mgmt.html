@@ -612,18 +612,29 @@ async function openAccountModal(empName, store) {
     document.getElementById('linkTypeNew').checked = !isLinked;
     toggleLinkType();
 
-    // 角色與權限
+   // 角色與權限
     const empData = storeEmpSnap.docs.find(d=>d.id===empName)?.data() || {};
     document.getElementById('accountRole').value = existingDoc?.role || empData.role || '工讀';
 
+    // 📝 根據當前登入者權限，動態產生下拉選單
     const permSel = document.getElementById('accountPermission');
-    const perms = [
-      { v:'employee', l:'👤 員工' },
-      { v:'manager',  l:'🏪 店長' },
-      { v:'owner',    l:'👑 加盟主' },
-      { v:'admin',    l:'⚙️ 系統管理者' }
-    ];
-    permSel.innerHTML = perms.map(p => `<option value="${p.v}" ${(existingDoc?.permission||'employee')===p.v?'selected':''}>${p.l}</option>`).join('');
+    const allowed = getAllowedPermissions();
+    const currentTargetPerm = existingDoc?.permission || 'employee';
+    
+    let optionsHtml = '';
+    ALL_PERMS.forEach(p => {
+      // 1. 如果是當前使用者可以設定的權限，就正常顯示
+      if (allowed.includes(p.v)) {
+        const isSelected = currentTargetPerm === p.v ? 'selected' : '';
+        optionsHtml += `<option value="${p.v}" ${isSelected}>${p.l}</option>`;
+      } 
+      // 2. 如果該帳號原先的權限比當前使用者大（例如加盟主點開管理員），必須顯示該選項並鎖定防呆，避免不小心被降級
+      else if (currentTargetPerm === p.v) {
+        optionsHtml += `<option value="${p.v}" selected disabled>${p.l} (無權變更)</option>`;
+      }
+    });
+    
+    permSel.innerHTML = optionsHtml;
 
   } catch(e) { showToast('❌ 讀取失敗：' + e.message); }
   hideLoading();
@@ -757,7 +768,15 @@ function openAddEmpModal() {
   document.getElementById('addEmpWage').value = '';
   document.getElementById('addEmpUsername').value = '';
   document.getElementById('addEmpPassword').value = '';
-  document.getElementById('addEmpPermission').value = 'employee';
+
+  // 📝 根據當前登入者權限，動態產生下拉選單
+  const permSel = document.getElementById('addEmpPermission');
+  const allowed = getAllowedPermissions();
+  permSel.innerHTML = ALL_PERMS
+    .filter(p => allowed.includes(p.v))
+    .map(p => `<option value="${p.v}">${p.l}</option>`)
+    .join('');
+
   openModal('addEmpModal');
 }
 
@@ -950,6 +969,26 @@ async function confirmTransfer() {
   } catch(e) { showToast('❌ 調店失敗：' + e.message); }
   hideLoading();
 }
+  // ===== 權限層級控制 =====
+function getAllowedPermissions() {
+  const currentPerm = currentUser?.permission || 'employee';
+  if (currentPerm === 'admin') {
+    return ['employee', 'manager', 'owner', 'admin'];
+  } else if (currentPerm === 'owner') {
+    return ['employee', 'manager'];
+  } else if (currentPerm === 'manager') {
+    return ['employee'];
+  } else {
+    return [];
+  }
+}
+
+const ALL_PERMS = [
+  { v: 'employee', l: '👤 員工' },
+  { v: 'manager',  l: '🏪 店長' },
+  { v: 'owner',    l: '👑 加盟主' },
+  { v: 'admin',    l: '⚙️ 系統管理者' }
+];
 </script>
 </body>
 </html>
