@@ -449,9 +449,13 @@ async function loadEmpAdminList(store) {
   showLoading('載入員工資料...');
   try {
     const tabsEl = document.getElementById('empStoreTabs');
-    if((appConfig.stores || []).length > 1) {
+    // ✅ 只有加盟主/admin 才能切換門市；店長只能看自己的門市
+    const isMultiStore = canOwner();
+    const visibleStores = isMultiStore ? (appConfig.stores || []) : [currentUser.store || store];
+
+    if(isMultiStore && visibleStores.length > 1) {
       tabsEl.style.display = 'flex';
-      tabsEl.innerHTML = (appConfig.stores || []).map(s =>
+      tabsEl.innerHTML = visibleStores.map(s =>
         `<div class="store-tab ${s===store?'active':''}" onclick="loadEmpAdminList('${s}')">${s}</div>`
       ).join('');
     } else {
