@@ -1337,7 +1337,9 @@ async function loadMySchedule() {
       homeCanGoNext = nextData.published || isAutoPublishedHome(nextWeekStr);
       if(nextBtn) nextBtn.style.opacity = homeCanGoNext ? '1' : '0.3';
     } else {
-      if(nextBtn) nextBtn.style.opacity = weekStr === nextWeekStr ? '0.3' : '1';
+      // 已在下週（或更晚）→ 不能再往後
+      homeCanGoNext = false;
+      if(nextBtn) nextBtn.style.opacity = '0.3';
     }
 
     if(prevBtn) prevBtn.style.opacity = weekStr === prevWeekStr ? '0.3' : '1';
