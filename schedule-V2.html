@@ -1713,8 +1713,15 @@ async function loadEmpView() {
       const supportEmpsAdded = new Set(); // 避免重複加入員工列
 
       otherSnaps.forEach(({ store: fromStore, snap }) => {
-        if(!snap || !snap.exists) return;
-        (snap.data().records || []).forEach(r => {
+        if(!snap || !snap.exists) {
+          console.log('[支援偵測]', fromStore, '：無資料或讀取失敗');
+          return;
+        }
+        const allRecs = snap.data().records || [];
+        console.log('[支援偵測]', fromStore, '：共', allRecs.length, '筆記錄');
+        const candidates = allRecs.filter(r => r.supportEmp && r.supportEmp.startsWith(store + '-'));
+        console.log('[支援偵測]', fromStore, '：支援本店候選:', candidates.map(r => r.supportEmp + '/' + r.approvalStatus));
+        allRecs.forEach(r => {
           // 找出「要來本店支援」且已核准的記錄
           if(r.supportEmp === `${store}-${r.name}` && r.approvalStatus === 'approved') {
             console.log('[支援偵測] 找到支援記錄:', r.name, '從', fromStore, '支援', store);
