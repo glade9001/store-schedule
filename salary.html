@@ -1066,9 +1066,21 @@ function renderPayslip() {
         <div style="min-height:40px;font-size:12px;color:#64748b;">（無）</div>
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
-        <div style="border-top:1px solid #e2e8f0;padding-top:8px;text-align:center;font-size:11px;color:#64748b;">員工簽名</div>
-        <div style="border-top:1px solid #e2e8f0;padding-top:8px;text-align:center;font-size:11px;color:#64748b;">主管確認</div>
+      <!-- 確認聲明 -->
+      <div style="margin-top:12px;border:1.5px solid #e2e8f0;border-radius:8px;padding:10px 14px;background:#f8fafc;">
+        <div style="font-size:11px;color:#475569;line-height:1.8;">
+          本人確認以上薪資計算明細正確無誤，各項發放、扣款項目及特補休天數均已核對，確認與實際相符。
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px;">
+          <div style="border-top:1.5px solid #334155;padding-top:8px;">
+            <div style="font-size:10px;color:#64748b;margin-bottom:4px;">員工簽名</div>
+            <div style="height:20px;"></div>
+          </div>
+          <div style="border-top:1.5px solid #334155;padding-top:8px;">
+            <div style="font-size:10px;color:#64748b;margin-bottom:2px;">日期</div>
+            <div style="font-size:11px;color:#334155;">____年____月____日</div>
+          </div>
+        </div>
       </div>
     </div>`;
 }
@@ -1742,6 +1754,19 @@ function buildSinglePayslipHtml(emp, y, m) {
     <div style="border:1px solid #ccc;padding:5px 8px;font-size:10px;margin-top:4px;min-height:20px;">
       溝通事項：
     </div>
+    <div style="border:1px solid #334155;border-radius:4px;padding:6px 10px;margin-top:4px;font-size:10px;">
+      <div style="color:#334155;line-height:1.7;margin-bottom:6px;">
+        本人確認以上薪資計算明細正確無誤，各項發放、扣款項目及特補休天數均已核對，確認與實際相符。
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div style="border-top:1px solid #334155;padding-top:4px;">
+          <div style="color:#64748b;margin-bottom:12px;">員工簽名：</div>
+        </div>
+        <div style="border-top:1px solid #334155;padding-top:4px;">
+          <div style="color:#334155;">日期：____年____月____日</div>
+        </div>
+      </div>
+    </div>
   </div>`;
 }
 
@@ -1845,12 +1870,21 @@ async function loadSalaryData() {
     // 員工名單
     empList = [];
     const todaySal = new Date().toISOString().split('T')[0];
+    const [curY, curM] = currentMonth.split('-').map(Number);
     empSnap.forEach(d => {
       const data = d.data();
       const status = data.status;
       const effectDate = data.retireDate || data.transferDate;
       const isEffective = ['離職','調走'].includes(status) && (!effectDate || todaySal >= effectDate);
-      if(!isEffective) empList.push({ name: d.id, ...data });
+      if(isEffective) return; // 已離職/調走，跳過
+
+      // ✅ 到職日篩選：到職年月 > 當月年月 → 不顯示
+      if(data.startDate) {
+        const [sy, sm] = data.startDate.split('-').map(Number);
+        if(sy > curY || (sy === curY && sm > curM)) return;
+      }
+
+      empList.push({ name: d.id, ...data });
     });
     empList.sort((a,b) => (a.sortKey||0)-(b.sortKey||0));
 
@@ -2308,7 +2342,17 @@ function renderSalaryForm(emp, rec, idx, readonly) {
   
   col3 += `<div style="border-top:1px solid #e2e8f0;margin:8px 0;"></div>`;
   if(!isMgr) {
-    col3 += `<div class="salary-row"><span class="salary-row-label">平日加班時數</span><span class="salary-row-val">${rec.otHours||0} h</span></div>`;
+    // 差異偵測：排班計算 vs 已儲存
+    const { otH: schedOtH } = calcEmpHours(emp.name);
+    const savedOtH = parseFloat(rec.otHours||0);
+    const otMismatch = !ro && schedOtH > 0 && savedOtH !== schedOtH;
+    col3 += `<div class="salary-row" style="${otMismatch?'background:#fffbeb;border-radius:8px;padding:6px 8px;margin:0 -4px;':''}">
+      <span class="salary-row-label">平日加班時數${otMismatch?`<br><span style="font-size:10px;color:#b45309;font-weight:700;">⚠️ 排班計算 ${schedOtH}h</span>`:''}</span>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span class="salary-row-val">${savedOtH} h</span>
+        ${otMismatch?`<button class="btn-sm accent" onclick="syncOtHours('${emp.name.replace(/'/g,"\\'")}',${schedOtH})">同步 ${schedOtH}h</button>`:''}
+      </div>
+    </div>`;
     col3 += inp('restDayOtHours', rec.restDayOtHours, '休息日加班時數', '0', 'salary-input');
     col3 += `<div class="salary-row"><span class="salary-row-label">國定假日時數</span><span class="salary-row-val">${rec.holidayHours||0} h</span></div>`;
   }
@@ -2723,6 +2767,20 @@ function saveOtBase() {
   closeModal('otBaseEditModal');
   updateFieldModal(currentEmpModal, 'dummy', 0);
 }
+// ===== 同步排班加班時數 =====
+function syncOtHours(empName, schedOtH) {
+  let rec = getSalaryRecord(empName);
+  if(!rec) return;
+  rec.otHours = schedOtH;
+  triggerAutoSave();
+  const emp = empList.find(e => e.name === empName);
+  if(emp) {
+    document.getElementById('empModalBody').innerHTML = renderSalaryForm(emp, rec, 0, isReadonly());
+    switchModalTab(currentModalTab, false);
+  }
+  showToast(`✅ 已同步加班時數 ${schedOtH}h`);
+}
+
 // ===== 自動儲存 =====
 let autoSaveTimer = null;
 function triggerAutoSave() {
