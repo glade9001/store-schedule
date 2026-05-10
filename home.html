@@ -1268,11 +1268,10 @@ async function homeChangeWeek(offset) {
   if(wk > 52) { yr++; wk = 1; }
   const newWeek = `${yr}-W${wk < 10 ? '0'+wk : wk}`;
 
-  if(offset > 0 && !homeCanGoNext) {
-    showToast('⚠️ 下週班表尚未發布');
-    return;
-  }
   const thisWeek = getCurrentWeekString();
+  const nextWeek = getNextWeekString();
+
+  // 上週邊界：不能早於上週
   const tp = thisWeek.split('-W');
   let ty = parseInt(tp[0]), tw = parseInt(tp[1]) - 1;
   if(tw < 1) { ty--; tw = 52; }
@@ -1280,6 +1279,18 @@ async function homeChangeWeek(offset) {
   if(offset < 0 && newWeek < prevWeek) {
     showToast('⚠️ 最多只能查看上週班表');
     return;
+  }
+
+  // 下週邊界：只有「本週→下週」時才檢查發布狀態；已在下週就不能再往後
+  if(offset > 0) {
+    if(homeCurrentWeek === nextWeek) {
+      showToast('⚠️ 已是最新班表');
+      return;
+    }
+    if(homeCurrentWeek === thisWeek && !homeCanGoNext) {
+      showToast('⚠️ 下週班表尚未發布');
+      return;
+    }
   }
 
   homeCurrentWeek = newWeek;
