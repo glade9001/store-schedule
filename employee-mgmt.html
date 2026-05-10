@@ -480,6 +480,19 @@ async function loadEmpAdminList(store) {
       hideLoading(); return;
     }
 
+    // ✅ 批次讀取到職日（從 employees/{empName}/leaves/{year}.hireDate）
+    const year = new Date().getFullYear().toString();
+    const hireDateMap = {};
+    await Promise.all(active.map(async emp => {
+      try {
+        const snap = await window.db.collection('employees').doc(emp.id)
+          .collection('leaves').doc(year).get();
+        if(snap.exists && snap.data().hireDate) {
+          hireDateMap[emp.id] = snap.data().hireDate;
+        }
+      } catch(e) {}
+    }));
+
     active.forEach(emp => {
       const acc = accounts[emp.id];
       const dName = acc?.displayName || emp.id;
@@ -492,7 +505,7 @@ async function loadEmpAdminList(store) {
         <div class="emp-avatar" style="background:linear-gradient(135deg,${roleColor},${roleColor}cc);">${dName[0]}</div>
         <div class="emp-info">
           <div class="emp-name">${dName} <span style="font-size:11px;background:#f1f3f4;padding:2px 6px;border-radius:4px;font-weight:600;">${emp.role||''}</span></div>
-          <div class="emp-role">${emp.startDate ? `到職：${emp.startDate}` : '尚未設定到職日'}</div>
+          <div class="emp-role">${hireDateMap[emp.id] ? `到職：${hireDateMap[emp.id]}` : '尚未設定到職日'}</div>
           <div class="emp-account">${acc ? `🔐 ${acc.ID || acc.username || '--'} · ${PERM_LABELS[acc.permission]||'👤 員工'}` : '⚠️ 尚未設定帳號'}</div>
         </div>
         <div class="emp-actions">
@@ -517,9 +530,11 @@ async function openAccountModal(empName, store) {
 
   showLoading('讀取帳號資料...');
   try {
-    const [accSnap, empSnap, storeEmpSnap] = await Promise.all([
+    const year = new Date().getFullYear().toString();
+    const [accSnap, leavesSnap, storeEmpSnap] = await Promise.all([
       window.db.collection('account').where('empName','==',empName).where('store','==',store).limit(1).get(),
-      window.db.collection('employees').doc(empName).get().catch(()=>null),
+      // ✅ 到職日存在 employees/{empName}/leaves/{year}.hireDate
+      window.db.collection('employees').doc(empName).collection('leaves').doc(year).get().catch(()=>null),
       window.db.collection('stores').doc(store).collection('employees').get()
     ]);
 
@@ -531,7 +546,7 @@ async function openAccountModal(empName, store) {
     document.getElementById('accountDisplayName').value = existingDoc?.displayName || empName;
     document.getElementById('accountPassword').value = '';
     document.getElementById('accountPasswordConfirm').value = '';
-    document.getElementById('accountStartDate').value = empSnap?.exists ? (empSnap.data().startDate || '') : '';
+    document.getElementById('accountStartDate').value = leavesSnap?.exists ? (leavesSnap.data().hireDate || '') : '';
 
     // 填入門市員工下拉
     const empSelect = document.getElementById('accountEmpName');
