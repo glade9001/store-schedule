@@ -108,7 +108,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);
 .cal-cell.today .cal-date{background:var(--primary);color:white;border-radius:50%;}
 .cal-cell.saturday .cal-date{color:#0891b2;}
 .cal-cell.holiday .cal-date{color:var(--danger);font-weight:900;}
-.cal-cell.holiday .cal-holiday-name{display:block;font-size:8px;color:var(--danger);font-weight:700;line-height:1.2;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.cal-cell.holiday .cal-holiday-name{display:block;font-size:8px;color:var(--danger);font-weight:700;line-height:1.3;margin-top:1px;white-space:normal;word-break:break-all;}
 .cal-cell.blocked{background:#fff0f0 !important;cursor:not-allowed;}
 .cal-cell.blocked .cal-date{color:#e0a0a0;}
 .cal-tag.blocked-tag{background:#fce8e6;color:var(--danger);font-weight:800;}
@@ -315,7 +315,7 @@ let holidayMap = {};   // { 'YYYY-MM-DD': '節日名稱' }
 let blockedDates = []; // ['YYYY-MM-DD', ...]
 let isBlockMode = false; // 店長禁休模式
 // ✅ 下週劃休手動開放設定
-let leaveWindowCfg = { nextWeekOpen: false, closeDate: '', openedBy: '' };
+let leaveWindowCfg = { nextWeekOpen: false, closeDate: '', closeDateTime: '', openedBy: '' };
 
 // ===== 內建假日資料 =====
 const BUILTIN_HOLIDAYS = {
@@ -406,7 +406,7 @@ async function loadBlockedDates() {
 
 // ===== 下週劃休開放設定 =====
 async function loadLeaveWindow() {
-  leaveWindowCfg = { nextWeekOpen: false, closeDate: '', openedBy: '' };
+  leaveWindowCfg = { nextWeekOpen: false, closeDate: '', closeDateTime: '', openedBy: '' };
   try {
     const snap = await window.db.collection('stores').doc(currentStore)
       .collection('config').doc('leaveWindow').get();
@@ -414,11 +414,13 @@ async function loadLeaveWindow() {
   } catch(e) {}
 }
 
-async function saveLeaveWindow(open, closeDate) {
+async function saveLeaveWindow(open, closeDate, closeTime) {
   const today_ = today();
+  const closeDateTime = (closeDate && closeTime) ? `${closeDate}T${closeTime}` : (closeDate ? `${closeDate}T23:59` : '');
   leaveWindowCfg = {
     nextWeekOpen: open,
     closeDate: closeDate || '',
+    closeDateTime,
     openedBy: currentUser.empName || '',
     updatedAt: today_
   };
@@ -515,10 +517,9 @@ function isDateLocked(dateStr){
   // ✅ 手動開放：若此日屬於「下週」且開放設定有效，則不鎖
   if(leaveWindowCfg.nextWeekOpen) {
     const nextWeekStr = getNextWeekString();
-    const closeDate = leaveWindowCfg.closeDate;
-    const todayStr = today();
-    // 是下週的日期，且今天尚未超過截止日
-    if(weekStr === nextWeekStr && (!closeDate || todayStr <= closeDate)) {
+    const closeDateTime = leaveWindowCfg.closeDateTime || (leaveWindowCfg.closeDate ? leaveWindowCfg.closeDate + 'T23:59' : '');
+    const nowStr = new Date().toISOString().slice(0,16); // YYYY-MM-DDTHH:mm
+    if(weekStr === nextWeekStr && (!closeDateTime || nowStr <= closeDateTime)) {
       return false;
     }
   }
@@ -553,14 +554,16 @@ function getWeekDatesFromStr(weekStr) {
 function openLeaveWindowModal() {
   const nextWeekStr = getNextWeekString();
   const nwDates = getWeekDatesFromStr(nextWeekStr);
-  const isOpen = leaveWindowCfg.nextWeekOpen && leaveWindowCfg.closeDate >= today();
+  const nowStr3 = new Date().toISOString().slice(0,16);
+  const cdtCheck2 = leaveWindowCfg.closeDateTime || (leaveWindowCfg.closeDate ? leaveWindowCfg.closeDate+'T23:59' : '');
+  const isOpen = leaveWindowCfg.nextWeekOpen && (!cdtCheck2 || nowStr3 <= cdtCheck2);
 
   // 預設截止日：本週日
   let defaultClose = leaveWindowCfg.closeDate || '';
+  let defaultTime  = leaveWindowCfg.closeDateTime ? leaveWindowCfg.closeDateTime.slice(11,16) : '23:59';
   if(!defaultClose) {
-    // 計算本週日
     const now = new Date();
-    const dow = now.getDay() || 7; // 1=週一...7=週日
+    const dow = now.getDay() || 7;
     const thisSun = new Date(now);
     thisSun.setDate(now.getDate() + (7 - dow));
     defaultClose = thisSun.toISOString().split('T')[0];
@@ -579,7 +582,9 @@ function openLeaveWindowModal() {
         <div style="background:${isOpen?'#e8f5e9':'#f8fafc'};border:1.5px solid ${isOpen?'#a5d6a7':'var(--border)'};border-radius:12px;padding:14px;margin-bottom:16px;">
           <div style="font-size:13px;font-weight:800;margin-bottom:4px;">目前狀態</div>
           <div style="font-size:13px;color:${isOpen?'#2e7d32':'var(--text-muted)'};">
-            ${isOpen ? `🟢 開放中，截止日：${leaveWindowCfg.closeDate}` : '🔴 尚未開放（預設週日後截止）'}
+            ${isOpen
+              ? `🟢 開放中，截止：${leaveWindowCfg.closeDate} ${defaultTime}`
+              : '🔴 尚未開放'}
           </div>
         </div>
 
@@ -588,7 +593,24 @@ function openLeaveWindowModal() {
           <input type="date" id="lwCloseDate" value="${defaultClose}"
             min="${today()}"
             style="width:100%;padding:11px 13px;border:1.5px solid var(--border);border-radius:10px;font-size:14px;background:#f8fafc;">
-          <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">員工可在此日（含）前提交申請</div>
+        </div>
+
+        <div class="form-field">
+          <label>截止時間</label>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">
+            ${['08:00','12:00','18:00','23:59'].map(t =>
+              `<button onclick="setCloseTime('${t}')" id="timeBtn_${t.replace(':','')}"
+                style="padding:10px 4px;border:1.5px solid ${defaultTime===t?'var(--primary)':'var(--border)'};
+                border-radius:10px;background:${defaultTime===t?'#e8f0fe':'white'};
+                font-size:13px;font-weight:700;cursor:pointer;color:${defaultTime===t?'var(--primary)':'var(--text)'};">
+                ${t}
+              </button>`
+            ).join('')}
+          </div>
+          <input type="time" id="lwCloseTime" value="${defaultTime}"
+            style="width:100%;padding:11px 13px;border:1.5px solid var(--border);border-radius:10px;font-size:14px;background:#f8fafc;margin-top:8px;"
+            oninput="syncTimeBtns(this.value)">
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">員工可在此時間前提交申請</div>
         </div>
 
         <button onclick="confirmOpenLeaveWindow()" class="modal-action" style="background:var(--accent);">
@@ -603,13 +625,29 @@ function openLeaveWindowModal() {
   document.body.appendChild(modal);
 }
 
+function setCloseTime(t) {
+  document.getElementById('lwCloseTime').value = t;
+  syncTimeBtns(t);
+}
+function syncTimeBtns(val) {
+  ['08:00','12:00','18:00','23:59'].forEach(t => {
+    const btn = document.getElementById('timeBtn_'+t.replace(':',''));
+    if(!btn) return;
+    const active = val === t;
+    btn.style.borderColor = active ? 'var(--primary)' : 'var(--border)';
+    btn.style.background  = active ? '#e8f0fe' : 'white';
+    btn.style.color       = active ? 'var(--primary)' : 'var(--text)';
+  });
+}
+
 async function confirmOpenLeaveWindow() {
   const closeDate = document.getElementById('lwCloseDate').value;
+  const closeTime = document.getElementById('lwCloseTime').value || '23:59';
   if(!closeDate) { showToast('⚠️ 請選擇截止日'); return; }
   try {
-    await saveLeaveWindow(true, closeDate);
+    await saveLeaveWindow(true, closeDate, closeTime);
     document.getElementById('leaveWindowModal')?.remove();
-    showToast('✅ 下週劃休已開放');
+    showToast(`✅ 下週劃休已開放，截止 ${closeDate} ${closeTime}`);
     renderCalendar();
   } catch(e) { showToast('❌ 儲存失敗：'+e.message); }
 }
@@ -815,17 +853,22 @@ function renderCalendar(){
   // ✅ 下週開放提示橫幅
   const nextWeekStr = getNextWeekString();
   const nwDates = getWeekDatesFromStr(nextWeekStr);
-  if(leaveWindowCfg.nextWeekOpen && leaveWindowCfg.closeDate >= today()) {
-    const closeD = new Date(leaveWindowCfg.closeDate);
-    const dows = ['日','一','二','三','四','五','六'];
-    const closeLabel = `${closeD.getMonth()+1}/${closeD.getDate()}（${dows[closeD.getDay()]}）`;
-    html += `<div class="info-box green" style="margin-bottom:8px;display:flex;align-items:center;gap:8px;">
-      <div style="font-size:18px;">🟢</div>
-      <div>
-        <div style="font-weight:800;">下週（${nwDates[0]}～${nwDates[6]}）劃休開放中</div>
-        <div style="font-size:11px;margin-top:2px;">於 ${closeLabel} 結束劃休申請</div>
-      </div>
-    </div>`;
+  if(leaveWindowCfg.nextWeekOpen) {
+    const nowStr = new Date().toISOString().slice(0,16);
+    const closeDateTime = leaveWindowCfg.closeDateTime || (leaveWindowCfg.closeDate ? leaveWindowCfg.closeDate + 'T23:59' : '');
+    if(!closeDateTime || nowStr <= closeDateTime) {
+      const closeD = new Date(leaveWindowCfg.closeDate);
+      const dows = ['日','一','二','三','四','五','六'];
+      const closeLabel = `${closeD.getMonth()+1}/${closeD.getDate()}（${dows[closeD.getDay()]}）`;
+      const timeLabel = leaveWindowCfg.closeDateTime ? leaveWindowCfg.closeDateTime.slice(11,16) : '23:59';
+      html += `<div class="info-box green" style="margin-bottom:8px;display:flex;align-items:center;gap:8px;">
+        <div style="font-size:18px;">🟢</div>
+        <div>
+          <div style="font-weight:800;">下週（${nwDates[0]}～${nwDates[6]}）劃休開放中</div>
+          <div style="font-size:11px;margin-top:2px;">於 ${closeLabel} ${timeLabel} 結束劃休申請</div>
+        </div>
+      </div>`;
+    }
   }
 
   // 月份導航
@@ -834,8 +877,11 @@ function renderCalendar(){
   const blockBtnHtml = canSchedule()
     ? `<button onclick="toggleBlockMode()" style="background:${isBlockMode?'var(--danger)':'#fce8e6'};color:${isBlockMode?'white':'var(--danger)'};border:1.5px solid var(--danger);border-radius:8px;padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer;">${isBlockMode?'✕ 取消':'🚫 禁休'}</button>`
     : '';
+  const nowStr2 = new Date().toISOString().slice(0,16);
+  const cdtCheck = leaveWindowCfg.closeDateTime || (leaveWindowCfg.closeDate ? leaveWindowCfg.closeDate+'T23:59' : '');
+  const isWindowOpen = leaveWindowCfg.nextWeekOpen && (!cdtCheck || nowStr2 <= cdtCheck);
   const windowBtnHtml = canSchedule()
-    ? `<button onclick="openLeaveWindowModal()" style="background:${leaveWindowCfg.nextWeekOpen&&leaveWindowCfg.closeDate>=today()?'#e8f5e9':'#e8f0fe'};color:${leaveWindowCfg.nextWeekOpen&&leaveWindowCfg.closeDate>=today()?'#2e7d32':'var(--primary)'};border:1.5px solid ${leaveWindowCfg.nextWeekOpen&&leaveWindowCfg.closeDate>=today()?'#a5d6a7':'var(--primary)'};border-radius:8px;padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer;">🗓️ 開放</button>`
+    ? `<button onclick="openLeaveWindowModal()" style="background:${isWindowOpen?'#e8f5e9':'#e8f0fe'};color:${isWindowOpen?'#2e7d32':'var(--primary)'};border:1.5px solid ${isWindowOpen?'#a5d6a7':'var(--primary)'};border-radius:8px;padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer;">🗓️ 開放</button>`
     : '';
   html += `<div class="month-nav">
     <button class="month-nav-btn" onclick="changeMonth(-1)" ${canPrev?'':'disabled style="opacity:0.3;"'}>‹</button>
