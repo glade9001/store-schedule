@@ -1360,15 +1360,57 @@ async function loadLogs() {
   const weekStr = document.getElementById('weekSelector').value;
   el.innerHTML = '載入中...';
   try {
-    const snap = await window.db.collection('stores').doc(store).collection('logs')
-      .orderBy('ts','desc').limit(50).get();
-    const logs = [];
-    snap.forEach(d => {
-      const data = d.data();
-      if(data.week === weekStr || !data.week) logs.push(data.msg || JSON.stringify(data));
+    // 取得本週七天的日期範圍
+    const dates = getWeekDates(weekStr); // ['M/D', ...]
+    const year  = parseInt(weekStr.split('-W')[0]);
+    const dateStrs = dates.map(md => {
+      const [m, d] = md.split('/');
+      return `${year}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
     });
-    el.innerHTML = [...logs].reverse().map(l=>`<div class="log-item">${l}</div>`).join('');
-  } catch(e) { el.innerHTML = '讀取失敗'; }
+    const [startDate, endDate] = [dateStrs[0], dateStrs[6]];
+
+    // 讀 leaveRequests（新版）
+    const lrSnap = await window.db.collection('stores').doc(store)
+      .collection('leaveRequests')
+      .where('date', '>=', startDate)
+      .where('date', '<=', endDate)
+      .orderBy('date', 'asc')
+      .get().catch(() => null);
+
+    const typeLabel = { off:'排休', annual:'特休', comp:'補休' };
+    const statusLabel = { pending:'申請中', noted:'已核', cancelled:'已取消', unfulfilled:'未實現' };
+    const shiftLabel = { full:'', morning:' 早班', evening:' 晚班' };
+
+    const logs = [];
+    if(lrSnap) {
+      lrSnap.forEach(d => {
+        const r = d.data();
+        const name = r.empName || '--';
+        const type = typeLabel[r.type] || r.type;
+        const shift = shiftLabel[r.shift] || '';
+        const status = statusLabel[r.status] || r.status;
+        const dateObj = new Date(r.date);
+        const dateLabel = `${dateObj.getMonth()+1}/${dateObj.getDate()}`;
+        const dow = ['日','一','二','三','四','五','六'][dateObj.getDay()];
+        const createdAt = r.createdAt ? r.createdAt.substring(0,10) : '';
+        logs.push({ date: r.date, msg:
+          `<span style="color:var(--text-muted);font-size:11px;">${dateLabel}(${dow})</span>　` +
+          `<strong>${name}</strong>　${type}${shift}　` +
+          `<span style="background:${r.status==='noted'?'#e8f5e9':r.status==='cancelled'?'#fce8e6':'#fff3e0'};` +
+          `color:${r.status==='noted'?'#2e7d32':r.status==='cancelled'?'var(--danger)':'#e65100'};` +
+          `padding:1px 7px;border-radius:10px;font-size:11px;font-weight:700;">${status}</span>` +
+          (r.note ? `　<span style="font-size:11px;color:var(--text-muted);">${r.note}</span>` : '') +
+          (createdAt ? `　<span style="font-size:10px;color:#ccc;">${createdAt}申請</span>` : '')
+        });
+      });
+    }
+
+    if(!logs.length) {
+      el.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:20px 0;">本週尚無紀錄</div>';
+    } else {
+      el.innerHTML = logs.map(l=>`<div class="log-item">${l.msg}</div>`).join('');
+    }
+  } catch(e) { el.innerHTML = `<div style="color:var(--danger);">讀取失敗：${e.message}</div>`; }
 }
 
 // ===== 資料載入 =====
@@ -1667,22 +1709,16 @@ async function loadEmpView() {
   const reqCard = document.getElementById('reqOffCard');
 
   try {
-    // 本店班表 + 員工名單
-    const [weekSnap, empSnap] = await Promise.all([
+    // 平行讀取：班表 + 員工名單 + 其他門市本週記錄（跨店支援用）
+    const otherStores = (appConfig.stores || []).filter(s => s !== store);
+    const [weekSnap, empSnap, ...otherSnaps] = await Promise.all([
       window.db.collection('stores').doc(store).collection('weeks').doc(empWeekStr).get(),
       window.db.collection('stores').doc(store).collection('employees').get(),
-    ]);
-
-    // ✅ 其他門市本週記錄（跨店支援用）
-    const otherStores = (appConfig.stores || []).filter(s => s !== store);
-    const otherSnaps = await Promise.all(
-      otherStores.map(s =>
+      ...otherStores.map(s =>
         window.db.collection('stores').doc(s).collection('weeks').doc(empWeekStr).get()
-          .then(snap => ({ store: s, snap }))
-          .catch(() => ({ store: s, snap: null }))
+          .catch(() => null)
       )
-    );
-    console.log('[支援偵測] 其他門市:', otherStores, '，本店:', store, '，週次:', empWeekStr);
+    ]);
 
     const data = weekSnap.exists ? weekSnap.data() : {};
     const records = data.records || [];
@@ -1708,64 +1744,27 @@ async function loadEmpView() {
       empSnap.forEach(d => { if(!['離職','調走'].includes(d.data().status)) emps.push({ name: d.id, ...d.data() }); });
       emps.sort((a,b) => (a.sortKey||0) - (b.sortKey||0));
 
-      // ✅ 從本店 weeks 記錄裡找支援人員
-      // 支援記錄存在「被支援門市」的 weeks，格式：
-      //   name: 虛擬行名稱（🆘開頭）或空
-      //   supportEmp: "來源門市-支援者姓名"  例如 "美德-鎧丞"
-      //   approvalStatus: "approved"
-      const supportRecords = [];
-      const supportEmpsAdded = new Set();
+      // ✅ 收集其他門市的支援記錄（supportEmp 指向本店 且 approved）
+      const supportRecords = []; // 格式與本店 records 一致
+      const supportEmpsAdded = new Set(); // 避免重複加入員工列
 
-      records.forEach(r => {
-        if(r.supportEmp && r.approvalStatus === 'approved') {
-          // supportEmp 格式："來源門市-支援者姓名"
-          // 找出支援者姓名（supportEmp 去掉 "來源門市-" 前綴）
-          const dashIdx = r.supportEmp.indexOf('-');
-          if(dashIdx < 0) return;
-          const fromStore = r.supportEmp.substring(0, dashIdx);
-          const empName   = r.supportEmp.substring(dashIdx + 1);
-          if(!empName) return;
-          console.log('[支援偵測] 本店找到支援記錄:', empName, '從', fromStore, '日：', r.day);
-          supportRecords.push({ ...r, name: empName, _fromStore: fromStore });
-          supportEmpsAdded.add(`${fromStore}||${empName}`);
-        }
+      otherSnaps.forEach((snap, idx) => {
+        if(!snap || !snap.exists) return;
+        const fromStore = otherStores[idx];
+        (snap.data().records || []).forEach(r => {
+          // 找出「要來本店支援」且已核准的記錄
+          if(r.supportEmp === `${store}-${r.name}` && r.approvalStatus === 'approved') {
+            // 把這筆記錄轉換成本店視角：name 就是支援者本人
+            supportRecords.push({ ...r, _fromStore: fromStore });
+            supportEmpsAdded.add(`${fromStore}-${r.name}`);
+          }
+        });
       });
 
-      // 移除從其他門市讀取的邏輯（支援記錄已在本店 weeks）
-      console.log('[支援偵測] 本店支援記錄共', supportRecords.length, '筆');
-
-      // ✅ 合併 records：本店記錄 + 支援者在本店的班別記錄
-      const mergedRecords = [...records];
-      supportRecords.forEach(sr => {
-        const existIdx = mergedRecords.findIndex(r => r.name === sr.name && r.day === sr.day);
-        const supportedRec = {
-          name: sr.name,
-          day: sr.day,
-          week: sr.week,
-          shift: sr.shift,
-          location: `支援${sr._fromStore}`,
-          note: sr.note || '',
-          actualHours: sr.actualHours || 0,
-          isOT: sr.isOT || false,
-          supportEmp: '',
-          approvalStatus: 'approved',
-          requestOff: false
-        };
-        if(existIdx >= 0) {
-          // ✅ 本店員工列表已有此人 → 直接覆蓋該天記錄（顯示支援去哪）
-          mergedRecords[existIdx] = supportedRec;
-        } else {
-          // 本店沒有此人 → 加入記錄
-          mergedRecords.push(supportedRec);
-        }
-      });
-
-      // ✅ 把「本店沒有」的支援人員加入員工列（顯示在員工行底部）
+      // ✅ 把支援人員加入員工列（如果本店沒有這個人）
       const supportEmpObjs = [];
       supportEmpsAdded.forEach(key => {
-        const sepIdx = key.indexOf('||');
-        const fromStore = key.substring(0, sepIdx);
-        const empName   = key.substring(sepIdx + 2);
+        const [fromStore, empName] = key.split('-');
         if(!emps.find(e => e.name === empName)) {
           supportEmpObjs.push({
             name: empName,
@@ -1776,7 +1775,31 @@ async function loadEmpView() {
         }
       });
 
+      // 支援人員排在本店員工後面
       const allEmps = [...emps, ...supportEmpObjs];
+
+      // ✅ 合併 records：本店記錄 + 支援者在本店的班別記錄
+      // 支援者的記錄以 supportRecords 為主（因為班別存在對方門市）
+      const mergedRecords = [...records];
+      supportRecords.forEach(sr => {
+        // 只有在 mergedRecords 沒有這個人這天的記錄時才加
+        const exists = mergedRecords.find(r => r.name === sr.name && r.day === sr.day);
+        if(!exists) {
+          mergedRecords.push({
+            name: sr.name,
+            day: sr.day,
+            week: sr.week,
+            shift: sr.shift,
+            location: `來自${sr._fromStore}`,
+            note: sr.note || '',
+            actualHours: sr.actualHours || 0,
+            isOT: sr.isOT || false,
+            supportEmp: '',
+            approvalStatus: 'approved',
+            requestOff: false
+          });
+        }
+      });
 
       renderEmpCanvas(store, empWeekStr, mergedRecords, allEmps);
     } else {
