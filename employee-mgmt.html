@@ -508,26 +508,27 @@ async function loadEmpAdminList(store) {
       const row = document.createElement('div');
       row.className = 'emp-row';
       row.innerHTML = `
-        <div style="display:flex;flex-direction:column;gap:2px;margin-right:4px;">
-          <button onclick="moveEmp('${store}','${emp.id}','up')"
-            style="background:${isFirst?'#f1f3f4':'#e8f0fe'};border:none;border-radius:6px;width:26px;height:26px;font-size:13px;cursor:${isFirst?'default':'pointer'};color:${isFirst?'#ccc':'var(--primary)'};"
-            ${isFirst?'disabled':''}>▲</button>
-          <button onclick="moveEmp('${store}','${emp.id}','down')"
-            style="background:${isLast?'#f1f3f4':'#e8f0fe'};border:none;border-radius:6px;width:26px;height:26px;font-size:13px;cursor:${isLast?'default':'pointer'};color:${isLast?'#ccc':'var(--primary)'};"
-            ${isLast?'disabled':''}>▼</button>
-        </div>
-        <div class="emp-avatar" style="background:linear-gradient(135deg,${roleColor},${roleColor}cc);">${dName[0]}</div>
-        <div class="emp-info">
-          <div class="emp-name">${dName} <span style="font-size:11px;background:#f1f3f4;padding:2px 6px;border-radius:4px;font-weight:600;">${emp.role||''}</span></div>
-          <div class="emp-role">${hireDateMap[emp.id] ? `到職：${hireDateMap[emp.id]}` : '尚未設定到職日'}</div>
-          <div class="emp-account">${acc ? `🔐 ${acc.ID || acc.username || '--'} · ${PERM_LABELS[acc.permission]||'👤 員工'}` : '⚠️ 尚未設定帳號'}</div>
-        </div>
-        <div class="emp-actions">
-          <div style="display:flex;flex-direction:column;gap:2px;margin-right:2px;">
-            <button class="emp-action-btn" style="padding:3px 7px;font-size:11px;" onclick="moveEmp('${store}','${emp.id}',-1)">▲</button>
-            <button class="emp-action-btn" style="padding:3px 7px;font-size:11px;" onclick="moveEmp('${store}','${emp.id}',1)">▼</button>
+        <div class="emp-avatar" style="background:linear-gradient(135deg,${roleColor},${roleColor}cc);flex-shrink:0;">${dName[0]}</div>
+        <div class="emp-info" style="flex:1;min-width:0;">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+            <span class="emp-name" style="font-size:15px;">${dName}</span>
+            <span style="font-size:11px;background:#f1f3f4;padding:2px 7px;border-radius:20px;font-weight:700;color:#555;">${emp.role||''}</span>
           </div>
-          <button class="emp-action-btn" onclick="openAccountModal('${emp.id}','${store}')">${acc ? '編輯' : '設定帳號'}</button>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
+            📅 ${hireDateMap[emp.id] ? hireDateMap[emp.id] : '未設到職日'}
+            　${acc ? `🔐 ${acc.ID || acc.username || '--'} · <span style="color:${acc.permission==='admin'?'var(--danger)':acc.permission==='owner'?'#9334e6':acc.permission==='manager'?'var(--primary)':'var(--text-muted)'}">${PERM_LABELS[acc.permission]||'員工'}</span>` : '<span style="color:var(--warn);">⚠️ 未設帳號</span>'}
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:5px;flex-shrink:0;">
+          <div style="display:flex;flex-direction:column;gap:2px;">
+            <button onclick="moveEmp('${store}','${emp.id}',-1)"
+              style="background:${isFirst?'#f8fafc':'#e8f0fe'};border:1.5px solid ${isFirst?'#e2e8f0':'#bfdbfe'};border-radius:6px;width:28px;height:24px;font-size:11px;cursor:${isFirst?'default':'pointer'};color:${isFirst?'#ccc':'var(--primary)'};font-weight:900;line-height:1;"
+              ${isFirst?'disabled':''}>▲</button>
+            <button onclick="moveEmp('${store}','${emp.id}',1)"
+              style="background:${isLast?'#f8fafc':'#e8f0fe'};border:1.5px solid ${isLast?'#e2e8f0':'#bfdbfe'};border-radius:6px;width:28px;height:24px;font-size:11px;cursor:${isLast?'default':'pointer'};color:${isLast?'#ccc':'var(--primary)'};font-weight:900;line-height:1;"
+              ${isLast?'disabled':''}>▼</button>
+          </div>
+          <button class="emp-action-btn" onclick="openAccountModal('${emp.id}','${store}')">${acc ? '編輯' : '設帳號'}</button>
           <button class="emp-action-btn" onclick="openTransferModal('${emp.id}','${store}','${dName}')">調店</button>
           <button class="emp-action-btn danger" onclick="toggleRetire('${emp.id}','${store}',${isRetired},'${dName}')">離職</button>
         </div>`;
@@ -612,47 +613,18 @@ async function openAccountModal(empName, store) {
     document.getElementById('linkTypeNew').checked = !isLinked;
     toggleLinkType();
 
-// 角色與權限
+    // 角色與權限
     const empData = storeEmpSnap.docs.find(d=>d.id===empName)?.data() || {};
     document.getElementById('accountRole').value = existingDoc?.role || empData.role || '工讀';
 
-    // 📝 權限防禦機制：判斷是否鎖死權限變更選單
     const permSel = document.getElementById('accountPermission');
-    const currentTargetPerm = existingDoc?.permission || 'employee';
-    
-    // 定義階級大小：數字越大權限越高
-    const PERM_LEVELS = { admin: 4, owner: 3, manager: 2, employee: 1 };
-    const myLevel = PERM_LEVELS[currentUser?.permission || 'employee'];
-    const targetLevel = PERM_LEVELS[currentTargetPerm];
-
-    // 觸發鎖定條件：
-    // 1. 對方權限大於自己 (例如：店長看老闆或管理員)
-    // 2. 對方跟自己同級，且自己不是最高管理員 (例如：店長看自己或其他店長，避免誤降級)
-    if (myLevel < targetLevel || (myLevel === targetLevel && myLevel < 4)) {
-      
-      // 整組選單鎖死，直接不給點擊
-      permSel.innerHTML = `<option value="${currentTargetPerm}" selected>${PERM_LABELS[currentTargetPerm] || currentTargetPerm} (權限不足，無法變更)</option>`;
-      permSel.disabled = true;
-      permSel.style.background = '#e2e8f0'; // 視覺反灰
-      permSel.style.cursor = 'not-allowed';
-      
-    } else {
-      
-      // 權限足夠，正常開放選單
-      permSel.disabled = false;
-      permSel.style.background = '#fff';
-      permSel.style.cursor = 'default';
-      
-      const allowed = getAllowedPermissions();
-      let optionsHtml = '';
-      ALL_PERMS.forEach(p => {
-        if (allowed.includes(p.v)) {
-          const isSelected = currentTargetPerm === p.v ? 'selected' : '';
-          optionsHtml += `<option value="${p.v}" ${isSelected}>${p.l}</option>`;
-        }
-      });
-      permSel.innerHTML = optionsHtml;
-    }
+    const perms = [
+      { v:'employee', l:'👤 員工' },
+      { v:'manager',  l:'🏪 店長' },
+      { v:'owner',    l:'👑 加盟主' },
+      { v:'admin',    l:'⚙️ 系統管理者' }
+    ];
+    permSel.innerHTML = perms.map(p => `<option value="${p.v}" ${(existingDoc?.permission||'employee')===p.v?'selected':''}>${p.l}</option>`).join('');
 
   } catch(e) { showToast('❌ 讀取失敗：' + e.message); }
   hideLoading();
@@ -786,15 +758,7 @@ function openAddEmpModal() {
   document.getElementById('addEmpWage').value = '';
   document.getElementById('addEmpUsername').value = '';
   document.getElementById('addEmpPassword').value = '';
-
-  // 📝 根據當前登入者權限，動態產生下拉選單
-  const permSel = document.getElementById('addEmpPermission');
-  const allowed = getAllowedPermissions();
-  permSel.innerHTML = ALL_PERMS
-    .filter(p => allowed.includes(p.v))
-    .map(p => `<option value="${p.v}">${p.l}</option>`)
-    .join('');
-
+  document.getElementById('addEmpPermission').value = 'employee';
   openModal('addEmpModal');
 }
 
@@ -987,26 +951,6 @@ async function confirmTransfer() {
   } catch(e) { showToast('❌ 調店失敗：' + e.message); }
   hideLoading();
 }
-  // ===== 權限層級控制 =====
-function getAllowedPermissions() {
-  const currentPerm = currentUser?.permission || 'employee';
-  if (currentPerm === 'admin') {
-    return ['employee', 'manager', 'owner', 'admin'];
-  } else if (currentPerm === 'owner') {
-    return ['employee', 'manager'];
-  } else if (currentPerm === 'manager') {
-    return ['employee'];
-  } else {
-    return [];
-  }
-}
-
-const ALL_PERMS = [
-  { v: 'employee', l: '👤 員工' },
-  { v: 'manager',  l: '🏪 店長' },
-  { v: 'owner',    l: '👑 加盟主' },
-  { v: 'admin',    l: '⚙️ 系統管理者' }
-];
 </script>
 </body>
 </html>
