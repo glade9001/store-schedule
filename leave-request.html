@@ -850,22 +850,42 @@ function renderCalendar(){
     </div>
   </div>`;
 
-  // ✅ 下週開放提示橫幅
+  // ✅ 下週開放提示橫幅（手動開放）
   const nextWeekStr = getNextWeekString();
   const nwDates = getWeekDatesFromStr(nextWeekStr);
-  if(leaveWindowCfg.nextWeekOpen) {
-    const nowStr = new Date().toISOString().slice(0,16);
-    const closeDateTime = leaveWindowCfg.closeDateTime || (leaveWindowCfg.closeDate ? leaveWindowCfg.closeDate + 'T23:59' : '');
-    if(!closeDateTime || nowStr <= closeDateTime) {
-      const closeD = new Date(leaveWindowCfg.closeDate);
-      const dows = ['日','一','二','三','四','五','六'];
-      const closeLabel = `${closeD.getMonth()+1}/${closeD.getDate()}（${dows[closeD.getDay()]}）`;
-      const timeLabel = leaveWindowCfg.closeDateTime ? leaveWindowCfg.closeDateTime.slice(11,16) : '23:59';
-      html += `<div class="info-box green" style="margin-bottom:8px;display:flex;align-items:center;gap:8px;">
-        <div style="font-size:18px;">🟢</div>
+  const nowStr = new Date().toISOString().slice(0,16);
+  const cdtManual = leaveWindowCfg.closeDateTime || (leaveWindowCfg.closeDate ? leaveWindowCfg.closeDate + 'T23:59' : '');
+  const isManualOpen = leaveWindowCfg.nextWeekOpen && (!cdtManual || nowStr <= cdtManual);
+
+  if(isManualOpen) {
+    // 手動開放中
+    const closeD = new Date(leaveWindowCfg.closeDate);
+    const dows = ['日','一','二','三','四','五','六'];
+    const closeLabel = `${closeD.getMonth()+1}/${closeD.getDate()}（${dows[closeD.getDay()]}）`;
+    const timeLabel = leaveWindowCfg.closeDateTime ? leaveWindowCfg.closeDateTime.slice(11,16) : '23:59';
+    html += `<div class="info-box green" style="margin-bottom:8px;display:flex;align-items:center;gap:8px;">
+      <div style="font-size:18px;">🟢</div>
+      <div>
+        <div style="font-weight:800;">下週（${nwDates[0]}～${nwDates[6]}）劃休開放中</div>
+        <div style="font-size:11px;margin-top:2px;">於 ${closeLabel} ${timeLabel} 結束劃休申請</div>
+      </div>
+    </div>`;
+  } else {
+    // ✅ 正常截止橫幅：週一到週六顯示「本週日截止」
+    const now = new Date();
+    const dow = now.getDay(); // 0=日, 1=週一 ... 6=週六
+    if(dow >= 1 && dow <= 6) {
+      // 計算本週日的日期
+      const thisSun = new Date(now);
+      thisSun.setDate(now.getDate() + (7 - dow));
+      const sunM = thisSun.getMonth() + 1;
+      const sunD = thisSun.getDate();
+      const nwStr = `${nwDates[0]}～${nwDates[6]}`;
+      html += `<div class="info-box blue" style="margin-bottom:8px;display:flex;align-items:center;gap:8px;">
+        <div style="font-size:18px;">📅</div>
         <div>
-          <div style="font-weight:800;">下週（${nwDates[0]}～${nwDates[6]}）劃休開放中</div>
-          <div style="font-size:11px;margin-top:2px;">於 ${closeLabel} ${timeLabel} 結束劃休申請</div>
+          <div style="font-weight:800;">下週（${nwStr}）劃休申請</div>
+          <div style="font-size:11px;margin-top:2px;">截止：${sunM}/${sunD}（日）23:59</div>
         </div>
       </div>`;
     }
@@ -877,9 +897,7 @@ function renderCalendar(){
   const blockBtnHtml = canSchedule()
     ? `<button onclick="toggleBlockMode()" style="background:${isBlockMode?'var(--danger)':'#fce8e6'};color:${isBlockMode?'white':'var(--danger)'};border:1.5px solid var(--danger);border-radius:8px;padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer;">${isBlockMode?'✕ 取消':'🚫 禁休'}</button>`
     : '';
-  const nowStr2 = new Date().toISOString().slice(0,16);
-  const cdtCheck = leaveWindowCfg.closeDateTime || (leaveWindowCfg.closeDate ? leaveWindowCfg.closeDate+'T23:59' : '');
-  const isWindowOpen = leaveWindowCfg.nextWeekOpen && (!cdtCheck || nowStr2 <= cdtCheck);
+  const isWindowOpen = isManualOpen;
   const windowBtnHtml = canSchedule()
     ? `<button onclick="openLeaveWindowModal()" style="background:${isWindowOpen?'#e8f5e9':'#e8f0fe'};color:${isWindowOpen?'#2e7d32':'var(--primary)'};border:1.5px solid ${isWindowOpen?'#a5d6a7':'var(--primary)'};border-radius:8px;padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer;">🗓️ 開放</button>`
     : '';
