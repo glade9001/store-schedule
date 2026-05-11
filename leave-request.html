@@ -263,9 +263,9 @@ html,body{height:100%;overflow:hidden;background:var(--bg);
       <div class="form-field" id="shiftGroup">
         <label>時段</label>
         <div class="shift-btns">
-          <button class="shift-btn active" id="btn-shift-full" onclick="selectShift('full')">🌕 全日</button>
-          <button class="shift-btn" id="btn-shift-morning" onclick="selectShift('morning')">🌅 早班</button>
-          <button class="shift-btn" id="btn-shift-evening" onclick="selectShift('evening')">🌆 晚班</button>
+          <button class="shift-btn active" id="btn-shift-full" onclick="selectShift('full')">🌕 整天不能上</button>
+          <button class="shift-btn" id="btn-shift-morning" onclick="selectShift('morning')">🌅 早班不能上</button>
+          <button class="shift-btn" id="btn-shift-evening" onclick="selectShift('evening')">🌆 晚班不能上</button>
         </div>
 
       </div>
@@ -484,13 +484,15 @@ function isFullTimeEmp(name){
 // ===== 週次工具 =====
 function dateToWeekStr(dateStr){
   const d = new Date(dateStr + 'T00:00:00');
-  const day = d.getDay() || 7;
-  const mon = new Date(d); mon.setDate(d.getDate() - day + 1);
-  const yr = mon.getFullYear();
-  const firstMon = new Date(yr, 0, 1);
-  const dayOfYear = Math.floor((mon - firstMon) / 86400000);
-  const weekNum = Math.ceil((dayOfYear + (firstMon.getDay()||7) - 1) / 7) + 1;
-  return `${yr}-W${String(weekNum).padStart(2,'0')}`;
+  // ISO 8601：週四所在年份為該週年份
+  const tmp = new Date(d);
+  tmp.setDate(tmp.getDate() + 3 - ((tmp.getDay() + 6) % 7));
+  const year = tmp.getFullYear();
+  const jan4 = new Date(year, 0, 4);
+  const weekNum = 1 + Math.round(
+    ((tmp - jan4) / 86400000 - 3 + ((jan4.getDay() + 6) % 7)) / 7
+  );
+  return `${year}-W${String(weekNum).padStart(2,'0')}`;
 }
 
 // 目標週的申請截止日（前兩週的週日）
@@ -526,10 +528,17 @@ function isDateLocked(dateStr){
   return true;
 }
 
-// 取下週 ISO week string
+// 取下週 ISO week string（第二週）
 function getNextWeekString(){
   const d = new Date();
   d.setDate(d.getDate() + 7);
+  return dateToWeekStr(d.toISOString().split('T')[0]);
+}
+
+// 取下下週 ISO week string（第三週）
+function getWeekAfterNext(){
+  const d = new Date();
+  d.setDate(d.getDate() + 14);
   return dateToWeekStr(d.toISOString().split('T')[0]);
 }
 
@@ -850,15 +859,15 @@ function renderCalendar(){
     </div>
   </div>`;
 
-  // ✅ 下週開放提示橫幅（手動開放）
-  const nextWeekStr = getNextWeekString();
+  // ===== 橫幅提示 =====
+  const nextWeekStr = getNextWeekString();    // 第二週
   const nwDates = getWeekDatesFromStr(nextWeekStr);
   const nowStr = new Date().toISOString().slice(0,16);
   const cdtManual = leaveWindowCfg.closeDateTime || (leaveWindowCfg.closeDate ? leaveWindowCfg.closeDate + 'T23:59' : '');
   const isManualOpen = leaveWindowCfg.nextWeekOpen && (!cdtManual || nowStr <= cdtManual);
 
+  // 🟢 第二週手動開放橫幅
   if(isManualOpen) {
-    // 手動開放中
     const closeD = new Date(leaveWindowCfg.closeDate);
     const dows = ['日','一','二','三','四','五','六'];
     const closeLabel = `${closeD.getMonth()+1}/${closeD.getDate()}（${dows[closeD.getDay()]}）`;
@@ -866,29 +875,31 @@ function renderCalendar(){
     html += `<div class="info-box green" style="margin-bottom:8px;display:flex;align-items:center;gap:8px;">
       <div style="font-size:18px;">🟢</div>
       <div>
-        <div style="font-weight:800;">下週（${nwDates[0]}～${nwDates[6]}）劃休開放中</div>
+        <div style="font-weight:800;">第二週（${nwDates[0]}～${nwDates[6]}）劃休開放中</div>
         <div style="font-size:11px;margin-top:2px;">於 ${closeLabel} ${timeLabel} 結束劃休申請</div>
       </div>
     </div>`;
-  } else {
-    // ✅ 正常截止橫幅：週一到週六顯示「本週日截止」
+  }
+
+  // 📅 第三週常態截止橫幅（永遠顯示）
+  {
+    const nnwStr = getWeekAfterNext();         // 第三週
+    const nnwDates = getWeekDatesFromStr(nnwStr);
     const now = new Date();
-    const dow = now.getDay(); // 0=日, 1=週一 ... 6=週六
-    if(dow >= 1 && dow <= 6) {
-      // 計算本週日的日期
-      const thisSun = new Date(now);
-      thisSun.setDate(now.getDate() + (7 - dow));
-      const sunM = thisSun.getMonth() + 1;
-      const sunD = thisSun.getDate();
-      const nwStr = `${nwDates[0]}～${nwDates[6]}`;
-      html += `<div class="info-box blue" style="margin-bottom:8px;display:flex;align-items:center;gap:8px;">
-        <div style="font-size:18px;">📅</div>
-        <div>
-          <div style="font-weight:800;">下週（${nwStr}）劃休申請</div>
-          <div style="font-size:11px;margin-top:2px;">截止：${sunM}/${sunD}（日）23:59</div>
-        </div>
-      </div>`;
-    }
+    const dow = now.getDay();
+    // 截止日 = 本週日（dow=0 今天就是週日，否則往後算）
+    const sunOffset = dow === 0 ? 0 : (7 - dow);
+    const closeSun = new Date(now);
+    closeSun.setDate(now.getDate() + sunOffset);
+    const sunM = closeSun.getMonth() + 1;
+    const sunD = closeSun.getDate();
+    html += `<div class="info-box blue" style="margin-bottom:8px;display:flex;align-items:center;gap:8px;">
+      <div style="font-size:18px;">📅</div>
+      <div>
+        <div style="font-weight:800;">第三週（${nnwDates[0]}～${nnwDates[6]}）劃休申請</div>
+        <div style="font-size:11px;margin-top:2px;">截止：${sunM}/${sunD}（日）23:59</div>
+      </div>
+    </div>`;
   }
 
   // 月份導航
@@ -1247,7 +1258,7 @@ function renderMyList(){
 function renderReqCard(r){
   const typeLabel = r.type==='annual'?'🏖️ 特休':r.type==='comp'?'🗓️ 補休':'📝 排休';
   const typeColor = r.type==='annual'?'var(--purple)':r.type==='comp'?'var(--comp-blue)':'var(--primary)';
-  const shiftLabel = r.shift==='morning'?'（早班）':r.shift==='evening'?'（晚班）':'（全日）';
+  const shiftLabel = r.shift==='morning'?'（早班不能上）':r.shift==='evening'?'（晚班不能上）':'（整天不能上）';
   const statusMap = { noted:'排休許願', pending:'待確認', fulfilled:'已安排', unfulfilled:'未安排', cancelled:'已取消' };
   const statusCls = { noted:'noted', pending:'pending', fulfilled:'fulfilled', unfulfilled:'unfulfilled', cancelled:'noted' };
   const dObj = new Date(r.date+'T00:00:00');
