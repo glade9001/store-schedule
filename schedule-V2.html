@@ -1595,9 +1595,8 @@ async function fetchAllStoreData() {
       const pad = n => String(n).padStart(2,"0");
       const dateFrom = wMon.getFullYear()+"-"+pad(wMon.getMonth()+1)+"-"+pad(wMon.getDate());
       const dateTo   = wSun.getFullYear()+"-"+pad(wSun.getMonth()+1)+"-"+pad(wSun.getDate());
-      // 用 store 欄位單欄查詢，再在 JS 端過濾 date 範圍
-      const lrSnap = await window.db.collection("stores").doc(store).collection("leaveRequests")
-        .where("store","==",store).get();
+      // 不加任何 where 條件，直接讀整個子集合再 JS 過濾日期（不需任何索引）
+      const lrSnap = await window.db.collection("stores").doc(store).collection("leaveRequests").get();
       appData.leaveRequests = [];
       lrSnap.forEach(d => {
         const r = d.data();
@@ -1606,26 +1605,8 @@ async function fetchAllStoreData() {
       });
       console.log('[leaveRequests] loaded:', appData.leaveRequests.length, 'records for', dateFrom, '~', dateTo);
     } catch(e) {
-      console.warn('[leaveRequests] 讀取失敗:', e.message);
-      // fallback: 不需索引，直接讀全部再過濾
-      try {
-        const wMon2 = weekStringToDate(weekStr);
-        const wSun2 = new Date(wMon2); wSun2.setDate(wMon2.getDate() + 6);
-        const pad2 = n => String(n).padStart(2,"0");
-        const df2 = wMon2.getFullYear()+"-"+pad2(wMon2.getMonth()+1)+"-"+pad2(wMon2.getDate());
-        const dt2 = wSun2.getFullYear()+"-"+pad2(wSun2.getMonth()+1)+"-"+pad2(wSun2.getDate());
-        const lrSnap2 = await window.db.collection("stores").doc(store).collection("leaveRequests").get();
-        appData.leaveRequests = [];
-        lrSnap2.forEach(d => {
-          const r = d.data();
-          if(r.date >= df2 && r.date <= dt2)
-            appData.leaveRequests.push({ id: d.id, ...r });
-        });
-        console.log('[leaveRequests] fallback loaded:', appData.leaveRequests.length);
-      } catch(e2) {
-        console.error('[leaveRequests] fallback 失敗:', e2.message);
-        appData.leaveRequests = [];
-      }
+      console.error('[leaveRequests] 讀取失敗:', e.message);
+      appData.leaveRequests = [];
     }
 
     appData.allStoresEmployees[store] = appData.employees.map(e=>e.name);
