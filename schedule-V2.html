@@ -1395,22 +1395,19 @@ async function loadLogs() {
     });
     const [startDate, endDate] = [dateStrs[0], dateStrs[6]];
 
-    // 讀 leaveRequests（新版）
-    const lrSnap = await window.db.collection('stores').doc(store)
-      .collection('leaveRequests')
-      .where('date', '>=', startDate)
-      .where('date', '<=', endDate)
-      .orderBy('date', 'asc')
-      .get().catch(() => null);
+    // 讀 leaveRequests（不需索引：直接讀全部，JS 端過濾日期範圍）
+    const lrSnapAll = await window.db.collection('stores').doc(store)
+      .collection('leaveRequests').get().catch(() => null);
 
     const typeLabel = { off:'排休', annual:'特休', comp:'補休' };
     const statusLabel = { pending:'申請中', noted:'已核', cancelled:'已取消', unfulfilled:'未實現' };
     const shiftLabel = { full:'', morning:' 早班', evening:' 晚班' };
 
     const logs = [];
-    if(lrSnap) {
-      lrSnap.forEach(d => {
+    if(lrSnapAll) {
+      lrSnapAll.forEach(d => {
         const r = d.data();
+        if(r.date < startDate || r.date > endDate) return; // JS 端過濾
         const name = r.empName || '--';
         const type = typeLabel[r.type] || r.type;
         const shift = shiftLabel[r.shift] || '';
@@ -1431,6 +1428,8 @@ async function loadLogs() {
       });
     }
 
+    // 手動按日期排序（取代原本的 orderBy）
+    logs.sort((a, b) => a.date.localeCompare(b.date));
     if(!logs.length) {
       el.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:20px 0;">本週尚無紀錄</div>';
     } else {
@@ -2810,17 +2809,8 @@ async function handleApproval(isApproved) {
 
 // ===== 畫休紀錄 =====
 async function openLogModal() {
-  const store=document.getElementById('storeSelector').value;
-  const weekStr=document.getElementById('weekSelector').value;
-  const el=document.getElementById('logContent');
-  el.innerHTML='<div style="text-align:center; color:var(--text-muted);">讀取中...</div>';
   openModal('logModal');
-  try {
-    const snap=await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get();
-    const logs=(snap.exists&&snap.data().logs)||[];
-    if(!logs.length) { el.innerHTML='<div style="text-align:center; color:var(--text-muted);">本週尚無紀錄</div>'; return; }
-    el.innerHTML=[...logs].reverse().map(l=>`<div class="log-item">${l}</div>`).join('');
-  } catch(e) { el.innerHTML='讀取失敗'; }
+  await loadLogs();
 }
 
 
