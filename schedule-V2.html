@@ -935,18 +935,31 @@ async function deductLeave(empName, day, weekStr, prevShift, newShift) {
       if(targetBatch) await batchesRef.doc(targetBatch.id).update({ used: Math.max(0, targetBatch.used - 1) });
       
     } else if(!prevIsAnnual && newIsAnnual) {
-      await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
-        date: fullDate, type: 'annual_use', days: 1, note: `${fullDate} 使用特休`, savedBy, ts
-      })}, { merge: true });
-      
+      // 檢查特休餘額
+      let totalAnnualRemain = 0;
       let targetBatch = null, latestBatch = null;
       bSnap.forEach(doc => {
         const b = { id: doc.id, ...doc.data() };
         if(!latestBatch || b.createdAt > latestBatch.createdAt) latestBatch = b;
-        if(!b.settled && (b.days||0) - (b.used||0) > 0) {
-          if(!targetBatch || b.grantDate < targetBatch.grantDate) targetBatch = b;
+        if(!b.settled) {
+          const rem = (b.days||0) - (b.used||0);
+          totalAnnualRemain += rem;
+          if(rem > 0 && (!targetBatch || b.grantDate < targetBatch.grantDate)) targetBatch = b;
         }
       });
+      if(totalAnnualRemain <= 0) {
+        const proceed = confirm(`⚠️ ${getDisplayName(empName)} 特休餘額不足（剩餘 0 天）
+
+確定要排特休嗎？餘額將變為負數。`);
+        if(!proceed) {
+          // 還原班別
+          document.getElementById('modalShift').value = prevShift || '';
+          return;
+        }
+      }
+      await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
+        date: fullDate, type: 'annual_use', days: 1, note: `${fullDate} 使用特休`, savedBy, ts
+      })}, { merge: true });
       const batchToDeduct = targetBatch || latestBatch;
       if(batchToDeduct) {
         await batchesRef.doc(batchToDeduct.id).update({ used: (batchToDeduct.used||0) + 1 });
@@ -959,6 +972,19 @@ async function deductLeave(empName, day, weekStr, prevShift, newShift) {
         date: fullDate, type: 'comp_use_cancel', days: 1, note: `${fullDate} 補休取消（排班退還）`, savedBy, ts
       })}, { merge: true });
     } else if(!prevIsComp && newIsComp) {
+      // 檢查補休餘額
+      const compEarned = parseFloat(cdData.earned || 0);
+      const compUsed   = parseFloat(cdData.used   || 0);
+      const compRemain = compEarned - compUsed;
+      if(compRemain <= 0) {
+        const proceed = confirm(`⚠️ ${getDisplayName(empName)} 補休餘額不足（剩餘 ${compRemain} 天）
+
+確定要排補休嗎？餘額將變為負數。`);
+        if(!proceed) {
+          document.getElementById('modalShift').value = prevShift || '';
+          return;
+        }
+      }
       await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
         date: fullDate, type: 'comp_use', days: 1, note: `${fullDate} 使用補休`, savedBy, ts
       })}, { merge: true });
@@ -1562,18 +1588,45 @@ async function fetchAllStoreData() {
 
     await Promise.all(allFetches);
 
-    // leaveRequests: 用 date 範圍讀本週七天
+    // leaveRequests: 讀本週七天（改用 store 單欄索引 + JS 端過濾日期，不需複合索引）
     try {
       const wMon = weekStringToDate(weekStr);
       const wSun = new Date(wMon); wSun.setDate(wMon.getDate() + 6);
       const pad = n => String(n).padStart(2,"0");
       const dateFrom = wMon.getFullYear()+"-"+pad(wMon.getMonth()+1)+"-"+pad(wMon.getDate());
       const dateTo   = wSun.getFullYear()+"-"+pad(wSun.getMonth()+1)+"-"+pad(wSun.getDate());
+      // 用 store 欄位單欄查詢，再在 JS 端過濾 date 範圍
       const lrSnap = await window.db.collection("stores").doc(store).collection("leaveRequests")
-        .where("date",">=",dateFrom).where("date","<=",dateTo).get();
+        .where("store","==",store).get();
       appData.leaveRequests = [];
-      lrSnap.forEach(d => appData.leaveRequests.push({ id: d.id, ...d.data() }));
-    } catch(e) { appData.leaveRequests = []; }
+      lrSnap.forEach(d => {
+        const r = d.data();
+        if(r.date >= dateFrom && r.date <= dateTo)
+          appData.leaveRequests.push({ id: d.id, ...r });
+      });
+      console.log('[leaveRequests] loaded:', appData.leaveRequests.length, 'records for', dateFrom, '~', dateTo);
+    } catch(e) {
+      console.warn('[leaveRequests] 讀取失敗:', e.message);
+      // fallback: 不需索引，直接讀全部再過濾
+      try {
+        const wMon2 = weekStringToDate(weekStr);
+        const wSun2 = new Date(wMon2); wSun2.setDate(wMon2.getDate() + 6);
+        const pad2 = n => String(n).padStart(2,"0");
+        const df2 = wMon2.getFullYear()+"-"+pad2(wMon2.getMonth()+1)+"-"+pad2(wMon2.getDate());
+        const dt2 = wSun2.getFullYear()+"-"+pad2(wSun2.getMonth()+1)+"-"+pad2(wSun2.getDate());
+        const lrSnap2 = await window.db.collection("stores").doc(store).collection("leaveRequests").get();
+        appData.leaveRequests = [];
+        lrSnap2.forEach(d => {
+          const r = d.data();
+          if(r.date >= df2 && r.date <= dt2)
+            appData.leaveRequests.push({ id: d.id, ...r });
+        });
+        console.log('[leaveRequests] fallback loaded:', appData.leaveRequests.length);
+      } catch(e2) {
+        console.error('[leaveRequests] fallback 失敗:', e2.message);
+        appData.leaveRequests = [];
+      }
+    }
 
     appData.allStoresEmployees[store] = appData.employees.map(e=>e.name);
     appData.records = appData.allStoresRecords.filter(r => r._store === store);
