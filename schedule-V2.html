@@ -2228,14 +2228,30 @@ function handleCellClick(btn, eIdx, isVirtual) {
       } else {
         const bgColor = lr.type==='annual'?'#f3e8ff':lr.type==='comp'?'#ecfeff':'#e8f0fe';
         const color   = lr.type==='annual'?'#6b21a8':lr.type==='comp'?'#0e7490':'#1557b0';
-        const hint    = lr.type==='annual'||lr.type==='comp'
+
+        // 時段限制說明
+        const shiftRestrict = lr.shift==='morning'?'（不能上早班）':lr.shift==='evening'?'（不能上晚班）':'（整天不能上）';
+
+        // 第一行：假別 + 時段限制
+        const titleLine = lr.type==='off'
+          ? `📝 排休申請${shiftRestrict}`
+          : lr.type==='annual'
+            ? `🏖️ 特休申請${shiftRestrict}`
+            : `🗓️ 補休申請${shiftRestrict}`;
+
+        // 第二行：備註 + 提示
+        const hintText = lr.type==='annual'||lr.type==='comp'
           ? `排入「${lr.type==='annual'?'特休':'補休'}」即視為核准，店長排班前請確認餘額充足。`
-          : '排休為許願性質，店長排班時參考即可。';
+          : '';
+        const noteLine = lr.note
+          ? `備註：${lr.note}${hintText ? '　' + hintText : ''}`
+          : hintText;
+
         lrBanner.style.display = 'block';
         lrBanner.style.background = bgColor;
         lrBanner.style.border = `1px solid ${color}40`;
         lrBanner.style.color = color;
-        lrBanner.innerHTML = `<strong>${typeLabel} 申請中</strong>${shiftLabel}${lr.note?` · ${lr.note}`:''}<br><span style="opacity:0.8;">${hint}</span>`;
+        lrBanner.innerHTML = `<strong>${titleLine}</strong><br><span style="opacity:0.85;font-size:11px;">${noteLine}</span>`;
       }
     } else {
       lrBanner.style.display = 'none';
