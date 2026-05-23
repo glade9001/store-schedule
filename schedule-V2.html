@@ -296,10 +296,10 @@ th:first-child { background: #1557b0; z-index: 12; }
       <!-- 週次 + 門市選擇 -->
       <div class="week-bar">
         <div class="week-nav-btns">
-          <button class="week-btn" onclick="changeWeek(-1)">‹ 上週</button>
-          <input type="week" id="weekSelector" class="week-input" onchange="fetchAllStoreData()">
-          <button class="week-btn" onclick="changeWeek(1)">下週 ›</button>
-          <button class="week-btn" onclick="goToThisWeek()" style="background:#e8f0fe; color:#1a73e8; font-weight:800;">本週</button>
+          <button class="week-btn" onclick="changeWeek(-1)" style="font-size:18px;padding:6px 14px;">‹</button>
+          <input type="week" id="weekSelector" class="week-input" onchange="onWeekSelectorChange()">
+          <button class="week-btn" onclick="changeWeek(1)" style="font-size:18px;padding:6px 14px;">›</button>
+          <button class="week-btn" onclick="goToThisWeek()" style="background:#e8f0fe; color:#1a73e8; font-weight:800;">下週</button>
           <button class="week-btn" onclick="fetchAllStoreData()" style="font-size:16px; padding:7px 10px;">🔄</button>
         </div>
         <select id="storeSelector" class="store-select" onchange="onStoreChange()"></select>
@@ -617,6 +617,13 @@ function getCurrentWeekString() {
   let w = Math.ceil((((d - first) / 86400000) + first.getDay() + 1) / 7);
   return `${yr}-W${w < 10 ? '0'+w : w}`;
 }
+// 計算某年有幾週（ISO 8601：有 52 或 53 週）
+function weeksInYear(yr) {
+  const dec28 = new Date(yr, 11, 28); // 12/28 永遠在最後一週
+  const first = new Date(yr, 0, 1);
+  return Math.ceil((((dec28 - first) / 86400000) + first.getDay() + 1) / 7);
+}
+
 function weekStringToDate(wStr) {
   let p = wStr.split('-W'); let yr = parseInt(p[0]); let wk = parseInt(p[1]);
   let d = new Date(yr, 0, 1); let day = d.getDay();
@@ -857,6 +864,7 @@ async function togglePublish() {
 // ===== 週次切換 =====
 function goToThisWeek() {
   document.getElementById('weekSelector').value = getNextWeekString();
+  historyEditUnlocked = false;
   fetchAllStoreData();
 }
 
@@ -885,7 +893,7 @@ function changeWeek(offset) {
     const p = input.value.split('-W');
     let yr = parseInt(p[0]), wk = parseInt(p[1]);
     wk += offset;
-    if(wk < 1) { yr--; wk = 52; }
+    if(wk < 1) { yr--; wk = weeksInYear(yr); }
     const newWeekStr = `${yr}-W${wk < 10 ? '0'+wk : wk}`;
     const newMon = weekStringToDate(newWeekStr);
     const now = new Date();
@@ -899,6 +907,25 @@ function changeWeek(offset) {
 
   historyEditUnlocked = false; // 切換週次後重置解鎖狀態
   input.stepUp(offset);
+  fetchAllStoreData();
+}
+
+// weekSelector 直接輸入時也套用 2 個月往前限制
+function onWeekSelectorChange() {
+  const val = document.getElementById('weekSelector').value;
+  if(!val) return;
+  const newMon = weekStringToDate(val);
+  const now = new Date();
+  const limitDate = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+  if(newMon < limitDate) {
+    showToast('⚠️ 最多只能查閱 2 個月前的班表');
+    // 恢復到 2 個月前的第一週
+    const limitYr = limitDate.getFullYear();
+    const limitFirst = new Date(limitYr, 0, 1);
+    const limitWk = Math.ceil((((limitDate - limitFirst) / 86400000) + limitFirst.getDay() + 1) / 7);
+    document.getElementById('weekSelector').value = `${limitYr}-W${String(limitWk).padStart(2,'0')}`;
+  }
+  historyEditUnlocked = false;
   fetchAllStoreData();
 }
 
@@ -1731,8 +1758,8 @@ function empChangeWeek(offset) {
   const p = empWeekStr.split('-W');
   let yr = parseInt(p[0]), wk = parseInt(p[1]);
   wk += offset;
-  if(wk < 1) { yr--; wk = 52; }
-  if(wk > 52) { yr++; wk = 1; }
+  if(wk < 1) { yr--; wk = weeksInYear(yr); }
+  if(wk > weeksInYear(yr)) { yr++; wk = 1; }
   const newWeekStr = `${yr}-W${wk < 10 ? '0'+wk : wk}`;
   const perm = currentUser?.permission || 'employee';
   const isOwnerAdmin = ['owner','admin'].includes(perm);
@@ -1764,7 +1791,7 @@ function empChangeWeek(offset) {
     // 最大週次：加盟主/管理者→下下週，員工/店長→下下週（皆同）
     const maxOffset = isOwnerAdmin ? 2 : 2;
     let maxW = cw + maxOffset, maxY = cy;
-    if(maxW > 52) { maxY++; maxW -= 52; }
+    if(maxW > weeksInYear(maxY)) { maxW -= weeksInYear(maxY); maxY++; }
     const maxWeekStr = `${maxY}-W${maxW < 10 ? '0'+maxW : maxW}`;
     if(newWeekStr > maxWeekStr) {
       showToast('⚠️ 最多只能查閱到下下週');
@@ -2028,15 +2055,10 @@ function renderTable() {
   const hRow = document.getElementById('headerRow');
   hRow.innerHTML = '<th>員工</th>';
   dayNames.forEach((d,i) => hRow.innerHTML += `<th><span class="date-sub">${currentWeekDates[i]}</span>${d}</th>`);
-  // 計算本月應休天數提示
+  // 計算本月應休天數提示（用週一日期推算月份，避免跨年誤算）
   const weekStr2 = document.getElementById('weekSelector').value;
-  const [wy, wm] = (() => {
-    const dates = getWeekDates(weekStr2);
-    const months = [...new Set(dates.map(d => d.split('/')[0]))];
-    const yr = weekStr2.split('-W')[0];
-    return [yr, months[0]];
-  })();
-  const monthKey = `${wy}-${String(parseInt(wm)).padStart(2,'0')}`;
+  const _weekMon2 = weekStringToDate(weekStr2);
+  const monthKey = `${_weekMon2.getFullYear()}-${String(_weekMon2.getMonth()+1).padStart(2,'0')}`;
   const minLeave = parseInt(appConfig.minLeaveDays || 8);
   const holidayCount = Object.keys(TW_HOLIDAYS_SCHED).filter(k => k.startsWith(monthKey)).length;
   hRow.innerHTML += `<th style="min-width:110px;">本週統計</th>`;
@@ -2569,6 +2591,12 @@ function renderPaintBtns() {
 function setPaintShift(s) { paintShift=s; renderPaintBtns(); }
 function applyPaintToCell(btn, eIdx) {
   if(!paintShift) { if(!isDragging) alert('請先選擇畫筆班別！'); return; }
+  // 歷史班表鎖定保護
+  const _weekStr = document.getElementById('weekSelector')?.value;
+  if(_weekStr && isHistoryWeek(_weekStr) && !historyEditUnlocked) {
+    showToast('🔒 歷史班表已鎖定，請點「✏️ 編輯歷史班表」解鎖後再操作');
+    return;
+  }
   const target=paintShift==='清空' ? '' : paintShift;
   if(btn.dataset.shift===target) return;
   pushToUndo(btn);
