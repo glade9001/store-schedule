@@ -1109,6 +1109,38 @@ function calcEmpHours(empName) {
   return { totalH: Math.round(totalH*10)/10, otH: Math.round(otH*10)/10 };
 }
 
+  // ===== 計算工讀生國定假日出勤時數（含去重機制） =====
+function calcEmpHolidayHours(empName) {
+  const holidays = getMonthHolidays(currentMonth);
+  let autoH = 0;
+  const counted = new Set(); // 🎉 關鍵防呆：用來記錄已經算過的日期，避免重複加總
+
+  holidays.forEach(h => {
+    const [hy, hm, hd] = h.date.split('-').map(Number);
+    Object.entries(scheduleData).forEach(([ws, weekRecs]) => {
+      (weekRecs || []).forEach(r => {
+        if(r.name !== empName) return;
+        const wDates = getWeekDatesFromStr(ws);
+        const dIdx = ['週一','週二','週三','週四','週五','週六','週日'].indexOf(r.day);
+        if(dIdx < 0) return;
+        const dateStr = wDates[dIdx];
+        if(!dateStr) return;
+        const [dm, dd] = dateStr.split('/').map(Number);
+        
+        // 如果日期吻合國定假日，且有正常出勤
+        if(dm === hm && dd === hd && r.shift && r.shift !== '排休' && r.shift !== '指休' && r.shift !== '特休' && r.shift !== '補休') {
+          const dayKey = `${dm}/${dd}`;
+          if(counted.has(dayKey)) return; // 🎉 如果這天已經算過了，就跳過
+          counted.add(dayKey);
+
+          autoH += parseFloat(r.actualHours || 0);
+        }
+      });
+    });
+  });
+  return Math.round(autoH * 10) / 10;
+}
+
 function calcTotal(rec) {
   return calcGross(rec) - calcDeduct(rec);
 }
@@ -2231,31 +2263,12 @@ function renderEmpList() {
 
   el.innerHTML = emps.map((emp, idx) => {
     let rec = getSalaryRecord(emp.name) || buildDefaultRecord(emp);
-    // 工讀：若 holidayHours 是 0 且排班有偵測到出勤，自動更新
+// 工讀：若 holidayHours 是 0 且排班有偵測到出勤，自動更新
     if(emp.role === ROLE_PART && parseFloat(rec.holidayHours||0) === 0) {
-      const holidays = getMonthHolidays(currentMonth);
-      const [hcy, hcm] = currentMonth.split('-').map(Number);
-      let autoH = 0;
-      holidays.forEach(h => {
-        const [hy, hm, hd] = h.date.split('-').map(Number);
-        Object.entries(scheduleData).forEach(([ws, recs]) => {
-          recs.forEach(r => {
-            if(r.name !== emp.name) return;
-            const wDates = getWeekDatesFromStr(ws);
-            const dIdx = ['週一','週二','週三','週四','週五','週六','週日'].indexOf(r.day);
-            if(dIdx < 0) return;
-            const dateStr = wDates[dIdx];
-            if(!dateStr) return;
-            const [dm, dd] = dateStr.split('/').map(Number);
-            if(dm === hm && dd === hd && r.shift && r.shift !== '排休' && r.shift !== '指休' && r.shift !== '特休' && r.shift !== '補休') {
-              autoH += parseFloat(r.actualHours || 0);
-            }
-          });
-        });
-      });
-      autoH = Math.round(autoH * 10) / 10;
+      const autoH = calcEmpHolidayHours(emp.name);
       if(autoH > 0) rec = { ...rec, holidayHours: autoH };
     }
+    
     const total = calcTotal(rec);
     const isOpen = expandedCards.has(emp.name);
     return `<div class="emp-salary-card" id="card-${idx}" data-emp="${emp.name}">
