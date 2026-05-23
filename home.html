@@ -1333,64 +1333,33 @@ async function loadMySchedule() {
     const withTimeout = (p, ms=5000) =>
       Promise.race([p, new Promise(res => setTimeout(() => res(null), ms))]);
 
-    // ✅ 同時讀取本店班表 + 所有其他門市的 weeks（找支援班）
-    // 支援記錄存在「來源門市（員工所屬店）」的 weeks 裡
-    // supportEmp 格式為「目的地門市-員工名字」，例如「美德-洪宸淡」
-    const otherStores = (appConfig.stores || []).filter(s => s !== store);
-    const [snap, ...otherSnaps] = await Promise.all([
-      withTimeout(window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get()),
-      ...otherStores.map(s =>
-        withTimeout(window.db.collection('stores').doc(s).collection('weeks').doc(weekStr).get())
-      )
-    ]);
+    // ✅ 只讀本店班表，支援記錄也在本店 weeks 裡（supportEmp 指向目的地門市）
+    const snap = await withTimeout(
+      window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get()
+    );
 
     const data = snap?.exists ? snap.data() : {};
     const records = data.records || [];
     const myRecs = records.filter(r => r.name === empName);
 
-    // ✅ 從其他門市的 weeks 找支援班
-    // supportEmp 格式：「目的地門市-該員工在來源門市的empName」
-    // 由於各門市 empName 縮寫不同，無法直接用本人 empName 比對
-    // 解法：讀其他門市的 account，找到 displayName 與自己相同的 empName 縮寫
-    const myDisplayName = currentUser.displayName || empName;
+    // ✅ 支援班邏輯：
+    // 支援記錄存在「自己門市（來源店）」的 weeks 裡
+    // supportEmp 格式為「目的地門市-自己的empName」
+    // currentUser.empName 就是自己在本店的縮寫名，直接用來組 key
     const supportRecs = [];
+    const ownRecs = records.filter(r => r.name === empName); // 本店自己的所有記錄
 
-    await Promise.all(otherSnaps.map(async (s, idx) => {
-      if(!s?.exists) return;
-      const fromStore = otherStores[idx];
-      const allRecs = s.data().records || [];
-
-      // 讀取來源門市的 account，找自己對應的縮寫 empName
-      let myEmpNameInOtherStore = null;
-      try {
-        const accSnap = await window.db.collection('account')
-          .where('store', '==', fromStore).get();
-        console.log('[支援Debug]', fromStore, 'account 數:', accSnap.size, '自己 displayName:', myDisplayName, 'empName:', empName);
-        accSnap.forEach(d => {
-          const a = d.data();
-          console.log('[支援Debug] account:', a.empName, a.displayName, a.store);
-          if(a.displayName === myDisplayName || a.empName === empName) {
-            myEmpNameInOtherStore = a.empName;
-          }
-        });
-      } catch(e) { console.log('[支援Debug] account 讀取失敗:', e); }
-
-      console.log('[支援Debug]', fromStore, '找到縮寫:', myEmpNameInOtherStore);
-      if(!myEmpNameInOtherStore) return;
-      const supportKey = `${store}-${myEmpNameInOtherStore}`;
-      console.log('[支援Debug] supportKey:', supportKey, '週次記錄數:', allRecs.length);
-
-      allRecs.forEach(r => {
-        console.log('[支援Debug] 記錄 name:', r.name, 'supportEmp:', r.supportEmp, 'status:', r.approvalStatus);
-        if(r.name === myEmpNameInOtherStore &&
-           r.supportEmp === supportKey &&
-           r.approvalStatus === 'approved') {
-          console.log('[支援Debug] ✅ 命中！', r.day, r.shift);
-          supportRecs.push({ ...r, _supportStore: fromStore });
-        }
-      });
-    }));
-    console.log('[支援Debug] 最終 supportRecs:', supportRecs);
+    // 找出 supportEmp 指向其他門市且已核准的記錄
+    ownRecs.forEach(r => {
+      if(r.approvalStatus !== 'approved' || !r.supportEmp) return;
+      // supportEmp 格式：「目的地門市-empName」
+      const dashIdx = r.supportEmp.lastIndexOf('-');
+      if(dashIdx < 0) return;
+      const targetStore = r.supportEmp.slice(0, dashIdx);
+      if(targetStore && targetStore !== store) {
+        supportRecs.push({ ...r, _supportStore: targetStore });
+      }
+    });
 
     if(weekStr === thisWeekStr) {
       const nextSnap = await withTimeout(
