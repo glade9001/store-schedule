@@ -1348,25 +1348,42 @@ async function loadMySchedule() {
     const records = data.records || [];
     const myRecs = records.filter(r => r.name === empName);
 
-    // ✅ 從其他門市的 weeks 找：r.name === 自己、supportEmp === '本店-自己名字'、approved
-    const supportKey = `${store}-${empName}`; // 目的地（本店）-員工名
+    // ✅ 從其他門市的 weeks 找支援班
+    // supportEmp 格式：「目的地門市-該員工在來源門市的empName」
+    // 由於各門市 empName 縮寫不同，無法直接用本人 empName 比對
+    // 解法：讀其他門市的 account，找到 displayName 與自己相同的 empName 縮寫
+    const myDisplayName = currentUser.displayName || empName;
     const supportRecs = [];
-    console.log('[支援班Debug] empName:', empName, 'store:', store, 'supportKey:', supportKey);
-    console.log('[支援班Debug] otherStores:', otherStores);
-    otherSnaps.forEach((s, idx) => {
-      const fromStore = otherStores[idx];
-      console.log('[支援班Debug] 讀取門市:', fromStore, '存在:', s?.exists);
+
+    await Promise.all(otherSnaps.map(async (s, idx) => {
       if(!s?.exists) return;
+      const fromStore = otherStores[idx];
       const allRecs = s.data().records || [];
-      console.log('[支援班Debug]', fromStore, '本週記錄數:', allRecs.length);
+
+      // 讀取來源門市的 account，找自己對應的縮寫 empName
+      let myEmpNameInOtherStore = null;
+      try {
+        const accSnap = await window.db.collection('account')
+          .where('store', '==', fromStore).get();
+        accSnap.forEach(d => {
+          const a = d.data();
+          if(a.displayName === myDisplayName || a.empName === empName) {
+            myEmpNameInOtherStore = a.empName;
+          }
+        });
+      } catch(e) {}
+
+      if(!myEmpNameInOtherStore) return;
+      const supportKey = `${store}-${myEmpNameInOtherStore}`;
+
       allRecs.forEach(r => {
-        console.log('[支援班Debug] 記錄:', r.name, r.day, r.supportEmp, r.approvalStatus);
-        if(r.name === empName && r.supportEmp === supportKey && r.approvalStatus === 'approved') {
+        if(r.name === myEmpNameInOtherStore &&
+           r.supportEmp === supportKey &&
+           r.approvalStatus === 'approved') {
           supportRecs.push({ ...r, _supportStore: fromStore });
         }
       });
-    });
-    console.log('[支援班Debug] 最終 supportRecs:', supportRecs);
+    }));
 
     if(weekStr === thisWeekStr) {
       const nextSnap = await withTimeout(
