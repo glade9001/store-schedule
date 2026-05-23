@@ -637,13 +637,15 @@ function weekLabelFromStr(wStr) {
   return `${dates[0]} ～ ${dates[6]}`;
 }
 
-// 判斷是否已過週五 00:00（自動發布）
+// 判斷是否已自動發布：每週五 00:00 自動發布「下週」班表
+// 對給定的 weekStr，其「上週五」= 該週週一 - 3 天
+// 若今天 >= 上週五 00:00，代表到了可發布的時間點
 function isAutoPublished(weekStr) {
   const weekMon = weekStringToDate(weekStr);
-  const weekFri = new Date(weekMon);
-  weekFri.setDate(weekMon.getDate() + 4); // 週一+4=週五
-  weekFri.setHours(0, 0, 0, 0);
-  return new Date() >= weekFri;
+  const prevFri = new Date(weekMon);
+  prevFri.setDate(weekMon.getDate() - 3); // 週一 - 3 = 上週五
+  prevFri.setHours(0, 0, 0, 0);
+  return new Date() >= prevFri;
 }
 
 // 判斷畫休是否已鎖定（週五前三天=週二？依原程式：往前3天=週四）
@@ -711,9 +713,13 @@ window.onload = async () => {
     const lastStore = localStorage.getItem('lastStore') || currentUser.store || appConfig.stores[0] || '';
     sel.value = lastStore;
 
-    // 週次預設下週
+    // 管理者排班視角預設下週，員工視角在下方各自設定
     document.getElementById('weekSelector').value = getNextWeekString();
-    empWeekStr = getNextWeekString();
+    // 員工視角：週五後預設顯示「下週」（已自動發布），週四前顯示「本週」
+    {
+      const _nextWk = getNextWeekString();
+      empWeekStr = isAutoPublished(_nextWk) ? _nextWk : getCurrentWeekString();
+    }
 
     // 判斷模式：?mode=admin 進排班管理，其他進查閱
     const urlParams = new URLSearchParams(window.location.search);
@@ -831,9 +837,9 @@ async function togglePublish() {
   if(isPublished && pd.published) {
     if(!confirm('確定要取消發布嗎？員工將看不到班表。')) return;
   } else if(!isPublished) {
-    if(!confirm('確定要發布本週班表嗎？員工將可以看到。')) return;
+    if(!confirm('確定要發布此週班表嗎？員工將可以看到。')) return;
   } else {
-    showToast('本週已自動發布（週五後無法取消）');
+    showToast('下週班表已於週五自動發布，無法取消。如需修改請重新排班後儲存。');
     return;
   }
 
@@ -1826,19 +1832,25 @@ async function loadEmpView() {
   const infoCard = document.getElementById('publishInfoCard');
   const notPubCard = document.getElementById('notPublishedCard');
   const imgWrap = document.getElementById('scheduleImgWrap');
-  const reqCard = document.getElementById('reqOffCard');
-
   try {
-    // 平行讀取：班表 + 員工名單 + 其他門市本週記錄（跨店支援用）
+    // 平行讀取：班表 + 員工名單 + 其他門市本週記錄 + displayName（跨店支援用）
     const otherStores = (appConfig.stores || []).filter(s => s !== store);
-    const [weekSnap, empSnap, ...otherSnaps] = await Promise.all([
+    const [weekSnap, empSnap, accSnap, ...otherSnaps] = await Promise.all([
       window.db.collection('stores').doc(store).collection('weeks').doc(empWeekStr).get(),
       window.db.collection('stores').doc(store).collection('employees').get(),
+      window.db.collection('account').where('store','==',store).get().catch(()=>null),
       ...otherStores.map(s =>
         window.db.collection('stores').doc(s).collection('weeks').doc(empWeekStr).get()
           .catch(() => null)
       )
     ]);
+
+    // ✅ 建立 displayNameMap（員工視角也需要顯示正確姓名）
+    appData.displayNameMap = {};
+    if(accSnap) accSnap.forEach(d => {
+      const acc = d.data();
+      if(acc.empName && acc.displayName) appData.displayNameMap[acc.empName] = acc.displayName;
+    });
 
     const data = weekSnap.exists ? weekSnap.data() : {};
     const records = data.records || [];
