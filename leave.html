@@ -1072,13 +1072,35 @@ function renderLogItem(r, idx, empName) {
     : r.type==='settle'?'settle':'cancel';
   const sign = (r.type?.includes('use')&&!r.type?.includes('cancel'))||(r.type==='settle')?'-':'+';
 
+  // ✅ Bug6 L3：解析 source 欄位顯示補休來源標籤
+  let sourceTag = '';
+  if(r.source) {
+    let srcLabel = '';
+    if(r.source === 'manual')       srcLabel = '手動新增';
+    else if(r.source === 'unworked') srcLabel = '例休未休';
+    else if(r.source === 'holiday')  srcLabel = '國定假日';
+    else if(r.source.startsWith('schedule:')) {
+      const d = r.source.replace('schedule:','');
+      const parts = d.split('-');
+      srcLabel = parts.length===3 ? `${parseInt(parts[1])}/${parseInt(parts[2])} 排班使用` : '排班使用';
+    } else {
+      srcLabel = r.source;
+    }
+    sourceTag = `<span style="background:#f0f9ff;color:#0369a1;border-radius:5px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:6px;">📌 ${srcLabel}</span>`;
+  } else if(r.type === 'comp_earn' || r.type === 'comp_use') {
+    sourceTag = `<span style="background:#f1f5f9;color:#94a3b8;border-radius:5px;padding:1px 7px;font-size:10px;font-weight:600;margin-left:6px;">來源不明</span>`;
+  }
+
   return `<div class="log-item">
     <div class="log-header">
       <span class="log-badge ${badgeClass}">${typeMap[r.type]||r.type}</span>
       <span class="log-date">${fmtDate(r.date||r.ym)}</span>
       <span class="log-days ${sign==='-'?'neg':'pos'}">${sign}${r.days}天</span>
     </div>
-    ${r.note?`<div class="log-note">📝 ${r.note}</div>`:''}
+    <div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin-top:2px;">
+      ${sourceTag}
+      ${r.note?`<span class="log-note">📝 ${r.note}</span>`:''}
+    </div>
     ${r.savedBy?`<div class="log-note">👤 ${r.savedBy}</div>`:''}
     ${isManager()?`<div class="log-actions">
       <button class="log-btn edit" onclick="openEditLogModal('${empName}','${r.ym}',${idx})">✏️ 編輯</button>
@@ -1408,8 +1430,12 @@ async function saveAddLog() {
   const year = date.slice(0,4);
   showLoading('儲存中...');
   try{
+    // ✅ Bug6：加入 source 欄位追溯補休來源
+    const _logRec = { date, type, days, note:note||'', savedBy:currentUser.displayName||currentUser.empName };
+    if(type==='comp_earn') _logRec.source = 'manual';
+    if(type==='comp_use')  _logRec.source = `schedule:${date}`;
     await window.db.collection('employees').doc(empName).collection('leaveLog').doc(ym).set({
-      records: firebase.firestore.FieldValue.arrayUnion({ date, type, days, note:note||'', savedBy:currentUser.displayName||currentUser.empName })
+      records: firebase.firestore.FieldValue.arrayUnion(_logRec)
     },{ merge:true });
     // 若是補休取得，同步更新 comp 文件
     if(type==='comp_earn') {
