@@ -313,6 +313,10 @@ th:first-child { background: #1557b0; z-index: 12; }
       <div id="readonlyBanner" style="display:none; background:#fff3e0; border-bottom:2px solid var(--warn); padding:8px 14px; align-items:center; gap:8px; font-size:13px; font-weight:700; color:#e65100; flex-shrink:0;">
         👁️ 目前為查閱模式，僅本店班表可編輯
       </div>
+      <!-- 歷史班表鎖定提示 -->
+      <div id="historyLockBanner" style="display:none; background:#fef3c7; border-bottom:2px solid #fcd34d; padding:8px 14px; align-items:center; gap:8px; font-size:13px; font-weight:700; color:#92400e; flex-shrink:0;">
+        🔒 此為歷史班表（已過週次），僅供查閱。如需修改請點擊上方「✏️ 編輯歷史班表」
+      </div>
 
       <!-- 工具列 -->
       <div class="tool-bar" id="adminToolBar">
@@ -322,6 +326,7 @@ th:first-child { background: #1557b0; z-index: 12; }
         <button class="tool-btn img" onclick="exportImage()">📸 產圖</button>
         <button class="tool-btn add" onclick="addVirtualRow()">➕ 待補</button>
         <button class="tool-btn log" onclick="openLogModal()">📜 畫休紀錄</button>
+        <button id="editHistoryBtn" class="tool-btn" style="display:none;background:#fef3c7;color:#92400e;border:1.5px solid #fcd34d;" onclick="unlockHistoryEdit()">✏️ 編輯歷史班表</button>
         <button id="compFixBtn" style="display:none;background:#fff3e0;color:#e65100;border:1.5px solid #ffcc80;border-radius:8px;padding:7px 12px;font-size:13px;font-weight:700;cursor:pointer;" onclick="runHistoricalCompFix()">🔧 補休修復</button>
       </div>
 
@@ -868,11 +873,66 @@ function onStoreChange() {
   }
 }
 
+// 歷史班表解鎖狀態（每次切換週次後重置）
+let historyEditUnlocked = false;
+
 function changeWeek(offset) {
   const input = document.getElementById('weekSelector');
   if(!input.value) return;
+
+  // 往前限制：管理者最多查閱 2 個月前
+  if(offset < 0) {
+    const p = input.value.split('-W');
+    let yr = parseInt(p[0]), wk = parseInt(p[1]);
+    wk += offset;
+    if(wk < 1) { yr--; wk = 52; }
+    const newWeekStr = `${yr}-W${wk < 10 ? '0'+wk : wk}`;
+    const newMon = weekStringToDate(newWeekStr);
+    const now = new Date();
+    // 2個月前的第一天
+    const limitDate = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+    if(newMon < limitDate) {
+      showToast('⚠️ 最多只能查閱 2 個月前的班表');
+      return;
+    }
+  }
+
+  historyEditUnlocked = false; // 切換週次後重置解鎖狀態
   input.stepUp(offset);
   fetchAllStoreData();
+}
+
+// 判斷目前選取的週次是否為已過的歷史班表
+function isHistoryWeek(weekStr) {
+  const weekMon = weekStringToDate(weekStr);
+  const weekSun = new Date(weekMon);
+  weekSun.setDate(weekMon.getDate() + 6);
+  weekSun.setHours(23, 59, 59, 999);
+  return new Date() > weekSun;
+}
+
+// 解鎖歷史班表編輯
+function unlockHistoryEdit() {
+  if(!confirm('⚠️ 歷史班表修改需謹慎！\n\n確定要編輯此已過週次的班表嗎？')) return;
+  historyEditUnlocked = true;
+  renderTable();
+  showToast('✏️ 歷史班表已解鎖，可進行編輯');
+}
+
+// 更新歷史鎖定 UI 狀態
+function updateHistoryLockUI(weekStr, store) {
+  const lockBanner = document.getElementById('historyLockBanner');
+  const editBtn = document.getElementById('editHistoryBtn');
+  const isHistory = isHistoryWeek(weekStr);
+  const canEdit = canScheduleStore(store);
+
+  if(isHistory && canEdit && !historyEditUnlocked) {
+    lockBanner.style.display = 'flex';
+    editBtn.style.display = 'inline-flex';
+  } else {
+    lockBanner.style.display = 'none';
+    editBtn.style.display = 'none';
+  }
 }
 
 
@@ -1447,6 +1507,7 @@ async function fetchAllStoreData() {
   localStorage.setItem('lastStore', store);
   document.getElementById('headerStoreBadge').textContent = store;
   setSyncStatus('syncing', '同步中...');
+  historyEditUnlocked = false; // 切換門市或重新載入時重置解鎖狀態
 
   // 店長切換到非本店時，工具列改為唯讀提示
   const isMyStore = canScheduleStore(store);
@@ -1463,19 +1524,18 @@ async function fetchAllStoreData() {
 
   showLoading('讀取班表資料...');
   try {
-    // ✅ 計算「今天實際所在月份」涵蓋的所有週次（不跟著班表週次走）
-    // 例：今天 4/30，查下週（5月）班表，仍讀 4 月的所有週次供月統計使用
-    const today = new Date();
-    const todayYr = today.getFullYear();
-    const todayMo = String(today.getMonth()+1).padStart(2,'0');
-    const currentMonthStr = `${todayYr}-${todayMo}`; // e.g. "2026-05"
+    // ✅ 計算「目前選取週次所在月份」涵蓋的所有週次供月統計使用
+    // 例：查 6/19 那週（2026-W25），就讀 6 月的所有週次
+    const weekMon = weekStringToDate(weekStr);
+    const schedYr = weekMon.getFullYear();
+    const schedMo = weekMon.getMonth(); // 0-indexed
+    const currentMonthStr = `${schedYr}-${String(schedMo+1).padStart(2,'0')}`;
 
-    // 收集今天所在月份的所有週次
+    // 收集班表週次所在月份的所有週次
     const monthWeeks = new Set([weekStr]); // 當前班表週一定要讀（顯示用）
-    // 掃描今天所在月份的每一天，把涉及的週次全部收集起來
-    const daysInMonth = new Date(todayYr, today.getMonth()+1, 0).getDate();
+    const daysInMonth = new Date(schedYr, schedMo+1, 0).getDate();
     for(let d = 1; d <= daysInMonth; d++) {
-      const dateObj = new Date(todayYr, today.getMonth(), d);
+      const dateObj = new Date(schedYr, schedMo, d);
       const yr2 = dateObj.getFullYear();
       const first2 = new Date(yr2, 0, 1);
       const w2 = Math.ceil((((dateObj - first2) / 86400000) + first2.getDay() + 1) / 7);
@@ -1957,7 +2017,11 @@ function renderTable() {
   tbody.innerHTML = '';
   const weekStr = document.getElementById('weekSelector').value;
   const store = document.getElementById('storeSelector').value;
-  const isReadonly = !canScheduleStore(store);
+  // 歷史班表鎖定：已過週次且未解鎖 → 強制唯讀
+  const isLockedHistory = isHistoryWeek(weekStr) && !historyEditUnlocked;
+  const isReadonly = !canScheduleStore(store) || isLockedHistory;
+  // 更新鎖定 UI
+  updateHistoryLockUI(weekStr, store);
   currentWeekDates = getWeekDates(weekStr);
 
   // 更新表頭
@@ -2631,12 +2695,13 @@ async function updateSummary(idx, emp) {
   });
 
   // ===== 各月份統計（逐月分開）=====
-  // ✅ 修正：用今天的實際自然月（不跟著班表週次走）
-  // 例：今天 4/30，查下週（5月）班表，月統計仍顯示 4 月累計
+  // ✅ 用「目前選取班表週次」的週一所在月份計算，而非今天的自然月
+  // 例：查 6/19 那週 → 統計 6 月的累計資料
   const today = new Date();
-  const currentMonthKey = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
+  const weekMonForStats = weekStringToDate(weekStr);
+  const currentMonthKey = `${weekMonForStats.getFullYear()}-${String(weekMonForStats.getMonth()+1).padStart(2,"0")}`;
 
-  // monthStats 只統計「今天所在的自然月」
+  // monthStats 只統計班表週次所在月份的記錄
   const monthStats = { [currentMonthKey]: { h: 0, off: 0, ot: 0 } };
 
   (appData.allStoresRecords || []).forEach(r => {
@@ -2690,16 +2755,19 @@ async function updateSummary(idx, emp) {
     const remainComp = Math.max(0,(cd.earned||0)-(cd.used||0));
     const carriedComp = cpd.carried&&!cpd.settled ? Math.max(0,(cpd.earned||0)-(cpd.used||0)-(cpd.carriedUsed||0)) : 0;
     const totalComp = remainComp + carriedComp;
-    if(remainAnn===0 && totalComp===0 && !bSnap?.size) { el.innerHTML = '<span style="color:#94a3b8;">未建特休</span>'; return; }
-    el.innerHTML =
-      `<span style="color:#7c3aed;font-weight:700;">🏖️特${remainAnn}天</span>` +
-      `<span style="color:#0891b2;font-weight:700;margin-left:4px;">🗓️補${totalComp}天</span>`;
+    // 未建特休（完全沒有 batch 資料）與有建但剩 0 天分開顯示
+    const noAnnualSetup = !bSnap || bSnap.size === 0;
+    const annualPart = noAnnualSetup
+      ? '<span style="color:#94a3b8;">未建特休</span>'
+      : `<span style="color:#7c3aed;font-weight:700;">🏖️特${remainAnn}天</span>`;
+    const compPart = `<span style="color:#0891b2;font-weight:700;margin-left:4px;">🗓️補${totalComp}天</span>`;
+    el.innerHTML = annualPart + compPart;
   }).catch(()=>{});
 
   if(isPartTime) {
     const wage = parseFloat(emp.wage || 0);
     const ms = monthStats[currentMonthKey];
-    const mLabel = today.getMonth()+1 + '月';
+    const mLabel = weekMonForStats.getMonth()+1 + "月";
     const salary = Math.round(ms.h * wage);
     const salColor = salary >= 18000 ? '#d93025' : '#34a853';
     html = `<div style="font-size:11px; line-height:1.8;">`;
@@ -2711,7 +2779,7 @@ async function updateSummary(idx, emp) {
 
   } else if(isFullTime) {
     const ms = monthStats[currentMonthKey];
-    const mLabel = today.getMonth()+1 + '月';
+    const mLabel = weekMonForStats.getMonth()+1 + "月";
     const offColor = wOff >= 2 ? '#34a853' : '#d93025';
     const offLabel = wOff >= 2 ? '達標' : '不足';
     const otColor = ms.ot > 0 ? '#d93025' : '#64748b';
