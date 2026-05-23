@@ -1365,25 +1365,32 @@ async function loadMySchedule() {
       try {
         const accSnap = await window.db.collection('account')
           .where('store', '==', fromStore).get();
+        console.log('[支援Debug]', fromStore, 'account 數:', accSnap.size, '自己 displayName:', myDisplayName, 'empName:', empName);
         accSnap.forEach(d => {
           const a = d.data();
+          console.log('[支援Debug] account:', a.empName, a.displayName, a.store);
           if(a.displayName === myDisplayName || a.empName === empName) {
             myEmpNameInOtherStore = a.empName;
           }
         });
-      } catch(e) {}
+      } catch(e) { console.log('[支援Debug] account 讀取失敗:', e); }
 
+      console.log('[支援Debug]', fromStore, '找到縮寫:', myEmpNameInOtherStore);
       if(!myEmpNameInOtherStore) return;
       const supportKey = `${store}-${myEmpNameInOtherStore}`;
+      console.log('[支援Debug] supportKey:', supportKey, '週次記錄數:', allRecs.length);
 
       allRecs.forEach(r => {
+        console.log('[支援Debug] 記錄 name:', r.name, 'supportEmp:', r.supportEmp, 'status:', r.approvalStatus);
         if(r.name === myEmpNameInOtherStore &&
            r.supportEmp === supportKey &&
            r.approvalStatus === 'approved') {
+          console.log('[支援Debug] ✅ 命中！', r.day, r.shift);
           supportRecs.push({ ...r, _supportStore: fromStore });
         }
       });
     }));
+    console.log('[支援Debug] 最終 supportRecs:', supportRecs);
 
     if(weekStr === thisWeekStr) {
       const nextSnap = await withTimeout(
