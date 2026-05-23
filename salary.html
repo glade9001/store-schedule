@@ -1633,6 +1633,7 @@ async function recallSalary() {
     });
     salaryData.status = 'draft';
     updateStatusBadge(); renderBottomAction(); renderEmpList();
+    renderMonthInfo();
     showToast('✅ 已收回，可重新修改');
   } catch(e) { showToast('❌ 收回失敗：' + e.message); }
   hideLoading();
@@ -1649,6 +1650,7 @@ async function rejectSalary() {
     });
     salaryData.status = 'draft';
     updateStatusBadge(); renderBottomAction(); renderEmpList();
+    renderMonthInfo();
     showToast('✅ 已退回給店長修改');
   } catch(e) { showToast('❌ 退回失敗：' + e.message); }
   hideLoading();
@@ -2165,13 +2167,10 @@ function renderMonthInfo() {
       const wd = ['日','一','二','三','四','五','六'][d.getDay()];
       return `<span style="background:#fce8e6;color:#c0392b;border-radius:6px;padding:3px 8px;font-size:12px;font-weight:700;white-space:nowrap;">${m}/${h.day}(${wd}) ${h.name}</span>`;
     }).join(' ');
-    holidayHtml = `
+holidayHtml = `
       <div style="margin-bottom:10px;">
         <div style="font-size:12px;font-weight:800;color:var(--text-muted);margin-bottom:6px;">🎌 本月國定假日</div>
         <div style="display:flex;flex-wrap:wrap;gap:6px;">${hList}</div>
-        <div style="font-size:11px;color:#c0392b;margin-top:6px;font-weight:600;">
-          ⚠️ 工讀人員國定假日出勤請手動填入時數，薪資 = 時數 × 時薪 × 2
-        </div>
       </div>`;
   }
 
@@ -2706,7 +2705,7 @@ function renderSalaryForm(emp, rec, idx, readonly) {
       <span class="salary-row-label">國定假日出勤時數 <span style="font-size:10px;color:var(--text-muted);background:#e2e8f0;padding:2px 6px;border-radius:4px;margin-left:4px;">系統自動帶入</span></span>
       <span class="salary-row-val" style="color:var(--primary);font-weight:900;font-size:15px;">${rec.holidayHours || 0} h</span>
     </div>`;
-    col3 += `<div style="font-size:11px;color:var(--text-muted);padding:2px 0 6px;margin-left:4px;">↑ 國定假日出勤薪資 = 時數 × 時薪 × 2（正常薪資 + 額外加給）</div>`;
+    col3 += `<div style="font-size:11px;color:var(--text-muted);padding:2px 0 6px;margin-left:4px;">↑ 國定假日出勤薪資加倍計算</div>`;
   }
   col3 += inp('lateMinutes', rec.lateMinutes, '遲到分鐘數', '0', 'salary-input');
   
@@ -3344,10 +3343,11 @@ async function submitSalary() {
       submittedAt: new Date().toISOString(),
       submittedBy: currentUser.displayName || currentUser.empName
     });
-    salaryData.status = 'submitted';
+   salaryData.status = 'submitted';
     updateStatusBadge();
     renderBottomAction();
     renderEmpList();
+    renderMonthInfo(); // 🎉 補上這行，流程圖就會立刻變色！
     showToast('✅ 薪資已送出，等待審核');
   } catch(e) { showToast('❌ 送出失敗：' + e.message); }
   hideLoading();
@@ -3369,6 +3369,7 @@ async function publishSalary() {
     updateStatusBadge();
     renderBottomAction();
     renderEmpList();
+    renderMonthInfo(); // 🎉 補上這行
     showToast('✅ 薪資已發布');
   } catch(e) { showToast('❌ 發布失敗：' + e.message); }
   hideLoading();
