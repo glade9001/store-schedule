@@ -1079,7 +1079,10 @@ async function deductLeave(empName, day, weekStr, prevShift, newShift) {
         }
       }
       await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
-        date: fullDate, type: 'comp_use', days: 1, note: `${fullDate} 使用補休`, savedBy, ts
+        date: fullDate, type: 'comp_use', days: 1,
+        note: `${fullDate} 使用補休`,
+        source: `schedule:${fullDate}`, // ✅ Bug6 S1：記錄使用日期，方便追溯
+        savedBy, ts
       })}, { merge: true });
     }
 
@@ -1136,7 +1139,9 @@ async function grantHolidayComp(empName, fullDate, holidayName) {
 
   const note = `${fullDate} ${holidayName} 國定假日補休`;
   await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
-    date: fullDate, type: 'comp_earn', days: 1, note, savedBy
+    date: fullDate, type: 'comp_earn', days: 1, note,
+    source: 'holiday', // ✅ Bug6 S2：標記為國定假日補休來源
+    savedBy
   })}, { merge: true });
 
   // 同步 comp/{year}
