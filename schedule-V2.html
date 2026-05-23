@@ -633,20 +633,15 @@ function weekStringToDate(wStr) {
   return d;
 }
 // ✅ 調職週判斷 Helper（全域）
-// 從 YYYY-Www 格式取得週一/週日日期字串
+// 直接複用 weekStringToDate，確保與系統其他週計算一致
 function getWeekMondayStr(ws) {
-  const [yr, wn] = ws.split('-W').map(Number);
-  const jan4 = new Date(yr, 0, 4);
-  const startOfWeek1 = new Date(jan4);
-  startOfWeek1.setDate(jan4.getDate() - ((jan4.getDay() || 7) - 1));
-  const mon = new Date(startOfWeek1);
-  mon.setDate(startOfWeek1.getDate() + (wn - 1) * 7);
+  const mon = weekStringToDate(ws); // weekStringToDate 回傳週一
   return `${mon.getFullYear()}-${String(mon.getMonth()+1).padStart(2,'0')}-${String(mon.getDate()).padStart(2,'0')}`;
 }
 function getWeekSundayStr(ws) {
-  const monStr = getWeekMondayStr(ws);
-  const sun = new Date(monStr);
-  sun.setDate(sun.getDate() + 6);
+  const mon = weekStringToDate(ws);
+  const sun = new Date(mon);
+  sun.setDate(mon.getDate() + 6);
   return `${sun.getFullYear()}-${String(sun.getMonth()+1).padStart(2,'0')}-${String(sun.getDate()).padStart(2,'0')}`;
 }
 
@@ -1628,24 +1623,31 @@ async function fetchAllStoreData() {
     mainEmpSnap.forEach(d => {
       const data = d.data();
       const status = data.status;
+
+      // 正常員工：直接顯示
       if(!['離職','調走'].includes(status)) {
         appData.employees.push({ name: d.id, ...data });
         return;
       }
-      const effectDate = data.retireDate || data.transferDate;
-      if(!effectDate) { appData.employees.push({ name: d.id, ...data }); return; }
+
+      // 離職：永遠隱藏（不管有無 retireDate、不管是否已發布）
+      if(status === '離職') return;
+
+      // 調走：依 transferDate 判斷
+      const effectDate = data.transferDate;
+      if(!effectDate) return; // 沒有生效日視為已生效，隱藏
 
       if(isPublished) {
-        // 已發布：一律正常顯示
+        // 已發布的週：調走員工一律正常顯示（方便核對歷史）
         appData.employees.push({ name: d.id, ...data });
       } else if(effectDate > weekSunStr) {
-        // transferDate 在本週之後：顯示（未到調職週）
+        // transferDate 在本週之後：正常顯示
         appData.employees.push({ name: d.id, ...data });
       } else if(effectDate >= weekMonStr && effectDate <= weekSunStr) {
         // transferDate 在本週：顯示＋標注（已調職）
         appData.employees.push({ name: d.id, ...data, _transferThisWeek: true });
       }
-      // transferDate 已過（早於本週一）：隱藏，不 push
+      // transferDate 已過本週：隱藏
     });
     appData.employees.sort((a,b) => (a.sortKey||0)-(b.sortKey||0));
 
@@ -1921,8 +1923,14 @@ async function loadEmpView() {
         const data = d.data();
         const status = data.status;
         if(!['離職','調走'].includes(status)) { emps.push({ name: d.id, ...data }); return; }
-        const effectDate = data.retireDate || data.transferDate;
-        if(!effectDate) { emps.push({ name: d.id, ...data }); return; }
+
+        // 離職：永遠隱藏
+        if(status === '離職') return;
+
+        // 調走：依 transferDate 判斷
+        const effectDate = data.transferDate;
+        if(!effectDate) return;
+
         if(empViewPublished) {
           emps.push({ name: d.id, ...data });
         } else if(effectDate > evWeekSunStr) {
@@ -1930,7 +1938,7 @@ async function loadEmpView() {
         } else if(effectDate >= evWeekMonStr && effectDate <= evWeekSunStr) {
           emps.push({ name: d.id, ...data, _transferThisWeek: true });
         }
-        // 已過調職日：不顯示
+        // 已過調職日：隱藏
       });
       emps.sort((a,b) => (a.sortKey||0) - (b.sortKey||0));
 
@@ -2144,9 +2152,8 @@ function renderTable() {
     const dispName = isVirtual ? emp.name : getDisplayName(emp.name);
     let nameHtml = `<strong class="emp-cell">${dispName}</strong><span class="role-tag">${emp.role||''}</span>`;
     if(isVirtual) nameHtml += ` <span style="color:var(--danger); font-size:11px; cursor:pointer;" onclick="deleteVirtualRow('${emp.name}')">✖</span>`;
-    if(emp.status==='離職') nameHtml += ` <span style="color:var(--danger); font-size:10px;">(離職)</span>`;
-    if(emp.status==='調走') nameHtml += ` <span style="color:var(--warn); font-size:10px;">(已調走)</span>`;
     // ✅ transferDate 當週（未發布）：加注（已調職）
+    // 離職/已調職且生效的人不會出現在班表，不需要額外標注
     if(emp._transferThisWeek) nameHtml += ` <span style="color:#d97706; font-size:10px; font-weight:700;">(已調職)</span>`;
     tr.innerHTML = `<td>${nameHtml}</td>`;
 
