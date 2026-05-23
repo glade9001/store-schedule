@@ -1351,15 +1351,22 @@ async function loadMySchedule() {
     // ✅ 從其他門市的 weeks 找：r.name === 自己、supportEmp === '本店-自己名字'、approved
     const supportKey = `${store}-${empName}`; // 目的地（本店）-員工名
     const supportRecs = [];
+    console.log('[支援班Debug] empName:', empName, 'store:', store, 'supportKey:', supportKey);
+    console.log('[支援班Debug] otherStores:', otherStores);
     otherSnaps.forEach((s, idx) => {
-      if(!s?.exists) return;
       const fromStore = otherStores[idx];
-      (s.data().records || []).forEach(r => {
+      console.log('[支援班Debug] 讀取門市:', fromStore, '存在:', s?.exists);
+      if(!s?.exists) return;
+      const allRecs = s.data().records || [];
+      console.log('[支援班Debug]', fromStore, '本週記錄數:', allRecs.length);
+      allRecs.forEach(r => {
+        console.log('[支援班Debug] 記錄:', r.name, r.day, r.supportEmp, r.approvalStatus);
         if(r.name === empName && r.supportEmp === supportKey && r.approvalStatus === 'approved') {
           supportRecs.push({ ...r, _supportStore: fromStore });
         }
       });
     });
+    console.log('[支援班Debug] 最終 supportRecs:', supportRecs);
 
     if(weekStr === thisWeekStr) {
       const nextSnap = await withTimeout(
