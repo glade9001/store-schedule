@@ -453,13 +453,18 @@ function detectHolidayWork(empName, ym) {
 }
 
 // 計算當月已休天數（從排班記錄）
+// ✅ Bug4修正：「已休」只計排休/指休（例休），不含特休/補休
+// 特休/補休是員工另外請的假，不應抵銷週末例休義務
+// ✅ Bug5修正：時薪另計視為當日休假，計入已休
 function calcMonthOffDays(empName, ym) {
   const [cy, cm] = ym.split('-').map(Number);
   let offDays = 0;
   Object.entries(scheduleData).forEach(([ws, recs]) => {
     recs.forEach(r => {
       if(r.name !== empName) return;
-      if(r.shift !== '排休' && r.shift !== '指休' && r.shift !== '特休' && r.shift !== '補休') return; // ✅ 含特休/補休
+      const isRegOff = r.shift === '排休' || r.shift === '指休';
+      const isHourlyOff = r.isHourly === true; // 時薪另計視為休假
+      if(!isRegOff && !isHourlyOff) return;
       const wDates = getWeekDatesFromStr(ws);
       const dIdx = ['週一','週二','週三','週四','週五','週六','週日'].indexOf(r.day);
       if(dIdx < 0) return;
@@ -486,6 +491,7 @@ function getDisplayName(empName) {
 }
 
 let batchDataMap = {}; // { empName: [batch,...] }
+let compLogMap = {}; // ✅ Bug6：補休發放批次清單 { empName: [{grantDate, source, note, days, remaining},...] }
 
 // ===== 讀取當月員工特補休資料 =====
 let compDataMap = {}; // { empName: { current:{earned,used}, carried:{remaining} } }
@@ -495,13 +501,16 @@ async function loadLeaveData() {
   leaveDataMap = {};
   batchDataMap = {};
   compDataMap = {};
+  compLogMap = {};
   try {
     await Promise.all(empList.map(async emp => {
-      const [leaveSnap, batchSnap, compSnap, compPrevSnap] = await Promise.all([
+      const [leaveSnap, batchSnap, compSnap, compPrevSnap, leaveLogSnap] = await Promise.all([
         window.db.collection('employees').doc(emp.name).collection('leaves').doc(year).get().catch(()=>null),
         window.db.collection('employees').doc(emp.name).collection('leaveBatches').get().catch(()=>null),
         window.db.collection('employees').doc(emp.name).collection('comp').doc(year).get().catch(()=>null),
-        window.db.collection('employees').doc(emp.name).collection('comp').doc(prevYear).get().catch(()=>null)
+        window.db.collection('employees').doc(emp.name).collection('comp').doc(prevYear).get().catch(()=>null),
+        // ✅ Bug6：讀取全年 leaveLog，用於建立補休發放批次清單
+        window.db.collection('employees').doc(emp.name).collection('leaveLog').get().catch(()=>null)
       ]);
       if(leaveSnap?.exists) leaveDataMap[emp.name] = leaveSnap.data();
       let batches = [];
@@ -516,6 +525,45 @@ async function loadLeaveData() {
         carried: carriedRem > 0 ? { remaining: carriedRem, year: prevYear, settled: cpd.settled||false } : null,
         totalRemaining: Math.max(0,(cd.earned||0)-(cd.used||0)) + carriedRem
       };
+
+      // ✅ Bug6：從 leaveLog 建立補休發放批次清單（FIFO 排序）
+      const earnBatches = [];
+      let totalUsed = 0;
+      if(leaveLogSnap) {
+        const allRecords = [];
+        leaveLogSnap.forEach(d => {
+          (d.data().records || []).forEach(r => allRecords.push({ ...r, _ym: d.id }));
+        });
+        // 依日期排序
+        allRecords.sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+        allRecords.forEach(r => {
+          if(r.type === 'comp_earn') {
+            earnBatches.push({
+              date: r.date, source: r.source||'unknown', note: r.note||'',
+              days: parseFloat(r.days)||0, used: 0, _ym: r._ym
+            });
+          }
+          if(r.type === 'comp_use') {
+            // FIFO：依序從最舊的批次扣抵
+            let remaining = parseFloat(r.days)||0;
+            for(const b of earnBatches) {
+              if(remaining <= 0) break;
+              const canUse = Math.min(b.days - b.used, remaining);
+              if(canUse > 0) { b.used += canUse; remaining -= canUse; }
+            }
+            totalUsed += parseFloat(r.days)||0;
+          }
+          if(r.type === 'comp_cancel') {
+            // 撤回最新的 earn
+            let toCancel = parseFloat(r.days)||0;
+            for(let i = earnBatches.length-1; i >= 0 && toCancel > 0; i--) {
+              const canCancel = Math.min(earnBatches[i].days - earnBatches[i].used, toCancel);
+              if(canCancel > 0) { earnBatches[i].days -= canCancel; toCancel -= canCancel; }
+            }
+          }
+        });
+      }
+      compLogMap[emp.name] = earnBatches.filter(b => b.days > 0);
     }));
   } catch(e) { console.warn('特補休讀取失敗:', e); }
 
@@ -1349,7 +1397,10 @@ function buildAttendanceInfo(rec, emp, isPartTime) {
 }
 
 function calcGross(rec) {
-  const role = rec.role;
+  // ✅ Bug1修正：calcGross 依賴 rec.role，但 rec.role 已在 renderSalaryForm 同步
+  // 直接存取 empList 確保計算時也用最新職稱
+  const empObj = empList.find(e => e.name === (rec.empName || rec.name || ''));
+  const role = (empObj?.role) || rec.role;
   const isPart = role === ROLE_PART;
   const rph = isPart ? 0 : hourlyRate(rec);
 
@@ -2394,7 +2445,7 @@ function buildDefaultRecord(emp) {
   const { totalH, otH } = calcEmpHours(emp.name);
   const base = {
     empName: emp.name,
-    role: emp.role || ROLE_PART,
+    role: emp.role || ROLE_PART, // ✅ Bug1修正：永遠用員工主檔最新職稱
   };
   
   if(emp.role === ROLE_PART) {
@@ -2435,8 +2486,12 @@ function buildDefaultRecord(emp) {
 }
 
 function renderSalaryForm(emp, rec, idx, readonly) {
-  const isPart = rec.role === ROLE_PART;
-  const isMgr = rec.role === ROLE_MANAGER;
+  // ✅ Bug1修正：職稱以員工主檔（emp.role）為準，rec.role 僅為 fallback
+  // 避免員工升遷後薪資結構仍顯示舊職稱
+  const currentRole = emp.role || rec.role || ROLE_PART;
+  if(rec.role !== currentRole) rec.role = currentRole; // 同步修正記錄內的職稱
+  const isPart = currentRole === ROLE_PART;
+  const isMgr = currentRole === ROLE_MANAGER;
   const ro = readonly;
   const { totalH } = calcEmpHours(emp.name);
 
@@ -2673,6 +2728,43 @@ function renderSalaryForm(emp, rec, idx, readonly) {
 
   col3 += `<div class="salary-row"><span class="salary-row-label">年度剩餘補休天數</span><span class="salary-row-val" style="color:var(--accent);">${remainComp} 天</span></div>`;
   col3 += `<div class="salary-row"><span class="salary-row-label">年度特休 (發放/已用/剩餘)</span><span class="salary-row-val">${annualDays} / ${usedAnnual} / ${remainAnnual}</span></div>`;
+  
+  // ✅ Bug6：補休餘額改為按發放批次分列，明確標注來源
+  const compBatches = compLogMap[emp.name] || [];
+  const hasLegacyComp = typeof remainComp === 'number' && remainComp > 0 && compBatches.length === 0;
+  const SOURCE_LABEL = {
+    'unworked': '例休未休',
+    'holiday':  '國定假日',
+    'manual':   '手動發放',
+    'unknown':  '來源不明（舊記錄）'
+  };
+  let compBatchHtml = '';
+  if(compBatches.length > 0) {
+    const activeBatches = compBatches.filter(b => b.days - b.used > 0);
+    if(activeBatches.length > 0) {
+      compBatchHtml = activeBatches.map(b => {
+        const rem = Math.max(0, b.days - b.used);
+        const srcLabel = SOURCE_LABEL[b.source] || b.source || '來源不明（舊記錄）';
+        const dateLabel = b.date ? b.date.slice(0,7) + ' ' : '';
+        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 8px;background:#f0fdf4;border-radius:6px;margin-top:3px;font-size:11px;">
+          <span style="color:#065f46;font-weight:700;">${dateLabel}${srcLabel}</span>
+          <span style="font-weight:800;color:var(--accent);">剩 ${rem} 天</span>
+        </div>`;
+      }).join('');
+    } else {
+      compBatchHtml = `<div style="font-size:11px;color:var(--text-muted);padding:4px 0;">（本年度補休已全數使用）</div>`;
+    }
+  } else if(hasLegacyComp) {
+    compBatchHtml = `<div style="font-size:11px;color:#d97706;padding:4px 0;">⚠️ 舊記錄，來源不明：${remainComp} 天</div>`;
+  }
+  col3 += `<div style="padding:6px 0 0;">
+    <div style="font-size:12px;font-weight:800;color:var(--text-muted);margin-bottom:4px;">補休餘額明細（依發放日 FIFO）</div>
+    ${compBatchHtml || '<div style="font-size:11px;color:var(--text-muted);">（無補休記錄）</div>'}
+    <div style="display:flex;justify-content:space-between;margin-top:6px;padding-top:6px;border-top:1px solid var(--border);">
+      <span style="font-size:12px;font-weight:800;">補休合計剩餘</span>
+      <span style="font-size:14px;font-weight:900;color:var(--accent);">${remainComp} 天</span>
+    </div>
+  </div>`;
   
   const carried = (batchDataMap[emp.name]||[]).filter(b=>b.carried&&!b.settled).reduce((a,b)=>a+Math.max(0,(b.days||0)-(b.used||0)),0);
   col3 += `<div class="salary-row"><span class="salary-row-label">前年度遞延特休剩餘</span><span class="salary-row-val">${carried} 天</span></div>`;
@@ -2953,6 +3045,10 @@ function renderCalendar(empName, role) {
   const startOffset = firstWeekday === 0 ? 6 : firstWeekday - 1;
   
   let totalH = 0, totalOT = 0, totalOff = 0, workDays = 0;
+  // ✅ Bug3修正：細分統計欄位
+  let offRegular = 0;    // 例休天數（排休/指休）
+  let offCompAnnual = 0; // 補特休天數（補休/特休）
+  let offHourly = 0;     // 時薪另計天數（視為休假）
   
   const heads = dayLabels.map(d => `<div class="cal-head">${d}</div>`).join('');
   const empties = Array(startOffset).fill('<div class="cal-cell"></div>').join('');
@@ -2974,8 +3070,13 @@ function renderCalendar(empName, role) {
     const weekday = new Date(cy, cm-1, d).getDay();
     const isWeekend = weekday === 0 || weekday === 6;
 
-    if(isOff) { totalOff++; }
-    else if(isHourlyDay) { /* 時薪另計算休假，不計工時 */ }
+    if(isOff) {
+      totalOff++;
+      if(isRegOff) offRegular++;
+      else offCompAnnual++; // 特休/補休
+    }
+    // ✅ Bug5修正：時薪另計視為休假，計入統計
+    else if(isHourlyDay) { totalOff++; offHourly++; }
     else if(shift) { workDays++; totalH += h; totalOT += otH; }
 
     let cellClass = 'cal-cell';
@@ -2992,7 +3093,7 @@ function renderCalendar(empName, role) {
 
     if(isHourlyDay) {
       cellClass += ' leave';
-      valHtml = `<div class="cal-cell-val" style="color:#7c3aed;font-size:10px;font-weight:800;">時${h}h</div>`;
+      valHtml = `<div class="cal-cell-val" style="color:#7c3aed;font-size:9px;font-weight:800;line-height:1.2;">時薪<br>另計</div>`;
     } else if(isAnnual) {
       // 特休：藍紫色
       cellStyle += 'background:#f5f3ff;border:1.5px solid #c4b5fd;';
@@ -3019,11 +3120,11 @@ function renderCalendar(empName, role) {
       }
     }
 
-    // 國定假日標記（紅色日期 + 假字）
+    // 國定假日標記（紅色日期 + 假日名稱）
     if(isHoliday && !isOff) cellStyle += 'border:1.5px solid #fca5a5;';
     if(isHoliday && isRegOff) cellStyle += 'background:#fce8e6;';
     const holidayBadge = isHoliday
-      ? `<div style="font-size:8px;color:#c0392b;font-weight:800;line-height:1;margin-top:1px;">假</div>`
+      ? `<div style="font-size:8px;color:#c0392b;font-weight:800;line-height:1.2;margin-top:1px;word-break:keep-all;">${holiday}</div>`
       : '';
 
     return `<div class="${cellClass}" style="${cellStyle}">
@@ -3038,15 +3139,20 @@ function renderCalendar(empName, role) {
   
   let summaryHtml = '';
   if(isPartTime) {
+    // ✅ Bug3修正：工讀生顯示時數（非天數）
     summaryHtml = `
-      <div class="cal-summary-item">⏱️ 總工時 ${totalR}h</div>
-      <div class="cal-summary-item">📅 出勤 ${workDays}天</div>
-      <div class="cal-summary-item" style="color:var(--danger);">😴 休假 ${totalOff}天</div>`;
+      <div class="cal-summary-item">⏱️ 出勤時數 ${totalR}h</div>
+      <div class="cal-summary-item" style="color:var(--danger);">😴 例休 ${offRegular}天</div>
+      ${offCompAnnual > 0 ? `<div class="cal-summary-item" style="color:#7c3aed;">📋 補特休 ${offCompAnnual}天</div>` : ''}
+      ${offHourly > 0 ? `<div class="cal-summary-item" style="color:#7c3aed;">⏱️ 時薪另計 ${offHourly}天</div>` : ''}`;
   } else {
+    // ✅ Bug3修正：正職顯示出勤天數/例休天數/加班時數/補特休天數
     summaryHtml = `
       <div class="cal-summary-item">📅 出勤 ${workDays}天</div>
-      <div class="cal-summary-item" style="color:var(--danger);">😴 休假 ${totalOff}天</div>
-      <div class="cal-summary-item" style="color:var(--accent);">⚡ 加班 ${totalOTR}h</div>`;
+      <div class="cal-summary-item" style="color:var(--danger);">😴 例休 ${offRegular}天</div>
+      <div class="cal-summary-item" style="color:var(--accent);">⚡ 加班 ${totalOTR}h</div>
+      ${offCompAnnual > 0 ? `<div class="cal-summary-item" style="color:#7c3aed;">📋 補特休 ${offCompAnnual}天</div>` : ''}
+      ${offHourly > 0 ? `<div class="cal-summary-item" style="color:#7c3aed;">⏱️ 時薪另計 ${offHourly}天</div>` : ''}`;
   }
   
   return `<div class="cal-wrap">
