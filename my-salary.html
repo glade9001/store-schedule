@@ -315,11 +315,16 @@ function detectHolidayWork(empName, ym) {
 }
 
 function calcMonthOffDays(empName, ym) {
+  // ✅ Bug4修正：只計排休/指休（例休），不含特休/補休
+  // ✅ Bug5修正：時薪另計視為休假，計入已休
   const [cy, cm] = ym.split('-').map(Number);
   let offDays = 0;
   Object.entries(scheduleData).forEach(([ws, recs]) => {
     recs.forEach(r => {
-      if(r.name !== empName || (r.shift !== '排休' && r.shift !== '指休' && r.shift !== '特休' && r.shift !== '補休')) return; // ✅ 含特休補休
+      if(r.name !== empName) return;
+      const isRegOff = r.shift === '排休' || r.shift === '指休';
+      const isHourlyOff = r.isHourly === true;
+      if(!isRegOff && !isHourlyOff) return;
       const wDates = getWeekDatesFromStr(ws);
       const dIdx = ['週一','週二','週三','週四','週五','週六','週日'].indexOf(r.day);
       if(dIdx >= 0 && parseInt(wDates[dIdx].split('/')[0]) === cm) offDays++;
@@ -836,6 +841,8 @@ function renderCalendar(empName, role) {
   const startOffset = firstWeekday === 0 ? 6 : firstWeekday - 1;
   
   let totalH = 0, totalOT = 0, totalOff = 0, workDays = 0;
+  // ✅ Bug3修正：細分統計
+  let offRegular = 0, offCompAnnual = 0, offHourly = 0;
   
   const heads = dayLabels.map(d => `<div class="cal-head">${d}</div>`).join('');
   const empties = Array(startOffset).fill('<div class="cal-cell"></div>').join('');
@@ -856,8 +863,13 @@ function renderCalendar(empName, role) {
     const weekday = new Date(cy, cm-1, d).getDay();
     const isWeekend = weekday === 0 || weekday === 6;
 
-    if(isOff) { totalOff++; }
-    else if(isHourlyDay) {}
+    if(isOff) {
+      totalOff++;
+      if(isRegOff) offRegular++;
+      else offCompAnnual++;
+    }
+    // ✅ Bug5修正：時薪另計視為休假
+    else if(isHourlyDay) { totalOff++; offHourly++; }
     else if(shift) { workDays++; totalH += h; totalOT += otH; }
 
     let cellClass = 'cal-cell';
@@ -872,7 +884,8 @@ function renderCalendar(empName, role) {
 
     if(isHourlyDay) {
       cellClass += ' leave';
-      valHtml = `<div class="cal-cell-val" style="color:#7c3aed;font-size:10px;font-weight:800;">時${h}h</div>`;
+      // ✅ Bug5修正：顯示「時薪另計」
+      valHtml = `<div class="cal-cell-val" style="color:#7c3aed;font-size:9px;font-weight:800;line-height:1.2;">時薪<br>另計</div>`;
     } else if(isAnnual) {
       cellStyle += 'background:#f5f3ff;border:1.5px solid #c4b5fd;';
       valHtml = `<div class="cal-cell-val" style="color:#7c3aed;font-size:10px;font-weight:800;">特休</div>`;
@@ -898,8 +911,9 @@ function renderCalendar(empName, role) {
 
     if(isHoliday && !isOff) cellStyle += 'border:1.5px solid #fca5a5;';
     if(isHoliday && isRegOff) cellStyle += 'background:#fce8e6;';
+    // ✅ Bug2修正：顯示國定假日完整名稱
     const holidayBadge = isHoliday
-      ? `<div style="font-size:8px;color:#c0392b;font-weight:800;line-height:1;margin-top:1px;">假</div>`
+      ? `<div style="font-size:8px;color:#c0392b;font-weight:800;line-height:1.2;margin-top:1px;word-break:keep-all;">${holiday}</div>`
       : '';
 
     return `<div class="${cellClass}" style="${cellStyle}">
@@ -912,17 +926,21 @@ function renderCalendar(empName, role) {
   const totalR = Math.round(totalH*10)/10;
   const totalOTR = Math.round(totalOT*10)/10;
   
+  // ✅ Bug3修正：統計欄位重構
   let summaryHtml = '';
   if(isPartTime) {
     summaryHtml = `
-      <div class="cal-summary-item">⏱️ 總工時 ${totalR}h</div>
-      <div class="cal-summary-item">📅 出勤 ${workDays}天</div>
-      <div class="cal-summary-item" style="color:var(--danger);">😴 休假 ${totalOff}天</div>`;
+      <div class="cal-summary-item">⏱️ 出勤時數 ${totalR}h</div>
+      <div class="cal-summary-item" style="color:var(--danger);">😴 例休 ${offRegular}天</div>
+      ${offCompAnnual > 0 ? `<div class="cal-summary-item" style="color:#7c3aed;">📋 補特休 ${offCompAnnual}天</div>` : ''}
+      ${offHourly > 0 ? `<div class="cal-summary-item" style="color:#7c3aed;">⏱️ 時薪另計 ${offHourly}天</div>` : ''}`;
   } else {
     summaryHtml = `
       <div class="cal-summary-item">📅 出勤 ${workDays}天</div>
-      <div class="cal-summary-item" style="color:var(--danger);">😴 休假 ${totalOff}天</div>
-      <div class="cal-summary-item" style="color:var(--accent);">⚡ 加班 ${totalOTR}h</div>`;
+      <div class="cal-summary-item" style="color:var(--danger);">😴 例休 ${offRegular}天</div>
+      <div class="cal-summary-item" style="color:var(--accent);">⚡ 加班 ${totalOTR}h</div>
+      ${offCompAnnual > 0 ? `<div class="cal-summary-item" style="color:#7c3aed;">📋 補特休 ${offCompAnnual}天</div>` : ''}
+      ${offHourly > 0 ? `<div class="cal-summary-item" style="color:#7c3aed;">⏱️ 時薪另計 ${offHourly}天</div>` : ''}`;
   }
   
   return `<div class="cal-wrap">
