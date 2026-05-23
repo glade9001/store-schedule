@@ -1333,31 +1333,25 @@ async function loadMySchedule() {
     const withTimeout = (p, ms=5000) =>
       Promise.race([p, new Promise(res => setTimeout(() => res(null), ms))]);
 
-    // ✅ 同時讀取本店班表 + 所有其他門市（找支援班）
-    const otherStores = (appConfig.stores || []).filter(s => s !== store);
-    const [snap, ...otherSnaps] = await Promise.all([
-      withTimeout(window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get()),
-      ...otherStores.map(s =>
-        withTimeout(window.db.collection('stores').doc(s).collection('weeks').doc(weekStr).get())
-      )
-    ]);
+    // ✅ 讀取本店班表（支援班也存在本店 weeks 裡，supportEmp 格式為「目的地門市-員工名字」）
+    const snap = await withTimeout(
+      window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get()
+    );
 
     const data = snap?.exists ? snap.data() : {};
     const records = data.records || [];
     const myRecs = records.filter(r => r.name === empName);
 
-    // ✅ 收集已核准的支援班（其他門市中 supportEmp === '本店-自己名字' 的記錄）
-    const supportKey = `${store}-${empName}`;
-    const supportRecs = [];
-    otherSnaps.forEach((s, idx) => {
-      if(!s?.exists) return;
-      const fromStore = otherStores[idx];
-      (s.data().records || []).forEach(r => {
-        if(r.supportEmp === supportKey && r.approvalStatus === 'approved') {
-          supportRecs.push({ ...r, _supportStore: fromStore });
-        }
-      });
-    });
+    // ✅ 收集已核准的支援班：本人記錄中 supportEmp 以其他門市開頭的記錄
+    const otherStores = (appConfig.stores || []).filter(s => s !== store);
+    const supportRecs = myRecs.filter(r =>
+      r.approvalStatus === 'approved' &&
+      otherStores.some(s => r.supportEmp === `${s}-${empName}`)
+    ).map(r => ({
+      ...r,
+      // supportEmp 格式為「目的地門市-員工名字」，員工名可能有中文，門市名取除最後段外的部分
+      _supportStore: r.supportEmp.slice(0, r.supportEmp.lastIndexOf('-')) || r.supportEmp
+    }));
 
     if(weekStr === thisWeekStr) {
       const nextSnap = await withTimeout(
