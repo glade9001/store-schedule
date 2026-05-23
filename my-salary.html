@@ -319,7 +319,7 @@ function calcMonthOffDays(empName, ym) {
   let offDays = 0;
   Object.entries(scheduleData).forEach(([ws, recs]) => {
     recs.forEach(r => {
-      if(r.name !== empName || (r.shift !== '排休' && r.shift !== '指休')) return;
+      if(r.name !== empName || (r.shift !== '排休' && r.shift !== '指休' && r.shift !== '特休' && r.shift !== '補休')) return; // ✅ 含特休補休
       const wDates = getWeekDatesFromStr(ws);
       const dIdx = ['週一','週二','週三','週四','週五','週六','週日'].indexOf(r.day);
       if(dIdx >= 0 && parseInt(wDates[dIdx].split('/')[0]) === cm) offDays++;
@@ -374,17 +374,16 @@ function getMonthLabel(ym) {
 }
 
 function getMonthWeeks(ym) {
-  // 取得某月份涵蓋的所有 ISO 週次
+  // 取得某月份涵蓋的所有 ISO 週次（逐日掃描，確保不漏週）
   const [y, m] = ym.split('-').map(Number);
   const weeks = new Set();
-  const d = new Date(y, m-1, 1);
-  const end = new Date(y, m, 0);
-  while(d <= end) {
-    const yr = d.getFullYear();
+  const daysInMonth = new Date(y, m, 0).getDate();
+  for(let day = 1; day <= daysInMonth; day++) {
+    const dateObj = new Date(y, m-1, day);
+    const yr = dateObj.getFullYear();
     const first = new Date(yr, 0, 1);
-    const wk = Math.ceil((((d - first) / 86400000) + first.getDay() + 1) / 7);
+    const wk = Math.ceil((((dateObj - first) / 86400000) + first.getDay() + 1) / 7);
     weeks.add(`${yr}-W${String(wk).padStart(2,'0')}`);
-    d.setDate(d.getDate() + 7);
   }
   return [...weeks];
 }
@@ -419,7 +418,7 @@ function calcEmpHours(empName) {
 
   Object.entries(scheduleData).forEach(([ws, weekRecs]) => {
     (weekRecs || []).forEach(r => {
-      if(r.name !== empName || !r.shift || r.shift === '排休' || r.shift === '指休') return;
+      if(r.name !== empName || !r.shift || r.shift === '排休' || r.shift === '指休' || r.shift === '特休' || r.shift === '補休') return; // ✅ 特休補休不計工時
 
       const wDates = getWeekDatesFromStr(ws);
       const dIdx = ['週一','週二','週三','週四','週五','週六','週日'].indexOf(r.day);
@@ -846,29 +845,49 @@ function renderCalendar(empName, role) {
     const rec = empRecs[d];
     const shift = rec?.shift || '';
     const h = parseFloat(rec?.actualHours || 0);
-    const isOff = shift === '排休' || shift === '指休';
+    const isRegOff = shift === '排休' || shift === '指休';
+    const isAnnual = shift === '特休';
+    const isComp   = shift === '補休';
+    const isOff    = isRegOff || isAnnual || isComp;
+    const isHourlyDay = rec?.isHourly || false;
     const isOT = rec?.isOT || h > 8;
     const otH = isOT ? Math.max(0, h-8) : 0;
-    
+
+    const weekday = new Date(cy, cm-1, d).getDay();
+    const isWeekend = weekday === 0 || weekday === 6;
+
     if(isOff) { totalOff++; }
+    else if(isHourlyDay) {}
     else if(shift) { workDays++; totalH += h; totalOT += otH; }
-    
+
     let cellClass = 'cal-cell';
     let valHtml = '';
-    
+    let cellStyle = '';
+
     const dateStr2 = `${String(cy).padStart(4,'0')}-${String(cm).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const holiday = TW_HOLIDAYS[dateStr2];
     const isHoliday = !!holiday;
 
-    if(isOff) {
+    if(isWeekend && !shift && !isHourlyDay) cellStyle += 'background:#f1f3f4;';
+
+    if(isHourlyDay) {
       cellClass += ' leave';
-      valHtml = `<div class="cal-cell-val">休</div>`;
+      valHtml = `<div class="cal-cell-val" style="color:#7c3aed;font-size:10px;font-weight:800;">時${h}h</div>`;
+    } else if(isAnnual) {
+      cellStyle += 'background:#f5f3ff;border:1.5px solid #c4b5fd;';
+      valHtml = `<div class="cal-cell-val" style="color:#7c3aed;font-size:10px;font-weight:800;">特休</div>`;
+    } else if(isComp) {
+      cellStyle += 'background:#ecfeff;border:1.5px solid #a5f3fc;';
+      valHtml = `<div class="cal-cell-val" style="color:#0891b2;font-size:10px;font-weight:800;">補休</div>`;
+    } else if(isRegOff) {
+      cellClass += ' leave';
+      valHtml = `<div class="cal-cell-val" style="font-size:11px;">休</div>`;
     } else if(shift) {
       if(isOT && !isPartTime) {
         cellClass += ' ot';
         valHtml = isPartTime
           ? `<div class="cal-cell-val">${h}h</div>`
-          : `<div class="cal-cell-val">班</div><div style="font-size:9px;color:var(--accent);font-weight:800;">+${Math.round(otH*10)/10}h</div>`;
+          : `<div class="cal-cell-val" style="font-size:10px;font-weight:800;">加班</div><div style="font-size:9px;color:var(--accent);font-weight:800;">+${Math.round(otH*10)/10}h</div>`;
       } else {
         cellClass += ' work';
         valHtml = isPartTime
@@ -877,12 +896,14 @@ function renderCalendar(empName, role) {
       }
     }
 
+    if(isHoliday && !isOff) cellStyle += 'border:1.5px solid #fca5a5;';
+    if(isHoliday && isRegOff) cellStyle += 'background:#fce8e6;';
     const holidayBadge = isHoliday
       ? `<div style="font-size:8px;color:#c0392b;font-weight:800;line-height:1;margin-top:1px;">假</div>`
       : '';
 
-    return `<div class="${cellClass}" style="${isHoliday && !isOff ? 'border:1.5px solid #fca5a5;' : ''}${isHoliday && isOff ? 'background:#fce8e6;' : ''}">
-      <div class="cal-cell-date" style="${isHoliday ? 'color:#c0392b;font-weight:900;' : ''}">${d}</div>
+    return `<div class="${cellClass}" style="${cellStyle}">
+      <div class="cal-cell-date" style="${isHoliday ? 'color:#c0392b;font-weight:900;' : isWeekend ? 'color:#94a3b8;' : ''}">${d}</div>
       ${valHtml}
       ${holidayBadge}
     </div>`;
