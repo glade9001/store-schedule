@@ -442,7 +442,7 @@ function detectHolidayWork(empName, ym) {
         const dateStr = wDates[dIdx];
         if(!dateStr) return;
         const [dm, dd] = dateStr.split('/').map(Number);
-        if(dm === hm && dd === hd && r.shift && r.shift !== '排休' && r.shift !== '指休') {
+        if(dm === hm && dd === hd && r.shift && r.shift !== '排休' && r.shift !== '指休' && r.shift !== '特休' && r.shift !== '補休') {
           hasWork = true;
         }
       });
@@ -1086,7 +1086,7 @@ function calcEmpHours(empName) {
     (weekRecs || []).forEach(r => {
       if(r.name !== empName) return;
       const h = parseFloat(r.actualHours || 0);
-      if(r.shift === '排休' || r.shift === '指休' || !r.shift || r.isHourly) return;
+      if(r.shift === '排休' || r.shift === '指休' || r.shift === '特休' || r.shift === '補休' || !r.shift || r.isHourly) return; // ✅ 特休補休不計工時
 
       // 確認是當月日期
       const wDates = getWeekDatesFromStr(ws);
@@ -2072,17 +2072,16 @@ function getCurrentMonth() {
 }
 
 function getMonthWeeks(ym) {
-  // 取得某月份涵蓋的所有 ISO 週次
+  // 取得某月份涵蓋的所有 ISO 週次（逐日掃描，確保不漏週）
   const [y, m] = ym.split('-').map(Number);
   const weeks = new Set();
-  const d = new Date(y, m-1, 1);
-  const end = new Date(y, m, 0);
-  while(d <= end) {
-    const yr = d.getFullYear();
+  const daysInMonth = new Date(y, m, 0).getDate();
+  for(let day = 1; day <= daysInMonth; day++) {
+    const dateObj = new Date(y, m-1, day);
+    const yr = dateObj.getFullYear();
     const first = new Date(yr, 0, 1);
-    const wk = Math.ceil((((d - first) / 86400000) + first.getDay() + 1) / 7);
+    const wk = Math.ceil((((dateObj - first) / 86400000) + first.getDay() + 1) / 7);
     weeks.add(`${yr}-W${String(wk).padStart(2,'0')}`);
-    d.setDate(d.getDate() + 7);
   }
   return [...weeks];
 }
@@ -2114,11 +2113,61 @@ function renderMonthInfo() {
       </div>`;
   }
 
-  // 應休天數暫時封存
-  el.innerHTML = holidays.length > 0 ? `
+  const isManager = currentUser?.permission === 'manager';
+  const isOwner   = ['owner','admin'].includes(currentUser?.permission);
+  const s = salaryData.status || 'draft';
+
+  // ===== 薪資作業流程說明 =====
+  const flowHtml = `
+    <div style="background:white;border-radius:var(--radius);padding:14px 16px;margin-bottom:10px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      <div style="font-size:12px;font-weight:800;color:var(--text-muted);margin-bottom:10px;">📋 薪資作業流程</div>
+      <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
+        ${[
+          { step:'1', label:'店長填寫薪資', role:'manager', states:['draft'] },
+          { step:'2', label:'送出審核', role:'manager', states:['submitted'] },
+          { step:'3', label:'加盟主審核', role:'owner', states:['submitted'] },
+          { step:'4', label:'發布薪資', role:'owner', states:['published'] },
+        ].map(({step, label, states}) => {
+          const isActive = states.includes(s);
+          return `<div style="display:flex;align-items:center;gap:4px;">
+            <div style="background:${isActive?'var(--primary)':'#e2e8f0'};color:${isActive?'white':'#94a3b8'};
+              border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;
+              font-size:11px;font-weight:900;flex-shrink:0;">${step}</div>
+            <span style="font-size:11px;font-weight:700;color:${isActive?'var(--primary)':'#94a3b8'};">${label}</span>
+          </div>
+          ${step < 4 ? '<span style="color:#e2e8f0;font-size:14px;">›</span>' : ''}`;
+        }).join('')}
+      </div>
+      ${isManager && s === 'submitted' ? `
+        <div style="margin-top:8px;background:#fff3e0;border-radius:8px;padding:8px 10px;font-size:12px;color:#92400e;font-weight:700;">
+          ℹ️ 已送出審核。若發現錯誤，可點「↩️ 收回修改」自行修改後重新送出，<strong>不需等待加盟主退回</strong>。
+        </div>` : ''}
+      ${isOwner && s === 'submitted' ? `
+        <div style="margin-top:8px;background:#e8f5e9;border-radius:8px;padding:8px 10px;font-size:12px;color:#2e7d32;font-weight:700;">
+          ℹ️ 店長已送出薪資，請審核後發布。如需修改可點「✏️ 修正」，或「↩️ 退回」讓店長重填。
+        </div>` : ''}
+    </div>`;
+
+  // ===== 人工核查提醒 =====
+  const warningHtml = `
+    <div style="background:linear-gradient(135deg,#fffbeb,#fef3c7);border:1.5px solid #fcd34d;border-radius:var(--radius);padding:14px 16px;margin-bottom:10px;">
+      <div style="font-size:13px;font-weight:900;color:#92400e;margin-bottom:8px;">⚠️ 薪資核對提醒</div>
+      <div style="font-size:12px;color:#78350f;line-height:1.8;">
+        本系統依排班記錄<strong>自動計算</strong>薪資，僅供參考，以下項目請<strong>務必人工確認</strong>：<br>
+        <span style="display:flex;flex-direction:column;gap:2px;margin-top:4px;">
+          <span>• 加班時數是否與實際相符（系統為排班推算，非打卡記錄）</span>
+          <span>• 遲到扣款分鐘數需手動填入，系統不自動抓取</span>
+          <span>• 特休、補休餘額是否正確</span>
+          <span>• 勞健保費、勞退金額是否依最新投保級距</span>
+          <span>• 國定假日補休是否已在排班系統完成發放</span>
+        </span>
+      </div>
+    </div>`;
+
+  el.innerHTML = flowHtml + warningHtml + (holidays.length > 0 ? `
     <div style="background:white;border-radius:var(--radius);padding:14px 16px;margin-bottom:10px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
       ${holidayHtml}
-    </div>` : '';
+    </div>` : '');
 }
 
 function updateStatusBadge() {
@@ -2168,7 +2217,7 @@ function renderEmpList() {
             const dateStr = wDates[dIdx];
             if(!dateStr) return;
             const [dm, dd] = dateStr.split('/').map(Number);
-            if(dm === hm && dd === hd && r.shift && r.shift !== '排休' && r.shift !== '指休') {
+            if(dm === hm && dd === hd && r.shift && r.shift !== '排休' && r.shift !== '指休' && r.shift !== '特休' && r.shift !== '補休') {
               autoH += parseFloat(r.actualHours || 0);
             }
           });
@@ -2218,6 +2267,19 @@ function openEmpModal(empName, tabIdx) {
 }
 
 function closeEmpModal() {
+  // 關閉前同步該員工卡片的實發金額（防止未儲存就切換時顯示舊金額）
+  if(currentEmpModal) {
+    const rec = getSalaryRecord(currentEmpModal);
+    if(rec) {
+      const cards = document.querySelectorAll('.emp-salary-card');
+      cards.forEach(card => {
+        if(card.dataset.emp === currentEmpModal) {
+          const totalEl = card.querySelector('.emp-salary-total');
+          if(totalEl) totalEl.textContent = `$${calcTotal(rec).toLocaleString()}`;
+        }
+      });
+    }
+  }
   closeModal('empEditModal');
   currentEmpModal = null;
   currentModalTab = 0;
@@ -2808,35 +2870,54 @@ function renderCalendar(empName, role) {
     const shift = rec?.shift || '';
     const h = parseFloat(rec?.actualHours || 0);
     const isHourlyDay = rec?.isHourly || false;
-    const isOff = shift === '排休' || shift === '指休';
+    const isRegOff = shift === '排休' || shift === '指休'; // 排休/指休
+    const isAnnual = shift === '特休'; // 特休
+    const isComp = shift === '補休';   // 補休
+    const isOff = isRegOff || isAnnual || isComp; // 所有休假類型
     const isOT = rec?.isOT || h > 8;
     const otH = isOT ? Math.max(0, h-8) : 0;
-    
+
+    // 判斷是否週六(6)或週日(0)
+    const weekday = new Date(cy, cm-1, d).getDay();
+    const isWeekend = weekday === 0 || weekday === 6;
+
     if(isOff) { totalOff++; }
     else if(isHourlyDay) { /* 時薪另計算休假，不計工時 */ }
     else if(shift) { workDays++; totalH += h; totalOT += otH; }
-    
+
     let cellClass = 'cal-cell';
     let valHtml = '';
-    
+    let cellStyle = '';
+
     // 國定假日判斷
     const dateStr2 = `${String(cy).padStart(4,'0')}-${String(cm).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const holiday = TW_HOLIDAYS[dateStr2];
     const isHoliday = !!holiday;
 
+    // 週末無排班 → 淡灰底
+    if(isWeekend && !shift && !isHourlyDay) cellStyle += 'background:#f1f3f4;';
+
     if(isHourlyDay) {
-      // 時薪另計：紫色，顯示「時 Xh」
       cellClass += ' leave';
       valHtml = `<div class="cal-cell-val" style="color:#7c3aed;font-size:10px;font-weight:800;">時${h}h</div>`;
-    } else if(isOff) {
+    } else if(isAnnual) {
+      // 特休：藍紫色
+      cellStyle += 'background:#f5f3ff;border:1.5px solid #c4b5fd;';
+      valHtml = `<div class="cal-cell-val" style="color:#7c3aed;font-size:10px;font-weight:800;">特休</div>`;
+    } else if(isComp) {
+      // 補休：青藍色
+      cellStyle += 'background:#ecfeff;border:1.5px solid #a5f3fc;';
+      valHtml = `<div class="cal-cell-val" style="color:#0891b2;font-size:10px;font-weight:800;">補休</div>`;
+    } else if(isRegOff) {
+      // 排休/指休：淡紅灰色
       cellClass += ' leave';
-      valHtml = `<div class="cal-cell-val">休</div>`;
+      valHtml = `<div class="cal-cell-val" style="font-size:11px;">休</div>`;
     } else if(shift) {
       if(isOT && !isPartTime) {
         cellClass += ' ot';
         valHtml = isPartTime
           ? `<div class="cal-cell-val">${h}h</div>`
-          : `<div class="cal-cell-val">班</div><div style="font-size:9px;color:var(--accent);font-weight:800;">+${Math.round(otH*10)/10}h</div>`;
+          : `<div class="cal-cell-val" style="font-size:10px;font-weight:800;">加班</div><div style="font-size:9px;color:var(--accent);font-weight:800;">+${Math.round(otH*10)/10}h</div>`;
       } else {
         cellClass += ' work';
         valHtml = isPartTime
@@ -2845,13 +2926,15 @@ function renderCalendar(empName, role) {
       }
     }
 
-    // 國定假日標記
+    // 國定假日標記（紅色日期 + 假字）
+    if(isHoliday && !isOff) cellStyle += 'border:1.5px solid #fca5a5;';
+    if(isHoliday && isRegOff) cellStyle += 'background:#fce8e6;';
     const holidayBadge = isHoliday
       ? `<div style="font-size:8px;color:#c0392b;font-weight:800;line-height:1;margin-top:1px;">假</div>`
       : '';
 
-    return `<div class="${cellClass}" style="${isHoliday && !isOff ? 'border:1.5px solid #fca5a5;' : ''}${isHoliday && isOff ? 'background:#fce8e6;' : ''}">
-      <div class="cal-cell-date" style="${isHoliday ? 'color:#c0392b;font-weight:900;' : ''}">${d}</div>
+    return `<div class="${cellClass}" style="${cellStyle}">
+      <div class="cal-cell-date" style="${isHoliday ? 'color:#c0392b;font-weight:900;' : isWeekend ? 'color:#94a3b8;' : ''}">${d}</div>
       ${valHtml}
       ${holidayBadge}
     </div>`;
@@ -2897,7 +2980,7 @@ function renderScheduleRef(empName, role) {
     const shift = rec.shift || '';
     if(!shift) continue;
     const h = parseFloat(rec.actualHours || 0);
-    const isOff = shift === '排休' || shift === '指休';
+    const isOff = shift === '排休' || shift === '指休' || shift === '特休' || shift === '補休'; // ✅ 含特休補休
     const isOT = rec.isOT || h > 8;
     const otH = isOT ? Math.max(0, h-8) : 0;
     const wd = weekDayNames[new Date(y, m-1, d).getDay()];
@@ -3155,7 +3238,7 @@ async function submitSalary() {
     if(!proceed) return;
   }
 
-  if(!confirm(`確定送出 ${getMonthLabel(currentMonth)} 薪資？\n送出後需加盟主審核才能修改。`)) return;
+  if(!confirm(`確定送出 ${getMonthLabel(currentMonth)} 薪資？\n\n送出後若發現錯誤，可點「↩️ 收回修改」自行收回重填，\n無需等待加盟主退回。`)) return;
   collectRecords();
   showLoading('送出中...');
   try {
