@@ -2179,25 +2179,32 @@ function renderMonthInfo() {
   const isOwner   = ['owner','admin'].includes(currentUser?.permission);
   const s = salaryData.status || 'draft';
 
-  // ===== 薪資作業流程說明 =====
+// ===== 薪資作業流程說明 =====
   const flowHtml = `
     <div style="background:white;border-radius:var(--radius);padding:14px 16px;margin-bottom:10px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
       <div style="font-size:12px;font-weight:800;color:var(--text-muted);margin-bottom:10px;">📋 薪資作業流程</div>
       <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
         ${[
-          { step:'1', label:'店長填寫薪資', role:'manager', states:['draft'] },
-          { step:'2', label:'送出審核', role:'manager', states:['submitted'] },
-          { step:'3', label:'加盟主審核', role:'owner', states:['submitted'] },
-          { step:'4', label:'發布薪資', role:'owner', states:['published'] },
-        ].map(({step, label, states}) => {
-          const isActive = states.includes(s);
+          { step: 1, label: '店長填寫薪資' },
+          { step: 2, label: '送出審核' },
+          { step: 3, label: '加盟主審核' },
+          { step: 4, label: '發布薪資' }
+        ].map(({step, label}) => {
+          // 定義目前進度層級 (草稿=1, 送出待審=3(此時已完成送出並進入加盟主審核), 發布=4)
+          let progressLevel = 1;
+          if (s === 'submitted' || s === 'approved') progressLevel = 3;
+          if (s === 'published') progressLevel = 4;
+
+          const isActive = step <= progressLevel;      // 該步驟是否已完成或正在進行
+          const isArrowActive = step < progressLevel;  // 箭頭是否該亮起（連接兩個已亮起的步驟）
+          
           return `<div style="display:flex;align-items:center;gap:4px;">
-            <div style="background:${isActive?'var(--primary)':'#e2e8f0'};color:${isActive?'white':'#94a3b8'};
+            <div style="background:${isActive ? 'var(--primary)' : '#e2e8f0'};color:${isActive ? 'white' : '#94a3b8'};
               border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;
               font-size:11px;font-weight:900;flex-shrink:0;">${step}</div>
-            <span style="font-size:11px;font-weight:700;color:${isActive?'var(--primary)':'#94a3b8'};">${label}</span>
+            <span style="font-size:11px;font-weight:700;color:${isActive ? 'var(--primary)' : '#94a3b8'};">${label}</span>
           </div>
-          ${step < 4 ? '<span style="color:#e2e8f0;font-size:14px;">›</span>' : ''}`;
+          ${step < 4 ? `<span style="color:${isArrowActive ? 'var(--primary)' : '#e2e8f0'};font-size:14px;margin:0 2px;">›</span>` : ''}`;
         }).join('')}
       </div>
       ${isManager && s === 'submitted' ? `
@@ -2263,10 +2270,12 @@ function renderEmpList() {
 
   el.innerHTML = emps.map((emp, idx) => {
     let rec = getSalaryRecord(emp.name) || buildDefaultRecord(emp);
-// 工讀：若 holidayHours 是 0 且排班有偵測到出勤，自動更新
-    if(emp.role === ROLE_PART && parseFloat(rec.holidayHours||0) === 0) {
+// 工讀：強制同步排班偵測到的國定假日出勤時數
+    if(emp.role === ROLE_PART) {
       const autoH = calcEmpHolidayHours(emp.name);
-      if(autoH > 0) rec = { ...rec, holidayHours: autoH };
+      if(parseFloat(rec.holidayHours || 0) !== autoH) {
+        rec.holidayHours = autoH;
+      }
     }
     
     const total = calcTotal(rec);
@@ -2298,11 +2307,17 @@ function openEmpModal(empName, tabIdx) {
   let rec = getSalaryRecord(empName) || buildDefaultRecord(emp);
   if(!getSalaryRecord(empName)) salaryData.records.push(rec);
 
-  // ✅ 正職/店長：開啟 Modal 時再次確認是否需同步（排班資料可能在 loadSalaryData 後又更新）
+// ✅ 正職/店長：開啟 Modal 時再次確認是否需同步（排班資料可能在 loadSalaryData 後又更新）
   if(emp.role !== ROLE_PART) {
     const { otH: schedOtH } = calcEmpHours(emp.name);
     if(!rec.otHoursManual && schedOtH !== parseFloat(rec.otHours||0)) {
       rec.otHours = schedOtH;
+    }
+  } else {
+    // ✅ 工讀生：開啟 Modal 時強制同步國定假日出勤時數
+    const schedHolH = calcEmpHolidayHours(emp.name);
+    if(parseFloat(rec.holidayHours || 0) !== schedHolH) {
+      rec.holidayHours = schedHolH;
     }
   }
 
@@ -2685,10 +2700,13 @@ function renderSalaryForm(emp, rec, idx, readonly) {
       col3 += inp('restDayOtHours', rec.restDayOtHours, '休息日加班時數', '0', 'salary-input');
       col3 += `<div class="salary-row"><span class="salary-row-label">國定假日時數</span><span class="salary-row-val">${rec.holidayHours||0} h</span></div>`;
     }
-  } else {
-    // 工讀生：不顯示加班時數欄，只有國定假日出勤（手動填入）
-    col3 += inp('holidayHours', rec.holidayHours, '國定假日出勤時數', '0', 'salary-input');
-    col3 += `<div style="font-size:11px;color:var(--text-muted);padding:2px 0 6px;">↑ 國定假日出勤薪資 = 時數 × 時薪 × 2</div>`;
+} else {
+    // 工讀生：不顯示加班時數欄，國定假日出勤改為系統自動帶入（不可修改）
+    col3 += `<div class="salary-row" style="background:#f8fafc;border-radius:8px;padding:8px 10px;margin:4px 0;">
+      <span class="salary-row-label">國定假日出勤時數 <span style="font-size:10px;color:var(--text-muted);background:#e2e8f0;padding:2px 6px;border-radius:4px;margin-left:4px;">系統自動帶入</span></span>
+      <span class="salary-row-val" style="color:var(--primary);font-weight:900;font-size:15px;">${rec.holidayHours || 0} h</span>
+    </div>`;
+    col3 += `<div style="font-size:11px;color:var(--text-muted);padding:2px 0 6px;margin-left:4px;">↑ 國定假日出勤薪資 = 時數 × 時薪 × 2（正常薪資 + 額外加給）</div>`;
   }
   col3 += inp('lateMinutes', rec.lateMinutes, '遲到分鐘數', '0', 'salary-input');
   
