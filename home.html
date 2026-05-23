@@ -1333,12 +1333,31 @@ async function loadMySchedule() {
     const withTimeout = (p, ms=5000) =>
       Promise.race([p, new Promise(res => setTimeout(() => res(null), ms))]);
 
-    const snap = await withTimeout(
-      window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get()
-    );
+    // ✅ 同時讀取本店班表 + 所有其他門市（找支援班）
+    const otherStores = (appConfig.stores || []).filter(s => s !== store);
+    const [snap, ...otherSnaps] = await Promise.all([
+      withTimeout(window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get()),
+      ...otherStores.map(s =>
+        withTimeout(window.db.collection('stores').doc(s).collection('weeks').doc(weekStr).get())
+      )
+    ]);
+
     const data = snap?.exists ? snap.data() : {};
     const records = data.records || [];
     const myRecs = records.filter(r => r.name === empName);
+
+    // ✅ 收集已核准的支援班（其他門市中 supportEmp === '本店-自己名字' 的記錄）
+    const supportKey = `${store}-${empName}`;
+    const supportRecs = [];
+    otherSnaps.forEach((s, idx) => {
+      if(!s?.exists) return;
+      const fromStore = otherStores[idx];
+      (s.data().records || []).forEach(r => {
+        if(r.supportEmp === supportKey && r.approvalStatus === 'approved') {
+          supportRecs.push({ ...r, _supportStore: fromStore });
+        }
+      });
+    });
 
     if(weekStr === thisWeekStr) {
       const nextSnap = await withTimeout(
@@ -1348,7 +1367,6 @@ async function loadMySchedule() {
       homeCanGoNext = nextData.published || isAutoPublishedHome(nextWeekStr);
       if(nextBtn) nextBtn.style.opacity = homeCanGoNext ? '1' : '0.3';
     } else {
-      // 已在下週（或更晚）→ 不能再往後
       homeCanGoNext = false;
       if(nextBtn) nextBtn.style.opacity = '0.3';
     }
@@ -1366,13 +1384,22 @@ async function loadMySchedule() {
         const isOff = shift === '排休' || shift === '指休';
         const isEmpty = !shift;
         const isToday = dates[i] === todayStr;
-        const bg = isOff ? '#fce8e6' : isEmpty ? '#f8fafc' : '#e8f0fe';
-        const clr = isOff ? '#d93025' : isEmpty ? '#bbb' : '#1a73e8';
-        return `<div style="text-align:center;background:${bg};border-radius:8px;padding:6px 2px;${isToday ? 'box-shadow:0 0 0 2px var(--primary);' : ''}">
-          <div style="font-size:12px;color:${isToday ? 'var(--primary)' : 'var(--text-muted)'};font-weight:${isToday ? 800 : 500};text-align:center;">${dates[i]}</div>
-          <div style="font-size:11px;color:var(--text-muted);text-align:center;">${day}</div>
-          <div style="font-size:16px;color:${clr};font-weight:${isEmpty ? 400 : 900};margin-top:3px;text-align:center;letter-spacing:-0.5px;">${isOff ? '休' : shift || '–'}</div>
+
+        // ✅ 支援班
+        const suppRec = supportRecs.find(r => r.day === day);
+        const hasSupport = !!suppRec;
+
+        const bg = isOff ? '#fce8e6' : isEmpty && hasSupport ? '#f0fdf4' : isEmpty ? '#f8fafc' : '#e8f0fe';
+        const clr = isOff ? '#d93025' : isEmpty && hasSupport ? '#16a34a' : isEmpty ? '#bbb' : '#1a73e8';
+        const displayShift = isOff ? '休' : shift || (hasSupport ? suppRec.shift || '支援' : '–');
+
+        // ✅ 字體縮小，手機版更好看
+        return `<div style="text-align:center;background:${bg};border-radius:8px;padding:5px 2px;${isToday ? 'box-shadow:0 0 0 2px var(--primary);' : ''}">
+          <div style="font-size:11px;color:${isToday ? 'var(--primary)' : 'var(--text-muted)'};font-weight:${isToday ? 800 : 500};text-align:center;">${dates[i]}</div>
+          <div style="font-size:10px;color:var(--text-muted);text-align:center;">${day}</div>
+          <div style="font-size:13px;color:${clr};font-weight:${isEmpty && !hasSupport ? 400 : 900};margin-top:2px;text-align:center;letter-spacing:-0.5px;">${displayShift}</div>
           ${rec.note ? `<div style="font-size:9px;color:#0088aa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;">${rec.note}</div>` : ''}
+          ${hasSupport && !shift ? `<div style="font-size:8px;color:#16a34a;font-weight:700;text-align:center;margin-top:1px;">🆘 ${suppRec._supportStore}</div>` : ''}
         </div>`;
       }).join('') + `</div>`;
 
