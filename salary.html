@@ -2732,19 +2732,25 @@ function renderSalaryForm(emp, rec, idx, readonly) {
   // ✅ Bug6：補休餘額改為按發放批次分列，明確標注來源
   const compBatches = compLogMap[emp.name] || [];
   const hasLegacyComp = typeof remainComp === 'number' && remainComp > 0 && compBatches.length === 0;
-  const SOURCE_LABEL = {
-    'unworked': '例休未休',
-    'holiday':  '國定假日',
-    'manual':   '手動發放',
-    'unknown':  '來源不明（舊記錄）'
-  };
+  // ✅ Bug6：解析 source 欄位，支援 schedule:YYYY-MM-DD 格式
+  function parseSourceLabel(source) {
+    if(!source) return '來源不明（舊記錄）';
+    if(source === 'unworked') return '例休未休';
+    if(source === 'holiday')  return '國定假日';
+    if(source === 'manual')   return '手動發放';
+    if(source.startsWith('schedule:')) {
+      const d = source.replace('schedule:','').split('-');
+      return d.length===3 ? `${parseInt(d[1])}/${parseInt(d[2])} 排班使用` : '排班使用';
+    }
+    return source;
+  }
   let compBatchHtml = '';
   if(compBatches.length > 0) {
     const activeBatches = compBatches.filter(b => b.days - b.used > 0);
     if(activeBatches.length > 0) {
       compBatchHtml = activeBatches.map(b => {
         const rem = Math.max(0, b.days - b.used);
-        const srcLabel = SOURCE_LABEL[b.source] || b.source || '來源不明（舊記錄）';
+        const srcLabel = parseSourceLabel(b.source);
         const dateLabel = b.date ? b.date.slice(0,7) + ' ' : '';
         return `<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 8px;background:#f0fdf4;border-radius:6px;margin-top:3px;font-size:11px;">
           <span style="color:#065f46;font-weight:700;">${dateLabel}${srcLabel}</span>
