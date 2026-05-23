@@ -1346,20 +1346,20 @@ async function loadMySchedule() {
     // 支援記錄存在「自己門市（來源店）」的 weeks 裡
     // supportEmp 格式為「目的地門市-自己的empName」
     // currentUser.empName 就是自己在本店的縮寫名，直接用來組 key
+    // ✅ 支援班：r.name 是虛擬列名（📍待補X），不是員工名
+    // 正確篩選：supportEmp 結尾 === '-自己的empName'，且已核准
     const supportRecs = [];
-    const ownRecs = records.filter(r => r.name === empName); // 本店自己的所有記錄
-
-    // 找出 supportEmp 指向其他門市且已核准的記錄
-    ownRecs.forEach(r => {
+    const mySupportSuffix = `-${empName}`; // 例如「-淡」
+    records.forEach(r => {
       if(r.approvalStatus !== 'approved' || !r.supportEmp) return;
-      // supportEmp 格式：「目的地門市-empName」
-      const dashIdx = r.supportEmp.lastIndexOf('-');
-      if(dashIdx < 0) return;
-      const targetStore = r.supportEmp.slice(0, dashIdx);
+      if(!r.supportEmp.endsWith(mySupportSuffix)) return;
+      // supportEmp 格式：「目的地門市-empName」，取門市名
+      const targetStore = r.supportEmp.slice(0, r.supportEmp.length - mySupportSuffix.length);
       if(targetStore && targetStore !== store) {
         supportRecs.push({ ...r, _supportStore: targetStore });
       }
     });
+    console.log('[支援] empName:', empName, 'suffix:', mySupportSuffix, 'found:', supportRecs.length);
 
     if(weekStr === thisWeekStr) {
       const nextSnap = await withTimeout(
