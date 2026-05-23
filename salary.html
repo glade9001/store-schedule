@@ -1968,6 +1968,31 @@ function changeMonth(offset) {
   loadSalaryData();
 }
 
+// ===== 排班異動後立即同步所有正職/店長加班時數 =====
+function autoSyncAllOtHours() {
+  if(isReadonly()) return; // 唯讀模式不自動改
+  let changed = false;
+  empList.forEach(emp => {
+    if(emp.role === ROLE_PART) return; // 工讀生不計加班
+    const { otH: schedOtH } = calcEmpHours(emp.name);
+    let rec = getSalaryRecord(emp.name);
+    if(!rec) {
+      // 尚無記錄：建立預設並帶入排班值
+      rec = buildDefaultRecord(emp);
+      rec.otHours = schedOtH;
+      salaryData.records.push(rec);
+      changed = true;
+      return;
+    }
+    // 有記錄：若未手動覆寫，且排班計算值與記錄值不同 → 自動更新
+    if(!rec.otHoursManual && schedOtH !== parseFloat(rec.otHours||0)) {
+      rec.otHours = schedOtH;
+      changed = true;
+    }
+  });
+  if(changed) triggerAutoSave(); // 有變動才存檔
+}
+
 // ===== 讀取資料 =====
 async function loadSalaryData() {
   currentStore = document.getElementById('storeSelector').value || currentStore;
@@ -2047,6 +2072,11 @@ async function loadSalaryData() {
     updateStatusBadge();
     renderMonthInfo();
     await loadLeaveData(); // ✅ 讀取特補休資料
+
+    // ✅ 排班讀取後立即同步所有正職/店長的加班時數
+    // 確保外層卡片金額與排班計算一致，不需手動開 Modal 才更新
+    autoSyncAllOtHours();
+
     renderEmpList();
     renderBottomAction();
   } catch(e) {
@@ -2255,6 +2285,16 @@ function openEmpModal(empName, tabIdx) {
   let rec = getSalaryRecord(empName) || buildDefaultRecord(emp);
   if(!getSalaryRecord(empName)) salaryData.records.push(rec);
 
+  // ✅ 正職/店長：開啟 Modal 時再次確認是否需同步（排班資料可能在 loadSalaryData 後又更新）
+  if(emp.role !== ROLE_PART) {
+    const { otH: schedOtH } = calcEmpHours(emp.name);
+    if(!rec.otHoursManual && schedOtH !== parseFloat(rec.otHours||0)) {
+      rec.otHours = schedOtH;
+    }
+  }
+
+  // ✅ 工讀生額外時數：固定預設 0，全程手動填寫，不從上月帶入
+
   const readonly = isReadonly();
   const total = calcTotal(rec);
 
@@ -2295,6 +2335,8 @@ function updateFieldModal(empName, key, val) {
     rec[key] = val; // 文字欄位
   } else {
     rec[key] = parseFloat(val) || 0; // 數字欄位
+    // otHours 手動修改 → 設旗標，避免開 Modal 時被自動覆蓋
+    if(key === 'otHours') rec.otHoursManual = true;
   }
 
   // 重新渲染 Modal Body 與 Total（維持當前 Tab）
@@ -2336,7 +2378,7 @@ function buildDefaultRecord(emp) {
       roleBonus: prev.roleBonus !== undefined ? prev.roleBonus : 0,
       hours: totalH,
       holidayHours: prev.holidayHours !== undefined ? prev.holidayHours : 0,
-      extraHours: prev.extraHours !== undefined ? prev.extraHours : 0,
+      extraHours: 0, // 額外時數每月手動填寫，不從上月帶入
       laborInsurance: prev.laborInsurance !== undefined ? prev.laborInsurance : (emp.laborInsurance || 0),
       healthInsurance: prev.healthInsurance !== undefined ? prev.healthInsurance : (emp.healthInsurance || 0),
       hasDependent: prev.hasDependent !== undefined ? prev.hasDependent : (emp.hasDependent || false),
@@ -2434,8 +2476,10 @@ function renderSalaryForm(emp, rec, idx, readonly) {
   const customOtBtn = !isPart && !ro
     ? `<button class="btn-sm primary" onclick="openCustomOtModal('${emp.name}')" style="margin-left:4px;">${hasCustomOt?'✏️自訂':'自訂'}</button>`
     : (hasCustomOt ? '<span style="font-size:10px;color:var(--primary);margin-left:4px;">自訂</span>' : '<span style="font-size:10px;color:var(--text-muted);">系統結算</span>');
-  col1 += `<div class="salary-row"><span class="salary-row-label">平日加班 ${customOtBtn}</span>
-           <span class="salary-row-val" style="color:var(--accent);">+$${wdOtAmt.toLocaleString()}</span></div>${otDetail}`;
+  if(!isPart) {
+    col1 += `<div class="salary-row"><span class="salary-row-label">平日加班 ${customOtBtn}</span>
+             <span class="salary-row-val" style="color:var(--accent);">+$${wdOtAmt.toLocaleString()}</span></div>${otDetail}`;
+  }
   col1 += inp('restDayOtPay', rec.restDayOtPay, '休息日加班金額');
   if(!isPart) {
     const _hourlySupH = calcHourlySupportHours(emp.name);
@@ -2607,27 +2651,46 @@ function renderSalaryForm(emp, rec, idx, readonly) {
   col3 += `<div class="salary-row"><span class="salary-row-label">前年度遞延特休剩餘</span><span class="salary-row-val">${carried} 天</span></div>`;
   
   col3 += `<div style="border-top:1px solid #e2e8f0;margin:8px 0;"></div>`;
-  if(!isMgr) {
-    // 差異偵測：排班計算 vs 已儲存
+  if(!isPart) {
+    // 正職與店長：顯示加班時數（排班自動同步，可手動覆寫）
     const { otH: schedOtH } = calcEmpHours(emp.name);
     const savedOtH = parseFloat(rec.otHours||0);
-    const otMismatch = !ro && schedOtH > 0 && savedOtH !== schedOtH;
+    const otMismatch = !ro && schedOtH !== savedOtH;
+    const mgrTag = isMgr ? `<span style="font-size:10px;color:#94a3b8;margin-left:4px;">（有加班再填）</span>` : '';
     col3 += `<div class="salary-row" style="${otMismatch?'background:#fffbeb;border-radius:8px;padding:6px 8px;margin:0 -4px;':''}">
-      <span class="salary-row-label">平日加班時數${otMismatch?`<br><span style="font-size:10px;color:#b45309;font-weight:700;">⚠️ 排班計算 ${schedOtH}h</span>`:''}</span>
+      <span class="salary-row-label">平日加班時數${mgrTag}${otMismatch?`<br><span style="font-size:10px;color:#b45309;font-weight:700;">⚠️ 排班計算 ${schedOtH}h</span>`:''}</span>
       <div style="display:flex;align-items:center;gap:6px;">
-        <span class="salary-row-val">${savedOtH} h</span>
-        ${otMismatch?`<button class="btn-sm accent" onclick="syncOtHours('${emp.name.replace(/'/g,"\\'")}',${schedOtH})">同步 ${schedOtH}h</button>`:''}
+        ${ro
+          ? `<span class="salary-row-val">${savedOtH} h</span>`
+          : `<input class="salary-input" type="number" value="${savedOtH||''}" placeholder="0" style="width:80px;"
+               onchange="updateFieldModal('${emp.name.replace(/'/g,"\'")}','otHours',this.value)">`
+        }
+        ${otMismatch && !ro ? `<button class="btn-sm accent" onclick="syncOtHours('${emp.name.replace(/'/g,"\'")}',${schedOtH})">同步 ${schedOtH}h</button>` : ''}
       </div>
     </div>`;
-    col3 += inp('restDayOtHours', rec.restDayOtHours, '休息日加班時數', '0', 'salary-input');
-    col3 += `<div class="salary-row"><span class="salary-row-label">國定假日時數</span><span class="salary-row-val">${rec.holidayHours||0} h</span></div>`;
+    if(!isMgr) {
+      col3 += inp('restDayOtHours', rec.restDayOtHours, '休息日加班時數', '0', 'salary-input');
+      col3 += `<div class="salary-row"><span class="salary-row-label">國定假日時數</span><span class="salary-row-val">${rec.holidayHours||0} h</span></div>`;
+    }
+  } else {
+    // 工讀生：不顯示加班時數欄，只有國定假日出勤（手動填入）
+    col3 += inp('holidayHours', rec.holidayHours, '國定假日出勤時數', '0', 'salary-input');
+    col3 += `<div style="font-size:11px;color:var(--text-muted);padding:2px 0 6px;">↑ 國定假日出勤薪資 = 時數 × 時薪 × 2</div>`;
   }
   col3 += inp('lateMinutes', rec.lateMinutes, '遲到分鐘數', '0', 'salary-input');
   
   if(!isPart) {
+    // 正職與店長均顯示加班費計算基礎
+    // 若 rph=0 但有底薪，顯示以底薪試算的預設值供參考
+    const defaultRph = rph > 0 ? rph : (parseFloat(rec.baseSalary||0) / 30 / 8);
+    const rphDisplay = rph > 0
+      ? `$${rph.toFixed(1)}/hr`
+      : (defaultRph > 0
+          ? `<span style="color:#d97706;font-size:11px;">⚠️ 未設定（底薪試算約 $${defaultRph.toFixed(1)}/hr，請點設定確認）</span>`
+          : `<span style="color:#94a3b8;font-size:11px;">未設定（需先填入底薪）</span>`);
     col3 += `<div class="salary-row" style="margin-top:8px;background:#f8fafc;padding:8px;border-radius:8px;">
       <span class="salary-row-label">加班費計算基礎 <button class="btn-sm primary" onclick="openOtBaseModal('${emp.name}')" ${ro?'disabled':''}>設定</button></span>
-      <span class="salary-row-val" style="font-size:13px;">$${rph.toFixed(1)}/hr</span>
+      <span class="salary-row-val" style="font-size:13px;">${rphDisplay}</span>
     </div>`;
   }
   col3 += `</div>`;
@@ -3091,6 +3154,7 @@ function syncOtHours(empName, schedOtH) {
   let rec = getSalaryRecord(empName);
   if(!rec) return;
   rec.otHours = schedOtH;
+  rec.otHoursManual = false; // 同步後清除手動旗標，允許下次自動更新
   triggerAutoSave();
   const emp = empList.find(e => e.name === empName);
   if(emp) {
@@ -3213,7 +3277,8 @@ async function submitSalary() {
   // ✅ 送審前：掃描加班時數差異
   const mismatches = [];
   empList.forEach(emp => {
-    if(emp.role === '工讀') return; // 工讀不需要檢查
+    if(emp.role === '工讀') return; // 工讀無加班，跳過
+    if(emp.role === '店長') return; // 店長加班為選填，跳過自動檢查
     const rec = getSalaryRecord(emp.name);
     if(!rec) return;
     const { otH: schedOtH } = calcEmpHours(emp.name);
