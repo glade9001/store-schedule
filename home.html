@@ -1287,9 +1287,14 @@ async function homeChangeWeek(offset) {
       showToast('⚠️ 已是最新班表');
       return;
     }
-    if(homeCurrentWeek === thisWeek && !homeCanGoNext) {
-      showToast('⚠️ 下週班表尚未發布');
-      return;
+    if(homeCurrentWeek === thisWeek) {
+      // ✅ 即時判斷，不依賴非同步的 homeCanGoNext
+      const nextWk = getNextWeekString();
+      const canGo = homeCanGoNext || isAutoPublishedHome(nextWk);
+      if(!canGo) {
+        showToast('⚠️ 下週班表尚未發布');
+        return;
+      }
     }
   }
 
