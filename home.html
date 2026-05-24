@@ -1395,13 +1395,12 @@ async function loadMySchedule() {
         const clr = isOff ? '#d93025' : isEmpty && hasSupport ? '#16a34a' : isEmpty ? '#bbb' : '#1a73e8';
         const displayShift = isOff ? '休' : shift || (hasSupport ? suppRec.shift || '支援' : '–');
 
-        // ✅ 字體縮小，手機版更好看
         return `<div style="text-align:center;background:${bg};border-radius:8px;padding:5px 2px;${isToday ? 'box-shadow:0 0 0 2px var(--primary);' : ''}">
           <div style="font-size:11px;color:${isToday ? 'var(--primary)' : 'var(--text-muted)'};font-weight:${isToday ? 800 : 500};text-align:center;">${dates[i]}</div>
           <div style="font-size:10px;color:var(--text-muted);text-align:center;">${day}</div>
           <div style="font-size:13px;color:${clr};font-weight:${isEmpty && !hasSupport ? 400 : 900};margin-top:2px;text-align:center;letter-spacing:-0.5px;">${displayShift}</div>
           ${rec.note ? `<div style="font-size:9px;color:#0088aa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;">${rec.note}</div>` : ''}
-          ${hasSupport && !shift ? `<div style="font-size:8px;color:#16a34a;font-weight:700;text-align:center;margin-top:1px;">🆘 ${suppRec._supportStore}</div>` : ''}
+          ${hasSupport ? `<div style="font-size:8px;color:#16a34a;font-weight:700;text-align:center;margin-top:1px;">🆘 ${suppRec._supportStore}</div>` : ''}
         </div>`;
       }).join('') + `</div>`;
 
