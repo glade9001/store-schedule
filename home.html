@@ -1242,10 +1242,34 @@ async function initApp() {
 
 // ===== 我的班表（本週+下週）=====
 let homeCurrentWeek = '';
-let homeCanGoNext = false; 
+let homeCanGoNext = false;
+let homePublishUnsubscribe = null;
+
+function subscribeNextWeekPublish(store, nextWeekStr) {
+  if (homePublishUnsubscribe) {
+    homePublishUnsubscribe();
+    homePublishUnsubscribe = null;
+  }
+  const update = (published) => {
+    homeCanGoNext = published || isAutoPublishedHome(nextWeekStr);
+    const nextBtn = document.getElementById('homeNextBtn');
+    if (nextBtn) {
+      nextBtn.style.opacity = (homeCanGoNext && homeCurrentWeek === getCurrentWeekString()) ? '1' : '0.3';
+    }
+  };
+  homePublishUnsubscribe = window.db
+    .collection('stores').doc(store)
+    .collection('weeks').doc(nextWeekStr)
+    .onSnapshot(
+      snap => update(snap.exists ? !!snap.data().published : false),
+      ()   => update(false)
+    );
+}
 
 async function loadTodayShifts() {
-  homeCurrentWeek = getCurrentWeekString(); 
+  homeCurrentWeek = getCurrentWeekString();
+  const store = currentUser?.store;
+  if (store) subscribeNextWeekPublish(store, getNextWeekString());
   await loadMySchedule();
 }
 
@@ -1355,17 +1379,8 @@ async function loadMySchedule() {
     });
     console.log('[支援] key:', mySupportKey, 'found:', supportRecs.length);
 
-    if(weekStr === thisWeekStr) {
-      const nextSnap = await withTimeout(
-        window.db.collection('stores').doc(store).collection('weeks').doc(nextWeekStr).get()
-      );
-      const nextData = nextSnap?.exists ? nextSnap.data() : {};
-      homeCanGoNext = nextData.published || isAutoPublishedHome(nextWeekStr);
-      if(nextBtn) nextBtn.style.opacity = homeCanGoNext ? '1' : '0.3';
-    } else {
-      homeCanGoNext = false;
-      if(nextBtn) nextBtn.style.opacity = '0.3';
-    }
+    // › 按鈕：本週視圖由 onSnapshot 控制；下週視圖禁止再往後
+    if(nextBtn) nextBtn.style.opacity = (weekStr === thisWeekStr && homeCanGoNext) ? '1' : '0.3';
 
     if(prevBtn) prevBtn.style.opacity = weekStr === prevWeekStr ? '0.3' : '1';
 
@@ -1425,6 +1440,10 @@ function isAutoPublishedHome(weekStr) {
   prevFri.setHours(0, 0, 0, 0);
   return new Date() >= prevFri;
 }
+
+window.addEventListener('beforeunload', () => {
+  if (homePublishUnsubscribe) homePublishUnsubscribe();
+});
 
 function updateTodayShiftBadge(myRecs, dates, dNames, todayStr) {
   const badge = document.getElementById('todayShiftBadge');
