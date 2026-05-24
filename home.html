@@ -1040,6 +1040,30 @@ window.onload = async () => {
     if(savedUser) {
       try {
         currentUser = JSON.parse(savedUser);
+        // 快取登入：也需檢查待生效調店
+        if(currentUser.docId) {
+          try {
+            const accRef = window.db.collection('account').doc(currentUser.docId);
+            const accDoc = await accRef.get();
+            if(accDoc.exists) {
+              const acc = accDoc.data();
+              const today = new Date().toISOString().split('T')[0];
+              if(acc.pendingStore && acc.transferDate && acc.transferDate <= today) {
+                await accRef.update({
+                  store: acc.pendingStore,
+                  pendingStore: firebase.firestore.FieldValue.delete(),
+                  transferDate: firebase.firestore.FieldValue.delete()
+                });
+                currentUser.store = acc.pendingStore;
+                if(localStorage.getItem('currentUser')) {
+                  localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                } else {
+                  sessionStorage.setItem('currentUser', JSON.stringify(currentUser));
+                }
+              }
+            }
+          } catch(e) { /* 不阻擋登入 */ }
+        }
         await initApp().catch(e => {
           console.error('initApp 失敗:', e);
           // initApp 拋錯時確保 loading 關閉、顯示首頁（已有 appShell）
@@ -1128,6 +1152,21 @@ async function doLogin() {
       } catch(e) { /* 讀取失敗不阻擋登入，避免誤擋 */ }
     }
 
+    // 調店生效日：若有待生效的調店，且今天已達生效日，正式更新帳號
+    {
+      const today = new Date().toISOString().split('T')[0];
+      if(acc.pendingStore && acc.transferDate && acc.transferDate <= today) {
+        try {
+          await accDoc.ref.update({
+            store: acc.pendingStore,
+            pendingStore: firebase.firestore.FieldValue.delete(),
+            transferDate: firebase.firestore.FieldValue.delete()
+          });
+          acc.store = acc.pendingStore;
+        } catch(e) { /* 更新失敗不阻擋登入 */ }
+      }
+    }
+
     const perm = acc.permission || 'employee';
     currentUser = {
       docId: docId,
@@ -1135,7 +1174,7 @@ async function doLogin() {
       displayName: acc.displayName || acc.empName || username,
       empName: acc.empName || '',
       linked: acc.linked === true,
-      store: acc.store || null,   
+      store: acc.store || null,
       role: acc.role || '',
       permission: perm
     };

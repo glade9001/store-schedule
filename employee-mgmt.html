@@ -928,10 +928,21 @@ async function confirmTransfer() {
       status: '調走', transferDate: date, transferTo: toStore
     });
 
-    // 更新帳號的 store
+    // 更新帳號：生效日當天才切換 store，先記錄待生效資訊
     const accSnap = await window.db.collection('account').where('empName','==',empId).where('store','==',fromStore).limit(1).get();
     if(!accSnap.empty) {
-      await accSnap.docs[0].ref.update({ store: toStore, role: newRole });
+      const today = new Date().toISOString().split('T')[0];
+      if(date <= today) {
+        // 生效日已到，直接更新
+        await accSnap.docs[0].ref.update({ store: toStore, role: newRole });
+      } else {
+        // 生效日未到，記錄待生效調店
+        await accSnap.docs[0].ref.update({
+          pendingStore: toStore,
+          transferDate: date,
+          role: newRole
+        });
+      }
     }
 
     closeModal('transferModal');
