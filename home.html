@@ -1412,16 +1412,24 @@ async function loadMySchedule() {
   }
 }
 
+// 從 YYYY-Www 取得週一的 Date 物件（與 schedule-V2 同邏輯）
+function weekStringToDateHome(weekStr) {
+  const [yr, wk] = weekStr.split('-W').map(Number);
+  const jan4 = new Date(yr, 0, 4);
+  const startOfWeek1 = new Date(jan4);
+  startOfWeek1.setDate(jan4.getDate() - ((jan4.getDay() || 7) - 1));
+  const mon = new Date(startOfWeek1);
+  mon.setDate(startOfWeek1.getDate() + (wk - 1) * 7);
+  return mon;
+}
+
+// 週五自動發布判斷（下週班表的上週五 00:00 起即視為已發布）
 function isAutoPublishedHome(weekStr) {
-  const p = weekStr.split('-W');
-  const yr = parseInt(p[0]), wk = parseInt(p[1]);
-  let d = new Date(yr, 0, 1);
-  const day = d.getDay();
-  d.setDate(d.getDate() + (wk - 1) * 7);
-  const offset = day <= 4 ? 1 - day : 8 - day;
-  d.setDate(d.getDate() + offset + 4); 
-  d.setHours(0, 0, 0, 0);
-  return new Date() >= d;
+  const weekMon = weekStringToDateHome(weekStr);
+  const prevFri = new Date(weekMon);
+  prevFri.setDate(weekMon.getDate() - 3); // 週一 - 3 = 上週五
+  prevFri.setHours(0, 0, 0, 0);
+  return new Date() >= prevFri;
 }
 
 function updateTodayShiftBadge(myRecs, dates, dNames, todayStr) {
