@@ -13,20 +13,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
-<script>
-  const firebaseConfig = {
-    apiKey: "AIzaSyAmVwq-Wny1KMRGNSdOnBEJ_A-3HmTO-hM",
-    authDomain: "store-schedule-3b056.firebaseapp.com",
-    projectId: "store-schedule-3b056",
-    storageBucket: "store-schedule-3b056.firebasestorage.app",
-    messagingSenderId: "296522693619",
-    appId: "1:296522693619:web:f90ec5d666c7a4a5943086"
-  };
-  firebase.initializeApp(firebaseConfig);
-  window.db = firebase.firestore();
-  // EmailJS 初始化
-  emailjs.init('OfG65y3BH5AMGcN-U');
-</script>
+<script src="firebase-init.js"></script>
+<script>emailjs.init('OfG65y3BH5AMGcN-U');</script>
   <style>
   /* ===== 全新 3 欄式版面與按鈕 ===== */
 .layout-3col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; align-items: start; }

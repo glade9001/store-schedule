@@ -1,13 +1,15 @@
 // ===== 莉學商行 Service Worker =====
 // 策略：HTML 永遠走網路，靜態資源才快取
 
-const CACHE_NAME = 'lixue-static-v1';
+const CACHE_NAME = 'lixue-static-v2';
 
-// 只快取靜態資源（圖示、manifest）
+// 快取靜態資源（圖示、manifest、共用 JS）
 const STATIC_ASSETS = [
   '/store-schedule/icon-192.svg',
   '/store-schedule/icon-512.svg',
   '/store-schedule/manifest.json',
+  '/store-schedule/firebase-init.js',
+  '/store-schedule/utils.js',
 ];
 
 // ===== 安裝 =====

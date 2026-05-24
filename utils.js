@@ -1,7 +1,30 @@
 /**
  * store-schedule 共用工具函式
- * 兩個頁面 (index.html / employee.html) 共用，避免重複維護
+ * 所有頁面共用，避免重複維護
  */
+
+/**
+ * 讀取目前登入用戶（localStorage → sessionStorage）
+ * 未登入時跳轉至 home.html 並記下來源頁面
+ * @returns {Object|null} currentUser，或 null（已跳轉）
+ */
+function requireLogin(redirectUrl) {
+  const saved = localStorage.getItem('currentUser') || sessionStorage.getItem('currentUser');
+  if (!saved) {
+    if (redirectUrl) localStorage.setItem('redirectAfterLogin', redirectUrl);
+    window.location.replace('home.html');
+    return null;
+  }
+  try {
+    return JSON.parse(saved);
+  } catch (e) {
+    localStorage.removeItem('currentUser');
+    sessionStorage.removeItem('currentUser');
+    if (redirectUrl) localStorage.setItem('redirectAfterLogin', redirectUrl);
+    window.location.replace('home.html');
+    return null;
+  }
+}
 
 const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
 
