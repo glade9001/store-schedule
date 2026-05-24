@@ -1368,7 +1368,16 @@ async function loadMySchedule() {
 
     const data = snap?.exists ? snap.data() : {};
     const records = data.records || [];
-    const myRecs = records.filter(r => r.name === empName);
+    let myRecs = records.filter(r => r.name === empName);
+
+    // 調店過渡期：帳號已切到新店，但排班記錄仍在舊店 → fallback 到其他門市查自己的記錄
+    if (myRecs.length === 0) {
+      for (let i = 0; i < otherSnaps.length; i++) {
+        if (!otherSnaps[i]?.exists) continue;
+        const fallback = (otherSnaps[i].data().records || []).filter(r => r.name === empName);
+        if (fallback.length > 0) { myRecs = fallback; break; }
+      }
+    }
 
     // 在其他門市 weeks 找 supportEmp === '本店-自己empName' 且 approved
     const mySupportKey = `${store}-${empName}`; // 例如「聯鑫-淡」
