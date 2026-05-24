@@ -984,9 +984,14 @@ function getWeekDates(wStr) {
   return res;
 }
 function getNextWeekString() {
-  let d = new Date(); d.setDate(d.getDate() + 7);
-  let yr = d.getFullYear(); let first = new Date(yr, 0, 1);
-  let w = Math.ceil((((d - first) / 86400000) + first.getDay() + 1) / 7);
+  const d = new Date();
+  const day = d.getDay() || 7;
+  const mon = new Date(d);
+  mon.setDate(d.getDate() - day + 1 + 7); // 先對齊本週一，再加 7 天到下週一
+  mon.setHours(0, 0, 0, 0);
+  const yr = mon.getFullYear();
+  const first = new Date(yr, 0, 1);
+  const w = Math.ceil((((mon - first) / 86400000) + first.getDay() + 1) / 7);
   return `${yr}-W${w < 10 ? '0'+w : w}`;
 }
 function getCurrentWeekString() {
