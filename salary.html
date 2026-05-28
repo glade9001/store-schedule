@@ -3834,7 +3834,7 @@ function renderCostModal(supportOut, supportIn) {
     <div id="detail-sal" style="display:none;" class="cost-detail-area">`;
   salRows.forEach(({ emp, gross }) => {
     html += `<div class="cost-emp-row" onclick="toggleCostSection('emp-${emp.name}')">
-      <div class="cost-emp-name">${emp.name}<span class="cost-emp-role-tag">${emp.role||''}</span></div>
+      <div class="cost-emp-name">${getDisplayName(emp.name)}<span class="cost-emp-role-tag">${emp.role||''}</span></div>
       <div class="cost-emp-amount">$${comma(gross)}</div>${arrowEl('emp-' + emp.name)}</div>
       <div id="detail-emp-${emp.name}" style="display:none;" class="cost-emp-breakdown">
         ${_renderSalaryBreakdown(emp.name)}
@@ -3857,7 +3857,7 @@ function renderCostModal(supportOut, supportIn) {
     supportIn.forEach(s => {
       const badge = `<span class="cost-support-badge" style="background:${_costStoreColor(s.fromStore)};">${s.fromStore}</span>`;
       const rateStr = s.hrRate != null ? `$${Math.round(s.hrRate)}/h × ${s.hours}h = <strong>$${comma(s.cost)}</strong>` : `${s.hours}h（時薪待確認）`;
-      html += `<div class="cost-support-row">${badge}<strong>${s.empName}</strong><span style="color:var(--text-muted);font-size:10px;margin-left:4px;">${s.role}</span>　${s.date}　${rateStr}</div>`;
+      html += `<div class="cost-support-row">${badge}<strong>${getDisplayName(s.empName)}</strong><span style="color:var(--text-muted);font-size:10px;margin-left:4px;">${s.role}</span>　${s.date}　${rateStr}</div>`;
     });
     if(supportIn.some(s => s.cost == null))
       html += `<div style="font-size:10px;color:var(--text-muted);margin-top:4px;">⚠️ 部分時薪無法取得（外店薪資讀取權限不足）</div>`;
@@ -3874,7 +3874,7 @@ function renderCostModal(supportOut, supportIn) {
   } else {
     supportOut.forEach(s => {
       const badge = `<span class="cost-support-badge" style="background:${_costStoreColor(s.targetStore)};">${s.targetStore}</span>`;
-      html += `<div class="cost-support-row"><strong>${s.empName}</strong><span style="color:var(--text-muted);font-size:10px;margin-left:4px;">${s.role}</span> → ${badge}　${s.date}　$${Math.round(s.hrRate)}/h × ${s.hours}h = <strong>$${comma(s.cost)}</strong></div>`;
+      html += `<div class="cost-support-row"><strong>${getDisplayName(s.empName)}</strong><span style="color:var(--text-muted);font-size:10px;margin-left:4px;">${s.role}</span> → ${badge}　${s.date}　$${Math.round(s.hrRate)}/h × ${s.hours}h = <strong>$${comma(s.cost)}</strong></div>`;
     });
   }
   html += `</div></div>`;
@@ -3898,7 +3898,7 @@ function renderCostModal(supportOut, supportIn) {
       const isPart = r.emp.role === ROLE_PART;
       const note = isPart ? `${pf(rec.holidayHours)}h × $${pf(rec.wage)}` : '假日加班費';
       html += `<div class="cost-holiday-row">
-        <span style="flex:1;font-weight:700;">${r.emp.name}<span class="cost-emp-role-tag">${r.emp.role||''}</span></span>
+        <span style="flex:1;font-weight:700;">${getDisplayName(r.emp.name)}<span class="cost-emp-role-tag">${r.emp.role||''}</span></span>
         <span style="font-size:11px;color:var(--text-muted);margin-right:12px;">${note}</span>
         <span style="font-weight:800;">$${comma(r.amt)}</span>
       </div>`;
