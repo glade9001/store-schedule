@@ -3488,6 +3488,26 @@ async function saveDraft() {
 }
 
 async function submitSalary() {
+  // ✅ 送審前：檢查應休未休補休是否全員處理完畢
+  const unhandled = [];
+  empList.forEach(emp => {
+    if(emp.role === ROLE_PART) return; // 工讀無六日應休，跳過
+    const rec = getSalaryRecord(emp.name);
+    if(!rec) return;
+    const shortRest = Math.max(0, getMonthWeekendDays(currentMonth).total - calcMonthOffDays(emp.name, currentMonth));
+    if(shortRest > 0 && !rec.unworkedAction) {
+      unhandled.push(getDisplayName(emp.name));
+    }
+  });
+  if(unhandled.length > 0) {
+    alert(
+      `⚡ 尚有 ${unhandled.length} 位員工的應休未休補休尚未處理：\n\n` +
+      unhandled.map(n => `• ${n}`).join('\n') +
+      '\n\n請先為每位員工選擇「🗓️ 發放補休」、「📋 部分發放」或「⛔ 不發放」後再送審。'
+    );
+    return;
+  }
+
   // ✅ 送審前：掃描加班時數差異
   const mismatches = [];
   empList.forEach(emp => {
