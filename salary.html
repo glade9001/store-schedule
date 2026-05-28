@@ -2023,35 +2023,73 @@ function printAllPayslips() {
   win.document.close();
 }
 
-// 寄送全店薪資單（寄給加盟主單一 email）
+// 壓縮 HTML（移除標籤間多餘空白）
+function minifyHtml(html) {
+  return html.replace(/>\s+</g, '><').replace(/\s{2,}/g, ' ').trim();
+}
+
+// 建立薪資單 CSS 區塊（供分批共用）
+function buildPayslipStyle() {
+  return `<style>
+    *{box-sizing:border-box;}body{margin:0;font-family:'Microsoft JhengHei','PingFang TC',Arial,sans-serif;}
+    .payslip-page{width:100%;page-break-after:always;display:flex;flex-direction:column;}
+    .payslip-half{flex:1;padding:8px 12px;border:1.5px solid #1a73e8;border-radius:6px;font-size:11px;}
+    .cut-line{text-align:center;color:#aaa;font-size:10px;margin:3px 0;border-top:1px dashed #ccc;padding-top:3px;}
+  </style>`;
+}
+
+// 寄送全店薪資單（分批，每批最多 BATCH_SIZE 人，避免超過 EmailJS 50KB 上限）
 async function sendAllPayslips() {
   const email = document.getElementById('ownerEmail')?.value?.trim();
   if(!email) { showToast('⚠️ 請填寫收件人 Email'); return; }
+
+  const emps = empList.filter(e => getSalaryRecord(e.name));
+  if(!emps.length) { showToast('⚠️ 無薪資記錄可寄送'); return; }
+
+  const BATCH_SIZE = 6;
+  const [y, m] = currentMonth.split('-').map(Number);
+  const style = buildPayslipStyle();
+  const batches = [];
+  for(let i = 0; i < emps.length; i += BATCH_SIZE) batches.push(emps.slice(i, i + BATCH_SIZE));
 
   const sendBtn = document.getElementById('sendBtn');
   const progress = document.getElementById('sendProgress');
   sendBtn.disabled = true;
   progress.style.display = 'block';
-  progress.innerHTML = `<div style="font-size:13px;color:var(--text-muted);">寄送中...</div>`;
 
-  // 建立全店薪資單 HTML
-  const allHtml = buildAllPayslipsHtml();
-  const [y, m] = currentMonth.split('-').map(Number);
+  let failed = 0;
+  for(let b = 0; b < batches.length; b++) {
+    progress.innerHTML = `<div style="font-size:13px;color:var(--text-muted);">寄送第 ${b+1}/${batches.length} 封...</div>`;
+    let html = style;
+    const batch = batches[b];
+    for(let i = 0; i < batch.length; i += 2) {
+      html += `<div class="payslip-page">`;
+      html += buildSinglePayslipHtml(batch[i], y, m);
+      if(batch[i+1]) html += `<div class="cut-line">✂ ─────────────────────────────</div>` + buildSinglePayslipHtml(batch[i+1], y, m);
+      html += `</div>`;
+    }
+    const storeSuffix = batches.length > 1 ? ` (${b+1}/${batches.length})` : '';
+    try {
+      await emailjs.send(EMAILJS_SERVICE, EMAILJS_TEMPLATE, {
+        to_email: email,
+        store: currentStore + storeSuffix,
+        month: getMonthLabel(currentMonth),
+        payslip_html: minifyHtml(html),
+      });
+    } catch(e) {
+      failed++;
+      console.error(`第 ${b+1} 批寄送失敗:`, e);
+    }
+  }
 
-  try {
-    await emailjs.send(EMAILJS_SERVICE, EMAILJS_TEMPLATE, {
-      to_email: email,
-      store: currentStore,
-      month: getMonthLabel(currentMonth),
-      payslip_html: allHtml,
-    });
+  if(failed === 0) {
     progress.innerHTML = `<div style="background:#e8f5e9;border-radius:10px;padding:12px;font-size:13px;font-weight:700;color:#2e7d32;">
-      ✅ 已成功寄送至 ${email}
+      ✅ 已成功寄送至 ${email}${batches.length > 1 ? `（共 ${batches.length} 封）` : ''}
     </div>`;
     sendBtn.textContent = '✅ 已寄送';
-  } catch(e) {
+  } else {
     progress.innerHTML = `<div style="background:#fce8e6;border-radius:10px;padding:12px;font-size:13px;font-weight:700;color:#c62828;">
-      ❌ 寄送失敗：${e.text || e.message || '未知錯誤'}
+      ⚠️ 部分寄送失敗（${failed}/${batches.length} 封）
     </div>`;
     sendBtn.disabled = false;
     sendBtn.textContent = '🔄 重新寄送';
