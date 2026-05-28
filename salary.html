@@ -964,7 +964,7 @@ async function confirmCompEarned(empName) {
   hideLoading();
 }
 
-// 重算 comp/{year} 總帳
+// 重算 comp/{year} 總帳（同時同步 leaves/{year} 與 in-memory leaveDataMap，避免補休撤回後顯示舊值）
 async function recalcComp(empName, year) {
   const logSnaps = await window.db.collection('employees').doc(empName).collection('leaveLog').get();
   let earned = 0, used = 0;
@@ -978,11 +978,19 @@ async function recalcComp(empName, year) {
       if(r.type === 'comp_use_cancel')   used    = Math.max(0, used   - rd);
     });
   });
-  await window.db.collection('employees').doc(empName).collection('comp').doc(year)
-    .set({ earned, used }, { merge: true });
+  await Promise.all([
+    window.db.collection('employees').doc(empName).collection('comp').doc(year)
+      .set({ earned, used }, { merge: true }),
+    window.db.collection('employees').doc(empName).collection('leaves').doc(year)
+      .set({ earnedComp: earned, usedComp: used }, { merge: true }),
+  ]);
   if(compDataMap[empName]) {
     compDataMap[empName].current = { earned, used, remaining: earned - used };
     compDataMap[empName].totalRemaining = earned - used + (compDataMap[empName].carried?.remaining||0);
+  }
+  if(leaveDataMap[empName]) {
+    leaveDataMap[empName].earnedComp = earned;
+    leaveDataMap[empName].usedComp = used;
   }
 }
 
@@ -2697,7 +2705,12 @@ function renderSalaryForm(emp, rec, idx, readonly) {
   const annualDays = leaveInfo.annualDays ?? '--';
   const usedAnnual = leaveInfo.usedAnnual ?? '--';
   const remainAnnual = (typeof annualDays==='number' && typeof usedAnnual==='number') ? annualDays-usedAnnual : '--';
-  const remainComp = (typeof leaveInfo.earnedComp==='number' && typeof leaveInfo.usedComp==='number') ? leaveInfo.earnedComp-leaveInfo.usedComp : '--';
+  // 優先用 compLogMap（從 leaveLog 即時計算）作為補休餘額來源，避免 leaves/{year} 文件過時造成顯示錯誤
+  const _compBatchesForRemain = compLogMap[emp.name] || [];
+  const remainComp = _compBatchesForRemain.length > 0
+    ? _compBatchesForRemain.reduce((s, b) => s + Math.max(0, b.days - b.used), 0)
+    : (typeof leaveInfo.earnedComp==='number' && typeof leaveInfo.usedComp==='number')
+      ? leaveInfo.earnedComp - leaveInfo.usedComp : '--';
 
   let col3 = `<div class="col-card"><div class="col-header c3"><span>1. 考勤紀錄與餘額</span><span style="font-size:11px;">(紀錄)</span></div>`;
   
