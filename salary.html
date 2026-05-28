@@ -3630,13 +3630,15 @@ function _costStoreColor(store) {
   return _COST_STORE_COLORS[Math.max(0, idx) % _COST_STORE_COLORS.length];
 }
 
+// supportEmp 格式：'{homeStore}-{empName}'，儲存在接收門市的 weeks collection
+// 支援別人（本店員工去外店）：在其他門市的 records 中找 homeStore === currentStore 的記錄
 function getSupportOut() {
   const [, cm] = currentMonth.split('-').map(Number);
   const result = [];
   Object.entries(scheduleData).forEach(([ws, recs]) => {
     const wDates = getWeekDatesFromStr(ws);
     recs.forEach(r => {
-      if(r._store !== currentStore) return;
+      if(r._store === currentStore) return;  // 只看其他門市的記錄
       if(!r.supportEmp || r.approvalStatus !== 'approved') return;
       const dIdx = _COST_DAYS.indexOf(r.day);
       if(dIdx < 0) return;
@@ -3644,10 +3646,11 @@ function getSupportOut() {
       if(dm !== cm) return;
       const dashIdx = r.supportEmp.indexOf('-');
       if(dashIdx < 0) return;
-      const targetStore = r.supportEmp.substring(0, dashIdx);
+      const homeStore = r.supportEmp.substring(0, dashIdx);
+      if(homeStore !== currentStore) return;  // 只找本店員工
       const empName = r.supportEmp.substring(dashIdx + 1);
-      if(!empList.find(e => e.name === empName)) return;
-      const emp = empList.find(e => e.name === empName) || {};
+      const emp = empList.find(e => e.name === empName);
+      if(!emp) return;
       const salRec = getSalaryRecord(empName) || {};
       const isPart = emp.role === ROLE_PART;
       const hours = parseFloat(r.actualHours || 0);
@@ -3657,19 +3660,21 @@ function getSupportOut() {
       } else {
         hrRate = (parseFloat(salRec.baseSalary||0) + parseFloat(salRec.fullAttendBonus||0)) / 30 / 8;
       }
+      const targetStore = r._store;  // 去支援的那間門市
       result.push({ empName, role: emp.role||'', targetStore, date: wDates[dIdx], hours, hrRate, cost: Math.round(hrRate * hours) });
     });
   });
   return result;
 }
 
+// 被支援（外店員工來本店）：在本店自己的 records 中找 homeStore !== currentStore 的記錄
 function getSupportIn() {
   const [, cm] = currentMonth.split('-').map(Number);
   const result = [];
   Object.entries(scheduleData).forEach(([ws, recs]) => {
     const wDates = getWeekDatesFromStr(ws);
     recs.forEach(r => {
-      if(r._store === currentStore) return;
+      if(r._store !== currentStore) return;  // 只看本店自己的記錄
       if(!r.supportEmp || r.approvalStatus !== 'approved') return;
       const dIdx = _COST_DAYS.indexOf(r.day);
       if(dIdx < 0) return;
@@ -3677,10 +3682,10 @@ function getSupportIn() {
       if(dm !== cm) return;
       const dashIdx = r.supportEmp.indexOf('-');
       if(dashIdx < 0) return;
-      const targetStore = r.supportEmp.substring(0, dashIdx);
-      if(targetStore !== currentStore) return;
+      const homeStore = r.supportEmp.substring(0, dashIdx);
+      if(homeStore === currentStore) return;  // 排除本店員工（不應出現，但防呆）
       const empName = r.supportEmp.substring(dashIdx + 1);
-      result.push({ empName, fromStore: r._store, date: wDates[dIdx], hours: parseFloat(r.actualHours||0), hrRate: null, cost: null, role: '' });
+      result.push({ empName, fromStore: homeStore, date: wDates[dIdx], hours: parseFloat(r.actualHours||0), hrRate: null, cost: null, role: '' });
     });
   });
   return result;

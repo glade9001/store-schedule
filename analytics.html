@@ -462,9 +462,12 @@ async function runAnalysis(){
             if(!wk.startsWith(String(y))) return;
             (wd.data().records||[]).forEach(r => {
               if(!r.supportEmp || r.approvalStatus !== 'approved') return;
-              // r.supportEmp = '{targetStore}-{empName}'
-              const [targetStore, empName] = r.supportEmp.split('-');
-              if(!targetStore || !empName) return;
+              // supportEmp 格式：'{homeStore}-{empName}'，儲存在接收門市（store）的 weeks collection
+              const dashIdx = r.supportEmp.indexOf('-');
+              if(dashIdx < 0) return;
+              const homeStore = r.supportEmp.substring(0, dashIdx);
+              const empName = r.supportEmp.substring(dashIdx + 1);
+              if(!homeStore || !empName) return;
               // 判斷這筆記錄的日期是否在 ym 月
               const wMon = weekStringToDate(wk);
               const dIdx = ['週一','週二','週三','週四','週五','週六','週日'].indexOf(r.day);
@@ -473,8 +476,8 @@ async function runAnalysis(){
               if(cellDate.getFullYear()!==y || cellDate.getMonth()+1!==m) return;
               if(!supportMap[ym][empName]) supportMap[ym][empName]=[];
               supportMap[ym][empName].push({
-                fromStore: store,
-                toStore: targetStore,
+                fromStore: homeStore,  // 員工的本店
+                toStore: store,        // 去支援的門市（此記錄所在門市）
                 hours: parseFloat(r.actualHours||0),
                 day: r.day
               });
