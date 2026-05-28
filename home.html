@@ -2064,7 +2064,14 @@ function renderQuickBtns() {
     </button>
     <button class="func-btn gray" onclick="openMoreMgmtSheet()">
       <div class="func-icon">⋯</div><div class="func-label">更多管理</div>
-    </button>`;
+    </button>
+    ${canViewReport() ? `
+    <button class="func-btn purple" onclick="window.location.href='analytics.html'">
+      <div class="func-icon">📊</div><div class="func-label">人事分析</div>
+    </button>
+    <button class="func-btn green" onclick="window.location.href='export.html'">
+      <div class="func-icon">📤</div><div class="func-label">薪資匯出</div>
+    </button>` : ''}`;
 
   // 更多管理 sheet 的角色預覽顯示
   const bsPreview = document.getElementById('bsMgmtPreview');

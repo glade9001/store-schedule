@@ -147,6 +147,33 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 .sched-off{color:var(--danger);}
 .sched-hours{margin-left:auto;color:var(--text-muted);font-size:11px;}
 .sched-ot{color:var(--accent);font-weight:800;}
+
+/* ===== 人事成本 Modal ===== */
+.cost-section{border-bottom:1px solid var(--border);}
+.cost-section:last-of-type{border-bottom:none;}
+.cost-header-row{display:flex;align-items:center;padding:12px 0;cursor:pointer;user-select:none;}
+.cost-header-title{flex:1;font-size:14px;font-weight:800;}
+.cost-header-amount{font-size:14px;font-weight:900;font-variant-numeric:tabular-nums;margin-right:8px;}
+.cost-header-amount.pos{color:var(--danger);}
+.cost-header-amount.neg{color:var(--accent);}
+.cost-detail-area{padding:0 0 12px;}
+.cost-emp-row{display:flex;align-items:center;background:#f8fafc;border-radius:8px;padding:9px 12px;margin-bottom:6px;cursor:pointer;gap:8px;}
+.cost-emp-name{flex:1;font-size:13px;font-weight:800;}
+.cost-emp-role-tag{font-size:10px;color:var(--text-muted);font-weight:600;margin-left:4px;}
+.cost-emp-amount{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;}
+.cost-emp-breakdown{background:white;border:1.5px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:6px;}
+.cost-br-row{display:flex;padding:5px 0;border-bottom:1px solid #f8fafc;font-size:12px;}
+.cost-br-row:last-child{border-bottom:none;}
+.cost-br-label{flex:1;color:var(--text-muted);font-weight:600;}
+.cost-br-val{font-weight:700;font-variant-numeric:tabular-nums;}
+.cost-br-val.deduct{color:var(--danger);}
+.cost-total-box{background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:white;border-radius:12px;padding:14px 16px;margin:16px 0;display:flex;align-items:center;}
+.cost-total-label{flex:1;font-size:14px;font-weight:800;}
+.cost-total-amount{font-size:20px;font-weight:900;font-variant-numeric:tabular-nums;}
+.cost-support-row{background:#f8fafc;border-radius:8px;padding:8px 12px;margin-bottom:6px;font-size:12px;line-height:1.7;}
+.cost-support-badge{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:800;color:white;margin-right:4px;}
+.cost-holiday-row{display:flex;align-items:center;padding:7px 0;border-bottom:1px solid #f8fafc;font-size:13px;}
+.cost-holiday-row:last-child{border-bottom:none;}
 </style>
 </head>
 <body>
@@ -365,6 +392,24 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
     </button>
     <div id="sendProgress" style="display:none;margin-top:12px;"></div>
     <button onclick="closeModal('emailModal')" style="width:100%;padding:12px;background:none;border:none;color:var(--text-muted);font-size:14px;cursor:pointer;margin-top:8px;">取消</button>
+  </div>
+</div>
+
+<!-- ===== 人事成本分析 Modal ===== -->
+<div class="modal-overlay" id="costModal" onclick="if(event.target===this)closeModal('costModal')">
+  <div class="modal-box" style="max-height:92vh;overflow-y:auto;">
+    <div class="modal-handle"></div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <div class="modal-title" style="flex:1;">📊 人事成本分析</div>
+      <button onclick="closeModal('costModal')" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted);padding:0;line-height:1;">✕</button>
+    </div>
+    <div class="modal-sub" id="costModalSub" style="margin-bottom:16px;"></div>
+    <div id="costModalBody">
+      <div style="text-align:center;padding:30px;color:var(--text-muted);">
+        <div style="width:32px;height:32px;border:3px solid #e2e8f0;border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px;"></div>
+        計算中...
+      </div>
+    </div>
   </div>
 </div>
 
@@ -3368,6 +3413,7 @@ function renderBottomAction() {
     } else {
       el.innerHTML = `<button class="action-btn primary" disabled>等待審核中...</button>`;
     }
+    el.innerHTML += `<button class="action-btn" style="background:#0891b2;color:white;flex-shrink:0;" onclick="openCostModal()">📊 人事成本</button>`;
   }
 }
 
@@ -3573,6 +3619,298 @@ if('serviceWorker' in navigator) {
       })
       .catch(err => console.warn('[PWA] SW 註冊失敗:', err));
   });
+}
+
+// ===== 人事成本分析 =====
+const _COST_DAYS = ['週一','週二','週三','週四','週五','週六','週日'];
+const _COST_STORE_COLORS = ['#1a73e8','#34a853','#f9ab00','#9334e6','#d93025','#0891b2'];
+
+function _costStoreColor(store) {
+  const idx = (appConfig.stores||[]).indexOf(store);
+  return _COST_STORE_COLORS[Math.max(0, idx) % _COST_STORE_COLORS.length];
+}
+
+function getSupportOut() {
+  const [, cm] = currentMonth.split('-').map(Number);
+  const result = [];
+  Object.entries(scheduleData).forEach(([ws, recs]) => {
+    const wDates = getWeekDatesFromStr(ws);
+    recs.forEach(r => {
+      if(r._store !== currentStore) return;
+      if(!r.supportEmp || r.approvalStatus !== 'approved') return;
+      const dIdx = _COST_DAYS.indexOf(r.day);
+      if(dIdx < 0) return;
+      const [dm] = (wDates[dIdx]||'').split('/').map(Number);
+      if(dm !== cm) return;
+      const dashIdx = r.supportEmp.indexOf('-');
+      if(dashIdx < 0) return;
+      const targetStore = r.supportEmp.substring(0, dashIdx);
+      const empName = r.supportEmp.substring(dashIdx + 1);
+      if(!empList.find(e => e.name === empName)) return;
+      const emp = empList.find(e => e.name === empName) || {};
+      const salRec = getSalaryRecord(empName) || {};
+      const isPart = emp.role === ROLE_PART;
+      const hours = parseFloat(r.actualHours || 0);
+      let hrRate = 0;
+      if(isPart) {
+        hrRate = parseFloat(salRec.wage || 0);
+      } else {
+        hrRate = (parseFloat(salRec.baseSalary||0) + parseFloat(salRec.fullAttendBonus||0)) / 30 / 8;
+      }
+      result.push({ empName, role: emp.role||'', targetStore, date: wDates[dIdx], hours, hrRate, cost: Math.round(hrRate * hours) });
+    });
+  });
+  return result;
+}
+
+function getSupportIn() {
+  const [, cm] = currentMonth.split('-').map(Number);
+  const result = [];
+  Object.entries(scheduleData).forEach(([ws, recs]) => {
+    const wDates = getWeekDatesFromStr(ws);
+    recs.forEach(r => {
+      if(r._store === currentStore) return;
+      if(!r.supportEmp || r.approvalStatus !== 'approved') return;
+      const dIdx = _COST_DAYS.indexOf(r.day);
+      if(dIdx < 0) return;
+      const [dm] = (wDates[dIdx]||'').split('/').map(Number);
+      if(dm !== cm) return;
+      const dashIdx = r.supportEmp.indexOf('-');
+      if(dashIdx < 0) return;
+      const targetStore = r.supportEmp.substring(0, dashIdx);
+      if(targetStore !== currentStore) return;
+      const empName = r.supportEmp.substring(dashIdx + 1);
+      result.push({ empName, fromStore: r._store, date: wDates[dIdx], hours: parseFloat(r.actualHours||0), hrRate: null, cost: null, role: '' });
+    });
+  });
+  return result;
+}
+
+async function fetchSupportInRates(supportInList) {
+  const uniqueStores = [...new Set(supportInList.map(s => s.fromStore))];
+  const salByStore = {}, empByStore = {};
+  await Promise.all(uniqueStores.map(async store => {
+    try {
+      const [salSnap, empSnap] = await Promise.all([
+        window.db.collection('stores').doc(store).collection('salary').doc(currentMonth).get(),
+        window.db.collection('stores').doc(store).collection('employees').get()
+      ]);
+      salByStore[store] = salSnap.exists ? (salSnap.data().records||[]) : [];
+      empByStore[store] = {};
+      empSnap.forEach(d => { empByStore[store][d.id] = d.data(); });
+    } catch(e) {
+      salByStore[store] = null; empByStore[store] = null;
+    }
+  }));
+  supportInList.forEach(s => {
+    const recs = salByStore[s.fromStore]; const emps = empByStore[s.fromStore];
+    if(!recs || !emps) return;
+    const empData = emps[s.empName]; const salRec = recs.find(r => r.empName === s.empName);
+    if(!empData || !salRec) return;
+    s.role = empData.role || '';
+    if(empData.role === ROLE_PART) {
+      s.hrRate = parseFloat(salRec.wage || empData.wage || 0);
+    } else {
+      s.hrRate = (parseFloat(salRec.baseSalary||0) + parseFloat(salRec.fullAttendBonus||0)) / 30 / 8;
+    }
+    s.cost = Math.round(s.hrRate * s.hours);
+  });
+}
+
+function _renderSalaryBreakdown(empName) {
+  const pf = v => parseFloat(v||0);
+  const fmt = v => v ? `$${Math.round(v).toLocaleString()}` : '—';
+  const emp = empList.find(e => e.name === empName) || {};
+  const rec = getSalaryRecord(empName) || {};
+  const role = emp.role || rec.role || '';
+  const isPart = role === ROLE_PART;
+  const rph = isPart ? 0 : hourlyRate(rec);
+  const rows = [];
+
+  if(isPart) {
+    const wage = pf(rec.wage);
+    const { totalH } = calcEmpHours(empName);
+    const extraH = pf(rec.extraHours), holH = pf(rec.holidayHours);
+    const roleBonus = pf(rec.roleBonus), sick = Math.abs(pf(rec.personalSickLeave));
+    if(wage) rows.push(['時薪', `$${wage}/h`]);
+    rows.push([`本薪（${totalH}h × $${wage}）`, fmt(Math.round(wage * totalH))]);
+    if(extraH) rows.push([`其他工時（${extraH}h × $${wage}）`, fmt(Math.round(wage * extraH))]);
+    if(holH) rows.push([`國假加給（${holH}h × $${wage}）`, fmt(Math.round(wage * holH))]);
+    if(roleBonus) rows.push(['職務津貼', fmt(roleBonus)]);
+    if(sick) rows.push(['病假扣款', `<span class="cost-br-val deduct">-$${sick.toLocaleString()}</span>`]);
+  } else {
+    const isMgr = role === ROLE_MANAGER;
+    const base = pf(rec.baseSalary), attend = pf(rec.fullAttendBonus);
+    const mgmt = ['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+pf(rec[k]),0);
+    const laborAllow = pf(rec.laborAllowance), perf = pf(rec.performance);
+    const night = pf(rec.nightAllowance), roleBonus = pf(rec.roleBonus);
+    const otherBonus = pf(rec.otherBonus), annualEncash = pf(rec.annualLeaveEncash), compEncash = pf(rec.compLeaveEncash);
+    const hasCustomOt = rec.customOtEnabled === true;
+    const otRate = hasCustomOt ? pf(rec.customOtRate) : Math.ceil(rph);
+    const otMult = hasCustomOt ? (rec.customOtX134 !== false ? 1.34 : 1) : 1.34;
+    const wdOt = Math.ceil(otRate * otMult * pf(rec.otHours));
+    const restOt = pf(rec.restDayOtPay), holOt = pf(rec.holidayOtPay);
+    const supH = calcHourlySupportHours(empName), supRate = pf(rec.hourlySupportRate);
+    const supAmt = Math.round(supH * supRate);
+    const lateDeduct = Math.round(rph / 60 * pf(rec.lateMinutes));
+    const sick = Math.abs(pf(rec.personalSickLeave));
+
+    if(base) rows.push(['底薪', fmt(base)]);
+    if(attend) rows.push(['全勤獎金', fmt(attend)]);
+    if(mgmt) rows.push([isMgr ? '管理責任獎金' : '管理類獎金', fmt(mgmt)]);
+    if(roleBonus) rows.push(['職務津貼', fmt(roleBonus)]);
+    if(laborAllow) rows.push(['勞工保險補貼', fmt(laborAllow)]);
+    if(perf) rows.push(['表現獎金', fmt(perf)]);
+    if(night) rows.push(['夜班津貼', fmt(night)]);
+    if(otherBonus) rows.push(['其他獎金', fmt(otherBonus)]);
+    if(annualEncash) rows.push(['年假折現', fmt(annualEncash)]);
+    if(compEncash) rows.push(['補休折現', fmt(compEncash)]);
+    if(wdOt) rows.push([`平日加班費（${pf(rec.otHours)}h）`, fmt(wdOt)]);
+    if(restOt) rows.push(['休息日加班費', fmt(restOt)]);
+    if(holOt) rows.push(['國假加班費', fmt(holOt)]);
+    if(supAmt) rows.push([`時薪支援（${supH}h × $${supRate}）`, fmt(supAmt)]);
+    if(lateDeduct) rows.push(['遲到扣款', `<span class="cost-br-val deduct">-$${lateDeduct.toLocaleString()}</span>`]);
+    if(sick) rows.push(['病假扣款', `<span class="cost-br-val deduct">-$${sick.toLocaleString()}</span>`]);
+  }
+
+  return rows.map(([label, val]) =>
+    `<div class="cost-br-row"><span class="cost-br-label">${label}</span><span class="cost-br-val">${val}</span></div>`
+  ).join('');
+}
+
+async function openCostModal() {
+  document.getElementById('costModalSub').textContent = `${currentStore} · ${getMonthLabel(currentMonth)}`;
+  document.getElementById('costModalBody').innerHTML =
+    `<div style="text-align:center;padding:30px;color:var(--text-muted);"><div style="width:32px;height:32px;border:3px solid #e2e8f0;border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px;"></div>計算中...</div>`;
+  openModal('costModal');
+  const supportOut = getSupportOut();
+  const supportIn = getSupportIn();
+  await fetchSupportInRates(supportIn);
+  renderCostModal(supportOut, supportIn);
+}
+
+function renderCostModal(supportOut, supportIn) {
+  const pf = v => parseFloat(v||0);
+  const comma = v => Math.round(pf(v)).toLocaleString();
+
+  // 薪資合計
+  const salRows = empList.map(emp => {
+    const rec = getSalaryRecord(emp.name) || buildDefaultRecord(emp);
+    return { emp, gross: calcGross(rec) };
+  });
+  const totalSalary = salRows.reduce((s, r) => s + r.gross, 0);
+
+  // 被支援合計
+  const totalIn = supportIn.reduce((s, r) => s + (r.cost||0), 0);
+
+  // 支援別人合計
+  const totalOut = supportOut.reduce((s, r) => s + (r.cost||0), 0);
+
+  // 實際成本
+  const actual = totalSalary + totalIn - totalOut;
+
+  // 國定假日費用
+  const holRows = empList.map(emp => {
+    const rec = getSalaryRecord(emp.name) || {};
+    const isPart = emp.role === ROLE_PART;
+    const amt = isPart ? Math.round(pf(rec.wage)*pf(rec.holidayHours)) : pf(rec.holidayOtPay);
+    return { emp, amt };
+  }).filter(r => r.amt > 0);
+  const totalHol = holRows.reduce((s, r) => s + r.amt, 0);
+
+  const arrowEl = id => `<div style="color:var(--text-muted);font-size:16px;transition:transform 0.2s;" id="arrow-${id}">›</div>`;
+
+  let html = '';
+
+  // ── 薪資合計 ──
+  html += `<div class="cost-section"><div class="cost-header-row" onclick="toggleCostSection('sal')">
+    <div class="cost-header-title">💼 本月薪資合計</div>
+    <div class="cost-header-amount">$${comma(totalSalary)}</div>${arrowEl('sal')}</div>
+    <div id="detail-sal" style="display:none;" class="cost-detail-area">`;
+  salRows.forEach(({ emp, gross }) => {
+    html += `<div class="cost-emp-row" onclick="toggleCostSection('emp-${emp.name}')">
+      <div class="cost-emp-name">${emp.name}<span class="cost-emp-role-tag">${emp.role||''}</span></div>
+      <div class="cost-emp-amount">$${comma(gross)}</div>${arrowEl('emp-' + emp.name)}</div>
+      <div id="detail-emp-${emp.name}" style="display:none;" class="cost-emp-breakdown">
+        ${_renderSalaryBreakdown(emp.name)}
+        <div class="cost-br-row" style="border-top:1.5px solid var(--border);margin-top:4px;padding-top:8px;">
+          <span class="cost-br-label" style="color:var(--text);font-weight:800;">應發合計</span>
+          <span style="font-weight:900;color:var(--primary);">$${comma(gross)}</span>
+        </div>
+      </div>`;
+  });
+  html += `</div></div>`;
+
+  // ── 被支援費用 ──
+  html += `<div class="cost-section"><div class="cost-header-row" onclick="toggleCostSection('sin')">
+    <div class="cost-header-title">🔵 被支援費用<span style="font-size:10px;font-weight:600;color:var(--text-muted);margin-left:6px;">外店員工來本店</span></div>
+    <div class="cost-header-amount pos">+$${comma(totalIn)}</div>${arrowEl('sin')}</div>
+    <div id="detail-sin" style="display:none;" class="cost-detail-area">`;
+  if(!supportIn.length) {
+    html += `<div style="font-size:12px;color:var(--text-muted);padding:6px 0;">本月無外店員工來店支援記錄</div>`;
+  } else {
+    supportIn.forEach(s => {
+      const badge = `<span class="cost-support-badge" style="background:${_costStoreColor(s.fromStore)};">${s.fromStore}</span>`;
+      const rateStr = s.hrRate != null ? `$${Math.round(s.hrRate)}/h × ${s.hours}h = <strong>$${comma(s.cost)}</strong>` : `${s.hours}h（時薪待確認）`;
+      html += `<div class="cost-support-row">${badge}<strong>${s.empName}</strong><span style="color:var(--text-muted);font-size:10px;margin-left:4px;">${s.role}</span>　${s.date}　${rateStr}</div>`;
+    });
+    if(supportIn.some(s => s.cost == null))
+      html += `<div style="font-size:10px;color:var(--text-muted);margin-top:4px;">⚠️ 部分時薪無法取得（外店薪資讀取權限不足）</div>`;
+  }
+  html += `</div></div>`;
+
+  // ── 支援別人 ──
+  html += `<div class="cost-section"><div class="cost-header-row" onclick="toggleCostSection('sout')">
+    <div class="cost-header-title">🟢 支援別人（成本轉出）<span style="font-size:10px;font-weight:600;color:var(--text-muted);margin-left:6px;">本店員工去外店</span></div>
+    <div class="cost-header-amount neg">-$${comma(totalOut)}</div>${arrowEl('sout')}</div>
+    <div id="detail-sout" style="display:none;" class="cost-detail-area">`;
+  if(!supportOut.length) {
+    html += `<div style="font-size:12px;color:var(--text-muted);padding:6px 0;">本月無本店員工外出支援記錄</div>`;
+  } else {
+    supportOut.forEach(s => {
+      const badge = `<span class="cost-support-badge" style="background:${_costStoreColor(s.targetStore)};">${s.targetStore}</span>`;
+      html += `<div class="cost-support-row"><strong>${s.empName}</strong><span style="color:var(--text-muted);font-size:10px;margin-left:4px;">${s.role}</span> → ${badge}　${s.date}　$${Math.round(s.hrRate)}/h × ${s.hours}h = <strong>$${comma(s.cost)}</strong></div>`;
+    });
+  }
+  html += `</div></div>`;
+
+  // ── 實際成本 ──
+  html += `<div class="cost-total-box">
+    <div class="cost-total-label">實際人事成本</div>
+    <div class="cost-total-amount">$${comma(actual)}</div>
+  </div>`;
+
+  // ── 國定假日費用 ──
+  html += `<div class="cost-section"><div class="cost-header-row" onclick="toggleCostSection('hol')">
+    <div class="cost-header-title">🏖️ 國定假日費用<span style="font-size:10px;font-weight:600;color:var(--text-muted);margin-left:6px;">已含於薪資合計</span></div>
+    <div class="cost-header-amount">$${comma(totalHol)}</div>${arrowEl('hol')}</div>
+    <div id="detail-hol" style="display:none;" class="cost-detail-area">`;
+  if(!holRows.length) {
+    html += `<div style="font-size:12px;color:var(--text-muted);padding:6px 0;">本月無國定假日費用</div>`;
+  } else {
+    holRows.forEach(r => {
+      const rec = getSalaryRecord(r.emp.name)||{};
+      const isPart = r.emp.role === ROLE_PART;
+      const note = isPart ? `${pf(rec.holidayHours)}h × $${pf(rec.wage)}` : '假日加班費';
+      html += `<div class="cost-holiday-row">
+        <span style="flex:1;font-weight:700;">${r.emp.name}<span class="cost-emp-role-tag">${r.emp.role||''}</span></span>
+        <span style="font-size:11px;color:var(--text-muted);margin-right:12px;">${note}</span>
+        <span style="font-weight:800;">$${comma(r.amt)}</span>
+      </div>`;
+    });
+  }
+  html += `</div></div>`;
+
+  document.getElementById('costModalBody').innerHTML = html;
+}
+
+function toggleCostSection(id) {
+  const detail = document.getElementById('detail-' + id);
+  const arrow = document.getElementById('arrow-' + id);
+  if(!detail) return;
+  const open = detail.style.display === 'none';
+  detail.style.display = open ? 'block' : 'none';
+  if(arrow) { arrow.textContent = open ? '⌄' : '›'; arrow.style.transform = open ? 'rotate(90deg)' : ''; }
 }
 </script>
 </body>

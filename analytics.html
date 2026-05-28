@@ -172,6 +172,7 @@ select.range-sel:focus{border-color:var(--primary);}
       <div class="tab-item active" id="tab-cost" onclick="switchTab('cost')">💰 人事成本</div>
       <div class="tab-item" id="tab-ot" onclick="switchTab('ot')">⚡ 加班/國假</div>
       <div class="tab-item" id="tab-anomaly" onclick="switchTab('anomaly')">⚠️ 薪資異常</div>
+      <div class="tab-item" id="tab-hourly" onclick="switchTab('hourly')">⏱️ 員工時薪</div>
     </div>
 
     <!-- Tab: 人事成本 -->
@@ -185,7 +186,7 @@ select.range-sel:focus{border-color:var(--primary);}
 
       <!-- 各門市明細表 -->
       <div class="chart-title">🏪 各門市人事成本明細（含支援調整）</div>
-      <div class="support-note">支援調整：正職以（底薪＋全勤＋職務津貼）÷30 × 支援天數；工讀以時薪 × 支援時數</div>
+      <div class="support-note">支援調整：正職以（底薪＋全勤獎金）÷30÷8 × 支援時數；工讀以時薪 × 支援時數</div>
       <div style="overflow-x:auto;margin-top:10px;">
         <table class="data-table" id="tableCostDetail">
           <thead>
@@ -233,6 +234,47 @@ select.range-sel:focus{border-color:var(--primary);}
       </div>
       <div class="export-row">
         <button class="export-btn-sm secondary" onclick="exportOtTable()">⬇️ 匯出加班/國假表</button>
+      </div>
+    </div>
+
+    <!-- Tab: 員工時薪 -->
+    <div class="tab-content" id="panel-hourly">
+      <div class="chart-title">👤 員工時薪一覽（正職換算）</div>
+      <div class="support-note">時薪 = （底薪＋全勤獎金）÷ 30 ÷ 8，僅顯示正職／店長／加盟主</div>
+      <div style="overflow-x:auto;margin-top:10px;">
+        <table class="data-table" id="tableHourlyRate">
+          <thead>
+            <tr>
+              <th>門市</th><th>姓名</th><th>職位</th>
+              <th class="num">底薪</th>
+              <th class="num">全勤獎金</th>
+              <th class="num">換算時薪</th>
+              <th class="num">本期支援時數</th>
+              <th class="num">支援成本</th>
+            </tr>
+          </thead>
+          <tbody id="tbodyHourlyRate"></tbody>
+        </table>
+      </div>
+      <div class="divider"></div>
+      <div class="chart-title">🔄 跨店支援成本明細</div>
+      <div class="support-note">支援成本從「來自門市」扣除，計入「前往門市」</div>
+      <div style="overflow-x:auto;margin-top:10px;">
+        <table class="data-table" id="tableSupportDetail">
+          <thead>
+            <tr>
+              <th>月份</th><th>支援者</th>
+              <th>來自門市</th><th>前往門市</th>
+              <th class="num">支援時數</th>
+              <th class="num">時薪</th>
+              <th class="num">費用</th>
+            </tr>
+          </thead>
+          <tbody id="tbodySupportDetail"></tbody>
+        </table>
+      </div>
+      <div class="export-row">
+        <button class="export-btn-sm secondary" onclick="exportHourlyTable()">⬇️ 匯出時薪表</button>
       </div>
     </div>
 
@@ -429,8 +471,6 @@ async function runAnalysis(){
               if(dIdx<0) return;
               const cellDate = new Date(wMon); cellDate.setDate(wMon.getDate()+dIdx);
               if(cellDate.getFullYear()!==y || cellDate.getMonth()+1!==m) return;
-              if(!r.isHourly) return; // 只有時薪另計才調整
-
               if(!supportMap[ym][empName]) supportMap[ym][empName]=[];
               supportMap[ym][empName].push({
                 fromStore: store,
@@ -509,9 +549,9 @@ function calcSupportAdj(empName, ym, salaryMap, supportMap, allEmps){
       const wage = n(rec?.wage||emp?.wage||0);
       amt = Math.round(wage * s.hours);
     } else {
-      const base = n(rec?.baseSalary||0)+n(rec?.fullAttendBonus||0)+n(rec?.roleBonus||0);
-      const dailyRate = base/30;
-      amt = Math.round(dailyRate); // 1天
+      const base = n(rec?.baseSalary||0)+n(rec?.fullAttendBonus||0);
+      const hrRate = base / 30 / 8;
+      amt = Math.round(hrRate * s.hours);
     }
     adj += amt;
     details.push({ ...s, amt });
@@ -522,7 +562,7 @@ function calcSupportAdj(empName, ym, salaryMap, supportMap, allEmps){
 
 // ===== Tab 切換 =====
 function switchTab(tab){
-  ['cost','ot','anomaly'].forEach(t=>{
+  ['cost','ot','anomaly','hourly'].forEach(t=>{
     document.getElementById('tab-'+t).classList.toggle('active', t===tab);
     document.getElementById('panel-'+t).classList.toggle('active', t===tab);
   });
@@ -536,6 +576,7 @@ function renderAll(){
   renderCostTab();
   renderOtTab();
   renderAnomalyTab();
+  renderHourlyTab();
 }
 
 // ===== KPI 卡片 =====
@@ -643,7 +684,7 @@ function renderCostTab(){
   stores.forEach(store=>{
     ymList.forEach(ym=>{
       // 本月本店員工的各項目加總
-      let base=0,bonus=0,ot=0,hol=0,adjAmt=0,pension=0;
+      let base=0,bonus=0,ot=0,hol=0,pension=0;
       allEmps.filter(e=>e.store===store).forEach(emp=>{
         const rec = salaryMap[ym]?.[emp.name];
         if(!rec) return;
@@ -657,13 +698,13 @@ function renderCostTab(){
           pension += calcPension(rec,emp.role);
         }
         ot += calcOtPay(rec);
-        adjAmt += (adjMatrix[store]?.[ym]||0); // 已含所有支援調整
       });
-      const total = base+bonus+ot+hol+adjAmt+pension;
-      rows.push({ store, ym, base, bonus, ot, hol, adj:adjMatrix[store]?.[ym]||0, pension, total });
+      const storeAdj = adjMatrix[store]?.[ym]||0;
+      const total = base+bonus+ot+hol+storeAdj+pension;
+      rows.push({ store, ym, base, bonus, ot, hol, adj:storeAdj, pension, total });
       storeTotals[store].base+=base; storeTotals[store].bonus+=bonus;
       storeTotals[store].ot+=ot; storeTotals[store].hol+=hol;
-      storeTotals[store].adj+=(adjMatrix[store]?.[ym]||0); storeTotals[store].pension+=pension;
+      storeTotals[store].adj+=storeAdj; storeTotals[store].pension+=pension;
       storeTotals[store].total+=total;
     });
   });
@@ -859,6 +900,95 @@ function renderAnomalyTab(){
   el.innerHTML = html;
 }
 
+// ===== 員工時薪 Tab =====
+function renderHourlyTab(){
+  if(!analysisData) return;
+  const { ymList, stores, allEmps, salaryMap, supportMap } = analysisData;
+  const storeColors = {};
+  stores.forEach((s,i)=>storeColors[s]=STORE_COLORS[i%STORE_COLORS.length]);
+
+  // 每人取最後一個有記錄的月份算時薪
+  const hourlyRows = [];
+  allEmps.filter(e=>e.role!=='工讀').forEach(emp=>{
+    let rec = null;
+    for(let i=ymList.length-1;i>=0;i--){
+      rec = salaryMap[ymList[i]]?.[emp.name];
+      if(rec) break;
+    }
+    if(!rec) return;
+
+    const base = n(rec.baseSalary);
+    const fullAttend = n(rec.fullAttendBonus);
+    const hrRate = (base+fullAttend)/30/8;
+
+    let supportH=0, supportCost=0;
+    ymList.forEach(ym=>{
+      (supportMap[ym]?.[emp.name]||[]).forEach(s=>{
+        const mRec = salaryMap[ym]?.[emp.name];
+        const mBase = mRec ? n(mRec.baseSalary)+n(mRec.fullAttendBonus) : base+fullAttend;
+        supportH = Math.round((supportH+s.hours)*10)/10;
+        supportCost += Math.round(mBase/30/8*s.hours);
+      });
+    });
+
+    hourlyRows.push({ emp, base, fullAttend, hrRate, supportH, supportCost });
+  });
+
+  const tbody1 = document.getElementById('tbodyHourlyRate');
+  tbody1.innerHTML = !hourlyRows.length
+    ? '<tr><td colspan="8" class="empty-state">無正職員工薪資資料</td></tr>'
+    : hourlyRows.map(r=>{
+        const color = storeColors[r.emp.store];
+        return `<tr>
+          <td><span class="store-badge" style="background:${color};">${r.emp.store}</span></td>
+          <td><strong>${r.emp.name}</strong></td>
+          <td>${r.emp.role||'--'}</td>
+          <td class="num">$${comma(r.base)}</td>
+          <td class="num">$${comma(r.fullAttend)}</td>
+          <td class="num"><strong>$${Math.round(r.hrRate).toLocaleString()}/h</strong></td>
+          <td class="num">${r.supportH>0?r.supportH+'h':'—'}</td>
+          <td class="num">${r.supportCost>0?'$'+comma(r.supportCost):'—'}</td>
+        </tr>`;
+      }).join('');
+
+  // 跨店支援明細（逐筆展開）
+  const supportRows = [];
+  ymList.forEach(ym=>{
+    Object.entries(supportMap[ym]||{}).forEach(([empName, supports])=>{
+      const emp = allEmps.find(e=>e.name===empName);
+      const rec = salaryMap[ym]?.[empName];
+      supports.forEach(s=>{
+        const isPart = (emp?.role||'')==='工讀';
+        let hrRate;
+        if(isPart){
+          hrRate = n(rec?.wage||emp?.wage||0);
+        } else {
+          hrRate = (n(rec?.baseSalary||0)+n(rec?.fullAttendBonus||0))/30/8;
+        }
+        supportRows.push({ ym, empName, role:emp?.role||'--', fromStore:s.fromStore, toStore:s.toStore, hours:s.hours, hrRate, cost:Math.round(hrRate*s.hours) });
+      });
+    });
+  });
+  supportRows.sort((a,b)=>a.ym.localeCompare(b.ym)||(a.fromStore.localeCompare(b.fromStore)));
+
+  const tbody2 = document.getElementById('tbodySupportDetail');
+  tbody2.innerHTML = !supportRows.length
+    ? '<tr><td colspan="7" class="empty-state">本區間無跨店支援記錄</td></tr>'
+    : supportRows.map(r=>{
+        const fc = storeColors[r.fromStore]||'#888';
+        const tc = storeColors[r.toStore]||'#888';
+        return `<tr>
+          <td>${r.ym.replace(/^(\d+)-0?(\d+)$/,'$1年$2月')}</td>
+          <td><strong>${r.empName}</strong><br><span style="font-size:10px;color:var(--text-muted);">${r.role}</span></td>
+          <td><span class="store-badge" style="background:${fc};">${r.fromStore}</span></td>
+          <td><span class="store-badge" style="background:${tc};">${r.toStore}</span></td>
+          <td class="num">${r.hours}h</td>
+          <td class="num">$${Math.round(r.hrRate).toLocaleString()}/h</td>
+          <td class="num"><strong>$${comma(r.cost)}</strong></td>
+        </tr>`;
+      }).join('');
+}
+
 // ===== 匯出 =====
 function exportCostTable(){
   if(!analysisData){ showToast('⚠️ 請先執行分析'); return; }
@@ -876,6 +1006,15 @@ function exportOtTable(){
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, '加班國假');
   XLSX.writeFile(wb, `加班國假_${document.getElementById('selStartYear').value}${document.getElementById('selStartMonth').value}-${document.getElementById('selEndYear').value}${document.getElementById('selEndMonth').value}.xlsx`);
+}
+
+function exportHourlyTable(){
+  if(!analysisData){ showToast('⚠️ 請先執行分析'); return; }
+  const table = document.getElementById('tableHourlyRate');
+  const ws = XLSX.utils.table_to_sheet(table);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '員工時薪');
+  XLSX.writeFile(wb, `員工時薪_${document.getElementById('selStartYear').value}${document.getElementById('selStartMonth').value}-${document.getElementById('selEndYear').value}${document.getElementById('selEndMonth').value}.xlsx`);
 }
 </script>
 </body>
