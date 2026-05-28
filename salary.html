@@ -3734,13 +3734,19 @@ async function fetchSupportInRates(supportInList) {
   const salByStore = {}, empByStore = {};
   await Promise.all(uniqueStores.map(async store => {
     try {
-      const [salSnap, empSnap] = await Promise.all([
+      const [salSnap, empSnap, accSnap] = await Promise.all([
         window.db.collection('stores').doc(store).collection('salary').doc(currentMonth).get(),
-        window.db.collection('stores').doc(store).collection('employees').get()
+        window.db.collection('stores').doc(store).collection('employees').get(),
+        window.db.collection('account').where('store','==',store).get().catch(()=>null)
       ]);
       salByStore[store] = salSnap.exists ? (salSnap.data().records||[]) : [];
       empByStore[store] = {};
       empSnap.forEach(d => { empByStore[store][d.id] = d.data(); });
+      // 補充外店員工的 displayName
+      if(accSnap) accSnap.forEach(d => {
+        const acc = d.data();
+        if(acc.empName && acc.displayName) displayNameMap[acc.empName] = acc.displayName;
+      });
     } catch(e) {
       salByStore[store] = null; empByStore[store] = null;
     }
