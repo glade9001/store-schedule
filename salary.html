@@ -2936,13 +2936,31 @@ function renderSalaryForm(emp, rec, idx, readonly) {
     `<div id="modal-tab-2" style="display:none;">${col2}</div>`,
   ].join('');
 
-  const confirmBtn = !isReadonly() ? `
-    <div style="padding:12px 0 0;border-top:1px solid var(--border);margin-top:12px;display:flex;gap:8px;">
-      <button onclick="triggerAutoSave(); closeEmpModal();"
-        style="width:100%;padding:13px;background:var(--primary);color:white;border:none;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer;">
-        💾 儲存並關閉
-      </button>
-    </div>` : '';
+  let confirmBtn = '';
+  if(!isReadonly()) {
+    if(currentModalTab === 0 || currentModalTab === 1) {
+      const nextLabel = currentModalTab === 0 ? '薪資項目' : '代扣項目';
+      confirmBtn = `
+        <div style="padding:12px 0 0;border-top:1px solid var(--border);margin-top:12px;display:flex;gap:8px;">
+          <button onclick="triggerAutoSave(); showToast('✅ 已儲存');"
+            style="flex:1;padding:13px;background:#f1f5f9;color:var(--primary);border:1.5px solid var(--primary);border-radius:12px;font-size:14px;font-weight:800;cursor:pointer;">
+            💾 儲存
+          </button>
+          <button onclick="triggerAutoSave(); switchModalTab(${currentModalTab + 1});"
+            style="flex:2;padding:13px;background:var(--primary);color:white;border:none;border-radius:12px;font-size:14px;font-weight:800;cursor:pointer;">
+            下一頁：${nextLabel} →
+          </button>
+        </div>`;
+    } else {
+      confirmBtn = `
+        <div style="padding:12px 0 0;border-top:1px solid var(--border);margin-top:12px;display:flex;gap:8px;">
+          <button onclick="triggerAutoSave(); closeEmpModal();"
+            style="width:100%;padding:13px;background:var(--primary);color:white;border:none;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer;">
+            💾 儲存並關閉
+          </button>
+        </div>`;
+    }
+  }
 
   const _calHtml = renderCalendar(emp.name, emp.role);
   const _tabContentsNew = [
