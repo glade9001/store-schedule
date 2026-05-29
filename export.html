@@ -59,6 +59,15 @@ html,body{min-height:100%;background:var(--bg);font-family:"Noto Sans TC","PingF
 .toast{position:fixed;bottom:40px;left:50%;transform:translateX(-50%);background:#1e293b;color:white;padding:10px 20px;border-radius:20px;font-size:13px;font-weight:700;z-index:9999;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap;}
 .toast.show{opacity:1;}
 
+/* H/I. PDF 模式 */
+.pdf-mode-row{display:flex;gap:8px;margin-top:10px;}
+.count-badge{font-size:10px;color:#94a3b8;font-weight:600;}
+.col-toggle-wrap{background:#f8fafc;border-radius:10px;padding:10px 14px;margin:8px 16px 0;}
+.col-toggle-title{font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:8px;}
+.col-toggle-grid{display:flex;flex-wrap:wrap;gap:8px;}
+.col-toggle-item{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;cursor:pointer;}
+.col-toggle-item input{width:15px;height:15px;accent-color:var(--primary);}
+
 /* ===== PDF 列印樣式 ===== */
 #pdfContent { font-family:"Noto Sans TC","Microsoft JhengHei","PingFang TC",Arial,sans-serif; font-size:11px; color:#1e293b; }
 .pdf-page { background:white; width:100%; max-width:1100px; margin:0 auto 24px; border-radius:8px; overflow:hidden; box-shadow:0 2px 12px rgba(0,0,0,0.12); }
@@ -116,11 +125,11 @@ html,body{min-height:100%;background:var(--bg);font-family:"Noto Sans TC","PingF
     <div class="card-title">📅 選擇匯出月份</div>
     <div class="form-row">
       <span class="form-label">年份</span>
-      <select class="form-select" id="selYear"></select>
+      <select class="form-select" id="selYear" onchange="updateCounts()"></select>
     </div>
     <div class="form-row">
       <span class="form-label">月份</span>
-      <select class="form-select" id="selMonth">
+      <select class="form-select" id="selMonth" onchange="updateCounts()">
         <option value="01">1 月</option><option value="02">2 月</option>
         <option value="03">3 月</option><option value="04">4 月</option>
         <option value="05">5 月</option><option value="06">6 月</option>
@@ -139,28 +148,28 @@ html,body{min-height:100%;background:var(--bg);font-family:"Noto Sans TC","PingF
         <input type="checkbox" id="chk-summary" checked onchange="toggleCheck('summary')">
         <div class="check-item-text">
           <div class="check-item-title">① 人事費用摘要</div>
-          <div class="check-item-desc">各門市薪資合計・實際人事成本・特補休警示・異常提示</div>
+          <div class="check-item-desc">各門市薪資合計・實際人事成本・特補休警示・異常提示<span class="count-badge" id="count-badge-summary"></span></div>
         </div>
       </label>
       <label class="check-item checked" id="ci-emp">
         <input type="checkbox" id="chk-emp" checked onchange="toggleCheck('emp')">
         <div class="check-item-text">
           <div class="check-item-title">② 員工資料</div>
-          <div class="check-item-desc">在職年資・底薪/時薪說明・保費・特補休餘額・特休發放狀態・到期警示</div>
+          <div class="check-item-desc">在職年資・底薪/時薪說明・保費・特補休餘額・特休發放狀態・到期警示<span class="count-badge" id="count-badge-emp"></span></div>
         </div>
       </label>
       <label class="check-item checked" id="ci-leave">
         <input type="checkbox" id="chk-leave" checked onchange="toggleCheck('leave')">
         <div class="check-item-text">
           <div class="check-item-title">③ 特補休紀錄</div>
-          <div class="check-item-desc">特休＋補休流水明細（含操作人）・各員工統計・年度折現金額・到期日</div>
+          <div class="check-item-desc">特休＋補休流水明細（含操作人）・各員工統計・年度折現金額・到期日<span class="count-badge" id="count-badge-leave"></span></div>
         </div>
       </label>
       <label class="check-item checked" id="ci-salary">
         <input type="checkbox" id="chk-salary" checked onchange="toggleCheck('salary')">
         <div class="check-item-text">
           <div class="check-item-title">④ 薪資明細</div>
-          <div class="check-item-desc">完整薪資項目・門市小計・全店合計・公司勞退提撥(6%)・實際人事成本</div>
+          <div class="check-item-desc">完整薪資項目・門市小計・全店合計・公司勞退提撥(6%)・實際人事成本<span class="count-badge" id="count-badge-salary"></span></div>
         </div>
       </label>
     </div>
@@ -173,6 +182,15 @@ html,body{min-height:100%;background:var(--bg);font-family:"Noto Sans TC","PingF
       <button class="format-btn" id="fmt-csv" onclick="setFormat('csv')">📄 CSV (.csv)</button>
     </div>
     <div class="hint" id="fmt-note" style="margin-top:8px;">Excel 格式：四個工作表整合在同一個檔案，含凍結欄列</div>
+    <!-- H. PDF 模式 -->
+    <div style="margin-top:12px;">
+      <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:6px;">PDF 薪資明細模式</div>
+      <div class="pdf-mode-row">
+        <button class="format-btn active" id="pdf-simple" onclick="setPdfMode('simple')">📄 精簡版</button>
+        <button class="format-btn" id="pdf-full" onclick="setPdfMode('full')">📋 完整版</button>
+      </div>
+      <div class="hint" id="pdf-mode-hint" style="margin-top:6px;">精簡版：僅顯示姓名・應發・實發・公司勞退・人事成本</div>
+    </div>
   </div>
 
   <div style="display:flex;gap:8px;margin-bottom:0;">
@@ -186,10 +204,22 @@ html,body{min-height:100%;background:var(--bg);font-family:"Noto Sans TC","PingF
 
   <!-- PDF 預覽 Modal -->
   <div id="pdfModal" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,0.7);flex-direction:column;">
-    <div style="background:white;display:flex;align-items:center;gap:10px;padding:12px 16px;box-shadow:0 2px 8px rgba(0,0,0,0.2);flex-shrink:0;">
-      <div style="font-size:15px;font-weight:900;flex:1;">🖨️ PDF 預覽</div>
-      <button onclick="window.print()" style="background:#9334e6;color:white;border:none;border-radius:10px;padding:8px 18px;font-size:14px;font-weight:800;cursor:pointer;">列印 / 存 PDF</button>
-      <button onclick="closePdfModal()" style="background:#f1f3f4;border:none;border-radius:10px;padding:8px 14px;font-size:14px;font-weight:700;cursor:pointer;">✕ 關閉</button>
+    <div style="background:white;flex-shrink:0;box-shadow:0 2px 8px rgba(0,0,0,0.2);">
+      <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;">
+        <div style="font-size:15px;font-weight:900;flex:1;">🖨️ PDF 預覽</div>
+        <button onclick="window.print()" style="background:#9334e6;color:white;border:none;border-radius:10px;padding:8px 18px;font-size:14px;font-weight:800;cursor:pointer;">列印 / 存 PDF</button>
+        <button onclick="closePdfModal()" style="background:#f1f3f4;border:none;border-radius:10px;padding:8px 14px;font-size:14px;font-weight:700;cursor:pointer;">✕ 關閉</button>
+      </div>
+      <!-- I. 欄位勾選（完整版才顯示） -->
+      <div class="col-toggle-wrap" id="colToggleWrap" style="display:none;">
+        <div class="col-toggle-title">顯示欄位（可選）</div>
+        <div class="col-toggle-grid">
+          <label class="col-toggle-item"><input type="checkbox" id="col-laborAllow" checked onchange="rerenderPdfSalaryPage()"> 勞務津貼</label>
+          <label class="col-toggle-item"><input type="checkbox" id="col-perf" checked onchange="rerenderPdfSalaryPage()"> 績效獎金</label>
+          <label class="col-toggle-item"><input type="checkbox" id="col-other" checked onchange="rerenderPdfSalaryPage()"> 其他津貼</label>
+          <label class="col-toggle-item"><input type="checkbox" id="col-holiday" checked onchange="rerenderPdfSalaryPage()"> 假日結算</label>
+        </div>
+      </div>
     </div>
     <div id="pdfPreviewBody" style="flex:1;overflow-y:auto;padding:20px;background:#e5e7eb;"></div>
   </div>
@@ -216,6 +246,8 @@ html,body{min-height:100%;background:var(--bg);font-family:"Noto Sans TC","PingF
 let currentUser = null;
 let appConfig   = { stores: [] };
 let exportFormat = 'xlsx';
+let pdfMode = 'simple'; // H: 'simple' | 'full'
+let pdfPreviewData = null; // I: 儲存以重繪薪資頁
 
 const showToast = msg => {
   const t = document.getElementById('toast');
@@ -240,6 +272,75 @@ const toggleCheck = key => {
   const chk = document.getElementById('chk-' + key);
   document.getElementById('ci-' + key).classList.toggle('checked', chk.checked);
 };
+// H. PDF 模式切換
+const setPdfMode = mode => {
+  pdfMode = mode;
+  document.getElementById('pdf-simple').classList.toggle('active', mode==='simple');
+  document.getElementById('pdf-full').classList.toggle('active', mode==='full');
+  document.getElementById('pdf-mode-hint').textContent = mode==='simple'
+    ? '精簡版：僅顯示姓名・應發・實發・公司勞退・人事成本'
+    : '完整版：完整 19 欄薪資明細（可選擇顯示欄位）';
+};
+
+// I. 欄位勾選 → CSS 注入控制顯示（不重建 HTML）
+function rerenderPdfSalaryPage() {
+  const styleEl = document.getElementById('pdf-col-style');
+  if(!styleEl) return;
+  const rules = [];
+  if(!document.getElementById('col-laborAllow').checked) rules.push('.opt-col-la{display:none;}');
+  if(!document.getElementById('col-perf').checked)       rules.push('.opt-col-pf{display:none;}');
+  if(!document.getElementById('col-other').checked)      rules.push('.opt-col-ot{display:none;}');
+  if(!document.getElementById('col-holiday').checked)    rules.push('.opt-col-ho{display:none;}');
+  styleEl.textContent = rules.join('');
+}
+
+// G. 資料筆數查詢
+async function updateCounts() {
+  const year  = document.getElementById('selYear').value;
+  const month = document.getElementById('selMonth').value;
+  if(!year||!month) return;
+  const ym = `${year}-${month}`;
+  const stores = appConfig.stores || [];
+  if(!stores.length) return;
+  const [_ey,_em] = ym.split('-').map(Number);
+  const endDay = new Date(_ey,_em,0).getDate();
+  const exportMonthEnd = `${_ey}-${String(_em).padStart(2,'0')}-${endDay}`;
+
+  // 員工人數
+  try {
+    let cnt=0;
+    for(const store of stores){
+      const snap=await window.db.collection('stores').doc(store).collection('employees').get();
+      snap.forEach(d=>{
+        const data=d.data();
+        const ed=data.retireDate||data.transferDate;
+        if(['離職','調走'].includes(data.status)&&(!ed||ed<=exportMonthEnd)) return;
+        cnt++;
+      });
+    }
+    const badge = cnt>0?` (${cnt} 人)`:'';
+    ['summary','emp'].forEach(k=>{ const el=document.getElementById(`count-badge-${k}`); if(el) el.textContent=badge; });
+  } catch(e){}
+
+  // 薪資記錄筆數
+  try {
+    let salCnt=0;
+    for(const s of stores){
+      const snap=await window.db.collection('stores').doc(s).collection('salary').doc(ym).get();
+      if(snap.exists) salCnt+=(snap.data().records||[]).length;
+    }
+    const salEl = document.getElementById('count-badge-salary');
+    if(salEl) salEl.textContent = salCnt>0?` (${salCnt} 筆)`:'  (無資料)';
+    if(salCnt===0){ document.getElementById('chk-salary').checked=false; toggleCheck('salary'); }
+    else if(!document.getElementById('chk-salary').checked){ document.getElementById('chk-salary').checked=true; toggleCheck('salary'); }
+  } catch(e){}
+
+  // 特補休筆數（估算：等於在職人數）
+  const leaveEl=document.getElementById('count-badge-leave');
+  if(leaveEl && document.getElementById('count-badge-emp').textContent)
+    leaveEl.textContent = document.getElementById('count-badge-emp').textContent;
+}
+
 const setFormat = fmt => {
   exportFormat = fmt;
   document.getElementById('fmt-xlsx').classList.toggle('active', fmt === 'xlsx');
@@ -382,7 +483,16 @@ window.onload = async () => {
   sel.value=now.getFullYear();
   document.getElementById('selMonth').value=String(now.getMonth()+1).padStart(2,'0');
   hideLoading();
+  // G. 初始載入筆數
+  updateCounts();
 };
+
+// J. 右滑返回
+(function(){
+  let sx=0;
+  document.addEventListener('touchstart', e=>{ sx=e.touches[0].clientX; }, {passive:true});
+  document.addEventListener('touchend',   e=>{ if(e.changedTouches[0].clientX-sx>60) window.location.href='home.html'; }, {passive:true});
+})();
 
 // ═══ 主匯出 ═══
 async function startExport() {
@@ -1037,8 +1147,17 @@ async function startPdfPreview() {
     hideLoading();
 
     // ── 產生 PDF HTML ──
-    const html = buildPdfHtml(allEmps, salaryRecMap, leaveStatMap, compStatMap, batchMap, leaveLogAll, stores, year, month, ym);
+    pdfPreviewData = { allEmps, salaryRecMap, leaveStatMap, compStatMap, batchMap, leaveLogAll, stores, year, month, ym };
+    const visCols = {
+      laborAllow: document.getElementById('col-laborAllow').checked,
+      perf:       document.getElementById('col-perf').checked,
+      other:      document.getElementById('col-other').checked,
+      holiday:    document.getElementById('col-holiday').checked,
+    };
+    const html = buildPdfHtml(allEmps, salaryRecMap, leaveStatMap, compStatMap, batchMap, leaveLogAll, stores, year, month, ym, pdfMode, visCols);
     document.getElementById('pdfPreviewBody').innerHTML = `<div id="pdfContent">${html}</div>`;
+    // I. 顯示欄位選擇器（完整版才顯示）
+    document.getElementById('colToggleWrap').style.display = pdfMode==='full' ? 'block' : 'none';
     const modal = document.getElementById('pdfModal');
     modal.style.display = 'flex';
 
@@ -1050,7 +1169,7 @@ async function startPdfPreview() {
   document.getElementById('pdfBtn').disabled = false;
 }
 
-function buildPdfHtml(allEmps, salaryRecMap, leaveStatMap, compStatMap, batchMap, leaveLogAll, stores, year, month, ym) {
+function buildPdfHtml(allEmps, salaryRecMap, leaveStatMap, compStatMap, batchMap, leaveLogAll, stores, year, month, ym, mode='simple', visCols={}) {
   const [y, m] = ym.split('-').map(Number);
   const rocY   = y - 1911;
   const now    = new Date().toLocaleString('zh-TW');
@@ -1293,6 +1412,76 @@ function buildPdfHtml(allEmps, salaryRecMap, leaveStatMap, compStatMap, batchMap
   </div>`;
 
   // ════ Page 4：薪資明細 ════
+  html += buildSalaryPageHtml(allEmps, salaryRecMap, stores, ym, year, month, mode, visCols);
+  return html;
+}
+
+// 薪資頁 HTML（支援精簡/完整 + 欄位勾選）
+function buildSalaryPageHtml(allEmps, salaryRecMap, stores, ym, year, month, mode, visCols={}) {
+  const [y,m] = ym.split('-').map(Number);
+  const rocY = y-1911;
+  const title = `莉學商行 民國${rocY}年${m}月 薪資清冊`;
+  let html = '';
+
+  if(mode === 'simple') {
+    // 精簡：5 欄
+    let sRows='';
+    stores.forEach(store=>{
+      const emps=allEmps.filter(e=>e.store===store);
+      if(!emps.length) return;
+      sRows+=`<tr class="section-header"><td colspan="5">── ${store} ──</td></tr>`;
+      let sGross=0,sNet=0,sPension=0;
+      emps.forEach((emp,i)=>{
+        const rec=salaryRecMap[emp.name];
+        if(!rec){sRows+=`<tr><td>${emp.name}</td><td colspan="4" style="color:#94a3b8;">無薪資記錄</td></tr>`;return;}
+        const gross=calcGross(rec,emp.role),net=calcNet(rec,emp.role),comp=calcCompPension(rec,emp.role);
+        sGross+=gross;sNet+=net;sPension+=comp;
+        sRows+=`<tr style="${i%2===1?'background:#f8fafc':''}">
+          <td style="font-weight:800;text-align:left;">${emp.name}</td>
+          <td style="text-align:right;">$${comma(gross)}</td>
+          <td style="text-align:right;font-weight:700;color:#16a34a;">$${comma(net)}</td>
+          <td style="text-align:right;">$${comma(comp)||'-'}</td>
+          <td style="text-align:right;font-weight:900;color:#1a73e8;">$${comma(net+comp)}</td>
+        </tr>`;
+      });
+      sRows+=`<tr class="subtotal">
+        <td style="text-align:left;font-weight:900;">${store} 小計</td>
+        <td style="text-align:right;">$${comma(sGross)}</td>
+        <td style="text-align:right;">$${comma(sNet)}</td>
+        <td style="text-align:right;">$${comma(sPension)}</td>
+        <td style="text-align:right;">$${comma(sNet+sPension)}</td>
+      </tr><tr><td colspan="5" style="height:6px;"></td></tr>`;
+    });
+    const tGross=allEmps.reduce((s,e)=>{const r=salaryRecMap[e.name];return r?s+calcGross(r,e.role):s;},0);
+    const tNet=allEmps.reduce((s,e)=>{const r=salaryRecMap[e.name];return r?s+calcNet(r,e.role):s;},0);
+    const tPension=allEmps.reduce((s,e)=>{const r=salaryRecMap[e.name];return r?s+calcCompPension(r,e.role):s;},0);
+    html = `<div class="pdf-page pdf-page-landscape" id="pdf-salary-page" style="page-break-before:always;">
+      <div class="pdf-header" style="background:linear-gradient(135deg,#34a853,#1e7e34);">
+        <div><div class="pdf-header-title">💰 ${title}</div><div class="pdf-header-sub">薪資明細（精簡版）</div></div>
+      </div>
+      <div class="pdf-body">
+        <table class="pdf-table">
+          <tr><th style="text-align:left;min-width:70px;">姓名</th><th>應發薪資</th><th>實發金額</th><th>公司勞退(6%)</th><th style="background:#1e3a8a;">人事成本</th></tr>
+          ${sRows}
+          <tr class="grand-total">
+            <td style="text-align:left;">★ 全店合計</td>
+            <td>$${comma(tGross)}</td><td>$${comma(tNet)}</td><td>$${comma(tPension)}</td><td>$${comma(tNet+tPension)}</td>
+          </tr>
+        </table>
+      </div>
+      <div class="pdf-footer"><span>${title} · 薪資明細（精簡）</span><span>第 4 頁</span></div>
+    </div>`;
+    return html;
+  }
+
+  // 完整版：動態欄位
+  const showLA = visCols.laborAllow !== false;
+  const showPf = visCols.perf      !== false;
+  const showOt = visCols.other     !== false;
+  const showHo = visCols.holiday   !== false;
+  const optCount = [showLA,showPf,showOt,showHo].filter(Boolean).length;
+  const totalCols = 15 + optCount; // base 15 + optional cols
+
   let salRows = '';
   stores.forEach(store => {
     const storeEmps = allEmps.filter(e => e.store===store);
@@ -1315,10 +1504,10 @@ function buildPdfHtml(allEmps, salaryRecMap, leaveStatMap, compStatMap, batchMap
           <td style="text-align:right;">$${comma(n(rec.baseSalary))}</td>
           <td style="text-align:right;">$${comma(n(rec.fullAttendBonus))}</td>
           <td style="text-align:right;">${mgmt?`$${comma(mgmt)}`:'-'}</td>
-          <td style="text-align:right;">${n(rec.laborAllowance)?`$${comma(n(rec.laborAllowance))}`:'-'}</td>
-          <td style="text-align:right;">${n(rec.performance)?`$${comma(n(rec.performance))}`:'-'}</td>
-          <td style="text-align:right;">${n(rec.otherBonus)?`$${comma(n(rec.otherBonus))}`:'-'}</td>
-          <td style="text-align:right;">${n(rec.annualLeaveEncash)||n(rec.compLeaveEncash)?`$${comma(n(rec.annualLeaveEncash)+n(rec.compLeaveEncash))}`:'-'}</td>
+          <td class="opt-col-la" style="text-align:right;">${n(rec.laborAllowance)?`$${comma(n(rec.laborAllowance))}`:'-'}</td>
+          <td class="opt-col-pf" style="text-align:right;">${n(rec.performance)?`$${comma(n(rec.performance))}`:'-'}</td>
+          <td class="opt-col-ot" style="text-align:right;">${n(rec.otherBonus)?`$${comma(n(rec.otherBonus))}`:'-'}</td>
+          <td class="opt-col-ho" style="text-align:right;">${n(rec.annualLeaveEncash)||n(rec.compLeaveEncash)?`$${comma(n(rec.annualLeaveEncash)+n(rec.compLeaveEncash))}`:'-'}</td>
           <td style="text-align:right;">${n(rec.otHours)?`${n(rec.otHours)}h`:'-'}</td>
           <td style="text-align:right;color:#16a34a;">${otPay?`+$${comma(otPay)}`:'-'}</td>
           <td style="text-align:right;">${n(rec.lateMinutes)?`${n(rec.lateMinutes)}分 -$${comma(late)}`:'-'}</td>
@@ -1377,16 +1566,26 @@ function buildPdfHtml(allEmps, salaryRecMap, leaveStatMap, compStatMap, batchMap
   const totalNet=allEmps.reduce((s,e)=>{const r=salaryRecMap[e.name];return r?s+calcNet(r,e.role):s;},0);
   const totalPension=allEmps.reduce((s,e)=>{const r=salaryRecMap[e.name];return r?s+calcCompPension(r,e.role):s;},0);
 
-  html += `<div class="pdf-page pdf-page-landscape" style="page-break-before:always;">
+  // I. 加 class 到可選欄位（勞務津貼、績效、其他津貼、假日結算）
+  // 使用 CSS 注入控制顯示，不重建 HTML
+  const pdfColStyle = `
+    ${visCols.laborAllow===false?'.opt-col-la{display:none;}':''}
+    ${visCols.perf===false?'.opt-col-pf{display:none;}':''}
+    ${visCols.other===false?'.opt-col-ot{display:none;}':''}
+    ${visCols.holiday===false?'.opt-col-ho{display:none;}':''}
+  `;
+
+  const html = `<div class="pdf-page pdf-page-landscape" id="pdf-salary-page" style="page-break-before:always;">
+    <style id="pdf-col-style">${pdfColStyle}</style>
     <div class="pdf-header" style="background:linear-gradient(135deg,#34a853,#1e7e34);">
-      <div><div class="pdf-header-title">💰 ${title}</div><div class="pdf-header-sub">薪資明細</div></div>
+      <div><div class="pdf-header-title">💰 ${title}</div><div class="pdf-header-sub">薪資明細（完整版）</div></div>
     </div>
     <div class="pdf-body" style="overflow-x:auto;">
       <table class="pdf-table" style="min-width:1200px;">
         <tr>
           <th style="min-width:70px;">姓名</th>
           <th>底薪/時薪</th><th>全勤</th><th>管理獎金</th>
-          <th>勞務津貼</th><th>績效</th><th>其他津貼</th><th>假日結算</th>
+          <th class="opt-col-la">勞務津貼</th><th class="opt-col-pf">績效</th><th class="opt-col-ot">其他津貼</th><th class="opt-col-ho">假日結算</th>
           <th>加班時數</th><th>加班費</th><th>遲到扣</th><th>事病假</th>
           <th style="background:#1e3a8a;">應發薪資</th>
           <th style="background:#7f1d1d;">勞保</th><th style="background:#7f1d1d;">健保</th><th style="background:#7f1d1d;">勞退</th>

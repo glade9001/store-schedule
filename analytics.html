@@ -109,6 +109,43 @@ select.range-sel:focus{border-color:var(--primary);}
 
 /* 支援調整說明 */
 .support-note{font-size:10px;color:var(--text-muted);background:#f8fafc;border-radius:6px;padding:4px 8px;margin-top:4px;display:inline-block;}
+
+/* E. 圖表手機高度 */
+@media(max-width:600px){.chart-wrap{height:280px;}}
+
+/* A. KPI 趨勢 */
+.kpi-trend{font-size:11px;font-weight:800;margin-top:4px;}
+
+/* C. 篩選卡片 */
+.filter-card{background:white;border-radius:var(--radius);padding:12px 16px;margin-bottom:14px;box-shadow:0 1px 6px rgba(0,0,0,0.07);display:none;}
+.filter-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;}
+.filter-row:last-child{margin-bottom:0;}
+.filter-label{font-size:11px;font-weight:800;color:var(--text-muted);min-width:28px;}
+.chip{display:inline-flex;align-items:center;padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid var(--border);background:white;color:var(--text-muted);transition:all 0.15s;user-select:none;}
+.chip.active{background:var(--primary);color:white;border-color:var(--primary);}
+
+/* B. 異常提示列 */
+#anomalyAlertBar{background:#fce8e6;border:1.5px solid var(--danger);border-radius:10px;padding:10px 14px;margin-bottom:10px;display:none;align-items:center;gap:8px;cursor:pointer;}
+
+/* F. 匯出 dropdown */
+.export-dropdown-wrap{position:relative;display:inline-block;}
+.export-dropdown-menu{position:absolute;right:0;top:calc(100%+4px);background:white;border:1px solid var(--border);border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,0.12);z-index:200;min-width:180px;padding:4px 0;display:none;}
+.export-dropdown-menu.open{display:block;}
+.export-dropdown-menu button{display:block;width:100%;padding:10px 16px;text-align:left;background:none;border:none;font-size:13px;font-weight:700;cursor:pointer;color:var(--text);}
+.export-dropdown-menu button:hover{background:#f8fafc;}
+
+/* D. 手機卡片式明細 */
+#costCardList,#otCardList{display:none;}
+@media(max-width:600px){
+  #tableCostDetail,#tableOtDetail{display:none;}
+  #costCardList,#otCardList{display:block;}
+}
+.m-card{background:#f8fafc;border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:8px;}
+.m-card-hd{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+.m-card-main{font-size:20px;font-weight:900;color:var(--primary);margin-bottom:6px;}
+.m-card-grid{display:grid;grid-template-columns:1fr 1fr;gap:3px;}
+.m-card-row{font-size:11px;color:var(--text-muted);}
+.m-card-row span{font-weight:700;color:var(--text);}
 </style>
 </head>
 <body>
@@ -141,8 +178,32 @@ select.range-sel:focus{border-color:var(--primary);}
     <div class="progress-text" id="progressText"></div>
   </div>
 
+  <!-- C. 篩選卡片 -->
+  <div class="filter-card" id="filterCard">
+    <div class="filter-row">
+      <span class="filter-label">門市</span>
+      <div id="storeChips" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+    </div>
+    <div class="filter-row">
+      <span class="filter-label">身份</span>
+      <div id="roleChips" style="display:flex;gap:6px;"></div>
+    </div>
+  </div>
+
   <!-- 主要內容（分析前隱藏）-->
   <div id="mainAnalysis" style="display:none;">
+
+    <!-- F. 匯出按鈕 -->
+    <div style="display:flex;justify-content:flex-end;margin-bottom:6px;">
+      <div class="export-dropdown-wrap">
+        <button onclick="toggleExportDropdown()" style="padding:7px 14px;background:white;border:1.5px solid var(--border);border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;box-shadow:0 1px 4px rgba(0,0,0,0.06);">⬇️ 匯出 ▾</button>
+        <div class="export-dropdown-menu" id="exportDropdown">
+          <button onclick="closeExportDropdown();exportCostTable()">📋 人事成本表</button>
+          <button onclick="closeExportDropdown();exportOtTable()">⚡ 加班/國假表</button>
+          <button onclick="closeExportDropdown();exportHourlyTable()">⏱️ 時薪表</button>
+        </div>
+      </div>
+    </div>
 
     <!-- KPI 總覽 -->
     <div class="kpi-grid">
@@ -150,6 +211,7 @@ select.range-sel:focus{border-color:var(--primary);}
         <div class="kpi-label">💰 區間人事費用</div>
         <div class="kpi-val" id="kpiTotalCost">--</div>
         <div class="kpi-sub" id="kpiTotalSub">含勞退提撥</div>
+        <div class="kpi-trend" id="kpiCostTrend"></div>
       </div>
       <div class="kpi-card">
         <div class="kpi-label">👥 在職人數</div>
@@ -160,12 +222,21 @@ select.range-sel:focus{border-color:var(--primary);}
         <div class="kpi-label">⚡ 加班費合計</div>
         <div class="kpi-val" id="kpiOtTotal">--</div>
         <div class="kpi-sub" id="kpiOtSub">平日加班費</div>
+        <div class="kpi-trend" id="kpiOtTrend"></div>
       </div>
       <div class="kpi-card">
         <div class="kpi-label">🏖️ 國定假日費用</div>
         <div class="kpi-val" id="kpiHolidayTotal">--</div>
         <div class="kpi-sub">國假加給合計</div>
+        <div class="kpi-trend" id="kpiHolidayTrend"></div>
       </div>
+    </div>
+
+    <!-- B. 異常提示列 -->
+    <div id="anomalyAlertBar" onclick="dismissAnomalyAlert()">
+      <span style="color:var(--danger);font-size:16px;">⚠️</span>
+      <span id="anomalyAlertText" style="flex:1;font-size:12px;font-weight:700;color:var(--danger);"></span>
+      <span style="font-size:14px;color:var(--text-muted);">✕</span>
     </div>
 
     <!-- Tab 切換 -->
@@ -205,6 +276,7 @@ select.range-sel:focus{border-color:var(--primary);}
           <tbody id="tbodyCostDetail"></tbody>
         </table>
       </div>
+      <div id="costCardList"></div>
       <div class="export-row">
         <button class="export-btn-sm secondary" onclick="exportCostTable()">⬇️ 匯出人事成本表</button>
       </div>
@@ -233,6 +305,7 @@ select.range-sel:focus{border-color:var(--primary);}
           <tbody id="tbodyOtDetail"></tbody>
         </table>
       </div>
+      <div id="otCardList"></div>
       <div class="export-row">
         <button class="export-btn-sm secondary" onclick="exportOtTable()">⬇️ 匯出加班/國假表</button>
       </div>
@@ -578,11 +651,21 @@ function switchTab(tab){
 // ===== 渲染所有分析 =====
 function renderAll(){
   if(!analysisData) return;
+  initFilterState();
   renderKPIs();
   renderCostTab();
   renderOtTab();
-  renderAnomalyTab();
+  const anomalyCount = renderAnomalyTab();
   renderHourlyTab();
+  updateAnomalyBadge(anomalyCount);
+  const alertBar = document.getElementById('anomalyAlertBar');
+  if(anomalyCount > 0){
+    document.getElementById('anomalyAlertText').textContent = `本期有 ${anomalyCount} 筆薪資異常，已自動切換至異常頁`;
+    if(alertBar) alertBar.style.display = 'flex';
+    setTimeout(() => switchTab('anomaly'), 50);
+  } else {
+    if(alertBar) alertBar.style.display = 'none';
+  }
 }
 
 // ===== KPI 卡片 =====
@@ -612,23 +695,49 @@ function renderKPIs(){
   document.getElementById('kpiOtTotal').textContent = '$'+comma(totalOt);
   document.getElementById('kpiOtSub').textContent = '平日加班費';
   document.getElementById('kpiHolidayTotal').textContent = '$'+comma(totalHol);
+
+  // A. 環比趨勢（最後一個月 vs 倒數第二個月）
+  if(ymList.length >= 2){
+    const lastYm = ymList[ymList.length-1];
+    const prevYm = ymList[ymList.length-2];
+    const ymVal = (ym, type) => {
+      let v = 0;
+      allEmps.forEach(emp=>{
+        const rec = salaryMap[ym]?.[emp.name];
+        if(!rec) return;
+        if(type==='cost'){ const {adj}=calcSupportAdj(emp.name,ym,salaryMap,supportMap,allEmps); v+=calcRealCost(rec,emp.role)+((supportMap[ym]?.[emp.name]||[]).length?adj:0); }
+        else if(type==='ot') v+=calcOtPay(rec);
+        else if(type==='hol') v+=emp.role==='工讀'?Math.round(n(rec.wage)*n(rec.holidayHours)):n(rec.holidayOtPay);
+      });
+      return v;
+    };
+    const renderTrend = (id, last, prev) => {
+      const el = document.getElementById(id); if(!el||prev===0) return;
+      const pct = Math.round((last-prev)/prev*100);
+      el.innerHTML = pct>0?`<span style="color:var(--danger);">▲ +${pct}%</span>`:pct<0?`<span style="color:var(--accent);">▼ ${pct}%</span>`:`<span style="color:var(--text-muted);">— 持平</span>`;
+    };
+    renderTrend('kpiCostTrend',    ymVal(lastYm,'cost'),    ymVal(prevYm,'cost'));
+    renderTrend('kpiOtTrend',      ymVal(lastYm,'ot'),      ymVal(prevYm,'ot'));
+    renderTrend('kpiHolidayTrend', ymVal(lastYm,'hol'),     ymVal(prevYm,'hol'));
+  }
 }
 
 // ===== 人事成本 Tab =====
 function renderCostTab(){
   const { ymList, stores, allEmps, salaryMap, supportMap } = analysisData;
+  const fEmps = getFE(); const fStores = getFS();
   const storeColors = {};
   stores.forEach((s,i)=>storeColors[s]=STORE_COLORS[i%STORE_COLORS.length]);
 
   // 月 × 店 成本矩陣
   const costMatrix = {}; // costMatrix[store][ym]
-  stores.forEach(s=>{ costMatrix[s]={}; ymList.forEach(ym=>costMatrix[s][ym]=0); });
+  fStores.forEach(s=>{ costMatrix[s]={}; ymList.forEach(ym=>costMatrix[s][ym]=0); });
 
   // 支援調整矩陣
   const adjMatrix = {}; // adjMatrix[store][ym]
-  stores.forEach(s=>{ adjMatrix[s]={}; ymList.forEach(ym=>adjMatrix[s][ym]=0); });
+  fStores.forEach(s=>{ adjMatrix[s]={}; ymList.forEach(ym=>adjMatrix[s][ym]=0); });
 
-  allEmps.forEach(emp=>{
+  fEmps.forEach(emp=>{
     ymList.forEach(ym=>{
       const rec = salaryMap[ym]?.[emp.name];
       if(!rec) return;
@@ -657,11 +766,11 @@ function renderCostTab(){
     type:'line',
     data:{
       labels: ymList.map(ym=>{ const [y,m]=ym.split('-'); return `${parseInt(m)}月`; }),
-      datasets: stores.map((s,i)=>({
+      datasets: fStores.map(s=>({
         label: s,
         data: ymList.map(ym=>Math.round(((costMatrix[s]?.[ym]||0)+(adjMatrix[s]?.[ym]||0))/1000)),
-        borderColor: STORE_COLORS[i%STORE_COLORS.length],
-        backgroundColor: STORE_COLORS[i%STORE_COLORS.length]+'20',
+        borderColor: storeColors[s],
+        backgroundColor: storeColors[s]+'20',
         borderWidth:2.5, pointRadius:4, tension:0.3, fill:false
       }))
     },
@@ -676,22 +785,20 @@ function renderCostTab(){
   });
 
   // 圖例
-  document.getElementById('legendCost').innerHTML = stores.map((s,i)=>
-    `<div class="legend-item"><div class="legend-dot" style="background:${STORE_COLORS[i%STORE_COLORS.length]};"></div>${s}</div>`
+  document.getElementById('legendCost').innerHTML = fStores.map(s=>
+    `<div class="legend-item"><div class="legend-dot" style="background:${storeColors[s]};"></div>${s}</div>`
   ).join('');
 
   // 明細表
   const tbody = document.getElementById('tbodyCostDetail');
   const rows = [];
-  // 加總用（依門市）
   const storeTotals = {};
-  stores.forEach(s=>{ storeTotals[s]={ base:0, bonus:0, ot:0, hol:0, adj:0, pension:0, total:0 }; });
+  fStores.forEach(s=>{ storeTotals[s]={ base:0, bonus:0, ot:0, hol:0, adj:0, pension:0, total:0 }; });
 
-  stores.forEach(store=>{
+  fStores.forEach(store=>{
     ymList.forEach(ym=>{
-      // 本月本店員工的各項目加總
       let base=0,bonus=0,ot=0,hol=0,pension=0;
-      allEmps.filter(e=>e.store===store).forEach(emp=>{
+      fEmps.filter(e=>e.store===store).forEach(emp=>{
         const rec = salaryMap[ym]?.[emp.name];
         if(!rec) return;
         if(emp.role==='工讀'){
@@ -719,7 +826,7 @@ function renderCostTab(){
     `<tr class="${cls}">${cells.map((c,i)=>`<td class="${i>=2?'num':''}">${c}</td>`).join('')}</tr>`;
 
   let html = '';
-  stores.forEach(store=>{
+  fStores.forEach(store=>{
     const color = storeColors[store];
     rows.filter(r=>r.store===store).forEach(r=>{
       const adjTxt = r.adj===0?'—':(r.adj>0?'+':'')+comma(r.adj);
@@ -741,28 +848,51 @@ function renderCostTab(){
     ], 'store-subtotal');
   });
 
-  // 全店合計
   const grand = Object.values(storeTotals).reduce((a,b)=>({
     base:a.base+b.base,bonus:a.bonus+b.bonus,ot:a.ot+b.ot,hol:a.hol+b.hol,
     adj:a.adj+b.adj,pension:a.pension+b.pension,total:a.total+b.total
   }),{base:0,bonus:0,ot:0,hol:0,adj:0,pension:0,total:0});
   html += mkRow([
-    '<strong>全店合計</strong>','—',
+    '<strong>合計</strong>','—',
     '$'+comma(grand.base),'$'+comma(grand.bonus),'$'+comma(grand.ot),'$'+comma(grand.hol),
     '—','$'+comma(grand.pension),'<strong>$'+comma(grand.total)+'</strong>'
   ], 'grand-total');
-
   tbody.innerHTML = html;
+
+  // D. 手機卡片
+  const costCardList = document.getElementById('costCardList');
+  if(costCardList){
+    let ch='';
+    fStores.forEach(store=>{
+      rows.filter(r=>r.store===store).forEach(r=>{
+        const adjTxt=r.adj===0?'':((r.adj>0?'+':'')+comma(r.adj));
+        ch+=`<div class="m-card">
+          <div class="m-card-hd"><span class="store-badge" style="background:${storeColors[store]};">${r.store}</span><span style="font-size:12px;color:var(--text-muted);font-weight:700;">${r.ym.replace('-','年').replace(/^(\d+)年0?(\d+)$/,'$1年$2月')}</span></div>
+          <div class="m-card-main">$${comma(r.total)}</div>
+          <div class="m-card-grid">
+            <div class="m-card-row">底薪/本薪 <span>$${comma(r.base)}</span></div>
+            <div class="m-card-row">獎金津貼 <span>$${comma(r.bonus)}</span></div>
+            <div class="m-card-row">加班費 <span>$${comma(r.ot)}</span></div>
+            <div class="m-card-row">勞退 <span>$${comma(r.pension)}</span></div>
+            ${adjTxt?`<div class="m-card-row" style="grid-column:span 2;">支援調整 <span>${adjTxt}</span></div>`:''}
+          </div>
+        </div>`;
+      });
+    });
+    costCardList.innerHTML = ch||'<div class="empty-state">無資料</div>';
+  }
 }
 
 // ===== 加班/國假 Tab =====
 function renderOtTab(){
   const { ymList, stores, allEmps, salaryMap } = analysisData;
+  const fEmps = getFE(); const fStores = getFS();
+  const storeColors = {};
+  stores.forEach((s,i)=>storeColors[s]=STORE_COLORS[i%STORE_COLORS.length]);
 
-  // 月別加班費 vs 國假費
   const otByYm = {}, holByYm = {};
   ymList.forEach(ym=>{ otByYm[ym]=0; holByYm[ym]=0; });
-  allEmps.forEach(emp=>{
+  fEmps.forEach(emp=>{
     ymList.forEach(ym=>{
       const rec = salaryMap[ym]?.[emp.name];
       if(!rec) return;
@@ -792,12 +922,8 @@ function renderOtTab(){
     }
   });
 
-  // 員工明細表
-  const storeColors = {};
-  stores.forEach((s,i)=>storeColors[s]=STORE_COLORS[i%STORE_COLORS.length]);
-
   const empOtRows = [];
-  allEmps.forEach(emp=>{
+  fEmps.forEach(emp=>{
     let totOtH=0, totOtAmt=0, totHolH=0, totHolAmt=0;
     ymList.forEach(ym=>{
       const rec = salaryMap[ym]?.[emp.name];
@@ -830,18 +956,39 @@ function renderOtTab(){
       <td class="num"><strong>$${comma(r.total)}</strong></td>
     </tr>`;
   }).join('');
+
+  // D. 手機卡片
+  const otCardList = document.getElementById('otCardList');
+  if(otCardList){
+    otCardList.innerHTML = empOtRows.map(r=>{
+      const color = storeColors[r.emp.store]||'#1a73e8';
+      return `<div class="m-card">
+        <div class="m-card-hd">
+          <span class="store-badge" style="background:${color};">${r.emp.store}</span>
+          <strong style="font-size:13px;">${r.emp.name}</strong>
+          <span style="font-size:11px;color:var(--text-muted);">${r.emp.role||'--'}</span>
+        </div>
+        <div class="m-card-main">$${comma(r.total)}</div>
+        <div class="m-card-grid">
+          <div class="m-card-row">加班費 <span>$${comma(r.totOtAmt)}</span></div>
+          <div class="m-card-row">國假費用 <span>$${comma(r.totHolAmt)}</span></div>
+        </div>
+      </div>`;
+    }).join('') || '<div class="empty-state">本區間無加班/國假記錄</div>';
+  }
 }
 
 // ===== 薪資異常 Tab =====
 function renderAnomalyTab(){
-  if(!analysisData){ document.getElementById('anomalyContent').innerHTML='<div class="empty-state">請先執行分析</div>'; return; }
+  if(!analysisData){ document.getElementById('anomalyContent').innerHTML='<div class="empty-state">請先執行分析</div>'; return 0; }
   const { ymList, stores, allEmps, salaryMap } = analysisData;
+  const fEmps = getFE();
   const pctThreshold = parseFloat(document.getElementById('anomalyPct').value)||20;
   const otHLimit = parseFloat(document.getElementById('anomalyOtH').value)||46;
 
   const anomalies = [];
 
-  allEmps.forEach(emp=>{
+  fEmps.forEach(emp=>{
     ymList.forEach((ym,idx)=>{
       const rec = salaryMap[ym]?.[emp.name];
       if(!rec) return;
@@ -880,7 +1027,7 @@ function renderAnomalyTab(){
 
   const el = document.getElementById('anomalyContent');
   if(!anomalies.length){
-    el.innerHTML = `<div class="empty-state">✅ 本區間無異常記錄</div>`; return;
+    el.innerHTML = `<div class="empty-state">✅ 本區間無異常記錄</div>`; return 0;
   }
 
   // 依類型分組
@@ -904,6 +1051,7 @@ function renderAnomalyTab(){
     html += '</tbody></table></div><div style="height:12px;"></div>';
   });
   el.innerHTML = html;
+  return anomalies.length;
 }
 
 // ===== 員工時薪 Tab =====
@@ -994,6 +1142,72 @@ function renderHourlyTab(){
         </tr>`;
       }).join('');
 }
+
+// ===== C. 篩選器 =====
+let filterState = { stores: new Set(), roles: new Set(['正職','工讀']) };
+function getFE(){
+  if(!analysisData) return [];
+  return analysisData.allEmps.filter(e=>filterState.stores.has(e.store)&&filterState.roles.has(e.role||'正職'));
+}
+function getFS(){
+  if(!analysisData) return [];
+  return analysisData.stores.filter(s=>filterState.stores.has(s));
+}
+function initFilterState(){
+  filterState.stores = new Set(analysisData.stores);
+  filterState.roles  = new Set(['正職','工讀']);
+  const sc = document.getElementById('storeChips');
+  sc.innerHTML = analysisData.stores.map(s=>`<div class="chip active" onclick="toggleStoreChip(this,'${s.replace(/'/g,"\\'")}')">${s}</div>`).join('');
+  const rc = document.getElementById('roleChips');
+  rc.innerHTML = ['正職','工讀'].map(r=>`<div class="chip active" onclick="toggleRoleChip(this,'${r}')">${r}</div>`).join('');
+  document.getElementById('filterCard').style.display = 'block';
+}
+function toggleStoreChip(el, store){
+  if(filterState.stores.has(store)){
+    if(filterState.stores.size<=1){ showToast('⚠️ 至少保留一個門市'); return; }
+    filterState.stores.delete(store); el.classList.remove('active');
+  } else { filterState.stores.add(store); el.classList.add('active'); }
+  reRenderCurrentTab();
+}
+function toggleRoleChip(el, role){
+  if(filterState.roles.has(role)){
+    if(filterState.roles.size<=1){ showToast('⚠️ 至少保留一個身份'); return; }
+    filterState.roles.delete(role); el.classList.remove('active');
+  } else { filterState.roles.add(role); el.classList.add('active'); }
+  reRenderCurrentTab();
+}
+function reRenderCurrentTab(){
+  const id = document.querySelector('.tab-item.active')?.id?.replace('tab-','');
+  if(id==='cost') renderCostTab();
+  else if(id==='ot') renderOtTab();
+  else if(id==='anomaly') renderAnomalyTab();
+  else if(id==='hourly') renderHourlyTab();
+}
+
+// ===== B. 異常 badge & alert =====
+function updateAnomalyBadge(count){
+  const tab = document.getElementById('tab-anomaly');
+  if(!tab) return;
+  tab.innerHTML = count>0
+    ? `⚠️ 薪資異常 <span style="background:var(--danger);color:white;border-radius:50%;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;margin-left:3px;">${count}</span>`
+    : '⚠️ 薪資異常';
+}
+function dismissAnomalyAlert(){
+  const bar = document.getElementById('anomalyAlertBar');
+  if(bar) bar.style.display='none';
+}
+
+// ===== F. 匯出 dropdown =====
+function toggleExportDropdown(){ document.getElementById('exportDropdown').classList.toggle('open'); }
+function closeExportDropdown(){ document.getElementById('exportDropdown').classList.remove('open'); }
+document.addEventListener('click', e=>{ if(!e.target.closest('.export-dropdown-wrap')) closeExportDropdown(); });
+
+// ===== J. 右滑返回 =====
+(function(){
+  let sx=0;
+  document.addEventListener('touchstart', e=>{ sx=e.touches[0].clientX; }, {passive:true});
+  document.addEventListener('touchend',   e=>{ if(e.changedTouches[0].clientX-sx>60) window.location.href='home.html'; }, {passive:true});
+})();
 
 // ===== 匯出 =====
 function exportCostTable(){
