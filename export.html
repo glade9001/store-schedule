@@ -405,12 +405,15 @@ async function startExport() {
   try {
     // 1. 員工名單
     setProgress(5,'讀取員工名單...');
+    const [_ey,_em]=ym.split('-').map(Number);
+    const exportMonthEnd=`${_ey}-${String(_em).padStart(2,'0')}-${new Date(_ey,_em,0).getDate()}`;
     let allEmps=[];
     for(const store of stores){
       const snap=await window.db.collection('stores').doc(store).collection('employees').get();
       snap.forEach(d=>{
         const data=d.data();
-        if(['離職','調走'].includes(data.status)) return;
+        const effectDate=data.retireDate||data.transferDate;
+        if(['離職','調走'].includes(data.status)&&(!effectDate||effectDate<=exportMonthEnd)) return;
         if(data.startDate){
           const [sy,sm]=data.startDate.split('-').map(Number);
           const [cy,cm]=ym.split('-').map(Number);
@@ -956,12 +959,15 @@ async function startPdfPreview() {
 
   try {
     // ── 讀取資料（與 Excel 匯出共用邏輯）──
+    const [_ey2,_em2]=ym.split('-').map(Number);
+    const exportMonthEnd2=`${_ey2}-${String(_em2).padStart(2,'0')}-${new Date(_ey2,_em2,0).getDate()}`;
     let allEmps = [];
     for(const store of stores) {
       const snap = await window.db.collection('stores').doc(store).collection('employees').get();
       snap.forEach(d => {
         const data = d.data();
-        if(['離職','調走'].includes(data.status)) return;
+        const effectDate=data.retireDate||data.transferDate;
+        if(['離職','調走'].includes(data.status)&&(!effectDate||effectDate<=exportMonthEnd2)) return;
         if(data.startDate) {
           const [sy,sm] = data.startDate.split('-').map(Number);
           const [cy,cm] = ym.split('-').map(Number);
