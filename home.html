@@ -1273,7 +1273,7 @@ async function doLogin() {
     }
 
     document.getElementById('loginScreen').classList.remove('active');
-    await _afterLogin(profile);
+    await _afterLogin(profile, { showBindSuggestion: true });
   } catch(e) {
     hideLoading();
     const codeMap = {
@@ -1300,7 +1300,7 @@ async function doLogout() {
 }
 
 // ===== 登入後主流程 =====
-async function _afterLogin(profile, { skipPwdChange = false } = {}) {
+async function _afterLogin(profile, { skipPwdChange = false, showBindSuggestion = false } = {}) {
   // 首次登入：先顯示說明視窗（Google 登入者不強制，因為不知道 email 密碼）
   if(!profile.pwdChanged && !skipPwdChange) {
     hideLoading();
@@ -1315,7 +1315,7 @@ async function _afterLogin(profile, { skipPwdChange = false } = {}) {
     return;
   }
   await initApp();
-  maybeShowGoogleBindSuggestion();
+  if(showBindSuggestion) maybeShowGoogleBindSuggestion();
 }
 
 function startFirstLoginSetup() {
@@ -1376,7 +1376,7 @@ async function doGoogleLogin() {
     currentUser = profile;
     _cacheCurrentUser(profile);
     document.getElementById('loginScreen').classList.remove('active');
-    await _afterLogin(profile, { skipPwdChange: true });
+    await _afterLogin(profile, { skipPwdChange: true, showBindSuggestion: true });
   } catch(e) {
     hideLoading();
     if(e.code === 'not-linked') {
@@ -1391,9 +1391,7 @@ async function doGoogleLogin() {
 
 // ===== Google 綁定建議 =====
 function maybeShowGoogleBindSuggestion() {
-  if(sessionStorage.getItem('googleBindShown')) return;
   if(authIsGoogleLinked()) return;
-  sessionStorage.setItem('googleBindShown', '1');
   setTimeout(() => {
     document.getElementById('googleBindOverlay').classList.add('active');
     document.getElementById('googleBindSheet').classList.add('active');
