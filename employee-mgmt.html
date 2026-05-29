@@ -496,15 +496,21 @@ async function loadEmpAdminList(store) {
       tabsEl.innerHTML = `<div class="store-tab active">${store}</div>`;
     }
 
-    const [empSnap, accSnap] = await Promise.all([
+    const [empSnap, accSnap, pendingAccSnap] = await Promise.all([
       window.db.collection('stores').doc(store).collection('employees').orderBy('sortKey').get().catch(() =>
         window.db.collection('stores').doc(store).collection('employees').get()
       ),
-      window.db.collection('account').where('store','==',store).get().catch(()=>null)
+      window.db.collection('account').where('store','==',store).get().catch(()=>null),
+      // 同時撈待調入此門市的帳號（store 尚未更新但 pendingStore 已指向此店）
+      window.db.collection('account').where('pendingStore','==',store).get().catch(()=>null)
     ]);
 
     const accounts = {};
     if(accSnap) accSnap.forEach(d => { accounts[d.data().empName] = d.data(); });
+    if(pendingAccSnap) pendingAccSnap.forEach(d => {
+      const data = d.data();
+      if(!accounts[data.empName]) accounts[data.empName] = data;
+    });
 
     const listEl = document.getElementById('empAdminList');
     listEl.innerHTML = '';
