@@ -1011,6 +1011,81 @@ function openTransferModal(empId, fromStore, dispName) {
   openModal('transferModal');
 }
 
+// ===== 調店前：偵測未發布支援班次衝突 =====
+function _dateToWeekStr(d) {
+  const day = d.getDay();
+  const mon = new Date(d);
+  mon.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
+  const yr = mon.getFullYear();
+  const jan1 = new Date(yr, 0, 1);
+  const jan1Day = jan1.getDay();
+  const w1Off = jan1Day <= 4 ? 1 - jan1Day : 8 - jan1Day;
+  const week1Mon = new Date(jan1);
+  week1Mon.setDate(jan1.getDate() + w1Off);
+  if (mon < week1Mon) {
+    const pJan1 = new Date(yr - 1, 0, 1);
+    const pJan1Day = pJan1.getDay();
+    const pW1Off = pJan1Day <= 4 ? 1 - pJan1Day : 8 - pJan1Day;
+    const pW1Mon = new Date(pJan1);
+    pW1Mon.setDate(pJan1.getDate() + pW1Off);
+    return `${yr-1}-W${String(Math.round((mon - pW1Mon) / 604800000) + 1).padStart(2,'0')}`;
+  }
+  return `${yr}-W${String(Math.round((mon - week1Mon) / 604800000) + 1).padStart(2,'0')}`;
+}
+
+async function checkAndHandleSupportShifts(empId, fromStore, toStore) {
+  // 往後查 10 週，找未發布且有此員工支援 toStore 的記錄
+  const weekStrs = [];
+  const cursor = new Date();
+  for (let i = 0; i < 10; i++) {
+    weekStrs.push(_dateToWeekStr(new Date(cursor)));
+    cursor.setDate(cursor.getDate() + 7);
+  }
+  const uniqueWeeks = [...new Set(weekStrs)];
+
+  const snaps = await Promise.all(
+    uniqueWeeks.map(ws => window.db.collection('stores').doc(fromStore).collection('weeks').doc(ws).get())
+  );
+
+  const conflicts = [];
+  snaps.forEach((snap, i) => {
+    if (!snap.exists) return;
+    const data = snap.data();
+    if (data.published) return;
+    (data.records || []).forEach(r => {
+      if (r.name === empId && r.supportEmp === `${toStore}-${empId}`) {
+        conflicts.push({ weekStr: uniqueWeeks[i], day: r.day });
+      }
+    });
+  });
+
+  if (conflicts.length === 0) return;
+
+  const dayList = conflicts.map(c => `${c.weekStr} ${c.day}`).join('、');
+  const shouldDelete = confirm(
+    `⚠️ 發現 ${conflicts.length} 筆尚未發布的支援排班\n\n` +
+    `「${empId}」在 ${fromStore} 班表中已排定支援 ${toStore} 的班次：\n${dayList}\n\n` +
+    `調店後這些記錄將造成班表顯示異常。\n\n是否一併刪除？`
+  );
+  if (!shouldDelete) return;
+
+  // 依週合批刪除
+  const weekGroups = {};
+  conflicts.forEach(c => {
+    if (!weekGroups[c.weekStr]) weekGroups[c.weekStr] = true;
+  });
+  await Promise.all(Object.keys(weekGroups).map(async ws => {
+    const ref = window.db.collection('stores').doc(fromStore).collection('weeks').doc(ws);
+    const snap = await ref.get();
+    if (!snap.exists) return;
+    const newRecords = (snap.data().records || []).filter(r =>
+      !(r.name === empId && r.supportEmp === `${toStore}-${empId}`)
+    );
+    await ref.update({ records: newRecords });
+  }));
+  showToast(`✅ 已刪除 ${conflicts.length} 筆衝突支援班次`);
+}
+
 async function confirmTransfer() {
   const empId     = document.getElementById('transferEmpId').value;
   const fromStore = document.getElementById('transferFromStore').value;
@@ -1020,6 +1095,8 @@ async function confirmTransfer() {
 
   if(!toStore || !date) { showToast('⚠️ 請填寫完整資訊'); return; }
   if(!confirm(`確認將「${empId}」從「${fromStore}」調往「${toStore}」？\n生效日：${date}`)) return;
+
+  await checkAndHandleSupportShifts(empId, fromStore, toStore);
 
   showLoading('調店處理中...');
   try {

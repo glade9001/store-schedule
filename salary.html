@@ -2409,9 +2409,9 @@ function renderEmpList() {
     return;
   }
 
-    // 店長以上：顯示所有員工（店長薪資只有加盟主以上可看）
+    // 店長以上：顯示所有員工（店長薪資只有加盟主以上可看，或本人可看自己）
   let emps = empList.filter(e => {
-    if(e.role === ROLE_MANAGER) return canEditManagerSalary();
+    if(e.role === ROLE_MANAGER) return canEditManagerSalary() || e.name === currentUser?.empName;
     return true;
   });
   if(emps.length === 0) {
@@ -3516,7 +3516,7 @@ function renderBottomAction() {
 function collectRecords() {
   // 確保所有員工都有記錄
   const emps = empList.filter(e => {
-    if(e.role === ROLE_MANAGER) return canEditManagerSalary();
+    if(e.role === ROLE_MANAGER) return canEditManagerSalary() || e.name === currentUser?.empName;
     return true;
   });
   emps.forEach(emp => {
