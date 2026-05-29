@@ -172,7 +172,7 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
     </div>
     <div class="form-field">
       <label>密碼（建議用生日月日，例如 0101）</label>
-      <input type="password" id="addEmpPassword" placeholder="至少4碼">
+      <input type="password" id="addEmpPassword" placeholder="至少6碼">
     </div>
     <div class="form-field">
       <label>權限等級</label>
@@ -643,7 +643,7 @@ async function saveAccountSetting() {
 
   if(!username || !/^[A-Z][0-9]{5}$/.test(username)) { showToast('⚠️ 帳號格式：1英文字母+5碼數字'); return; }
   if(pwd && pwd !== pwdC) { showToast('⚠️ 兩次密碼不一致'); return; }
-  if(pwd && pwd.length < 4) { showToast('⚠️ 密碼至少4碼'); return; }
+  if(pwd && pwd.length < 6) { showToast('⚠️ 密碼至少6碼'); return; }
   if(!empName) { showToast('⚠️ 請選擇或輸入對應員工名稱'); return; }
 
   showLoading('儲存帳號設定中...');
@@ -730,7 +730,7 @@ async function doChangePwd() {
   const newC = document.getElementById('newPasswordConfirm').value;
   if(!oldP || !newP || !newC) { showToast('⚠️ 請填寫所有欄位'); return; }
   if(newP !== newC) { showToast('⚠️ 兩次新密碼不一致'); return; }
-  if(newP.length < 4) { showToast('⚠️ 新密碼至少4碼'); return; }
+  if(newP.length < 6) { showToast('⚠️ 新密碼至少6碼'); return; }
 
   showLoading('修改密碼中...');
   try {
@@ -819,7 +819,7 @@ async function saveNewEmployee() {
 
   if(!sysName) { showToast('⚠️ 請輸入排班系統名稱'); return; }
   if(!username || !/^[A-Z][0-9]{5}$/.test(username)) { showToast('⚠️ 帳號格式：1英文字母+5碼數字'); return; }
-  if(!password || password.length < 4) { showToast('⚠️ 密碼至少4碼'); return; }
+  if(!password || password.length < 6) { showToast('⚠️ 密碼至少6碼'); return; }
 
   showLoading('新增員工中...');
   try {

@@ -613,7 +613,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       <input type="password" id="pcOldPwd" placeholder="輸入目前使用的密碼" autocomplete="current-password">
     </div>
     <div class="login-field">
-      <label>新密碼（至少 4 碼）</label>
+      <label>新密碼（至少 6 碼）</label>
       <input type="password" id="pcNewPwd" placeholder="設定新密碼">
     </div>
     <div class="login-field" style="margin-bottom:0;">
@@ -1333,8 +1333,7 @@ async function doFirstTimePwdChange() {
 
   if(!oldP || !newP || !newC) { errEl.textContent = '⚠️ 請填寫所有欄位'; return; }
   if(newP !== newC) { errEl.textContent = '⚠️ 兩次新密碼不一致'; return; }
-  if(newP.length < 4) { errEl.textContent = '⚠️ 新密碼至少 4 碼'; return; }
-  if(newP === oldP) { errEl.textContent = '⚠️ 新密碼不能與舊密碼相同'; return; }
+  if(newP.length < 6) { errEl.textContent = '⚠️ 新密碼至少 6 碼'; return; }
 
   showLoading('設定新密碼中...');
   try {
