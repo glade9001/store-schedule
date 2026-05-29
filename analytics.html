@@ -1029,11 +1029,14 @@ function renderAnomalyTab(){
         const prevYm = ymList[idx-1];
         const prevRec = salaryMap[prevYm]?.[emp.name];
         if(prevRec){
-          const cur = calcNet(rec,emp.role), prev = calcNet(prevRec,emp.role);
+          const cur = calcGross(rec,emp.role), prev = calcGross(prevRec,emp.role);
           if(prev>0){
             const pct = Math.round((cur-prev)/prev*100);
             if(Math.abs(pct)>=pctThreshold)
-              anomalies.push({ type:'wave', emp, ym, msg:`薪資 ${pct>0?'+':''}${pct}%（${prevYm}→${ym}）`, badge:pct>0?'up':'down', badgeText:(pct>0?'↑':'↓')+Math.abs(pct)+'%', amount:cur });
+              anomalies.push({ type:'wave', emp, ym, prevYm,
+                msg:`${pct>0?'+':''}${pct}%`, badge:pct>0?'up':'down',
+                badgeText:(pct>0?'↑':'↓')+Math.abs(pct)+'%',
+                prevAmount:prev, amount:cur });
           }
         }
       }
@@ -1067,16 +1070,24 @@ function renderAnomalyTab(){
   Object.keys(groups).forEach(type=>{
     const items = anomalies.filter(a=>a.type===type);
     if(!items.length) return;
+    const isWave = type==='wave';
     html += `<div class="section-title">${groups[type]}（${items.length} 筆）</div>`;
-    html += `<div style="overflow-x:auto;"><table class="data-table"><thead><tr><th>門市</th><th>姓名</th><th>月份</th><th>異常說明</th><th class="num">金額</th></tr></thead><tbody>`;
+    html += `<div style="overflow-x:auto;"><table class="data-table"><thead><tr>
+      <th>門市</th><th>姓名</th><th>月份</th><th>異常說明</th>
+      ${isWave ? `<th class="num">前月應發</th><th class="num">本月應發</th>` : `<th class="num">金額</th>`}
+    </tr></thead><tbody>`;
     items.forEach(a=>{
       const color = storeColors[a.emp.store];
+      const amtCell = isWave
+        ? `<td class="num" style="color:var(--text-muted);font-size:12px;">$${comma(a.prevAmount)}</td>
+           <td class="num"><strong style="color:${a.badge==='up'?'var(--danger)':'var(--accent)'};">$${comma(a.amount)}</strong></td>`
+        : `<td class="num">${a.amount>0?'$'+comma(a.amount):'—'}</td>`;
       html += `<tr>
         <td><span class="store-badge" style="background:${color};">${a.emp.store}</span></td>
         <td><strong>${a.emp.name}</strong></td>
-        <td>${a.ym}</td>
+        <td style="white-space:nowrap;">${a.prevYm??''}<br><span style="font-weight:900;">${a.ym}</span></td>
         <td><span class="warn-badge ${a.badge}">${a.badgeText}</span> ${a.msg}</td>
-        <td class="num">${a.amount>0?'$'+comma(a.amount):'—'}</td>
+        ${amtCell}
       </tr>`;
     });
     html += '</tbody></table></div><div style="height:12px;"></div>';
