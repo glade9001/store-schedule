@@ -995,7 +995,13 @@ async function verifySalaryAuth() {
     console.error('[salaryAuth]', e.code, e.message);
     const msg = (e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential')
       ? '密碼錯誤，請重新輸入'
-      : (e.code ? `驗證失敗 (${e.code})` : '驗證失敗，請重試');
+      : e.code === 'auth/too-many-requests'
+      ? '嘗試次數過多，請稍後再試'
+      : e.code === 'auth/network-request-failed'
+      ? '網路連線失敗，請重試'
+      : e.code === 'auth/user-disabled'
+      ? '帳號已停用，請聯絡管理員'
+      : '驗證失敗，請重試';
     errEl.textContent = msg;
     document.getElementById('salaryAuthPwd').value = '';
     document.getElementById('salaryAuthPwd').focus();
@@ -1010,7 +1016,8 @@ async function verifySalaryGoogle() {
     document.getElementById('salaryAuthOverlay').classList.remove('active');
     await _initSalaryShell();
   } catch(e) {
-    errEl.textContent = '驗證失敗：' + (e.message || '請重試');
+    if(e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request') return;
+    errEl.textContent = e.code === 'auth/network-request-failed' ? '網路連線失敗，請重試' : '驗證失敗，請重試';
   }
 }
 

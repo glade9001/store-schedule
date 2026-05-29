@@ -1383,8 +1383,14 @@ async function doGoogleLogin() {
       errEl.textContent = '❌ 此 Google 帳號尚未綁定工號，請先用工號登入';
     } else if(e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request') {
       errEl.textContent = '';
+    } else if(e.code === 'auth/popup-blocked') {
+      errEl.textContent = '❌ 瀏覽器封鎖了彈窗，請允許本頁彈窗後重試';
+    } else if(e.code === 'auth/unauthorized-domain') {
+      errEl.textContent = '❌ 此網域尚未授權使用 Google 登入，請聯絡管理員';
+    } else if(e.code === 'auth/network-request-failed') {
+      errEl.textContent = '❌ 網路連線失敗，請確認網路後重試';
     } else {
-      errEl.textContent = '❌ Google 登入失敗：' + e.message;
+      errEl.textContent = '❌ Google 登入失敗，請稍後再試';
     }
   }
 }
