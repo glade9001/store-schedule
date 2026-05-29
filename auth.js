@@ -19,14 +19,21 @@ async function _loadProfile(fbUser) {
   // 調店生效日：若已到達則自動切換門市
   const today = new Date().toISOString().split('T')[0];
   if (data.pendingStore && data.transferDate && data.transferDate <= today) {
-    await window.db.collection('users').doc(fbUser.uid).update({
+    const applyUpdate = {
       store: data.pendingStore,
       pendingStore: firebase.firestore.FieldValue.delete(),
       transferDate: firebase.firestore.FieldValue.delete(),
-    });
+    };
+    if (data.pendingRole) {
+      applyUpdate.role = data.pendingRole;
+      applyUpdate.pendingRole = firebase.firestore.FieldValue.delete();
+    }
+    await window.db.collection('users').doc(fbUser.uid).update(applyUpdate);
     data.store = data.pendingStore;
+    if (data.pendingRole) data.role = data.pendingRole;
     delete data.pendingStore;
     delete data.transferDate;
+    delete data.pendingRole;
   }
   return { uid: fbUser.uid, docId: fbUser.uid, ...data };
 }

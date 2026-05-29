@@ -1001,7 +1001,7 @@ async function confirmTransfer() {
     const isEffective = date <= today;
     const transferUpdate = isEffective
       ? { store: toStore, role: newRole }
-      : { pendingStore: toStore, transferDate: date, role: newRole };
+      : { pendingStore: toStore, transferDate: date, pendingRole: newRole };
 
     const accSnap = await window.db.collection('account').where('empName','==',empId).where('store','==',fromStore).limit(1).get();
     if(!accSnap.empty) {
