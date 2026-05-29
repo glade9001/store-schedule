@@ -64,6 +64,8 @@ async function authLogout() {
   window.currentUser = null;
   localStorage.removeItem('currentUser');
   sessionStorage.removeItem('currentUser');
+  sessionStorage.removeItem('googleBindShown');
+  sessionStorage.removeItem('googleBindDone');
 }
 
 // ===== 頁面進入點：確認登入狀態，未登入跳轉 =====

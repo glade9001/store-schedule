@@ -128,6 +128,16 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
     <button onclick="openChangePwd()" style="width:100%; margin-top:14px; padding:12px; background:none; border:1.5px solid var(--primary); color:var(--primary); border-radius:10px; font-size:14px; font-weight:700; cursor:pointer;">🔑 修改密碼</button>
   </div>
   <div class="card">
+    <div class="card-title">🔗 Google 帳號</div>
+    <div id="googleBindStatus" style="font-size:14px; color:var(--text-muted); margin-bottom:12px;">讀取中...</div>
+    <button id="googleBindBtn" onclick="doSelfGoogleBind()" style="width:100%; padding:12px; background:none; border:1.5px solid var(--primary); color:var(--primary); border-radius:10px; font-size:14px; font-weight:700; cursor:pointer; display:none;">
+      綁定 Google 帳號
+    </button>
+    <button id="googleUnbindBtn" onclick="doSelfGoogleUnbind()" style="width:100%; padding:12px; background:none; border:1.5px solid var(--danger); color:var(--danger); border-radius:10px; font-size:14px; font-weight:700; cursor:pointer; display:none;">
+      解除 Google 綁定
+    </button>
+  </div>
+  <div class="card">
     <div class="card-title">📋 基本資料</div>
     <div style="font-size:14px; margin-bottom:8px;"><span style="color:var(--text-muted);">姓名：</span><strong id="selfNameInfo">--</strong></div>
     <div style="font-size:14px; margin-bottom:8px;"><span style="color:var(--text-muted);">職位：</span><strong id="selfRoleInfo">--</strong></div>
@@ -433,6 +443,42 @@ function loadSelfView() {
   div.style.cssText = `font-size:12px; color:${currentUser.linked?'var(--accent)':'var(--warn)'}; margin-top:6px; font-weight:600;`;
   div.textContent = linkStatus;
   storeEl.insertAdjacentElement('afterend', div);
+
+  // Google 綁定狀態
+  const fbUser = firebase.auth().currentUser;
+  const googleProvider = fbUser?.providerData?.find(p => p.providerId === 'google.com');
+  const statusEl = document.getElementById('googleBindStatus');
+  const bindBtn = document.getElementById('googleBindBtn');
+  const unbindBtn = document.getElementById('googleUnbindBtn');
+  if(googleProvider) {
+    statusEl.innerHTML = `<span style="color:var(--accent); font-weight:700;">✅ 已綁定</span><br><span style="font-size:12px;">${googleProvider.email}</span>`;
+    unbindBtn.style.display = 'block';
+  } else {
+    statusEl.innerHTML = `<span style="color:var(--warn); font-weight:700;">未綁定</span><br><span style="font-size:12px; color:var(--text-muted);">綁定後可使用 Google 快速登入</span>`;
+    bindBtn.style.display = 'block';
+  }
+}
+
+async function doSelfGoogleBind() {
+  try {
+    await authLinkGoogle();
+    showToast('✅ Google 帳號綁定成功');
+    loadSelfView();
+  } catch(e) {
+    if(e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request') return;
+    showToast('❌ ' + (e.code === 'auth/credential-already-in-use' ? '此 Google 帳號已被其他工號使用' : e.message));
+  }
+}
+
+async function doSelfGoogleUnbind() {
+  if(!confirm('確認解除 Google 帳號綁定？\n解除後將無法使用 Google 快速登入。')) return;
+  try {
+    await authUnlinkGoogle();
+    showToast('✅ 已解除 Google 綁定');
+    loadSelfView();
+  } catch(e) {
+    showToast('❌ ' + e.message);
+  }
 }
 
 // ===== 員工帳號列表 =====
