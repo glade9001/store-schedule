@@ -989,7 +989,6 @@ async function verifySalaryAuth() {
   errEl.textContent = '';
   try {
     await authReauthenticate(pwd);
-    sessionStorage.setItem('salaryVerified', '1');
     document.getElementById('salaryAuthOverlay').classList.remove('active');
     await _initSalaryShell();
   } catch(e) {
@@ -1008,7 +1007,6 @@ async function verifySalaryGoogle() {
   errEl.textContent = '';
   try {
     await authReauthenticate(null);
-    sessionStorage.setItem('salaryVerified', '1');
     document.getElementById('salaryAuthOverlay').classList.remove('active');
     await _initSalaryShell();
   } catch(e) {
@@ -1088,11 +1086,6 @@ window.onload = async () => {
 
   const _fbAuth = await new Promise(r => { const u = firebase.auth().onAuthStateChanged(fb => { u(); r(fb); }); });
   if (!_fbAuth) { localStorage.removeItem('currentUser'); sessionStorage.removeItem('currentUser'); window.location.replace('home.html'); return; }
-
-  if(sessionStorage.getItem('salaryVerified') === '1') {
-    _initSalaryShell();
-    return;
-  }
 
   hideLoading();
   const hasPassword = _fbAuth.providerData.some(p => p.providerId === 'password');

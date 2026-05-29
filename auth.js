@@ -66,7 +66,6 @@ async function authLogout() {
   sessionStorage.removeItem('currentUser');
   sessionStorage.removeItem('googleBindShown');
   sessionStorage.removeItem('googleBindDone');
-  sessionStorage.removeItem('salaryVerified');
 }
 
 // ===== 頁面進入點：確認登入狀態，未登入跳轉 =====
