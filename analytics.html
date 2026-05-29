@@ -1164,7 +1164,13 @@ function renderHourlyTab(){
 let filterState = { stores: new Set(), roles: new Set(['正職','工讀']) };
 function getFE(){
   if(!analysisData) return [];
-  return analysisData.allEmps.filter(e=>filterState.stores.has(e.store)&&filterState.roles.has(e.role||'正職'));
+  return analysisData.allEmps.filter(e=>{
+    if(!filterState.stores.has(e.store)) return false;
+    // 店長/加盟主 視同「正職」歸類，確保不被排除
+    const r = e.role||'正職';
+    const bucket = (r==='店長'||r==='加盟主') ? '正職' : r;
+    return filterState.roles.has(bucket);
+  });
 }
 function getFS(){
   if(!analysisData) return [];
