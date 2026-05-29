@@ -837,7 +837,8 @@ function renderCostTab(){
         ot += calcOtPay(rec);
       });
       const storeAdj = adjMatrix[store]?.[ym]||0;
-      const total = base+bonus+ot+hol+storeAdj+pension;
+      const withPension = document.getElementById('showPensionCol')?.checked ?? false;
+      const total = base+bonus+ot+hol+storeAdj+(withPension?pension:0);
       rows.push({ store, ym, base, bonus, ot, hol, adj:storeAdj, pension, total });
       storeTotals[store].base+=base; storeTotals[store].bonus+=bonus;
       storeTotals[store].ot+=ot; storeTotals[store].hol+=hol;
@@ -1222,6 +1223,7 @@ function togglePensionCol(){
   const show = document.getElementById('showPensionCol').checked;
   const table = document.getElementById('tableCostDetail');
   if(table) table.classList.toggle('hide-pension', !show);
+  if(analysisData) renderCostTab(); // 重算實際成本
 }
 
 // ===== B. 異常 badge & alert =====
