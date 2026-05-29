@@ -2990,8 +2990,12 @@ function switchModalTab(idx, saveState) {
     if(emp && rec) {
       document.getElementById('empModalBody').innerHTML = renderSalaryForm(emp, rec, 0, isReadonly());
       switchModalTab(idx, false);
+      return;
     }
   }
+  // 切換後捲回最上方
+  const modalBox = document.querySelector('#empEditModal .modal-box');
+  if(modalBox) modalBox.scrollTop = 0;
 }
 
 // ===== 應休/補休區塊 =====
