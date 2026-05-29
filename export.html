@@ -1575,7 +1575,7 @@ function buildSalaryPageHtml(allEmps, salaryRecMap, stores, ym, year, month, mod
     ${visCols.holiday===false?'.opt-col-ho{display:none;}':''}
   `;
 
-  const html = `<div class="pdf-page pdf-page-landscape" id="pdf-salary-page" style="page-break-before:always;">
+  html = `<div class="pdf-page pdf-page-landscape" id="pdf-salary-page" style="page-break-before:always;">
     <style id="pdf-col-style">${pdfColStyle}</style>
     <div class="pdf-header" style="background:linear-gradient(135deg,#34a853,#1e7e34);">
       <div><div class="pdf-header-title">💰 ${title}</div><div class="pdf-header-sub">薪資明細（完整版）</div></div>
