@@ -36,6 +36,9 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
+  // 非 http/https 請求（例如 chrome-extension://）：完全不攔截
+  if(!event.request.url.startsWith('http')) return;
+
   // Firebase / Google 請求：完全不攔截
   if(url.hostname.includes('firebase') ||
      url.hostname.includes('firestore') ||
