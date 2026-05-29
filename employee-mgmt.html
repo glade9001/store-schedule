@@ -1034,7 +1034,7 @@ async function confirmTransfer() {
 
     await window.db.collection('stores').doc(toStore).collection('employees').doc(empId).set({
       ...fromEmpData, role: newRole, status: '在職',
-      transferDate: date, transferFrom: fromStore
+      startDate: date, transferDate: date, transferFrom: fromStore
     });
 
     // 標記原門市為「調走」
