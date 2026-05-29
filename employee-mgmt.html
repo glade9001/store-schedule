@@ -153,11 +153,7 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
     <div class="modal-sub" id="addEmpStoreSub">新增員工並同時建立帳號</div>
     <input type="hidden" id="addEmpStore">
     <div class="form-field">
-      <label>排班系統名稱（顯示在班表上）</label>
-      <input type="text" id="addEmpSysName" placeholder="例如：楷岳">
-    </div>
-    <div class="form-field">
-      <label>顯示姓名（APP 顯示用）</label>
+      <label>姓名（全名）</label>
       <input type="text" id="addEmpDisplayName" placeholder="例如：賴楷岳">
     </div>
     <div class="form-field">
@@ -843,7 +839,6 @@ function openAddEmpModal() {
   const store = currentUser.store || (appConfig.stores && appConfig.stores[0]) || '';
   document.getElementById('addEmpStore').value = store;
   document.getElementById('addEmpStoreSub').textContent = `「${store}」新增員工並同時建立帳號`;
-  document.getElementById('addEmpSysName').value = '';
   document.getElementById('addEmpDisplayName').value = '';
   document.getElementById('addEmpRole').value = '工讀';
   document.getElementById('addEmpWage').value = '';
@@ -855,15 +850,15 @@ function openAddEmpModal() {
 
 async function saveNewEmployee() {
   const store    = document.getElementById('addEmpStore').value;
-  const sysName  = document.getElementById('addEmpSysName').value.trim();
   const dispName = document.getElementById('addEmpDisplayName').value.trim();
+  const sysName  = dispName;
   const role     = document.getElementById('addEmpRole').value;
   const wage     = parseFloat(document.getElementById('addEmpWage').value) || 0;
   const username = document.getElementById('addEmpUsername').value.trim().toUpperCase();
   const password = document.getElementById('addEmpPassword').value;
   const perm     = document.getElementById('addEmpPermission').value;
 
-  if(!sysName) { showToast('⚠️ 請輸入排班系統名稱'); return; }
+  if(!dispName) { showToast('⚠️ 請輸入姓名'); return; }
   if(!username || !/^[A-Z][0-9]{5}$/.test(username)) { showToast('⚠️ 帳號格式：1英文字母+5碼數字'); return; }
   if(!password || password.length < 6) { showToast('⚠️ 密碼至少6碼'); return; }
 
