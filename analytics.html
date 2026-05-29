@@ -821,10 +821,11 @@ function renderCostTab(){
 
   fStores.forEach(store=>{
     ymList.forEach(ym=>{
-      let base=0,bonus=0,ot=0,hol=0,pension=0;
+      let base=0,bonus=0,ot=0,hol=0,pension=0,netSum=0;
       fEmps.filter(e=>e.store===store && isEmpActiveInMonth(e,ym)).forEach(emp=>{
         const rec = salaryMap[ym]?.[emp.name];
         if(!rec) return;
+        // 明細欄（供分解顯示）
         if(emp.role==='工讀'){
           base += Math.round(n(rec.wage)*n(rec.hours||0));
           hol  += Math.round(n(rec.wage)*n(rec.holidayHours));
@@ -835,10 +836,12 @@ function renderCostTab(){
           pension += calcPension(rec,emp.role);
         }
         ot += calcOtPay(rec);
+        // 實際成本：與薪資頁一致，使用 calcNet（應發－代扣）+ 公司勞退
+        netSum += calcNet(rec,emp.role);
       });
       const storeAdj = adjMatrix[store]?.[ym]||0;
       const withPension = document.getElementById('showPensionCol')?.checked ?? false;
-      const total = base+bonus+ot+hol+storeAdj+(withPension?pension:0);
+      const total = netSum + storeAdj + (withPension ? pension : 0);
       rows.push({ store, ym, base, bonus, ot, hol, adj:storeAdj, pension, total });
       storeTotals[store].base+=base; storeTotals[store].bonus+=bonus;
       storeTotals[store].ot+=ot; storeTotals[store].hol+=hol;
