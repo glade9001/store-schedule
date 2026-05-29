@@ -1249,6 +1249,18 @@ function renderPayslip() {
   const net = calcTotal(rec);
   const rate = isPartTime ? 0 : hourlyRate(rec);
 
+  // 特補休資料
+  const _li = leaveDataMap[empName] || {};
+  const _annualDays = _li.annualDays ?? '--';
+  const _usedAnnual = _li.usedAnnual ?? '--';
+  const _remainAnnual = (typeof _annualDays==='number' && typeof _usedAnnual==='number') ? _annualDays - _usedAnnual : '--';
+  const _compBatches = compLogMap[empName] || [];
+  const _remainComp = _compBatches.length > 0
+    ? _compBatches.reduce((s, b) => s + Math.max(0, b.days - b.used), 0)
+    : (typeof _li.earnedComp==='number' && typeof _li.usedComp==='number')
+      ? _li.earnedComp - _li.usedComp : '--';
+  const _fmt = v => v === '--' ? '--' : `${v}天`;
+
   // 薪資單 HTML
   el.innerHTML = `
     <div id="payslipPrint" style="font-family:'Microsoft JhengHei','PingFang TC',sans-serif;background:white;border:2px solid #1a73e8;border-radius:12px;padding:20px;font-size:13px;">
@@ -1260,7 +1272,7 @@ function renderPayslip() {
 
       <div style="display:flex;justify-content:space-between;margin-bottom:12px;background:#f8fafc;border-radius:8px;padding:10px 14px;">
         <div>
-          <div style="font-size:15px;font-weight:900;">${empName}</div>
+          <div style="font-size:15px;font-weight:900;">${getDisplayName(empName)}</div>
           <div style="font-size:12px;color:#64748b;">${role}</div>
         </div>
         <div style="text-align:right;">
@@ -1302,10 +1314,10 @@ function renderPayslip() {
       ${!isPartTime ? `
       <div style="margin-top:8px;background:#fffbf0;border-radius:8px;padding:10px;border:1px solid #fde68a;">
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;font-size:11px;text-align:center;">
-          <div><div style="color:#64748b;">年度特休</div><div style="font-weight:700;">--天</div></div>
-          <div><div style="color:#64748b;">已用特休</div><div style="font-weight:700;">--天</div></div>
-          <div><div style="color:#64748b;">剩餘特休</div><div style="font-weight:700;">--天</div></div>
-          <div><div style="color:#64748b;">剩餘補休</div><div style="font-weight:700;">--天</div></div>
+          <div><div style="color:#64748b;">年度特休</div><div style="font-weight:700;">${_fmt(_annualDays)}</div></div>
+          <div><div style="color:#64748b;">已用特休</div><div style="font-weight:700;">${_fmt(_usedAnnual)}</div></div>
+          <div><div style="color:#64748b;">剩餘特休</div><div style="font-weight:700;">${_fmt(_remainAnnual)}</div></div>
+          <div><div style="color:#64748b;">剩餘補休</div><div style="font-weight:700;">${_fmt(_remainComp)}</div></div>
         </div>
       </div>` : ''}
 
@@ -1862,7 +1874,26 @@ function buildSinglePayslipHtml(emp, y, m) {
     ? `$${_otRate}${_otMult>1?'×1.34':''}×${rec.otHours||0}h`
     : `$${Math.ceil(rph)}×1.34×${rec.otHours||0}h`);
   const workedH = detectHolidayWork(emp.name, currentMonth);
+  const holidayHoursVal = isPartTime ? (rec.holidayHours||0) : calcEmpHolidayHours(emp.name);
   const pensionBase = parseFloat(rec.baseSalary||0) + parseFloat(rec.fullAttendBonus||0);
+
+  // 特補休資料
+  const _li2 = leaveDataMap[emp.name] || {};
+  const _annualDays2 = _li2.annualDays ?? '--';
+  const _usedAnnual2 = _li2.usedAnnual ?? '--';
+  const _remainAnnual2 = (typeof _annualDays2==='number' && typeof _usedAnnual2==='number') ? _annualDays2 - _usedAnnual2 : '--';
+  const _compBatches2 = compLogMap[emp.name] || [];
+  const _remainComp2 = _compBatches2.length > 0
+    ? _compBatches2.reduce((s, b) => s + Math.max(0, b.days - b.used), 0)
+    : (typeof _li2.earnedComp==='number' && typeof _li2.usedComp==='number')
+      ? _li2.earnedComp - _li2.usedComp : '--';
+  const _fmt2 = v => v === '--' ? '--' : String(v);
+
+  // 加班費計算基礎是否顯示
+  const showOtBasis = !isPartTime && !isMgr && (
+    parseFloat(rec.otHours||0)>0 || parseFloat(rec.restDayOtPay||0)>0 ||
+    parseFloat(rec.holidayOtPay||0)>0 || parseFloat(rec.lateMinutes||0)>0
+  );
   const companyPension = Math.round(pensionBase * 0.06);
 
   // 表格行生成
@@ -1921,7 +1952,7 @@ function buildSinglePayslipHtml(emp, y, m) {
     <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:6px;">
       <tr>
         <td style="border:1px solid #ccc;padding:4px 8px;background:#d9e1f2;font-weight:800;">姓名</td>
-        <td style="border:1px solid #ccc;padding:4px 8px;font-weight:700;">${emp.name}</td>
+        <td style="border:1px solid #ccc;padding:4px 8px;font-weight:700;">${getDisplayName(emp.name)}</td>
         <td style="border:1px solid #ccc;padding:4px 8px;background:#d9e1f2;font-weight:800;">職稱</td>
         <td style="border:1px solid #ccc;padding:4px 8px;font-weight:700;">${role}</td>
         <td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;" colspan="2">${y}年${m}月份薪資單</td>
@@ -1942,7 +1973,7 @@ function buildSinglePayslipHtml(emp, y, m) {
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">勞保費</td>
         <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">$${(rec.laborInsurance||0).toLocaleString()}</td>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">${isPartTime?'工時':'年度特休天數'}</td>
-        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${isPartTime?totalH+'h':'--'}</td>
+        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${isPartTime?totalH+'h':_fmt2(_annualDays2)}</td>
       </tr>
       <tr>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">全勤獎金</td>
@@ -1950,7 +1981,7 @@ function buildSinglePayslipHtml(emp, y, m) {
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">健保費</td>
         <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">$${((rec.healthInsurance||0)+(rec.dependentInsurance||0)).toLocaleString()}</td>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">${isPartTime?'時薪':'已用特休天數'}</td>
-        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${isPartTime?`$${rec.wage||0}`:'--'}</td>
+        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${isPartTime?`$${rec.wage||0}`:_fmt2(_usedAnnual2)}</td>
       </tr>
       <tr>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">${role===ROLE_MANAGER?'管理責任獎金':role===ROLE_FULL?'職務津貼':'職務津貼'}</td>
@@ -1958,7 +1989,7 @@ function buildSinglePayslipHtml(emp, y, m) {
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">勞退個人自提</td>
         <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">$${(rec.laborPension||0).toLocaleString()}</td>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">剩餘特休天數</td>
-        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">--</td>
+        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${isPartTime?'--':_fmt2(_remainAnnual2)}</td>
       </tr>
       <tr>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">績效獎金</td>
@@ -1966,7 +1997,7 @@ function buildSinglePayslipHtml(emp, y, m) {
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">其他扣款</td>
         <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">$0</td>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">剩餘補休天數</td>
-        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${givenLeave}</td>
+        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${isPartTime?'--':_fmt2(_remainComp2)}</td>
       </tr>
       <tr>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">其他獎金/津貼</td>
@@ -1977,17 +2008,17 @@ function buildSinglePayslipHtml(emp, y, m) {
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">${isMgr?'平日加班':'平日加班'}${otPayLabel?`<br><span style="font-size:9px;color:#64748b;">${otPayLabel}</span>`:''}</td>
         <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${isMgr?'--':`+$${otPayAmt.toLocaleString()}`}</td>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;background:#d9e1f2;font-weight:800;">平日加班時數</td>
-        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${isMgr?'--':`${otH}h`}</td>
+        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${(isMgr||isPartTime)?'--':`${otH}h`}</td>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;background:#d9e1f2;font-weight:800;">國定假日時數</td>
-        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${isPartTime?rec.holidayHours||0:workedH.length}天</td>
+        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${holidayHoursVal}h</td>
       </tr>
       <tr>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">國定假日加班</td>
         <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">$${isPartTime?Math.round((rec.wage||0)*(rec.holidayHours||0)*2).toLocaleString():0}</td>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;background:#d9e1f2;font-weight:800;">遲到分鐘數</td>
         <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${rec.lateMinutes||0}分</td>
-        <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;background:#d9e1f2;font-weight:800;">加班費計算基礎</td>
-        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${isMgr?'--':(_hasCustomOt?`自訂 $${_otRate}${_otMult<1.34?'':'×1.34'}`:`$${Math.round(rph)}`)}</td>
+        <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;background:#d9e1f2;font-weight:800;">${showOtBasis?'加班費計算基礎':''}</td>
+        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${showOtBasis?(_hasCustomOt?`自訂 $${_otRate}${_otMult<1.34?'':'×1.34'}`:`$${Math.round(rph)}`):''}</td>
       </tr>
       <tr>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">遲到扣款</td>
