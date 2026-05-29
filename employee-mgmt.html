@@ -278,8 +278,8 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
     </div>
     <div class="form-field">
       <label>生效日期</label>
-      <input type="date" id="transferDate" style="width:100%; padding:12px; border:1.5px solid var(--border); border-radius:10px; font-size:14px;">
-      <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">排班系統從生效日的下週一起生效，其他頁面當天起生效</div>
+      <input type="date" id="transferDate" style="width:100%; padding:12px; border:1.5px solid var(--border); border-radius:10px; font-size:14px;" readonly>
+      <div style="font-size:11px; color:#d97706; margin-top:4px; font-weight:700;">⚠️ 生效日統一為下個月1日，薪資以整月為單位計算</div>
     </div>
     <div class="form-field">
       <label>新門市職務</label>
@@ -896,9 +896,12 @@ function openTransferModal(empId, fromStore, dispName) {
     .map(s => `<option value="${s}">${s}</option>`).join('');
   if(!toSel.options.length) { showToast('⚠️ 無其他門市可調'); return; }
 
-  const today = new Date().toISOString().split('T')[0];
-  document.getElementById('transferDate').value = today;
+  const now = new Date();
+  const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const nextMonthFirst = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth()+1).padStart(2,'0')}-01`;
+  document.getElementById('transferDate').value = nextMonthFirst;
   document.getElementById('transferRole').value = '工讀';
+  alert(`⚠️ 調職生效日統一設定為下個月 1 日（${nextMonthFirst}）。\n\n薪資系統以整月為單位計算，月中調職會造成薪資無法正確歸屬。`);
   openModal('transferModal');
 }
 
