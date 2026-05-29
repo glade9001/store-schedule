@@ -66,6 +66,7 @@ async function authLogout() {
   sessionStorage.removeItem('currentUser');
   sessionStorage.removeItem('googleBindShown');
   sessionStorage.removeItem('googleBindDone');
+  sessionStorage.removeItem('salaryVerified');
 }
 
 // ===== 頁面進入點：確認登入狀態，未登入跳轉 =====
@@ -116,4 +117,19 @@ async function authChangePassword(currentPassword, newPassword) {
   const cred = firebase.auth.EmailAuthProvider.credential(user.email, currentPassword);
   await user.reauthenticateWithCredential(cred);
   await user.updatePassword(newPassword);
+}
+
+// ===== 敏感頁面二次驗證 =====
+// 有密碼帳號用密碼驗證；純 Google 帳號用 Google popup 驗證
+async function authReauthenticate(password) {
+  const user = firebase.auth().currentUser;
+  if(!user) throw new Error('未登入');
+  const hasPassword = user.providerData.some(p => p.providerId === 'password');
+  if(hasPassword) {
+    const cred = firebase.auth.EmailAuthProvider.credential(user.email, String(password).padEnd(6, '0'));
+    await user.reauthenticateWithCredential(cred);
+  } else {
+    const provider = new firebase.auth.GoogleAuthProvider();
+    await user.reauthenticateWithPopup(provider);
+  }
 }

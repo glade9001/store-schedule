@@ -15,6 +15,7 @@
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 <script src="firebase-init.js"></script>
+<script src="auth.js"></script>
 <script>emailjs.init('OfG65y3BH5AMGcN-U');</script>
 <style>
 /* ===== 三欄式滑動版面 ===== */
@@ -67,6 +68,20 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 /* App Shell */
 #appShell{display:none;flex-direction:column;height:100%;}
 #appShell.active{display:flex;}
+
+/* 二次驗證 overlay */
+#salaryAuthOverlay{display:none;position:fixed;inset:0;background:linear-gradient(160deg,#1a73e8 0%,#0d47a1 40%,#1e293b 100%);z-index:9990;flex-direction:column;justify-content:center;align-items:center;padding:30px;}
+#salaryAuthOverlay.active{display:flex;}
+.salary-auth-card{background:rgba(255,255,255,0.10);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.20);border-radius:24px;padding:32px 28px;width:100%;max-width:380px;text-align:center;}
+.salary-auth-title{color:white;font-size:22px;font-weight:900;margin-bottom:6px;}
+.salary-auth-sub{color:rgba(255,255,255,0.7);font-size:13px;line-height:1.6;margin-bottom:24px;}
+.salary-auth-input{width:100%;padding:14px;border:1.5px solid rgba(255,255,255,0.3);border-radius:12px;background:rgba(255,255,255,0.12);color:white;font-size:15px;outline:none;margin-bottom:8px;box-sizing:border-box;}
+.salary-auth-input::placeholder{color:rgba(255,255,255,0.4);}
+.salary-auth-error{color:#ff6b6b;font-size:13px;min-height:20px;margin-bottom:10px;font-weight:600;}
+.salary-auth-btn{width:100%;padding:14px;border:none;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer;margin-bottom:10px;}
+.salary-auth-btn.primary{background:white;color:#1a73e8;}
+.salary-auth-btn.google{background:rgba(255,255,255,0.15);color:white;border:1.5px solid rgba(255,255,255,0.4);display:flex;align-items:center;justify-content:center;gap:8px;}
+.salary-auth-back{background:none;border:none;color:rgba(255,255,255,0.5);font-size:13px;cursor:pointer;text-decoration:underline;margin-top:4px;}
 
 /* Header */
 .header{background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:white;padding:0 16px;height:var(--header-h);display:flex;align-items:center;gap:10px;flex-shrink:0;box-shadow:0 2px 12px rgba(26,115,232,0.3);}
@@ -169,6 +184,21 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 </head>
 <body>
 <div id="loadingOverlay"><div class="spinner"></div><div id="loadingText">載入薪資系統...</div></div>
+
+<div id="salaryAuthOverlay">
+  <div class="salary-auth-card">
+    <div class="salary-auth-title">🔒 身分驗證</div>
+    <div class="salary-auth-sub">薪資為敏感資料，請再次確認您的身分</div>
+    <input class="salary-auth-input" type="password" id="salaryAuthPwd" placeholder="輸入登入密碼" onkeydown="if(event.key==='Enter')verifySalaryAuth()">
+    <div class="salary-auth-error" id="salaryAuthErr"></div>
+    <button class="salary-auth-btn primary" id="salaryAuthConfirmBtn" onclick="verifySalaryAuth()">確認驗證</button>
+    <button class="salary-auth-btn google" id="salaryAuthGoogleBtn" onclick="verifySalaryGoogle()" style="display:none;">
+      <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#fff" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/><path fill="#fff" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/><path fill="#fff" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/><path fill="#fff" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 6.29C4.672 4.163 6.656 3.58 9 3.58z"/></svg>
+      使用 Google 驗證
+    </button>
+    <button class="salary-auth-back" onclick="window.location.href='home.html'">返回首頁</button>
+  </div>
+</div>
 
 <div id="appShell">
   <div id="salaryPreviewBanner" style="display:none; background:linear-gradient(135deg,#9334e6,#6a1bb5); color:white; padding:8px 16px; font-size:12px; font-weight:700; text-align:center; cursor:pointer; flex-shrink:0;" onclick="window.location.href='home.html'">
@@ -943,16 +973,46 @@ function renderCalendar(empName, role) {
   </div>`;
 }
 
-// ===== 系統初始化 =====
-window.onload = async () => {
-  showLoading('驗證登入狀態...');
-  const saved = localStorage.getItem('currentUser') || sessionStorage.getItem('currentUser');
-  if(!saved) { window.location.replace('home.html'); return; }
-  try { currentUser = JSON.parse(saved); } catch(e) { window.location.replace('home.html'); return; }
+// ===== 薪資頁身分驗證 =====
+function showSalaryAuth(hasPassword) {
+  document.getElementById('salaryAuthConfirmBtn').style.display = hasPassword ? '' : 'none';
+  document.getElementById('salaryAuthPwd').style.display = hasPassword ? '' : 'none';
+  document.getElementById('salaryAuthGoogleBtn').style.display = hasPassword ? 'none' : 'flex';
+  document.getElementById('salaryAuthOverlay').classList.add('active');
+  if(hasPassword) setTimeout(() => document.getElementById('salaryAuthPwd').focus(), 100);
+}
 
-  const _fbAuth = await new Promise(r => { const u = firebase.auth().onAuthStateChanged(fb => { u(); r(fb); }); });
-  if (!_fbAuth) { localStorage.removeItem('currentUser'); sessionStorage.removeItem('currentUser'); window.location.replace('home.html'); return; }
+async function verifySalaryAuth() {
+  const pwd = document.getElementById('salaryAuthPwd').value;
+  const errEl = document.getElementById('salaryAuthErr');
+  if(!pwd) { errEl.textContent = '請輸入密碼'; return; }
+  errEl.textContent = '';
+  try {
+    await authReauthenticate(pwd);
+    sessionStorage.setItem('salaryVerified', '1');
+    document.getElementById('salaryAuthOverlay').classList.remove('active');
+    await _initSalaryShell();
+  } catch(e) {
+    errEl.textContent = '密碼錯誤，請重新輸入';
+    document.getElementById('salaryAuthPwd').value = '';
+    document.getElementById('salaryAuthPwd').focus();
+  }
+}
 
+async function verifySalaryGoogle() {
+  const errEl = document.getElementById('salaryAuthErr');
+  errEl.textContent = '';
+  try {
+    await authReauthenticate(null);
+    sessionStorage.setItem('salaryVerified', '1');
+    document.getElementById('salaryAuthOverlay').classList.remove('active');
+    await _initSalaryShell();
+  } catch(e) {
+    errEl.textContent = '驗證失敗：' + (e.message || '請重試');
+  }
+}
+
+async function _initSalaryShell() {
   showLoading('載入系統設定...');
   try {
     const cachedConfig = localStorage.getItem('appConfig');
@@ -1013,6 +1073,26 @@ window.onload = async () => {
     hideLoading();
     alert('載入失敗：' + e.message);
   }
+}
+
+// ===== 系統初始化 =====
+window.onload = async () => {
+  showLoading('驗證登入狀態...');
+  const saved = localStorage.getItem('currentUser') || sessionStorage.getItem('currentUser');
+  if(!saved) { window.location.replace('home.html'); return; }
+  try { currentUser = JSON.parse(saved); } catch(e) { window.location.replace('home.html'); return; }
+
+  const _fbAuth = await new Promise(r => { const u = firebase.auth().onAuthStateChanged(fb => { u(); r(fb); }); });
+  if (!_fbAuth) { localStorage.removeItem('currentUser'); sessionStorage.removeItem('currentUser'); window.location.replace('home.html'); return; }
+
+  if(sessionStorage.getItem('salaryVerified') === '1') {
+    _initSalaryShell();
+    return;
+  }
+
+  hideLoading();
+  const hasPassword = _fbAuth.providerData.some(p => p.providerId === 'password');
+  showSalaryAuth(hasPassword);
 };
 </script>
 
