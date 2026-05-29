@@ -669,7 +669,7 @@ function changeMonth(offset) {
   const nowYM = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
   const newYM = `${ny}-${String(nm).padStart(2,'0')}`;
 
-  if(newYM > nowYM) { showToast('⚠️ 不能查看未來月份'); return; }
+  if(newYM >= nowYM) { showToast('⚠️ 當月薪資需等到下個月才可查看'); return; }
   
   // 員工限制只能看過去 12 個月
   if(offset < 0) {
@@ -1034,36 +1034,11 @@ async function _initSalaryShell() {
       if(snap.exists) { appConfig = snap.data(); localStorage.setItem('appConfig', JSON.stringify(appConfig)); }
     } catch(e) {}
 
+    // 規則：薪資永遠顯示「上個曆月」，當月薪資需等到下個月才可查看
     const now = new Date();
-    // 計算當月與上月的 YM 字串
-    const calCurM  = now.getMonth() + 1;
-    const calCurY  = now.getFullYear();
-    const calPrevM = now.getMonth() === 0 ? 12 : now.getMonth();
-    const calPrevY = now.getMonth() === 0 ? now.getFullYear()-1 : now.getFullYear();
-    const ymCur  = `${calCurY}-${String(calCurM).padStart(2,'0')}`;
-    const ymPrev = `${calPrevY}-${String(calPrevM).padStart(2,'0')}`;
-
-    // 查詢當月與上月的薪資發布狀態，優先顯示已發布的月份
-    let chosenMonth = ymPrev; // 預設為上月（安全 fallback）
-    try {
-      const store = currentUser.store || appConfig.stores[0] || '';
-      if(store) {
-        const [snapCur, snapPrev] = await Promise.all([
-          window.db.collection('stores').doc(store).collection('salary').doc(ymCur).get().catch(()=>null),
-          window.db.collection('stores').doc(store).collection('salary').doc(ymPrev).get().catch(()=>null),
-        ]);
-        const curPublished  = snapCur?.exists  && snapCur.data()?.status  === 'published';
-        const prevPublished = snapPrev?.exists && snapPrev.data()?.status === 'published';
-        if(curPublished)       chosenMonth = ymCur;   // 當月已發布：優先顯示當月
-        else if(prevPublished) chosenMonth = ymPrev;  // 只有上月已發布
-        else                   chosenMonth = ymPrev;  // 都未發布：顯示上月（員工看 "計算中"）
-      }
-    } catch(e) {
-      // 查詢失敗時 fallback：沿用舊日期邏輯
-      chosenMonth = now.getDate() >= 10 ? ymCur : ymPrev;
-    }
-
-    currentMonth = chosenMonth;
+    const prevM = now.getMonth() === 0 ? 12 : now.getMonth();
+    const prevY = now.getMonth() === 0 ? now.getFullYear()-1 : now.getFullYear();
+    currentMonth = `${prevY}-${String(prevM).padStart(2,'0')}`;
     document.getElementById('monthLabel').textContent = getMonthLabel(currentMonth);
 
     const sel = document.getElementById('storeSelector');
