@@ -993,7 +993,11 @@ async function verifySalaryAuth() {
     document.getElementById('salaryAuthOverlay').classList.remove('active');
     await _initSalaryShell();
   } catch(e) {
-    errEl.textContent = '密碼錯誤，請重新輸入';
+    console.error('[salaryAuth]', e.code, e.message);
+    const msg = (e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential')
+      ? '密碼錯誤，請重新輸入'
+      : (e.code ? `驗證失敗 (${e.code})` : '驗證失敗，請重試');
+    errEl.textContent = msg;
     document.getElementById('salaryAuthPwd').value = '';
     document.getElementById('salaryAuthPwd').focus();
   }
