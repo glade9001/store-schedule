@@ -99,6 +99,9 @@
       }
     }
 
+    // 密碼補足至 6 碼（Firebase Auth 最低要求）
+    const _padPwd = pwd => String(pwd || '').padEnd(6, '0');
+
     // ② 遷移：建立 Firebase Auth 帳號 + users/{uid} 文件
     async function startMigration() {
       if (!accountDocs.length) { log('⚠️ 請先執行預覽', 'warn'); return; }
@@ -108,7 +111,6 @@
       document.getElementById('previewBtn').disabled = true;
       clearLog();
 
-      // 用第二個 app instance 建立帳號，避免登出當前使用者
       const config = {
         apiKey: "AIzaSyAmVwq-Wny1KMRGNSdOnBEJ_A-3HmTO-hM",
         authDomain: "store-schedule-3b056.firebaseapp.com",
@@ -117,39 +119,58 @@
         messagingSenderId: "296522693619",
         appId: "1:296522693619:web:f90ec5d666c7a4a5943086"
       };
+
+      // 第二個 app instance 建立其他帳號，避免登出當前管理員
       const secondaryApp = firebase.apps.find(a => a.name === 'migration')
         || firebase.initializeApp(config, 'migration');
       const secondaryAuth = secondaryApp.auth();
+
+      // ── 先讓管理員登入 Firebase Auth（取得 auth token 才能寫 Firestore） ──
+      const adminId = document.getElementById('adminId').value.trim();
+      const adminPwd = _padPwd(document.getElementById('adminPwd').value);
+      const adminEmail = `${adminId.toLowerCase()}@lixue.internal`;
+      log('正在以管理員身份登入 Firebase Auth...', 'warn');
+      try {
+        await firebase.auth().signInWithEmailAndPassword(adminEmail, adminPwd);
+        log('✅ 管理員 Firebase Auth 登入成功', 'ok');
+      } catch(e) {
+        log(`❌ 管理員登入失敗：${e.message}`, 'err');
+        log('請確認管理員帳號已成功建立於 Firebase Auth（先手動建立或重新跑一次預覽流程）', 'warn');
+        document.getElementById('migrateBtn').disabled = false;
+        return;
+      }
 
       let success = 0, skip = 0, fail = 0;
 
       for (let i = 0; i < accountDocs.length; i++) {
         const acc = accountDocs[i];
         const email = `${String(acc.ID || '').toLowerCase()}@lixue.internal`;
-        const password = acc.password || '000000';
+        const password = _padPwd(acc.password);  // 補足至 6 碼
 
         document.getElementById('progress').textContent =
           `處理中 ${i + 1} / ${accountDocs.length}：${acc.displayName || acc.ID}`;
 
         try {
-          // 建立 Firebase Auth 帳號
+          // 建立 Firebase Auth 帳號（用 secondary app 避免登出管理員）
           let uid;
+          let isNew = true;
           try {
             const cred = await secondaryAuth.createUserWithEmailAndPassword(email, password);
             uid = cred.user.uid;
-            log(`✅ [${i+1}] ${acc.ID} → uid: ${uid}`, 'ok');
+            await secondaryAuth.signOut();
+            log(`✅ [${i+1}] ${acc.ID} (${acc.displayName||''}) → uid: ${uid}`, 'ok');
           } catch(e) {
             if (e.code === 'auth/email-already-in-use') {
-              // 已存在：取得既有 uid
-              const methods = await secondaryAuth.fetchSignInMethodsForEmail(email);
-              if (methods.length > 0) {
+              // 已存在：登入取得 uid
+              try {
                 const existing = await secondaryAuth.signInWithEmailAndPassword(email, password);
                 uid = existing.user.uid;
                 await secondaryAuth.signOut();
-                log(`⏭️ [${i+1}] ${acc.ID} 已存在，使用既有 uid: ${uid}`, 'warn');
+                log(`⏭️ [${i+1}] ${acc.ID} 已存在，uid: ${uid}`, 'warn');
+                isNew = false;
                 skip++;
-              } else {
-                throw new Error('帳號已存在但密碼不符');
+              } catch(e2) {
+                throw new Error('帳號已存在但密碼不符，請手動處理');
               }
             } else {
               throw e;
@@ -167,29 +188,27 @@
             disabled: acc.disabled || false,
             linked: acc.linked || false,
           };
-          // 保留調店待生效欄位
           if (acc.pendingStore) userDoc.pendingStore = acc.pendingStore;
           if (acc.transferDate) userDoc.transferDate = acc.transferDate;
 
           await window.db.collection('users').doc(uid).set(userDoc, { merge: true });
-          if (!skip || skip === 0) success++;
+          if (isNew) success++;
 
         } catch(e) {
           log(`❌ [${i+1}] ${acc.ID} 失敗：${e.message}`, 'err');
           fail++;
         }
 
-        // 避免過快觸發 Firebase 請求限制
         await new Promise(r => setTimeout(r, 300));
       }
 
       document.getElementById('progress').textContent = '✅ 遷移完成';
       log('');
       log('═'.repeat(50));
-      log(`遷移結果：成功 ${success} | 略過（已存在）${skip} | 失敗 ${fail}`, fail > 0 ? 'err' : 'ok');
+      log(`遷移結果：新建 ${success} | 已存在 ${skip} | 失敗 ${fail}`, fail > 0 ? 'err' : 'ok');
       log('');
-      log('下一步：確認 Firebase Console → Authentication 帳號數量正確後，', 'warn');
-      log('即可開始逐頁將 requireLogin() 替換為 requireAuth()', 'warn');
+      log('下一步：至 Firebase Console → Authentication 確認帳號數量正確', 'warn');
+      log('確認後即可逐頁將 requireLogin() 替換為 requireAuth()', 'warn');
     }
   </script>
 </body>

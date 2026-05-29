@@ -3,6 +3,7 @@
 //   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 
 const _toEmail = id => `${String(id).toLowerCase()}@lixue.internal`;
+const _padPwd  = pwd => String(pwd || '').padEnd(6, '0'); // Firebase Auth 最低 6 碼
 
 // ===== 讀取使用者 Firestore 資料並處理待生效調店 =====
 async function _loadProfile(fbUser) {
@@ -32,7 +33,7 @@ async function _loadProfile(fbUser) {
 
 // ===== 工號 + 密碼登入 =====
 async function authLogin(empId, password) {
-  const cred = await firebase.auth().signInWithEmailAndPassword(_toEmail(empId), password);
+  const cred = await firebase.auth().signInWithEmailAndPassword(_toEmail(empId), _padPwd(password));
   return await _loadProfile(cred.user);
 }
 
