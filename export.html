@@ -438,7 +438,7 @@ const calcGross = (rec, role) => {
     n(rec.laborAllowance)+n(rec.performance)+n(rec.nightAllowance)+
     n(rec.roleBonus)+n(rec.otherBonus)+
     n(rec.annualLeaveEncash)+n(rec.compLeaveEncash)+
-    calcOtPay(rec)+n(rec.restDayOtPay)+n(rec.holidayOtPay)-
+    calcOtPay(rec)+n(rec.restDayOtPay)+n(rec.holidayOtPay)+n(rec.hourlySupportAmt||0)-
     Math.round(rph/60*n(rec.lateMinutes))-
     Math.abs(n(rec.personalSickLeave)));
 };

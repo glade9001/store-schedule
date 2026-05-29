@@ -3491,6 +3491,19 @@ function triggerAutoSave() {
 async function autoSaveDraft() {
   if(isReadonly()) return;
   collectRecords();
+  // 存檔前同步計算值（供 analytics/export 直接讀取，避免重算差異）
+  salaryData.records.forEach(rec => {
+    const emp = empList.find(e => e.name === rec.empName);
+    if(!emp) return;
+    if(emp.role === ROLE_PART) {
+      // 工讀生：同步最新工時
+      rec.hours = calcEmpHours(emp.name).totalH;
+    } else {
+      // 正職/店長：同步時薪另計金額
+      const hH = calcHourlySupportHours(rec.empName||'');
+      rec.hourlySupportAmt = Math.round(hH * parseFloat(rec.hourlySupportRate||0));
+    }
+  });
   try {
     await window.db.collection('stores').doc(currentStore).collection('salary').doc(currentMonth).set({
       ...salaryData,

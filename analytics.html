@@ -603,7 +603,7 @@ const calcGross = (rec, role) => {
     return Math.max(0, Math.round(w*h)+Math.round(w*n(rec.holidayHours))+n(rec.roleBonus)+Math.round(n(rec.extraHours)*w)-Math.abs(n(rec.personalSickLeave)));
   }
   const mgmt=['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+n(rec[k]),0);
-  return Math.max(0, n(rec.baseSalary)+n(rec.fullAttendBonus)+mgmt+n(rec.laborAllowance)+n(rec.performance)+n(rec.nightAllowance)+n(rec.roleBonus)+n(rec.otherBonus)+n(rec.annualLeaveEncash)+n(rec.compLeaveEncash)+calcOtPay(rec)+n(rec.restDayOtPay)+n(rec.holidayOtPay)-Math.round(calcHourlyRate(rec)/60*n(rec.lateMinutes))-Math.abs(n(rec.personalSickLeave)));
+  return Math.max(0, n(rec.baseSalary)+n(rec.fullAttendBonus)+mgmt+n(rec.laborAllowance)+n(rec.performance)+n(rec.nightAllowance)+n(rec.roleBonus)+n(rec.otherBonus)+n(rec.annualLeaveEncash)+n(rec.compLeaveEncash)+calcOtPay(rec)+n(rec.restDayOtPay)+n(rec.holidayOtPay)+n(rec.hourlySupportAmt||0)-Math.round(calcHourlyRate(rec)/60*n(rec.lateMinutes))-Math.abs(n(rec.personalSickLeave)));
 };
 const calcDeduct = rec => n(rec.laborInsurance)+n(rec.healthInsurance)+n(rec.dependentInsurance)+n(rec.laborPension)+n(rec.otherDeduction);
 const calcNet = (rec,role) => calcGross(rec,role)-calcDeduct(rec);
