@@ -596,7 +596,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       <div class="setup-step-num">2</div>
       <div class="setup-step-text">
         <div class="setup-step-title">綁定 Google 帳號</div>
-        綁定後可直接用 Google 快速登入，同時提升帳號安全性
+        為加強帳號安全性，綁定後可雙重驗證身分，同時免除每次輸入密碼的麻煩
       </div>
     </div>
     <button class="save-btn" style="margin-top:20px;" onclick="startFirstLoginSetup()">我了解，開始設定 →</button>
@@ -632,7 +632,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
   <div class="login-title" style="margin-bottom:4px;">最後一步</div>
   <div class="login-sub" style="margin-bottom:6px; font-size:15px;">綁定 Google 帳號</div>
   <div class="login-sub" style="margin-bottom:30px; line-height:1.6;">
-    密碼設定完成！綁定 Google 後<br>下次可以直接 Google 快速登入
+    為加強帳號安全性，建議綁定 Google 帳號<br>下次只需一鍵即可快速登入，免輸入密碼
   </div>
   <div class="pwd-change-card" style="text-align:center;">
     <button onclick="doMandatoryGoogleBind()" class="login-btn" style="display:flex;align-items:center;justify-content:center;gap:10px;margin-top:0;">
@@ -1041,9 +1041,9 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 <div class="bottom-sheet" id="googleBindSheet">
   <div class="bs-handle"></div>
   <div style="padding:0 20px 20px;">
-    <div style="font-size:32px; text-align:center; margin-bottom:10px;">🔗</div>
-    <div style="font-size:17px; font-weight:900; text-align:center; margin-bottom:6px;">建議綁定 Google 帳號</div>
-    <div style="font-size:13px; color:var(--text-muted); text-align:center; line-height:1.6; margin-bottom:20px;">綁定後下次可直接用 Google 快速登入，<br>不需輸入帳號密碼。</div>
+    <div style="font-size:32px; text-align:center; margin-bottom:10px;">🔐</div>
+    <div style="font-size:17px; font-weight:900; text-align:center; margin-bottom:6px;">加強帳號安全性</div>
+    <div style="font-size:13px; color:var(--text-muted); text-align:center; line-height:1.6; margin-bottom:20px;">綁定 Google 帳號後可雙重驗證身分，<br>有效防止帳號遭盜用，同時享有一鍵快速登入。</div>
     <button onclick="doGoogleBind()" style="width:100%;padding:14px;background:var(--primary);color:white;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:10px;display:flex;align-items:center;justify-content:center;gap:8px;">
       <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#fff" d="M44.5 20H24v8.5h11.8C34.7 33.9 30.1 37 24 37c-7.2 0-13-5.8-13-13s5.8-13 13-13c3.1 0 5.9 1.1 8.1 2.9l6.4-6.4C34.6 5.1 29.6 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21c10.5 0 20-7.6 20-21 0-1.4-.1-2.7-.5-4z"/></svg>
       立即綁定 Google
