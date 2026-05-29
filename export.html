@@ -6,6 +6,7 @@
 <title>📊 資料匯出</title>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="firebase-init.js"></script>
 <style>
@@ -364,6 +365,8 @@ window.onload = async () => {
   const saved = localStorage.getItem('currentUser')||sessionStorage.getItem('currentUser');
   if(!saved){window.location.replace('home.html');return;}
   try{currentUser=JSON.parse(saved);}catch{window.location.replace('home.html');return;}
+  const _fbAuth = await new Promise(r => { const u = firebase.auth().onAuthStateChanged(fb => { u(); r(fb); }); });
+  if (!_fbAuth) { localStorage.removeItem('currentUser'); sessionStorage.removeItem('currentUser'); window.location.replace('home.html'); return; }
   if(!['owner','admin'].includes(currentUser?.permission)){
     alert('⚠️ 此功能僅限加盟主以上權限');
     window.location.replace('home.html');return;

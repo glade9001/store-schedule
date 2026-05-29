@@ -12,6 +12,7 @@
 <title>🗒️ 代辦事項</title>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 <script src="firebase-init.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
@@ -434,6 +435,8 @@ window.onload=async()=>{
   const saved=localStorage.getItem('currentUser')||sessionStorage.getItem('currentUser');
   if(!saved){window.location.replace('home.html');return;}
   try{currentUser=JSON.parse(saved);}catch(e){window.location.replace('home.html');return;}
+  const _fbAuth = await new Promise(r => { const u = firebase.auth().onAuthStateChanged(fb => { u(); r(fb); }); });
+  if (!_fbAuth) { localStorage.removeItem('currentUser'); sessionStorage.removeItem('currentUser'); window.location.replace('home.html'); return; }
   try{
     const cached=localStorage.getItem('appConfig');
     if(cached)try{appConfig=JSON.parse(cached);}catch(e){}
@@ -441,7 +444,7 @@ window.onload=async()=>{
       const s=await Promise.race([window.db.collection('settings').doc('globalConfig').get(),new Promise((_,r)=>setTimeout(()=>r(new Error('t')),5000))]);
       if(s.exists){appConfig=s.data();localStorage.setItem('appConfig',JSON.stringify(appConfig));}
     }catch(e){}
-    const accSnap=await window.db.collection('account').where('store','==',myStore()).get().catch(()=>null);
+    const accSnap=await window.db.collection('users').where('store','==',myStore()).get().catch(()=>null);
     if(accSnap)accSnap.forEach(d=>{const a=d.data();if(a.empName&&a.displayName)displayNameMap[a.empName]=a.displayName;});
     document.getElementById('headerAddBtn').style.display='flex';
     await loadTodos();
@@ -756,7 +759,7 @@ async function updateTgtPreview(){
     // ✅ 從 account 讀取實際店長名字
     const stores=selStores.length>0?selStores:(appConfig.stores||[]);
     try{
-      const accSnap=await window.db.collection('account').where('permission','==','manager').get();
+      const accSnap=await window.db.collection('users').where('permission','==','manager').get();
       const mgrs=[];
       accSnap.forEach(d=>{
         const a=d.data();

@@ -12,7 +12,9 @@
 <title>莉學商行管理系統</title>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 <script src="firebase-init.js"></script>
+<script src="auth.js"></script>
 <style>
 /* ===== RESET & BASE ===== */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -82,7 +84,49 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
   box-shadow: 0 4px 20px rgba(0,0,0,0.2);
 }
 .login-btn:active { transform: scale(0.98); }
+.login-google-btn {
+  width: 100%; padding: 13px; background: rgba(255,255,255,0.12); color: white;
+  border: 1.5px solid rgba(255,255,255,0.35); border-radius: 12px;
+  font-size: 14px; font-weight: 700; cursor: pointer; margin-top: 10px;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  transition: background 0.15s;
+}
+.login-google-btn:active { background: rgba(255,255,255,0.22); }
+.login-divider {
+  display: flex; align-items: center; gap: 10px; margin: 14px 0 4px;
+  color: rgba(255,255,255,0.4); font-size: 12px; font-weight: 600;
+}
+.login-divider::before, .login-divider::after {
+  content: ''; flex: 1; border-top: 1px solid rgba(255,255,255,0.2);
+}
 .login-error { color: #ff6b6b; font-size: 13px; text-align: center; margin-top: 12px; min-height: 20px; font-weight: 600; }
+
+/* ===== 首次登入全螢幕畫面（改密碼 / 綁定 Google）===== */
+#pwdChangeScreen, #googleBindScreen {
+  display: none; position: fixed; inset: 0;
+  background: linear-gradient(160deg, #1a73e8 0%, #0d47a1 40%, #1e293b 100%);
+  z-index: 9999; justify-content: center; align-items: center; flex-direction: column; padding: 30px;
+}
+#pwdChangeScreen.active, #googleBindScreen.active { display: flex; }
+.pwd-change-card {
+  background: rgba(255,255,255,0.10); backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.20); border-radius: 24px;
+  padding: 28px; width: 100%; max-width: 380px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+/* 首次登入說明 modal */
+#firstLoginInfoModal .modal-box { text-align: center; }
+.setup-step {
+  display: flex; align-items: flex-start; gap: 12px;
+  background: #f8fafc; border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; text-align: left;
+}
+.setup-step-num {
+  width: 26px; height: 26px; border-radius: 50%; background: var(--primary);
+  color: white; font-size: 13px; font-weight: 900;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px;
+}
+.setup-step-text { font-size: 13px; line-height: 1.5; }
+.setup-step-title { font-weight: 800; font-size: 14px; margin-bottom: 2px; }
 
 /* ===== APP SHELL ===== */
 #appShell { display: none; height: 100vh; flex-direction: column; }
@@ -525,7 +569,79 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       <label for="rememberMe" style="font-size:13px; color:var(--text-muted); cursor:pointer; font-weight:600;">記住我（下次自動登入）</label>
     </div>
     <button class="login-btn" onclick="doLogin()">登入</button>
+    <div class="login-divider">或</div>
+    <button class="login-google-btn" onclick="doGoogleLogin()">
+      <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#fff" d="M44.5 20H24v8.5h11.8C34.7 33.9 30.1 37 24 37c-7.2 0-13-5.8-13-13s5.8-13 13-13c3.1 0 5.9 1.1 8.1 2.9l6.4-6.4C34.6 5.1 29.6 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21c10.5 0 20-7.6 20-21 0-1.4-.1-2.7-.5-4z"/></svg>
+      使用 Google 帳號登入
+    </button>
     <div class="login-error" id="loginError"></div>
+  </div>
+</div>
+
+<!-- ===== 首次登入說明 modal ===== -->
+<div class="modal-overlay" id="firstLoginInfoModal">
+  <div class="modal-box" style="max-width:420px;">
+    <div style="font-size:44px; margin-bottom:10px;">🔐</div>
+    <div class="modal-title">首次登入安全設定</div>
+    <div class="modal-sub" style="margin-bottom:18px;">為確保您的帳號安全，首次登入需完成以下兩個步驟</div>
+    <div class="setup-step">
+      <div class="setup-step-num">1</div>
+      <div class="setup-step-text">
+        <div class="setup-step-title">設定專屬密碼</div>
+        將系統預設密碼改為您的個人密碼，避免資料外洩
+      </div>
+    </div>
+    <div class="setup-step">
+      <div class="setup-step-num">2</div>
+      <div class="setup-step-text">
+        <div class="setup-step-title">綁定 Google 帳號</div>
+        綁定後可直接用 Google 快速登入，同時提升帳號安全性
+      </div>
+    </div>
+    <button class="save-btn" style="margin-top:20px;" onclick="startFirstLoginSetup()">我了解，開始設定 →</button>
+  </div>
+</div>
+
+<!-- ===== 首次登入：強制改密碼 ===== -->
+<div id="pwdChangeScreen">
+  <div style="font-size:40px; margin-bottom:12px;">🔐</div>
+  <div class="login-title" style="margin-bottom:4px;">設定新密碼</div>
+  <div class="login-sub" style="margin-bottom:28px;">首次登入請設定專屬密碼，提升帳號安全</div>
+  <div class="pwd-change-card">
+    <div class="login-field">
+      <label>現有密碼（原本的密碼）</label>
+      <input type="password" id="pcOldPwd" placeholder="輸入目前使用的密碼" autocomplete="current-password">
+    </div>
+    <div class="login-field">
+      <label>新密碼（至少 4 碼）</label>
+      <input type="password" id="pcNewPwd" placeholder="設定新密碼">
+    </div>
+    <div class="login-field" style="margin-bottom:0;">
+      <label>確認新密碼</label>
+      <input type="password" id="pcNewPwdC" placeholder="再輸入一次新密碼">
+    </div>
+    <div class="login-error" id="pcError" style="margin-top:10px;"></div>
+    <button class="login-btn" style="margin-top:16px;" onclick="doFirstTimePwdChange()">確認設定</button>
+  </div>
+</div>
+
+<!-- ===== 首次登入：強制綁定 Google ===== -->
+<div id="googleBindScreen">
+  <div style="font-size:52px; margin-bottom:14px;">🔗</div>
+  <div class="login-title" style="margin-bottom:4px;">最後一步</div>
+  <div class="login-sub" style="margin-bottom:6px; font-size:15px;">綁定 Google 帳號</div>
+  <div class="login-sub" style="margin-bottom:30px; line-height:1.6;">
+    密碼設定完成！綁定 Google 後<br>下次可以直接 Google 快速登入
+  </div>
+  <div class="pwd-change-card" style="text-align:center;">
+    <button onclick="doMandatoryGoogleBind()" class="login-btn" style="display:flex;align-items:center;justify-content:center;gap:10px;margin-top:0;">
+      <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#fff" d="M44.5 20H24v8.5h11.8C34.7 33.9 30.1 37 24 37c-7.2 0-13-5.8-13-13s5.8-13 13-13c3.1 0 5.9 1.1 8.1 2.9l6.4-6.4C34.6 5.1 29.6 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21c10.5 0 20-7.6 20-21 0-1.4-.1-2.7-.5-4z"/></svg>
+      立即綁定 Google
+    </button>
+    <div id="googleBindError" class="login-error" style="min-height:16px; margin-top:8px;"></div>
+    <button onclick="skipMandatoryGoogleBind()" style="margin-top:12px; background:none; border:none; color:rgba(255,255,255,0.5); font-size:13px; cursor:pointer; text-decoration:underline;">
+      我目前沒有 Google 帳號，稍後再綁定
+    </button>
   </div>
 </div>
 
@@ -919,6 +1035,22 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 
 <div class="toast" id="toast"></div>
 
+<!-- ===== Google 綁定建議 ===== -->
+<div class="bottom-sheet-overlay" id="googleBindOverlay" onclick="dismissGoogleBind()"></div>
+<div class="bottom-sheet" id="googleBindSheet">
+  <div class="bs-handle"></div>
+  <div style="padding:0 20px 20px;">
+    <div style="font-size:32px; text-align:center; margin-bottom:10px;">🔗</div>
+    <div style="font-size:17px; font-weight:900; text-align:center; margin-bottom:6px;">建議綁定 Google 帳號</div>
+    <div style="font-size:13px; color:var(--text-muted); text-align:center; line-height:1.6; margin-bottom:20px;">綁定後下次可直接用 Google 快速登入，<br>不需輸入帳號密碼。</div>
+    <button onclick="doGoogleBind()" style="width:100%;padding:14px;background:var(--primary);color:white;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:10px;display:flex;align-items:center;justify-content:center;gap:8px;">
+      <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#fff" d="M44.5 20H24v8.5h11.8C34.7 33.9 30.1 37 24 37c-7.2 0-13-5.8-13-13s5.8-13 13-13c3.1 0 5.9 1.1 8.1 2.9l6.4-6.4C34.6 5.1 29.6 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21c10.5 0 20-7.6 20-21 0-1.4-.1-2.7-.5-4z"/></svg>
+      立即綁定 Google
+    </button>
+    <button onclick="dismissGoogleBind()" style="width:100%;padding:12px;background:none;color:var(--text-muted);border:none;font-size:14px;cursor:pointer;">以後再說</button>
+  </div>
+</div>
+
 <script>
 // ===== 全域狀態 =====
 let currentUser = null;  // { name, store, role, permission, username }
@@ -1032,9 +1164,6 @@ function getTodayDayName() {
 window.onload = async () => {
   showLoading('連線雲端資料庫中...');
   try {
-  const savedUserCheck = localStorage.getItem('currentUser') || sessionStorage.getItem('currentUser');
-  if(savedUserCheck) localStorage.removeItem('redirectAfterLogin');
-
     const cachedConfig = localStorage.getItem('appConfig');
     if(cachedConfig) {
       try { appConfig = JSON.parse(cachedConfig); } catch(e) {}
@@ -1052,48 +1181,35 @@ window.onload = async () => {
       console.warn('設定讀取失敗，使用快取');
     }
 
-    const savedUser = localStorage.getItem('currentUser') || sessionStorage.getItem('currentUser');
-    if(savedUser) {
-      try {
-        currentUser = JSON.parse(savedUser);
-        // 快取登入：也需檢查待生效調店
-        if(currentUser.docId) {
-          try {
-            const accRef = window.db.collection('account').doc(currentUser.docId);
-            const accDoc = await accRef.get();
-            if(accDoc.exists) {
-              const acc = accDoc.data();
-              const today = new Date().toISOString().split('T')[0];
-              if(acc.pendingStore && acc.transferDate && acc.transferDate <= today) {
-                await accRef.update({
-                  store: acc.pendingStore,
-                  pendingStore: firebase.firestore.FieldValue.delete(),
-                  transferDate: firebase.firestore.FieldValue.delete()
-                });
-                currentUser.store = acc.pendingStore;
-                if(localStorage.getItem('currentUser')) {
-                  localStorage.setItem('currentUser', JSON.stringify(currentUser));
-                } else {
-                  sessionStorage.setItem('currentUser', JSON.stringify(currentUser));
-                }
-              }
-            }
-          } catch(e) { /* 不阻擋登入 */ }
+    // Firebase Auth 狀態偵測（一次性）
+    const unsub = firebase.auth().onAuthStateChanged(async fbUser => {
+      unsub();
+      if(fbUser) {
+        try {
+          const profile = await _loadProfile(fbUser);
+          if(!profile) {
+            await firebase.auth().signOut();
+            showLoginScreen();
+            return;
+          }
+          currentUser = profile;
+          _cacheCurrentUser(profile);
+          await _afterLogin(profile).catch(e => {
+            console.error('initApp 失敗:', e);
+            document.getElementById('appShell').classList.add('active');
+            hideLoading();
+          });
+        } catch(e) {
+          await firebase.auth().signOut();
+          showLoginScreen();
+          if(e.code === 'disabled') {
+            document.getElementById('loginError').textContent = '⛔ ' + e.message;
+          }
         }
-        await initApp().catch(e => {
-          console.error('initApp 失敗:', e);
-          // initApp 拋錯時確保 loading 關閉、顯示首頁（已有 appShell）
-          document.getElementById('appShell').classList.add('active');
-          hideLoading();
-        });
-      } catch(e) {
-        localStorage.removeItem('currentUser');
-        sessionStorage.removeItem('currentUser');
+      } else {
         showLoginScreen();
       }
-    } else {
-      showLoginScreen();
-    }
+    });
   } catch(e) {
     hideLoading();
     document.getElementById('loginScreen').classList.add('active');
@@ -1101,14 +1217,22 @@ window.onload = async () => {
   }
 };
 
+function _cacheCurrentUser(profile) {
+  const remember = localStorage.getItem('rememberMe') === '1';
+  if(remember) {
+    localStorage.setItem('currentUser', JSON.stringify(profile));
+  } else {
+    sessionStorage.setItem('currentUser', JSON.stringify(profile));
+    localStorage.removeItem('currentUser');
+  }
+}
+
 function showLoginScreen() {
   hideLoading();
   document.getElementById('loginScreen').classList.add('active');
   const lastUser = localStorage.getItem('lastLoginUsername');
-  const lastPwd = localStorage.getItem('lastLoginPassword');
   const rememberMe = localStorage.getItem('rememberMe') === '1';
   if(lastUser) document.getElementById('loginUsername').value = lastUser;
-  if(lastPwd && rememberMe) document.getElementById('loginPassword').value = lastPwd;
   if(rememberMe) {
     const cb = document.getElementById('rememberMe');
     if(cb) cb.checked = true;
@@ -1127,86 +1251,172 @@ async function doLogin() {
 
   showLoading('驗證身分中...');
   try {
-    const snap = await Promise.race([
-      window.db.collection('account').where('ID', '==', username).limit(1).get(),
-      new Promise((_,rej) => setTimeout(() => rej(new Error('連線逾時，請確認網路後重試')), 8000))
-    ]);
-    if(snap.empty) {
-      hideLoading();
-      errEl.textContent = '❌ 帳號不存在';
-      return;
-    }
-    const accDoc = snap.docs[0];
-    const acc = accDoc.data();
-    const docId = accDoc.id; 
-
-    if(acc.password !== password) {
-      hideLoading();
-      errEl.textContent = '❌ 密碼錯誤';
-      return;
-    }
-    if(acc.disabled === true) {
-      hideLoading();
-      errEl.textContent = '⛔ 此帳號已被停用，請聯絡管理者';
-      return;
-    }
-
-    // ✅ 離職生效日停用：若員工已離職且生效日 ≤ 今天，拒絕登入
-    if(acc.empName && acc.store) {
-      try {
-        const empSnap = await window.db.collection('stores').doc(acc.store)
-          .collection('employees').doc(acc.empName).get();
-        if(empSnap.exists) {
-          const empData = empSnap.data();
-          const today = new Date().toISOString().split('T')[0];
-          if(empData.status === '離職' && empData.retireDate && empData.retireDate <= today) {
-            hideLoading();
-            errEl.textContent = `⛔ 此帳號已於 ${empData.retireDate} 停用（離職生效）`;
-            return;
-          }
-        }
-      } catch(e) { /* 讀取失敗不阻擋登入，避免誤擋 */ }
-    }
-
-    // 調店生效日：若有待生效的調店，且今天已達生效日，正式更新帳號
-    {
-      const today = new Date().toISOString().split('T')[0];
-      if(acc.pendingStore && acc.transferDate && acc.transferDate <= today) {
-        try {
-          await accDoc.ref.update({
-            store: acc.pendingStore,
-            pendingStore: firebase.firestore.FieldValue.delete(),
-            transferDate: firebase.firestore.FieldValue.delete()
-          });
-          acc.store = acc.pendingStore;
-        } catch(e) { /* 更新失敗不阻擋登入 */ }
-      }
-    }
-
-    const perm = acc.permission || 'employee';
-    currentUser = {
-      docId: docId,
-      username: username,
-      displayName: acc.displayName || acc.empName || username,
-      empName: acc.empName || '',
-      linked: acc.linked === true,
-      store: acc.store || null,
-      role: acc.role || '',
-      permission: perm
-    };
     const remember = document.getElementById('rememberMe')?.checked;
+
+    // 依「記住我」設定 Firebase 持久性
+    await firebase.auth().setPersistence(
+      remember ? firebase.auth.Auth.Persistence.LOCAL : firebase.auth.Auth.Persistence.SESSION
+    );
+
+    const profile = await authLogin(username, password);
+    currentUser = profile;
+
     localStorage.setItem('lastLoginUsername', username);
     if(remember) {
-      localStorage.setItem('currentUser', JSON.stringify(currentUser));
-      localStorage.setItem('lastLoginPassword', password);
       localStorage.setItem('rememberMe', '1');
+      localStorage.setItem('currentUser', JSON.stringify(profile));
     } else {
-      sessionStorage.setItem('currentUser', JSON.stringify(currentUser));
-      localStorage.removeItem('currentUser');
-      localStorage.removeItem('lastLoginPassword');
       localStorage.removeItem('rememberMe');
+      localStorage.removeItem('currentUser');
+      sessionStorage.setItem('currentUser', JSON.stringify(profile));
     }
+
     document.getElementById('loginScreen').classList.remove('active');
+    await _afterLogin(profile);
+  } catch(e) {
+    hideLoading();
+    const codeMap = {
+      'auth/user-not-found': '帳號不存在',
+      'auth/wrong-password': '帳號或密碼錯誤',
+      'auth/invalid-credential': '帳號或密碼錯誤',
+      'auth/too-many-requests': '登入嘗試次數過多，請稍後再試',
+      'not-linked': e.message,
+      'disabled': e.message,
+    };
+    errEl.textContent = '❌ ' + (codeMap[e.code] || e.message);
+  }
+}
+
+async function doLogout() {
+  if(!confirm('確定要登出嗎？')) return;
+  await authLogout();
+  currentUser = null;
+  document.getElementById('appShell').classList.remove('active');
+  document.getElementById('loginScreen').classList.add('active');
+  document.getElementById('loginUsername').value = localStorage.getItem('lastLoginUsername') || '';
+  document.getElementById('loginPassword').value = '';
+  document.getElementById('loginError').textContent = '';
+}
+
+// ===== 登入後主流程 =====
+async function _afterLogin(profile, { skipPwdChange = false } = {}) {
+  // 首次登入：先顯示說明視窗（Google 登入者不強制，因為不知道 email 密碼）
+  if(!profile.pwdChanged && !skipPwdChange) {
+    hideLoading();
+    openModal('firstLoginInfoModal');
+    return;
+  }
+  // 跳轉
+  const redirect = localStorage.getItem('redirectAfterLogin');
+  if(redirect) {
+    localStorage.removeItem('redirectAfterLogin');
+    window.location.href = redirect;
+    return;
+  }
+  await initApp();
+  maybeShowGoogleBindSuggestion();
+}
+
+function startFirstLoginSetup() {
+  closeModal('firstLoginInfoModal');
+  document.getElementById('pwdChangeScreen').classList.add('active');
+  document.getElementById('pcOldPwd').focus();
+}
+
+// ===== 首次登入改密碼 =====
+async function doFirstTimePwdChange() {
+  const oldP  = document.getElementById('pcOldPwd').value;
+  const newP  = document.getElementById('pcNewPwd').value;
+  const newC  = document.getElementById('pcNewPwdC').value;
+  const errEl = document.getElementById('pcError');
+  errEl.textContent = '';
+
+  if(!oldP || !newP || !newC) { errEl.textContent = '⚠️ 請填寫所有欄位'; return; }
+  if(newP !== newC) { errEl.textContent = '⚠️ 兩次新密碼不一致'; return; }
+  if(newP.length < 4) { errEl.textContent = '⚠️ 新密碼至少 4 碼'; return; }
+  if(newP === oldP) { errEl.textContent = '⚠️ 新密碼不能與舊密碼相同'; return; }
+
+  showLoading('設定新密碼中...');
+  try {
+    await authChangePassword(String(oldP).padEnd(6,'0'), String(newP).padEnd(6,'0'));
+    // 標記已完成首次改密碼
+    if(currentUser.uid) {
+      await window.db.collection('users').doc(currentUser.uid).update({ pwdChanged: true });
+    }
+    currentUser.pwdChanged = true;
+    _cacheCurrentUser(currentUser);
+
+    document.getElementById('pwdChangeScreen').classList.remove('active');
+    document.getElementById('pcOldPwd').value = '';
+    document.getElementById('pcNewPwd').value = '';
+    document.getElementById('pcNewPwdC').value = '';
+
+    // 下一步：強制 Google 綁定
+    document.getElementById('googleBindScreen').classList.add('active');
+  } catch(e) {
+    hideLoading();
+    const codeMap = {
+      'auth/wrong-password': '舊密碼錯誤',
+      'auth/invalid-credential': '舊密碼錯誤',
+      'auth/requires-recent-login': '請重新登入後再設定密碼',
+    };
+    errEl.textContent = '❌ ' + (codeMap[e.code] || e.message);
+  }
+}
+
+// ===== Google 登入 =====
+async function doGoogleLogin() {
+  const errEl = document.getElementById('loginError');
+  errEl.textContent = '';
+  showLoading('Google 登入中...');
+  try {
+    const profile = await authLoginWithGoogle();
+    currentUser = profile;
+    _cacheCurrentUser(profile);
+    document.getElementById('loginScreen').classList.remove('active');
+    await _afterLogin(profile, { skipPwdChange: true });
+  } catch(e) {
+    hideLoading();
+    if(e.code === 'not-linked') {
+      errEl.textContent = '❌ 此 Google 帳號尚未綁定工號，請先用工號登入';
+    } else if(e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request') {
+      errEl.textContent = '';
+    } else {
+      errEl.textContent = '❌ Google 登入失敗：' + e.message;
+    }
+  }
+}
+
+// ===== Google 綁定建議 =====
+function maybeShowGoogleBindSuggestion() {
+  if(sessionStorage.getItem('googleBindShown')) return;
+  if(authIsGoogleLinked()) return;
+  sessionStorage.setItem('googleBindShown', '1');
+  setTimeout(() => {
+    document.getElementById('googleBindOverlay').classList.add('active');
+    document.getElementById('googleBindSheet').classList.add('active');
+  }, 1200);
+}
+
+async function doGoogleBind() {
+  dismissGoogleBind();
+  try {
+    await authLinkGoogle();
+    showToast('✅ Google 帳號已綁定，下次可直接 Google 登入');
+  } catch(e) {
+    if(e.code === 'auth/popup-closed-by-user') return;
+    showToast('❌ 綁定失敗：' + e.message);
+  }
+}
+
+// ===== 強制 Google 綁定（首次登入流程）=====
+async function doMandatoryGoogleBind() {
+  const errEl = document.getElementById('googleBindError');
+  errEl.textContent = '';
+  try {
+    await authLinkGoogle();
+    sessionStorage.setItem('googleBindDone', '1');
+    document.getElementById('googleBindScreen').classList.remove('active');
     const redirect = localStorage.getItem('redirectAfterLogin');
     if(redirect) {
       localStorage.removeItem('redirectAfterLogin');
@@ -1215,20 +1425,28 @@ async function doLogin() {
     }
     await initApp();
   } catch(e) {
-    hideLoading();
-    errEl.textContent = '❌ 登入失敗：' + e.message;
+    if(e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request') return;
+    errEl.textContent = '❌ ' + (e.code === 'auth/credential-already-in-use' ? '此 Google 帳號已被其他工號使用' : e.message);
   }
 }
 
-function doLogout() {
-  if(!confirm('確定要登出嗎？')) return;
-  sessionStorage.removeItem('currentUser');
-  currentUser = null;
-  document.getElementById('appShell').classList.remove('active');
-  document.getElementById('loginScreen').classList.add('active');
-  document.getElementById('loginUsername').value = '';
-  document.getElementById('loginPassword').value = '';
-  document.getElementById('loginError').textContent = '';
+async function skipMandatoryGoogleBind() {
+  sessionStorage.setItem('googleBindDone', '1');
+  document.getElementById('googleBindScreen').classList.remove('active');
+  const redirect = localStorage.getItem('redirectAfterLogin');
+  if(redirect) {
+    localStorage.removeItem('redirectAfterLogin');
+    window.location.href = redirect;
+    return;
+  }
+  await initApp();
+  // 仍會在 app 內顯示一次 Google 綁定建議
+  maybeShowGoogleBindSuggestion();
+}
+
+function dismissGoogleBind() {
+  document.getElementById('googleBindOverlay').classList.remove('active');
+  document.getElementById('googleBindSheet').classList.remove('active');
 }
 
 // ===== 初始化 APP =====
@@ -1241,8 +1459,8 @@ async function initApp() {
   displayNameMap = {};
   displayNameMap[currentUser.empName] = dName;
   try {
-    const accSnap = await window.db.collection('account').where('store','==', currentUser.store||'').get().catch(()=>null);
-    if(accSnap) accSnap.forEach(d => {
+    const usersSnap = await window.db.collection('users').where('store','==', currentUser.store||'').get().catch(()=>null);
+    if(usersSnap) usersSnap.forEach(d => {
       const a = d.data();
       if(a.empName && a.displayName) displayNameMap[a.empName] = a.displayName;
     });
@@ -2347,6 +2565,9 @@ document.getElementById('loginPassword').addEventListener('keydown', (e) => {
 });
 document.getElementById('loginUsername').addEventListener('keydown', (e) => {
   if(e.key === 'Enter') document.getElementById('loginPassword').focus();
+});
+document.getElementById('pcNewPwdC').addEventListener('keydown', (e) => {
+  if(e.key === 'Enter') doFirstTimePwdChange();
 });
 
 // ===== 離線偵測 =====

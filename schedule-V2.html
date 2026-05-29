@@ -12,6 +12,7 @@
 <title>📅 班表管理</title>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 <script src="firebase-init.js"></script>
 <style>
 /* ===== RESET & BASE ===== */
@@ -679,6 +680,9 @@ window.onload = async () => {
     window.location.replace('home.html');
     return;
   }
+
+  const _fbAuth = await new Promise(r => { const u = firebase.auth().onAuthStateChanged(fb => { u(); r(fb); }); });
+  if (!_fbAuth) { localStorage.removeItem('currentUser'); sessionStorage.removeItem('currentUser'); window.location.replace('home.html'); return; }
 
   showLoading('載入系統設定...');
   try {

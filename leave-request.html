@@ -12,6 +12,7 @@
 <title>📅 劃休申請</title>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 <script src="firebase-init.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
@@ -434,7 +435,7 @@ async function switchStoreTab(store) {
   );
   // 重新讀 displayName
   displayNameMap = {};
-  const accSnap = await window.db.collection('account').where('store','==',store).get().catch(()=>null);
+  const accSnap = await window.db.collection('users').where('store','==',store).get().catch(()=>null);
   if(accSnap) accSnap.forEach(d=>{ const a=d.data(); if(a.empName&&a.displayName) displayNameMap[a.empName]=a.displayName; });
   // 重新讀門市 config（每日上限）
   try {
@@ -683,6 +684,9 @@ window.onload = async () => {
   if(!saved){ window.location.replace('home.html'); return; }
   try{ currentUser = JSON.parse(saved); } catch(e){ window.location.replace('home.html'); return; }
 
+  const _fbAuth = await new Promise(r => { const u = firebase.auth().onAuthStateChanged(fb => { u(); r(fb); }); });
+  if (!_fbAuth) { localStorage.removeItem('currentUser'); sessionStorage.removeItem('currentUser'); window.location.replace('home.html'); return; }
+
   document.getElementById('headerEmp').textContent = currentUser.displayName || currentUser.empName || '--';
   currentStore = currentUser.store || appConfig.stores?.[0] || '';
 
@@ -725,7 +729,7 @@ window.onload = async () => {
     } catch(e) {}
 
     // 讀取顯示名稱
-    const accSnap = await window.db.collection('account').where('store','==',currentStore).get().catch(()=>null);
+    const accSnap = await window.db.collection('users').where('store','==',currentStore).get().catch(()=>null);
     if(accSnap) accSnap.forEach(d=>{ const a=d.data(); if(a.empName&&a.displayName) displayNameMap[a.empName]=a.displayName; });
 
     // 讀取餘額

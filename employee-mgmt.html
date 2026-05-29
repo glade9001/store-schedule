@@ -10,7 +10,9 @@
 <title>👥 員工帳號管理</title>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 <script src="firebase-init.js"></script>
+<script src="auth.js"></script>
 <script>window.db.settings({ experimentalForceLongPolling: true });</script>
 <style>
 *,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -416,7 +418,7 @@ function loadSelfView() {
   document.getElementById('selfName').textContent = dName;
   document.getElementById('selfRole').textContent = ROLE_LABELS[currentUser.role] || currentUser.role || '管理者';
   document.getElementById('selfStore').textContent = currentUser.store || '全門市';
-  document.getElementById('selfUsername').textContent = currentUser.username;
+  document.getElementById('selfUsername').textContent = currentUser.ID || currentUser.username || '';
   document.getElementById('selfNameInfo').textContent = dName;
   document.getElementById('selfRoleInfo').textContent = ROLE_LABELS[currentUser.role] || currentUser.role || '管理者';
   document.getElementById('selfStoreInfo').textContent = currentUser.store || '全門市（無綁定）';
@@ -692,6 +694,21 @@ async function saveAccountSetting() {
 
     await docRef.set(data, { merge: true });
 
+    // 同步更新 users 集合（新系統，不含密碼）
+    const usersSnap = await window.db.collection('users')
+      .where('empName','==',empName).where('store','==',store).limit(1).get().catch(()=>null);
+    if(usersSnap && !usersSnap.empty) {
+      const { password: _pw, changeHistory: _ch, ...userFields } = data;
+      await usersSnap.docs[0].ref.set(userFields, { merge: true });
+    } else if(pwd && existing.empty) {
+      // 完全新帳號：建立 Firebase Auth + users/{uid}
+      try {
+        const uid = await _createAuthUser(username, pwd);
+        const { password: _pw, changeHistory: _ch, ...userFields } = data;
+        await window.db.collection('users').doc(uid).set({ ...userFields, disabled: false }, { merge: true });
+      } catch(authErr) { console.warn('Firebase Auth 建立失敗:', authErr.message); }
+    }
+
     // ✅ 同步更新員工資料的 role（含生效日記錄）
     const empUpdateData = { role };
     await window.db.collection('stores').doc(store).collection('employees').doc(empName)
@@ -717,23 +734,62 @@ async function doChangePwd() {
 
   showLoading('修改密碼中...');
   try {
-    const snap = await window.db.collection('account').where('ID','==',currentUser.username).limit(1).get();
-    if(snap.empty) { hideLoading(); showToast('❌ 找不到帳號資料'); return; }
-    const doc = snap.docs[0];
-    if(doc.data().password !== oldP) { hideLoading(); showToast('❌ 舊密碼錯誤'); return; }
-    await doc.ref.update({ password: newP });
+    const padOld = String(oldP).padEnd(6, '0');
+    const padNew = String(newP).padEnd(6, '0');
+    await authChangePassword(padOld, padNew);
     closeModal('changePwdModal');
     document.getElementById('oldPassword').value = '';
     document.getElementById('newPassword').value = '';
     document.getElementById('newPasswordConfirm').value = '';
     showToast('✅ 密碼已修改，請重新登入');
-    setTimeout(() => {
-      localStorage.removeItem('currentUser');
-      sessionStorage.removeItem('currentUser');
+    setTimeout(async () => {
+      await authLogout();
       window.location.replace('home.html');
     }, 1800);
-  } catch(e) { showToast('❌ 修改失敗：' + e.message); }
+  } catch(e) {
+    const codeMap = {
+      'auth/wrong-password': '舊密碼錯誤',
+      'auth/invalid-credential': '舊密碼錯誤',
+      'auth/requires-recent-login': '請重新登入後再修改密碼',
+    };
+    showToast('❌ ' + (codeMap[e.code] || e.message));
+  }
   hideLoading();
+}
+
+// ===== Firebase Auth 輔助（secondary app，避免登出當前管理員）=====
+function _getSecondaryAuth() {
+  const config = {
+    apiKey: "AIzaSyAmVwq-Wny1KMRGNSdOnBEJ_A-3HmTO-hM",
+    authDomain: "store-schedule-3b056.firebaseapp.com",
+    projectId: "store-schedule-3b056",
+    storageBucket: "store-schedule-3b056.firebasestorage.app",
+    messagingSenderId: "296522693619",
+    appId: "1:296522693619:web:f90ec5d666c7a4a5943086"
+  };
+  const app = firebase.apps.find(a => a.name === 'secondary')
+    || firebase.initializeApp(config, 'secondary');
+  return app.auth();
+}
+
+async function _createAuthUser(id, password) {
+  const email = `${String(id).toLowerCase()}@lixue.internal`;
+  const padded = String(password || '').padEnd(6, '0');
+  const secondaryAuth = _getSecondaryAuth();
+  try {
+    const cred = await secondaryAuth.createUserWithEmailAndPassword(email, padded);
+    const uid = cred.user.uid;
+    await secondaryAuth.signOut();
+    return uid;
+  } catch(e) {
+    if(e.code === 'auth/email-already-in-use') {
+      const existing = await secondaryAuth.signInWithEmailAndPassword(email, padded);
+      const uid = existing.user.uid;
+      await secondaryAuth.signOut();
+      return uid;
+    }
+    throw e;
+  }
 }
 
 // ===== 新增員工 =====
@@ -776,12 +832,21 @@ async function saveNewEmployee() {
     await window.db.collection('stores').doc(store).collection('employees').doc(sysName).set({
       role, wage, sortKey, status: '在職'
     });
-    await window.db.collection('account').add({
+
+    // 建立 Firebase Auth 帳號
+    const uid = await _createAuthUser(username, password);
+
+    const accountData = {
       ID: username, password,
       displayName: dispName || sysName,
       empName: sysName,
       store, role, permission: perm, linked: true
-    });
+    };
+    // 相容舊系統（account 集合）
+    await window.db.collection('account').add(accountData);
+    // 新系統（users 集合，不存密碼）
+    const { password: _pw, ...userDoc } = accountData;
+    await window.db.collection('users').doc(uid).set({ ...userDoc, disabled: false }, { merge: true });
 
     closeModal('addEmpModal');
     await loadEmpAdminList(store);
@@ -932,20 +997,20 @@ async function confirmTransfer() {
     });
 
     // 更新帳號：生效日當天才切換 store，先記錄待生效資訊
+    const today = new Date().toISOString().split('T')[0];
+    const isEffective = date <= today;
+    const transferUpdate = isEffective
+      ? { store: toStore, role: newRole }
+      : { pendingStore: toStore, transferDate: date, role: newRole };
+
     const accSnap = await window.db.collection('account').where('empName','==',empId).where('store','==',fromStore).limit(1).get();
     if(!accSnap.empty) {
-      const today = new Date().toISOString().split('T')[0];
-      if(date <= today) {
-        // 生效日已到，直接更新
-        await accSnap.docs[0].ref.update({ store: toStore, role: newRole });
-      } else {
-        // 生效日未到，記錄待生效調店
-        await accSnap.docs[0].ref.update({
-          pendingStore: toStore,
-          transferDate: date,
-          role: newRole
-        });
-      }
+      await accSnap.docs[0].ref.update(transferUpdate);
+    }
+    // 同步更新 users 集合
+    const usersTransSnap = await window.db.collection('users').where('empName','==',empId).where('store','==',fromStore).limit(1).get().catch(()=>null);
+    if(usersTransSnap && !usersTransSnap.empty) {
+      await usersTransSnap.docs[0].ref.update(transferUpdate);
     }
 
     closeModal('transferModal');

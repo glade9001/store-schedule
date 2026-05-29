@@ -13,6 +13,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 <script src="firebase-init.js"></script>
 <script>emailjs.init('OfG65y3BH5AMGcN-U');</script>
   <style>
@@ -3641,6 +3642,9 @@ window.onload = async () => {
   const saved = localStorage.getItem('currentUser') || sessionStorage.getItem('currentUser');
   if(!saved) { window.location.replace('home.html'); return; }
   try { currentUser = JSON.parse(saved); } catch(e) { window.location.replace('home.html'); return; }
+
+  const _fbAuth = await new Promise(r => { const u = firebase.auth().onAuthStateChanged(fb => { u(); r(fb); }); });
+  if (!_fbAuth) { localStorage.removeItem('currentUser'); sessionStorage.removeItem('currentUser'); window.location.replace('home.html'); return; }
 
   showLoading('載入系統設定...');
   try {
