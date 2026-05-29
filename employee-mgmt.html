@@ -629,16 +629,19 @@ async function openAccountModal(empName, store) {
   showLoading('讀取帳號資料...');
   try {
     const year = new Date().getFullYear().toString();
-    const [accSnap, leavesSnap, storeEmpSnap] = await Promise.all([
+    const [accSnap, accPendingSnap, leavesSnap, storeEmpSnap] = await Promise.all([
       window.db.collection('account').where('empName','==',empName).where('store','==',store).limit(1).get(),
+      // 待調入員工：store 尚未切換，用 pendingStore 查
+      window.db.collection('account').where('empName','==',empName).where('pendingStore','==',store).limit(1).get().catch(()=>null),
       // ✅ 到職日存在 employees/{empName}/leaves/{year}.hireDate
       window.db.collection('employees').doc(empName).collection('leaves').doc(year).get().catch(()=>null),
       window.db.collection('stores').doc(store).collection('employees').get()
     ]);
 
-    // 填入現有帳號資料
+    // 填入現有帳號資料（優先用 store 完全匹配，其次用 pendingStore 匹配）
     let existingDoc = null;
     accSnap.forEach(d => existingDoc = { id:d.id, ...d.data() });
+    if(!existingDoc && accPendingSnap) accPendingSnap.forEach(d => existingDoc = { id:d.id, ...d.data() });
 
     document.getElementById('accountUsername').value = existingDoc?.ID || existingDoc?.username || '';
     document.getElementById('accountDisplayName').value = existingDoc?.displayName || empName;
