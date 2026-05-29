@@ -722,7 +722,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 
       <div id="statsArea"></div>
 
-      <div class="card" id="pendingCard" style="display:none;">
+      <div class="card" id="pendingCard">
         <div class="section-header">
           <div class="section-title">🔔 待處理事項</div>
           <div style="display:flex; align-items:center; gap:10px;">
@@ -2236,11 +2236,10 @@ async function loadPendingItems() {
   }
 
   const el = document.getElementById('pendingList');
+  if(pendingCard) pendingCard.style.display = 'block';
   if(pending.length === 0) {
-    // 無待處理：隱藏整個卡片（不顯示空白「暫無待處理」）
-    if(pendingCard) pendingCard.style.display = 'none';
+    el.innerHTML = `<div style="text-align:center;padding:12px 0 4px;font-size:13px;color:var(--text-muted);font-weight:600;">✅ 目前無待辦事項</div>`;
   } else {
-    if(pendingCard) pendingCard.style.display = 'block';
     el.innerHTML = pending.map(p => `
       <div class="notice-item" ${p.link ? `style="cursor:pointer;" onclick="window.location.href='${p.link}'"` : ''}>
         <div class="notice-dot" style="background:${p.color};"></div>
