@@ -110,6 +110,10 @@ select.range-sel:focus{border-color:var(--primary);}
 /* 支援調整說明 */
 .support-note{font-size:10px;color:var(--text-muted);background:#f8fafc;border-radius:6px;padding:4px 8px;margin-top:4px;display:inline-block;}
 
+/* 勞退欄位切換 */
+.col-pension{transition:none;}
+.hide-pension .col-pension{display:none;}
+
 /* E. 圖表手機高度 */
 @media(max-width:600px){.chart-wrap{height:280px;}}
 
@@ -258,9 +262,15 @@ select.range-sel:focus{border-color:var(--primary);}
 
       <!-- 各門市明細表 -->
       <div class="chart-title">🏪 各門市人事成本明細（含支援調整）</div>
-      <div class="support-note">支援調整：正職以（底薪＋全勤獎金）÷30÷8 × 支援時數；工讀以時薪 × 支援時數</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-top:4px;">
+        <div class="support-note">支援調整：正職以（底薪＋全勤獎金）÷30÷8 × 支援時數；工讀以時薪 × 支援時數</div>
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:var(--text-muted);cursor:pointer;user-select:none;">
+          <input type="checkbox" id="showPensionCol" onchange="togglePensionCol()" style="accent-color:var(--primary);width:14px;height:14px;">
+          顯示勞退欄
+        </label>
+      </div>
       <div style="overflow-x:auto;margin-top:10px;">
-        <table class="data-table" id="tableCostDetail">
+        <table class="data-table hide-pension" id="tableCostDetail">
           <thead>
             <tr>
               <th>門市</th><th>月份</th>
@@ -269,7 +279,7 @@ select.range-sel:focus{border-color:var(--primary);}
               <th class="num">加班費</th>
               <th class="num">國假費用</th>
               <th class="num">支援調整</th>
-              <th class="num">勞退(6%)</th>
+              <th class="num col-pension">勞退(6%)</th>
               <th class="num">實際成本</th>
             </tr>
           </thead>
@@ -837,7 +847,7 @@ function renderCostTab(){
   });
 
   const mkRow = (cells, cls='') =>
-    `<tr class="${cls}">${cells.map((c,i)=>`<td class="${i>=2?'num':''}">${c}</td>`).join('')}</tr>`;
+    `<tr class="${cls}">${cells.map((c,i)=>`<td class="${[i>=2?'num':'', i===7?'col-pension':''].filter(Boolean).join(' ')}">${c}</td>`).join('')}</tr>`;
 
   let html = '';
   fStores.forEach(store=>{
@@ -1205,6 +1215,13 @@ function reRenderCurrentTab(){
   else if(id==='ot') renderOtTab();
   else if(id==='anomaly') renderAnomalyTab();
   else if(id==='hourly') renderHourlyTab();
+}
+
+// ===== 勞退欄切換 =====
+function togglePensionCol(){
+  const show = document.getElementById('showPensionCol').checked;
+  const table = document.getElementById('tableCostDetail');
+  if(table) table.classList.toggle('hide-pension', !show);
 }
 
 // ===== B. 異常 badge & alert =====
