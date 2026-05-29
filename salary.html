@@ -2208,6 +2208,21 @@ async function loadSalaryData() {
     });
     empList.sort((a,b) => (a.sortKey||0)-(b.sortKey||0));
 
+    // 補查調走員工的 displayName（帳號 store 可能已切換至新門市）
+    const transferringEmps = empList.filter(e => e.status === '調走' && e.transferTo && !displayNameMap[e.name]);
+    if(transferringEmps.length > 0) {
+      const destStores = [...new Set(transferringEmps.map(e => e.transferTo))];
+      await Promise.all(destStores.map(async store => {
+        const snap = await window.db.collection('account').where('store','==',store).get().catch(()=>null);
+        if(snap) snap.forEach(d => {
+          const acc = d.data();
+          if(acc.empName && acc.displayName && !displayNameMap[acc.empName]) {
+            displayNameMap[acc.empName] = acc.displayName;
+          }
+        });
+      }));
+    }
+
     // 薪資資料
     salaryData = salSnap.exists ? salSnap.data() : { status: 'draft', records: [] };
     if(!salaryData.records) salaryData.records = [];
