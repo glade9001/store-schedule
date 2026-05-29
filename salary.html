@@ -2189,13 +2189,13 @@ async function loadSalaryData() {
 
     // 員工名單
     empList = [];
-    const todaySal = new Date().toISOString().split('T')[0];
     const [curY, curM] = currentMonth.split('-').map(Number);
+    const salMonthEnd = `${curY}-${String(curM).padStart(2,'0')}-${new Date(curY, curM, 0).getDate()}`;
     empSnap.forEach(d => {
       const data = d.data();
       const status = data.status;
       const effectDate = data.retireDate || data.transferDate;
-      const isEffective = ['離職','調走'].includes(status) && (!effectDate || todaySal >= effectDate);
+      const isEffective = ['離職','調走'].includes(status) && (!effectDate || effectDate <= salMonthEnd);
       if(isEffective) return; // 已離職/調走，跳過
 
       // ✅ 到職日篩選：到職年月 > 當月年月 → 不顯示
