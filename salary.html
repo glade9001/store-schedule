@@ -573,7 +573,7 @@ async function loadLeaveData() {
         allRecords.forEach(r => {
           if(r.type === 'comp_earn') {
             earnBatches.push({
-              date: r.date, source: r.source||'unknown', note: r.note||'',
+              date: r.date, source: r.source||'', note: r.note||'',
               days: parseFloat(r.days)||0, used: 0, _ym: r._ym
             });
           }
@@ -2832,7 +2832,7 @@ function renderSalaryForm(emp, rec, idx, readonly) {
       const d = source.replace('schedule:','').split('-');
       return d.length===3 ? `${parseInt(d[1])}/${parseInt(d[2])} 排班使用` : '排班使用';
     }
-    return source;
+    return '來源不明（舊記錄）';
   }
   let compBatchHtml = '';
   if(compBatches.length > 0) {
