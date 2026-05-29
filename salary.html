@@ -2774,7 +2774,17 @@ function renderSalaryForm(emp, rec, idx, readonly) {
     const compChecked = rec.unworkedCompGranted || false;
 
     // 應休未休三選一 UI
-    const unworkedAction = rec.unworkedAction || null; // 'granted'/'partial'/'none'
+    let unworkedAction = rec.unworkedAction || null; // 'granted'/'partial'/'none'
+
+    // 店長應休未休一律自動標記為不發放補休
+    if(isMgr && shortRest > 0 && !unworkedAction) {
+      rec.unworkedAction = 'none';
+      rec.unworkedCompDays = 0;
+      rec.unworkedCompGranted = false;
+      unworkedAction = 'none';
+      triggerAutoSave();
+    }
+
     const unworkedDays = rec.unworkedCompDays || 0;
     const empNameEsc6 = emp.name.replace(/'/g,"\\'");
 
