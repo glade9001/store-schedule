@@ -43,7 +43,7 @@ async function authLoginWithGoogle() {
   const cred = await firebase.auth().signInWithPopup(provider);
   const profile = await _loadProfile(cred.user);
   if (!profile) {
-    await firebase.auth().signOut();
+    await cred.user.delete().catch(() => {}); // 刪除孤立帳號，避免後續 linkWithPopup 時衝突
     const err = new Error('此 Google 帳號尚未綁定任何員工工號，請先用工號登入後至設定頁綁定');
     err.code = 'not-linked';
     throw err;
