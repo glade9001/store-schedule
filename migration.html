@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>帳號遷移工具 — Firebase Auth</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 700px; margin: 40px auto; padding: 0 20px; background: #f8fafc; color: #1e293b; }
+    h1 { font-size: 20px; font-weight: 900; margin-bottom: 4px; }
+    .sub { font-size: 13px; color: #64748b; margin-bottom: 24px; }
+    .card { background: white; border-radius: 12px; padding: 20px; margin-bottom: 16px; border: 1px solid #e2e8f0; }
+    .btn { padding: 12px 24px; border: none; border-radius: 8px; font-size: 14px; font-weight: 800; cursor: pointer; }
+    .btn-primary { background: #2563eb; color: white; }
+    .btn-primary:disabled { background: #93c5fd; cursor: not-allowed; }
+    .btn-danger { background: #dc2626; color: white; }
+    .log { background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 16px; font-size: 12px; font-family: monospace; height: 300px; overflow-y: auto; margin-top: 16px; white-space: pre-wrap; }
+    .ok { color: #4ade80; }
+    .err { color: #f87171; }
+    .warn { color: #fbbf24; }
+    .progress { margin-top: 12px; font-size: 13px; font-weight: 700; color: #2563eb; }
+    input { width: 100%; padding: 10px; border: 1.5px solid #e2e8f0; border-radius: 8px; font-size: 14px; margin-top: 8px; box-sizing: border-box; }
+    label { font-size: 13px; font-weight: 700; color: #475569; }
+  </style>
+</head>
+<body>
+  <h1>🔐 帳號遷移工具</h1>
+  <p class="sub">將 account 集合一次性搬移至 Firebase Authentication + users 集合。<br>
+  ⚠️ 此頁面僅供管理員操作，完成後請刪除或限制存取。</p>
+
+  <div class="card">
+    <label>管理員工號（用於確認你有操作權限）</label>
+    <input type="text" id="adminId" placeholder="例：A00001">
+    <label style="margin-top:12px;display:block;">管理員密碼</label>
+    <input type="password" id="adminPwd" placeholder="你的現有密碼">
+    <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;">
+      <button class="btn btn-primary" id="previewBtn" onclick="previewAccounts()">① 預覽帳號清單</button>
+      <button class="btn btn-primary" id="migrateBtn" onclick="startMigration()" disabled>② 開始遷移</button>
+    </div>
+    <div class="progress" id="progress"></div>
+    <div class="log" id="log">等待操作...</div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+  <script src="firebase-init.js"></script>
+  <script>
+    let accountDocs = [];
+
+    function log(msg, type = '') {
+      const el = document.getElementById('log');
+      const span = document.createElement('span');
+      span.className = type;
+      span.textContent = msg + '\n';
+      el.appendChild(span);
+      el.scrollTop = el.scrollHeight;
+    }
+
+    function clearLog() {
+      document.getElementById('log').innerHTML = '';
+    }
+
+    // ① 預覽：列出所有 account 文件
+    async function previewAccounts() {
+      clearLog();
+      document.getElementById('progress').textContent = '';
+      const adminId = document.getElementById('adminId').value.trim();
+      const adminPwd = document.getElementById('adminPwd').value;
+      if (!adminId || !adminPwd) { log('⚠️ 請填寫管理員工號和密碼', 'warn'); return; }
+
+      log('讀取 account 集合...');
+      try {
+        // 先驗證管理員身份（舊登入方式）
+        const accSnap = await window.db.collection('account').where('ID', '==', adminId).limit(1).get();
+        if (accSnap.empty) { log('❌ 找不到此工號', 'err'); return; }
+        const adminDoc = accSnap.docs[0].data();
+        if (adminDoc.password !== adminPwd) { log('❌ 密碼錯誤', 'err'); return; }
+        if (!['owner', 'admin'].includes(adminDoc.permission)) { log('❌ 權限不足（需要 owner 或 admin）', 'err'); return; }
+
+        log('✅ 管理員驗證通過', 'ok');
+        log('');
+
+        const allSnap = await window.db.collection('account').get();
+        accountDocs = [];
+        allSnap.forEach(d => accountDocs.push({ docId: d.id, ...d.data() }));
+
+        log(`找到 ${accountDocs.length} 個帳號：`, 'ok');
+        log('─'.repeat(50));
+        accountDocs.forEach(a => {
+          const email = `${String(a.ID || '').toLowerCase()}@lixue.internal`;
+          log(`  ${a.ID} | ${email} | ${a.displayName || ''} | ${a.store} | ${a.permission}`);
+        });
+        log('─'.repeat(50));
+        log(`\n確認無誤後按「② 開始遷移」`, 'warn');
+
+        document.getElementById('migrateBtn').disabled = false;
+      } catch(e) {
+        log('❌ 讀取失敗：' + e.message, 'err');
+      }
+    }
+
+    // ② 遷移：建立 Firebase Auth 帳號 + users/{uid} 文件
+    async function startMigration() {
+      if (!accountDocs.length) { log('⚠️ 請先執行預覽', 'warn'); return; }
+      if (!confirm(`確認將 ${accountDocs.length} 個帳號遷移至 Firebase Auth？\n\n此操作不可逆，請確認已備份資料。`)) return;
+
+      document.getElementById('migrateBtn').disabled = true;
+      document.getElementById('previewBtn').disabled = true;
+      clearLog();
+
+      // 用第二個 app instance 建立帳號，避免登出當前使用者
+      const config = {
+        apiKey: "AIzaSyAmVwq-Wny1KMRGNSdOnBEJ_A-3HmTO-hM",
+        authDomain: "store-schedule-3b056.firebaseapp.com",
+        projectId: "store-schedule-3b056",
+        storageBucket: "store-schedule-3b056.firebasestorage.app",
+        messagingSenderId: "296522693619",
+        appId: "1:296522693619:web:f90ec5d666c7a4a5943086"
+      };
+      const secondaryApp = firebase.apps.find(a => a.name === 'migration')
+        || firebase.initializeApp(config, 'migration');
+      const secondaryAuth = secondaryApp.auth();
+
+      let success = 0, skip = 0, fail = 0;
+
+      for (let i = 0; i < accountDocs.length; i++) {
+        const acc = accountDocs[i];
+        const email = `${String(acc.ID || '').toLowerCase()}@lixue.internal`;
+        const password = acc.password || '000000';
+
+        document.getElementById('progress').textContent =
+          `處理中 ${i + 1} / ${accountDocs.length}：${acc.displayName || acc.ID}`;
+
+        try {
+          // 建立 Firebase Auth 帳號
+          let uid;
+          try {
+            const cred = await secondaryAuth.createUserWithEmailAndPassword(email, password);
+            uid = cred.user.uid;
+            log(`✅ [${i+1}] ${acc.ID} → uid: ${uid}`, 'ok');
+          } catch(e) {
+            if (e.code === 'auth/email-already-in-use') {
+              // 已存在：取得既有 uid
+              const methods = await secondaryAuth.fetchSignInMethodsForEmail(email);
+              if (methods.length > 0) {
+                const existing = await secondaryAuth.signInWithEmailAndPassword(email, password);
+                uid = existing.user.uid;
+                await secondaryAuth.signOut();
+                log(`⏭️ [${i+1}] ${acc.ID} 已存在，使用既有 uid: ${uid}`, 'warn');
+                skip++;
+              } else {
+                throw new Error('帳號已存在但密碼不符');
+              }
+            } else {
+              throw e;
+            }
+          }
+
+          // 建立 users/{uid} 文件（password 不複製）
+          const userDoc = {
+            ID: acc.ID || '',
+            empName: acc.empName || '',
+            displayName: acc.displayName || '',
+            store: acc.store || '',
+            permission: acc.permission || 'employee',
+            role: acc.role || '',
+            disabled: acc.disabled || false,
+            linked: acc.linked || false,
+          };
+          // 保留調店待生效欄位
+          if (acc.pendingStore) userDoc.pendingStore = acc.pendingStore;
+          if (acc.transferDate) userDoc.transferDate = acc.transferDate;
+
+          await window.db.collection('users').doc(uid).set(userDoc, { merge: true });
+          if (!skip || skip === 0) success++;
+
+        } catch(e) {
+          log(`❌ [${i+1}] ${acc.ID} 失敗：${e.message}`, 'err');
+          fail++;
+        }
+
+        // 避免過快觸發 Firebase 請求限制
+        await new Promise(r => setTimeout(r, 300));
+      }
+
+      document.getElementById('progress').textContent = '✅ 遷移完成';
+      log('');
+      log('═'.repeat(50));
+      log(`遷移結果：成功 ${success} | 略過（已存在）${skip} | 失敗 ${fail}`, fail > 0 ? 'err' : 'ok');
+      log('');
+      log('下一步：確認 Firebase Console → Authentication 帳號數量正確後，', 'warn');
+      log('即可開始逐頁將 requireLogin() 替換為 requireAuth()', 'warn');
+    }
+  </script>
+</body>
+</html>
