@@ -498,7 +498,7 @@ async function runAnalysis(){
       const snap = await window.db.collection('stores').doc(store).collection('employees').get();
       snap.forEach(d=>{
         const data=d.data();
-        if(['離職','調走'].includes(data.status)) return;
+        // 包含離職/調走員工（計入他們實際在職月份的成本），但需有離職日期才能按月過濾
         allEmps.push({ name:d.id, store, ...data });
       });
     }
@@ -610,6 +610,16 @@ const calcNet = (rec,role) => calcGross(rec,role)-calcDeduct(rec);
 const calcPension = (rec,role) => role==='工讀'?0:Math.round((n(rec.baseSalary)+n(rec.fullAttendBonus))*0.06);
 const calcRealCost = (rec,role) => calcNet(rec,role)+calcPension(rec,role);
 
+// 判斷員工在指定月份是否在職（含離職/調走員工的歷史月份）
+function isEmpActiveInMonth(emp, ym) {
+  // 到職日晚於該月：尚未到職
+  if(emp.startDate && emp.startDate > ym + '-31') return false;
+  // 離職/調走日期：若早於該月1日則已離開
+  const departDate = emp.retireDate || emp.transferDate;
+  if(departDate && departDate < ym + '-01') return false;
+  return true;
+}
+
 // 計算支援調整金額（正職日薪 or 工讀時薪）
 function calcSupportAdj(empName, ym, salaryMap, supportMap, allEmps){
   const emp = allEmps.find(e=>e.name===empName);
@@ -676,6 +686,7 @@ function renderKPIs(){
 
   allEmps.forEach(emp=>{
     ymList.forEach(ym=>{
+      if(!isEmpActiveInMonth(emp,ym)) return;
       const rec = salaryMap[ym]?.[emp.name];
       if(!rec) return;
       const { adj } = calcSupportAdj(emp.name, ym, salaryMap, supportMap, allEmps);
@@ -686,7 +697,9 @@ function renderKPIs(){
     });
   });
 
-  allEmps.forEach(e=>{ if(e.role==='工讀') partCnt++; else fullCnt++; });
+  // 在職人數：計算在分析末月仍在職的人數
+  const lastYm = ymList[ymList.length-1];
+  allEmps.forEach(e=>{ if(!isEmpActiveInMonth(e,lastYm)) return; if(e.role==='工讀') partCnt++; else fullCnt++; });
 
   document.getElementById('kpiTotalCost').textContent = '$'+Math.round(totalCost/1000)+'K';
   document.getElementById('kpiTotalSub').textContent = `含勞退提撥 · 共 ${ymList.length} 個月`;
@@ -739,6 +752,7 @@ function renderCostTab(){
 
   fEmps.forEach(emp=>{
     ymList.forEach(ym=>{
+      if(!isEmpActiveInMonth(emp,ym)) return;
       const rec = salaryMap[ym]?.[emp.name];
       if(!rec) return;
       const baseCost = calcRealCost(rec,emp.role);
@@ -798,7 +812,7 @@ function renderCostTab(){
   fStores.forEach(store=>{
     ymList.forEach(ym=>{
       let base=0,bonus=0,ot=0,hol=0,pension=0;
-      fEmps.filter(e=>e.store===store).forEach(emp=>{
+      fEmps.filter(e=>e.store===store && isEmpActiveInMonth(e,ym)).forEach(emp=>{
         const rec = salaryMap[ym]?.[emp.name];
         if(!rec) return;
         if(emp.role==='工讀'){
@@ -894,6 +908,7 @@ function renderOtTab(){
   ymList.forEach(ym=>{ otByYm[ym]=0; holByYm[ym]=0; });
   fEmps.forEach(emp=>{
     ymList.forEach(ym=>{
+      if(!isEmpActiveInMonth(emp,ym)) return;
       const rec = salaryMap[ym]?.[emp.name];
       if(!rec) return;
       otByYm[ym] += calcOtPay(rec);
@@ -926,6 +941,7 @@ function renderOtTab(){
   fEmps.forEach(emp=>{
     let totOtH=0, totOtAmt=0, totHolH=0, totHolAmt=0;
     ymList.forEach(ym=>{
+      if(!isEmpActiveInMonth(emp,ym)) return;
       const rec = salaryMap[ym]?.[emp.name];
       if(!rec) return;
       totOtH  += n(rec.otHours);
@@ -990,6 +1006,7 @@ function renderAnomalyTab(){
 
   fEmps.forEach(emp=>{
     ymList.forEach((ym,idx)=>{
+      if(!isEmpActiveInMonth(emp,ym)) return;
       const rec = salaryMap[ym]?.[emp.name];
       if(!rec) return;
 
