@@ -16,8 +16,26 @@ async function _loadProfile(fbUser) {
     err.code = 'disabled';
     throw err;
   }
-  // 調店生效日：若已到達則自動切換門市
   const today = new Date().toISOString().split('T')[0];
+
+  // 同店職稱生效日：無調店但有 pendingRole + roleChangeDate
+  if (!data.pendingStore && data.pendingRole && data.roleChangeDate && data.roleChangeDate <= today) {
+    const roleUpdate = {
+      role: data.pendingRole,
+      pendingRole: firebase.firestore.FieldValue.delete(),
+      roleChangeDate: firebase.firestore.FieldValue.delete(),
+    };
+    await window.db.collection('users').doc(fbUser.uid).update(roleUpdate);
+    if (data.store && data.empName) {
+      await window.db.collection('stores').doc(data.store).collection('employees')
+        .doc(data.empName).update({ role: data.pendingRole }).catch(() => {});
+    }
+    data.role = data.pendingRole;
+    delete data.pendingRole;
+    delete data.roleChangeDate;
+  }
+
+  // 調店生效日：若已到達則自動切換門市
   if (data.pendingStore && data.transferDate && data.transferDate <= today) {
     const applyUpdate = {
       store: data.pendingStore,

@@ -256,12 +256,19 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
     </div>
     <div class="form-field">
       <label>職稱</label>
-      <select id="accountRole">
+      <input type="hidden" id="accountRoleOriginal">
+      <select id="accountRole" onchange="onRoleChange()">
         <option value="工讀">工讀</option>
         <option value="正職">正職</option>
         <option value="店長">店長</option>
         <option value="加盟主">加盟主</option>
       </select>
+      <div id="pendingRoleInfo" style="display:none; font-size:12px; color:#d97706; font-weight:700; margin-top:6px; background:#fffbeb; border-radius:8px; padding:8px 10px; border:1px solid #fcd34d;"></div>
+    </div>
+    <div class="form-field" id="roleEffectiveDateField" style="display:none;">
+      <label>職稱生效日 <span style="color:var(--text-muted); font-weight:400;">（留空則立即生效）</span></label>
+      <input type="date" id="roleEffectiveDate">
+      <div style="font-size:11px; color:#d97706; margin-top:4px;">⚠️ 設定後員工登入時自動切換，不提前更新</div>
     </div>
     <div class="form-field">
       <label>權限等級</label>
@@ -654,7 +661,21 @@ async function openAccountModal(empName, store) {
 
     // 角色與權限
     const empData = storeEmpSnap.docs.find(d=>d.id===empName)?.data() || {};
-    document.getElementById('accountRole').value = existingDoc?.role || empData.role || '工讀';
+    const currentRole = existingDoc?.role || empData.role || '工讀';
+    document.getElementById('accountRole').value = currentRole;
+    document.getElementById('accountRoleOriginal').value = currentRole;
+    document.getElementById('roleEffectiveDate').value = '';
+    document.getElementById('roleEffectiveDateField').style.display = 'none';
+
+    // 顯示待生效職稱資訊
+    const pendingRoleEl = document.getElementById('pendingRoleInfo');
+    if(existingDoc?.pendingRole && existingDoc?.roleChangeDate) {
+      pendingRoleEl.style.display = 'block';
+      pendingRoleEl.textContent = `⏳ 已設定：${existingDoc.roleChangeDate} 起轉為「${existingDoc.pendingRole}」`;
+    } else {
+      pendingRoleEl.style.display = 'none';
+      pendingRoleEl.textContent = '';
+    }
 
     const permSel = document.getElementById('accountPermission');
     const perms = [
@@ -676,13 +697,24 @@ function toggleLinkType() {
   document.getElementById('newEmpGroup').style.display  = isLinked ? 'none'  : 'block';
 }
 
+function onRoleChange() {
+  const selected = document.getElementById('accountRole').value;
+  const original = document.getElementById('accountRoleOriginal').value;
+  const field = document.getElementById('roleEffectiveDateField');
+  // 只在有現有帳號（original 不為空）且職稱改變時顯示生效日
+  field.style.display = (original && selected !== original) ? 'block' : 'none';
+  if(field.style.display === 'none') document.getElementById('roleEffectiveDate').value = '';
+}
+
 async function saveAccountSetting() {
   const store    = document.getElementById('accountEmpStore').value;
   const username = document.getElementById('accountUsername').value.trim().toUpperCase();
   const dispName = document.getElementById('accountDisplayName').value.trim();
   const pwd      = document.getElementById('accountPassword').value;
   const pwdC     = document.getElementById('accountPasswordConfirm').value;
-  const role     = document.getElementById('accountRole').value;
+  const role            = document.getElementById('accountRole').value;
+  const roleEffDate     = document.getElementById('roleEffectiveDate').value;
+  const roleOriginal    = document.getElementById('accountRoleOriginal').value;
   const perm     = document.getElementById('accountPermission').value;
   const isLinked = document.getElementById('linkTypeLinked').checked;
   const empName  = isLinked
@@ -711,19 +743,32 @@ async function saveAccountSetting() {
       docRef = window.db.collection('account').doc();
     }
 
+    // 判斷職稱是否延後生效
+    const today = new Date().toISOString().split('T')[0];
+    const hasFutureRoleDate = roleEffDate && roleEffDate > today && roleOriginal && role !== roleOriginal;
+    // 延後生效：保留原職稱，寫入 pendingRole + roleChangeDate
+    const effectiveRole = hasFutureRoleDate ? roleOriginal : role;
+
     // ✅ 使用 ID 欄位儲存帳號（與原系統 home.html 一致）
-    const data = { ID: username, displayName: dispName || empName, empName, store, role, permission: perm, linked: isLinked };
+    const data = { ID: username, displayName: dispName || empName, empName, store, role: effectiveRole, permission: perm, linked: isLinked };
+    if(hasFutureRoleDate) {
+      data.pendingRole = role;
+      data.roleChangeDate = roleEffDate;
+    } else {
+      // 清除可能存在的舊 pending 資料
+      data.pendingRole = firebase.firestore.FieldValue.delete();
+      data.roleChangeDate = firebase.firestore.FieldValue.delete();
+    }
     if(pwd) data.password = pwd;
 
     // ✅ 調薪歷史：若角色或薪資有變動，記錄一筆歷史
     if(!existing.empty) {
       const oldData = existing.docs[0].data();
-      const today = new Date().toISOString().split('T')[0];
       const historyEntry = {};
       let hasChange = false;
 
-      // 角色變動（升職/降職）
-      if(oldData.role && oldData.role !== role) {
+      // 角色變動（升職/降職），立即生效才記歷史；延後生效等生效當天自動套用再記
+      if(!hasFutureRoleDate && oldData.role && oldData.role !== role) {
         historyEntry.roleChange = { from: oldData.role, to: role };
         hasChange = true;
       }
@@ -757,10 +802,11 @@ async function saveAccountSetting() {
       } catch(authErr) { console.warn('Firebase Auth 建立失敗:', authErr.message); }
     }
 
-    // ✅ 同步更新員工資料的 role（含生效日記錄）
-    const empUpdateData = { role };
-    await window.db.collection('stores').doc(store).collection('employees').doc(empName)
-      .update(empUpdateData).catch(()=>{});
+    // ✅ 同步更新員工資料的 role（延後生效時保留原職稱，待登入時套用）
+    if(!hasFutureRoleDate) {
+      await window.db.collection('stores').doc(store).collection('employees').doc(empName)
+        .update({ role }).catch(()=>{});
+    }
 
     closeModal('accountModal');
     await loadEmpAdminList(store);
