@@ -517,6 +517,7 @@ let currentMonth = ''; // YYYY-MM
 let currentStore = '';
 let leaveDataMap = {}; // { empName: { annualDays, usedAnnual, earnedComp, usedComp } }
 let displayNameMap = {}; // { empName: displayName }
+let pendingTransferMap = {}; // { empName: { pendingStore, transferDate } } — 帳號調店尚未生效的員工
 
 // ✅ 取得顯示名字（有 displayName 用新名，否則用原名）
 function getDisplayName(empName) {
@@ -2176,9 +2177,14 @@ async function loadSalaryData() {
 
     // ✅ displayName 對應表
     displayNameMap = {};
+    pendingTransferMap = {};
     if(accSnap) accSnap.forEach(d => {
       const acc = d.data();
       if(acc.empName && acc.displayName) displayNameMap[acc.empName] = acc.displayName;
+      // 記錄尚未生效的調店（排班期間會用 supportEmp 排班，需排除出人力支援計算）
+      if(acc.empName && acc.pendingStore && acc.transferDate) {
+        pendingTransferMap[acc.empName] = { pendingStore: acc.pendingStore, transferDate: acc.transferDate };
+      }
     });
 
     // 員工名單
@@ -3722,6 +3728,10 @@ function getSupportOut() {
       const empName = r.supportEmp.substring(dashIdx + 1);
       const emp = empList.find(e => e.name === empName);
       if(!emp) return;
+      const targetStore = r._store;  // 去支援的那間門市
+      // 若此員工有待生效的調店且目的地正是 targetStore，本月仍屬本店正職，排除出人力支援
+      const pt = pendingTransferMap[empName];
+      if(pt && pt.pendingStore === targetStore && pt.transferDate.substring(0,7) > currentMonth) return;
       const salRec = getSalaryRecord(empName) || {};
       const isPart = emp.role === ROLE_PART;
       const hours = parseFloat(r.actualHours || 0);
@@ -3731,7 +3741,6 @@ function getSupportOut() {
       } else {
         hrRate = (parseFloat(salRec.baseSalary||0) + parseFloat(salRec.fullAttendBonus||0)) / 30 / 8;
       }
-      const targetStore = r._store;  // 去支援的那間門市
       result.push({ empName, role: emp.role||'', targetStore, date: wDates[dIdx], hours, hrRate, cost: Math.round(hrRate * hours) });
     });
   });
