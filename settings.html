@@ -131,6 +131,23 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
     </div>
   </div>
 
+  <!-- 勞健保級距設定（加盟主以上）-->
+  <div id="sectionInsurance" style="display:none;">
+    <div class="card-title" style="padding:0 0 8px;">🧾 勞健保級距設定
+      <span class="perm-badge perm-owner">加盟主</span>
+    </div>
+    <div class="menu-list" style="margin-bottom:16px;">
+      <div class="menu-item" onclick="openInsuranceModal()">
+        <div class="menu-item-icon" style="background:#e8f5e9;">🧾</div>
+        <div class="menu-item-text">
+          <div class="menu-item-title" id="insuranceMenuTitle">115年度投保級距金額表</div>
+          <div class="menu-item-sub">勞保、健保、勞退費率與各級距負擔金額</div>
+        </div>
+        <div class="menu-item-arrow">›</div>
+      </div>
+    </div>
+  </div>
+
   <!-- 門市班別設定（店長以上）-->
   <div id="sectionStoreConfig">
     <div class="card-title" style="padding:0 0 8px;">🔧 門市班別設定
@@ -187,6 +204,61 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
     </div>
     <button class="save-btn" onclick="saveHolidayYear(holidayMgrYear)">💾 儲存假日設定</button>
     <button class="cancel-btn" onclick="closeModal('holidayModal')">關閉</button>
+  </div>
+</div>
+
+<!-- ===== 勞健保級距設定 Modal ===== -->
+<div class="modal-overlay" id="insuranceModal" onclick="if(event.target===this)closeModal('insuranceModal')">
+  <div class="modal-box" style="max-height:92vh;">
+    <div class="modal-handle"></div>
+    <div class="modal-title">🧾 勞健保級距設定</div>
+    <div class="modal-sub" id="insuranceModalSub">載入中...</div>
+
+    <!-- 費率區塊 -->
+    <div style="background:#f0f7ff; border-radius:10px; padding:12px; margin-bottom:14px;">
+      <div style="font-size:12px; font-weight:800; color:var(--primary); margin-bottom:10px;">費率設定（生效年度：<span id="insuranceYear">—</span>年）</div>
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px;">
+        <div>
+          <div style="font-size:11px; color:var(--text-muted); margin-bottom:3px;">勞保費率 ‰</div>
+          <input id="inLaborRate" type="number" min="0" max="200" style="width:100%; padding:8px; border:1.5px solid var(--border); border-radius:8px; font-size:14px; text-align:center;">
+          <div style="font-size:10px; color:var(--text-muted); margin-top:2px; text-align:center;">現行 125（=12.5%）</div>
+        </div>
+        <div>
+          <div style="font-size:11px; color:var(--text-muted); margin-bottom:3px;">健保費率 ‰</div>
+          <input id="inHealthRate" type="number" min="0" max="200" style="width:100%; padding:8px; border:1.5px solid var(--border); border-radius:8px; font-size:14px; text-align:center;">
+          <div style="font-size:10px; color:var(--text-muted); margin-top:2px; text-align:center;">現行 517（=5.17%）</div>
+        </div>
+        <div>
+          <div style="font-size:11px; color:var(--text-muted); margin-bottom:3px;">勞退費率 ‰</div>
+          <input id="inPensionRate" type="number" min="0" max="200" style="width:100%; padding:8px; border:1.5px solid var(--border); border-radius:8px; font-size:14px; text-align:center;">
+          <div style="font-size:10px; color:var(--text-muted); margin-top:2px; text-align:center;">現行 60（=6%）</div>
+        </div>
+      </div>
+      <button onclick="recalcInsuranceGrades()" style="margin-top:10px; width:100%; padding:9px; background:var(--accent); color:white; border:none; border-radius:8px; font-weight:700; font-size:13px; cursor:pointer;">🔄 依費率重新計算全部級距</button>
+    </div>
+
+    <!-- 級距表 -->
+    <div style="font-size:12px; font-weight:800; color:var(--text-muted); margin-bottom:6px;">投保薪資級距金額表</div>
+    <div style="overflow-x:auto; max-height:340px; overflow-y:auto; border:1px solid var(--border); border-radius:10px; margin-bottom:12px;">
+      <table id="insuranceTable" style="width:100%; border-collapse:collapse; font-size:11px; min-width:620px;">
+        <thead style="position:sticky; top:0; background:#1a73e8; color:white; z-index:1;">
+          <tr>
+            <th style="padding:7px 6px; text-align:right; white-space:nowrap;">月投保薪資</th>
+            <th style="padding:7px 4px; text-align:right; background:#0d47a1;">勞保<br>勞工</th>
+            <th style="padding:7px 4px; text-align:right; background:#0d47a1;">勞保<br>雇主</th>
+            <th style="padding:7px 4px; text-align:right; background:#0d47a1;">勞保<br>政府</th>
+            <th style="padding:7px 4px; text-align:right; background:#2e7d32;">健保<br>勞工</th>
+            <th style="padding:7px 4px; text-align:right; background:#2e7d32;">健保<br>雇主</th>
+            <th style="padding:7px 4px; text-align:right; background:#2e7d32;">健保<br>政府</th>
+            <th style="padding:7px 4px; text-align:right; background:#e65100;">勞退<br>雇主</th>
+          </tr>
+        </thead>
+        <tbody id="insuranceTableBody"></tbody>
+      </table>
+    </div>
+
+    <button class="save-btn" onclick="saveInsuranceGrades()">💾 儲存級距設定</button>
+    <button class="cancel-btn" onclick="closeModal('insuranceModal')">關閉</button>
   </div>
 </div>
 
@@ -292,6 +364,7 @@ window.onload = async () => {
   // 依權限顯示區塊
   if(canAdmin())  document.getElementById('sectionSysConfig').style.display = 'block';
   if(canOwner())  document.getElementById('sectionHoliday').style.display  = 'block';
+  if(canOwner())  document.getElementById('sectionInsurance').style.display = 'block';
   // storeConfig 預設顯示（店長以上）
 
   hideLoading();
@@ -575,6 +648,145 @@ async function saveStoreConfig() {
   } catch(e) {
     showToast('❌ 儲存失敗：' + e.message);
   }
+  hideLoading();
+}
+
+// ===== 勞健保級距設定 =====
+let insuranceData = null;
+
+async function openInsuranceModal() {
+  openModal('insuranceModal');
+  if(insuranceData) { renderInsuranceTable(); return; }
+  showLoading('載入級距資料...');
+  try {
+    const snap = await window.db.collection('settings').doc('insuranceGrades').get();
+    if(!snap.exists) { showToast('❌ 尚無級距資料'); hideLoading(); closeModal('insuranceModal'); return; }
+    insuranceData = snap.data();
+    renderInsuranceTable();
+  } catch(e) { showToast('❌ 載入失敗：' + e.message); }
+  hideLoading();
+}
+
+function renderInsuranceTable() {
+  const d = insuranceData;
+  document.getElementById('insuranceYear').textContent = d.year || '—';
+  document.getElementById('insuranceModalSub').textContent =
+    `${d.year || ''}年度（${d.effectiveDate || ''}起）　勞保${(d.laborRate||0)/10}%　健保${(d.healthRate||0)/100}%　勞退${(d.pensionRate||0)/10}%`;
+  document.getElementById('inLaborRate').value  = d.laborRate  || 125;
+  document.getElementById('inHealthRate').value = d.healthRate || 517;
+  document.getElementById('inPensionRate').value= d.pensionRate|| 60;
+
+  document.getElementById('insuranceMenuTitle').textContent =
+    `${d.year || ''}年度投保級距金額表`;
+
+  const grades = d.grades || [];
+  const LABOR_MAX   = d.laborMaxSalary   || 45800;
+  const PENSION_MAX = d.pensionMaxSalary || 150000;
+
+  const tbody = document.getElementById('insuranceTableBody');
+  tbody.innerHTML = grades.map((g, i) => {
+    const isMin = g.insuredSalary === 29500;
+    const isLaborMax = g.insuredSalary === LABOR_MAX;
+    const isPensionMax = g.insuredSalary === PENSION_MAX;
+    const bg = isMin ? '#fff9e6' : (i % 2 === 0 ? 'white' : '#f8fafc');
+    const badge = isMin ? ' 🔴' : (isLaborMax ? ' 🔵' : (isPensionMax ? ' 🟢' : ''));
+    return `<tr style="background:${bg};" onclick="editInsuranceRow(${i})" title="點擊編輯">
+      <td style="padding:5px 6px; text-align:right; font-weight:700; white-space:nowrap;">${g.insuredSalary.toLocaleString()}${badge}</td>
+      <td style="padding:5px 4px; text-align:right; color:#0d47a1;">${(g.laborEmp||0).toLocaleString()}</td>
+      <td style="padding:5px 4px; text-align:right; color:#0d47a1;">${(g.laborEr||0).toLocaleString()}</td>
+      <td style="padding:5px 4px; text-align:right; color:#0d47a1;">${(g.laborGov||0).toLocaleString()}</td>
+      <td style="padding:5px 4px; text-align:right; color:#2e7d32;">${(g.healthEmp||0).toLocaleString()}</td>
+      <td style="padding:5px 4px; text-align:right; color:#2e7d32;">${(g.healthEr||0).toLocaleString()}</td>
+      <td style="padding:5px 4px; text-align:right; color:#2e7d32;">${(g.healthGov||0).toLocaleString()}</td>
+      <td style="padding:5px 4px; text-align:right; color:#e65100;">${(g.pension||0).toLocaleString()}</td>
+    </tr>`;
+  }).join('');
+}
+
+function editInsuranceRow(idx) {
+  const g = insuranceData.grades[idx];
+  const fields = [
+    ['勞保 勞工', 'laborEmp'], ['勞保 雇主', 'laborEr'], ['勞保 政府', 'laborGov'],
+    ['健保 勞工', 'healthEmp'], ['健保 雇主', 'healthEr'], ['健保 政府', 'healthGov'],
+    ['勞退 雇主', 'pension']
+  ];
+  let html = `<div style="font-weight:800; margin-bottom:10px;">編輯 $${g.insuredSalary.toLocaleString()} 級距</div>`;
+  html += '<div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">';
+  fields.forEach(([label, key]) => {
+    html += `<div><div style="font-size:11px; color:var(--text-muted); margin-bottom:3px;">${label}</div>
+      <input type="number" id="editIns_${key}" value="${g[key]||0}" style="width:100%; padding:7px; border:1.5px solid var(--border); border-radius:8px; font-size:13px; text-align:right;"></div>`;
+  });
+  html += '</div>';
+  html += `<div style="display:flex; gap:8px; margin-top:12px;">
+    <button onclick="applyInsuranceRowEdit(${idx})" style="flex:1; padding:9px; background:var(--primary); color:white; border:none; border-radius:8px; font-weight:700; cursor:pointer;">確認</button>
+    <button onclick="closeModal('insuranceEditModal')" style="flex:1; padding:9px; background:none; border:1.5px solid var(--border); border-radius:8px; font-weight:700; cursor:pointer;">取消</button>
+  </div>`;
+
+  let modal = document.getElementById('insuranceEditModal');
+  if(!modal) {
+    modal = document.createElement('div');
+    modal.id = 'insuranceEditModal';
+    modal.className = 'modal-overlay';
+    modal.onclick = e => { if(e.target === modal) modal.classList.remove('active'); };
+    modal.innerHTML = `<div class="modal-box"><div class="modal-handle"></div><div id="insuranceEditContent"></div></div>`;
+    document.body.appendChild(modal);
+  }
+  document.getElementById('insuranceEditContent').innerHTML = html;
+  modal.classList.add('active');
+}
+
+function applyInsuranceRowEdit(idx) {
+  const fields = ['laborEmp','laborEr','laborGov','healthEmp','healthEr','healthGov','pension'];
+  fields.forEach(k => {
+    const el = document.getElementById(`editIns_${k}`);
+    if(el) insuranceData.grades[idx][k] = parseInt(el.value) || 0;
+  });
+  renderInsuranceTable();
+  document.getElementById('insuranceEditModal').classList.remove('active');
+}
+
+function recalcInsuranceGrades() {
+  if(!insuranceData) return;
+  const lr  = (parseInt(document.getElementById('inLaborRate').value)  || 125) / 1000;
+  const hr  = (parseInt(document.getElementById('inHealthRate').value) || 517) / 10000;
+  const pr  = (parseInt(document.getElementById('inPensionRate').value)|| 60)  / 1000;
+  const LABOR_MAX   = insuranceData.laborMaxSalary   || 45800;
+  const PENSION_MAX = insuranceData.pensionMaxSalary || 150000;
+  const r = Math.round;
+
+  insuranceData.grades = insuranceData.grades.map(g => {
+    const s  = g.insuredSalary;
+    const ls = Math.min(s, LABOR_MAX);
+    const ps = Math.min(s, PENSION_MAX);
+    const lt = r(ls * lr);
+    const le = r(ls * lr * 0.20);
+    const lg = r(ls * lr * 0.10);
+    return {
+      insuredSalary: s,
+      laborEmp: le, laborEr: lt - le - lg, laborGov: lg, laborTotal: lt,
+      healthEmp: r(s * hr * 0.30), healthEr: r(s * hr * 0.60), healthGov: r(s * hr * 0.10),
+      healthTotal: r(s * hr * 0.30) + r(s * hr * 0.60) + r(s * hr * 0.10),
+      pension: r(ps * pr)
+    };
+  });
+  insuranceData.laborRate  = parseInt(document.getElementById('inLaborRate').value)  || 125;
+  insuranceData.healthRate = parseInt(document.getElementById('inHealthRate').value) || 517;
+  insuranceData.pensionRate= parseInt(document.getElementById('inPensionRate').value)|| 60;
+  renderInsuranceTable();
+  showToast('✅ 已重新計算，請確認後儲存');
+}
+
+async function saveInsuranceGrades() {
+  if(!insuranceData) return;
+  insuranceData.laborRate  = parseInt(document.getElementById('inLaborRate').value)  || 125;
+  insuranceData.healthRate = parseInt(document.getElementById('inHealthRate').value) || 517;
+  insuranceData.pensionRate= parseInt(document.getElementById('inPensionRate').value)|| 60;
+  showLoading('儲存中...');
+  try {
+    await window.db.collection('settings').doc('insuranceGrades').set(insuranceData);
+    showToast('✅ 級距設定已儲存');
+    closeModal('insuranceModal');
+  } catch(e) { showToast('❌ 儲存失敗：' + e.message); }
   hideLoading();
 }
 </script>
