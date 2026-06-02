@@ -6,6 +6,25 @@
 
 ## 更新紀錄
 
+### 2026-06-02
+
+#### 🐛 修正
+
+- **登入錯誤訊息明確化**
+  - 區分「查無此帳號」與「密碼錯誤」，讓使用者清楚知道問題所在，不再統一顯示模糊提示。
+
+- **手機 Google 登入閃退**
+  - 手機瀏覽器不支援 popup，原本 `signInWithPopup` 被降級為 redirect 後，`onAuthStateChanged` 先收到 `null` 導致閃回登入頁。
+  - 修正：手機裝置改用 `signInWithRedirect`，頁面載入時優先透過 `getRedirectResult()` 處理回傳，成功後直接進入 app，不再走 null → 顯示登入頁的流程。
+
+#### ⚙️ 程式碼優化
+
+- **調店 / 職稱異動：`users` 同步防呆**
+  - 原本查詢 `users` 時需同時比對 `empName` 與 `store`，若兩個 collection 的 `store` 已不同步，查詢會找不到資料並靜默略過更新。
+  - 修正：找不到時改用 `empName` 單獨查作為 fallback，確保異動一定會同步至 `users` 集合。
+
+---
+
 ### 2026-05-29
 
 #### ✨ 新功能
