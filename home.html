@@ -1192,14 +1192,15 @@ window.onload = async () => {
         return;
       }
     } catch(e) {
-      hideLoading();
-      showLoginScreen();
       if(e.code === 'not-linked') {
+        // Google 帳號未綁定工號：顯示登入頁並提示
+        hideLoading();
+        showLoginScreen();
         document.getElementById('loginError').textContent = '❌ 此 Google 帳號尚未綁定工號，請先用工號登入';
-      } else {
-        document.getElementById('loginError').textContent = '❌ Google 登入失敗，請重試';
+        return;
       }
-      return;
+      // 其他錯誤（網路、環境不支援等）：忽略，繼續走正常 onAuthStateChanged 流程
+      console.warn('handleGoogleRedirectResult 非預期錯誤:', e);
     }
 
     // Firebase Auth 狀態偵測（一次性）
