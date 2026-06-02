@@ -63,13 +63,33 @@ async function authLogin(empId, password) {
 }
 
 // ===== Google 登入（需已綁定） =====
+// 手機瀏覽器不支援 popup，改用 redirect；桌機維持 popup
+const _isMobile = () => /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
 async function authLoginWithGoogle() {
   const provider = new firebase.auth.GoogleAuthProvider();
+  if (_isMobile()) {
+    await firebase.auth().signInWithRedirect(provider);
+    return null; // 頁面即將導航離開，不繼續執行
+  }
   const cred = await firebase.auth().signInWithPopup(provider);
   const profile = await _loadProfile(cred.user);
   if (!profile) {
-    // 刪除孤立帳號，避免後續 linkWithPopup 時衝突；若刪除失敗則登出，防止卡在幽靈帳號
     await cred.user.delete().catch(() => firebase.auth().signOut().catch(() => {}));
+    const err = new Error('此 Google 帳號尚未綁定任何員工工號，請先用工號登入後至設定頁綁定');
+    err.code = 'not-linked';
+    throw err;
+  }
+  return profile;
+}
+
+// ===== 處理 Google Redirect 回傳結果（手機登入用） =====
+async function handleGoogleRedirectResult() {
+  const result = await firebase.auth().getRedirectResult();
+  if (!result || !result.user) return null;
+  const profile = await _loadProfile(result.user);
+  if (!profile) {
+    await result.user.delete().catch(() => firebase.auth().signOut().catch(() => {}));
     const err = new Error('此 Google 帳號尚未綁定任何員工工號，請先用工號登入後至設定頁綁定');
     err.code = 'not-linked';
     throw err;

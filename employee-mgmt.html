@@ -231,9 +231,9 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
         <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">選擇後，班表資料將以此員工名稱查詢</div>
       </div>
       <div id="newEmpGroup" style="display:none;">
-        <input type="text" id="accountNewEmpName" placeholder="排班系統中的員工名稱（之後新增）"
+        <input type="text" id="accountNewEmpName" placeholder="排班系統中的員工名稱"
           style="width:100%; padding:12px 14px; border:1.5px solid var(--border); border-radius:10px; font-size:14px; background:#f8fafc;">
-        <div style="font-size:11px; color:var(--warn); margin-top:4px;">⚠️ 請之後在排班系統中新增同名員工</div>
+        <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">儲存時將自動在排班系統建立同名員工（時薪預設 0，請記得補填）</div>
       </div>
     </div>
     <div class="form-field">
@@ -791,8 +791,13 @@ async function saveAccountSetting() {
     await docRef.set(data, { merge: true });
 
     // 同步更新 users 集合（新系統，不含密碼）
-    const usersSnap = await window.db.collection('users')
+    let usersSnap = await window.db.collection('users')
       .where('empName','==',empName).where('store','==',store).limit(1).get().catch(()=>null);
+    if(!usersSnap || usersSnap.empty) {
+      // fallback：store 不同步時改用 empName 單獨查
+      usersSnap = await window.db.collection('users')
+        .where('empName','==',empName).limit(1).get().catch(()=>null);
+    }
     if(usersSnap && !usersSnap.empty) {
       const { password: _pw, changeHistory: _ch, ...userFields } = data;
       await usersSnap.docs[0].ref.set(userFields, { merge: true });
@@ -805,10 +810,16 @@ async function saveAccountSetting() {
       } catch(authErr) { console.warn('Firebase Auth 建立失敗:', authErr.message); }
     }
 
-    // ✅ 同步更新員工資料的 role（延後生效時保留原職稱，待登入時套用）
-    if(!hasFutureRoleDate) {
-      await window.db.collection('stores').doc(store).collection('employees').doc(empName)
-        .update({ role }).catch(()=>{});
+    // ✅ 同步員工記錄：全新員工自動建立，已存在則更新 role
+    const empRef = window.db.collection('stores').doc(store).collection('employees').doc(empName);
+    const empSnap = await empRef.get().catch(() => null);
+    if (!empSnap || !empSnap.exists) {
+      // 員工記錄不存在 → 自動建立（時薪預設 0，之後可在員工列表補填）
+      const empCount = await window.db.collection('stores').doc(store).collection('employees')
+        .get().catch(() => ({ size: 0 }));
+      await empRef.set({ role: effectiveRole, wage: 0, sortKey: empCount.size, status: '在職' });
+    } else if (!hasFutureRoleDate) {
+      await empRef.update({ role });
     }
 
     closeModal('accountModal');
@@ -1181,7 +1192,11 @@ async function confirmTransfer() {
       await accSnap.docs[0].ref.update(transferUpdate);
     }
     // 同步更新 users 集合
-    const usersTransSnap = await window.db.collection('users').where('empName','==',empId).where('store','==',fromStore).limit(1).get().catch(()=>null);
+    let usersTransSnap = await window.db.collection('users').where('empName','==',empId).where('store','==',fromStore).limit(1).get().catch(()=>null);
+    if(!usersTransSnap || usersTransSnap.empty) {
+      // fallback：store 不同步時改用 empName 單獨查
+      usersTransSnap = await window.db.collection('users').where('empName','==',empId).limit(1).get().catch(()=>null);
+    }
     if(usersTransSnap && !usersTransSnap.empty) {
       await usersTransSnap.docs[0].ref.update(transferUpdate);
     }
