@@ -485,7 +485,7 @@ function dateToWeekStr(dateStr){
   return `${year}-W${String(weekNum).padStart(2,'0')}`;
 }
 
-// 目標週的申請截止日（前兩週的週日）
+// 目標週的申請截止日（前一週的週一）
 function getDeadlineForWeek(weekStr){
   const [yr, wk] = weekStr.split('-W').map(Number);
   const d = new Date(yr, 0, 1);
@@ -493,9 +493,9 @@ function getDeadlineForWeek(weekStr){
   d.setDate(d.getDate() + (wk-1)*7);
   const offset = day <= 4 ? 1 - day : 8 - day;
   const weekMon = new Date(yr, d.getMonth(), d.getDate() + offset);
-  // 前兩週週一 = weekMon - 14天，前兩週週日 = weekMon - 14 + 6 = weekMon - 8
+  // 前一週週一 = weekMon - 7天
   const deadline = new Date(weekMon);
-  deadline.setDate(weekMon.getDate() - 8);
+  deadline.setDate(weekMon.getDate() - 7);
   deadline.setHours(23, 59, 59, 0);
   return deadline;
 }
@@ -880,17 +880,17 @@ function renderCalendar(){
     const nnwDates = getWeekDatesFromStr(nnwStr);
     const now = new Date();
     const dow = now.getDay();
-    // 截止日 = 本週日（dow=0 今天就是週日，否則往後算）
-    const sunOffset = dow === 0 ? 0 : (7 - dow);
-    const closeSun = new Date(now);
-    closeSun.setDate(now.getDate() + sunOffset);
-    const sunM = closeSun.getMonth() + 1;
-    const sunD = closeSun.getDate();
+    // 截止日 = 下週一（dow=1 今天就是週一，否則往後算到下一個週一）
+    const monOffset = (8 - dow) % 7;
+    const closeMon = new Date(now);
+    closeMon.setDate(now.getDate() + monOffset);
+    const monM = closeMon.getMonth() + 1;
+    const monD = closeMon.getDate();
     html += `<div class="info-box blue" style="margin-bottom:8px;display:flex;align-items:center;gap:8px;">
       <div style="font-size:18px;">📅</div>
       <div>
         <div style="font-weight:800;">下下週（${nnwDates[0]}～${nnwDates[6]}）劃休申請</div>
-        <div style="font-size:11px;margin-top:2px;">截止：${sunM}/${sunD}（日）23:59</div>
+        <div style="font-size:11px;margin-top:2px;">截止：${monM}/${monD}（一）23:59</div>
       </div>
     </div>`;
   }
