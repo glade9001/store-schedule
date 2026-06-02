@@ -17,11 +17,22 @@
   - 手機瀏覽器不支援 popup，原本 `signInWithPopup` 被降級為 redirect 後，`onAuthStateChanged` 先收到 `null` 導致閃回登入頁。
   - 修正：手機裝置改用 `signInWithRedirect`，頁面載入時優先透過 `getRedirectResult()` 處理回傳，成功後直接進入 app，不再走 null → 顯示登入頁的流程。
 
+- **回首頁後自動登出**
+  - `handleGoogleRedirectResult` 的 catch 範圍過廣，任何非預期錯誤（網路、環境不支援等）都會觸發 `showLoginScreen()`，導致已登入的使用者回到首頁時被登出。
+  - 修正：catch 僅處理 `not-linked` 錯誤，其餘錯誤改為 `console.warn` 並繼續走正常 `onAuthStateChanged` 流程。
+
+- **個人薪資頁（`my-salary.html`）調店後看不到歷史薪資**
+  - 調店後 `currentUser.store` 更新至新門市，但歷史薪資記錄仍存放在舊門市。`my-salary.html` 原本只讀目前門市的薪資，導致調店前的月份顯示空白。
+  - 修正：載入時若當月記錄找不到本人資料，自動掃描其他門市尋找歷史薪資並切換讀取，使用者無感。
+
 #### ⚙️ 程式碼優化
 
 - **調店 / 職稱異動：`users` 同步防呆**
   - 原本查詢 `users` 時需同時比對 `empName` 與 `store`，若兩個 collection 的 `store` 已不同步，查詢會找不到資料並靜默略過更新。
   - 修正：找不到時改用 `empName` 單獨查作為 fallback，確保異動一定會同步至 `users` 集合。
+
+- **Service Worker 升版（v4 → v5）**
+  - 確保 `auth.js` 舊快取自動清除，新版 Google redirect 登入邏輯立即生效。
 
 ---
 
