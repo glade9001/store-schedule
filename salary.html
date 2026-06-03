@@ -1530,8 +1530,10 @@ function printPayslip() {
 // ===== 代扣區塊渲染（含唯讀控制）=====
 function renderInsuranceSection(empName, rec, idx) {
   const ro = isInsuranceReadonly();
-  // insuranceGrade: null=未設定, 0=未投保, number=級距薪資
-  const gradeSet  = rec.insuranceGrade !== null && rec.insuranceGrade !== undefined;
+  // insuranceGrade: null=未設定, -1=未投保, 0..N=grades陣列索引
+  const gradeIdx  = rec.insuranceGrade ?? null;
+  const gradeSet  = gradeIdx !== null && gradeIdx !== undefined;
+  const gradeObj  = (gradeSet && gradeIdx >= 0) ? (insuranceGradesData?.grades||[])[gradeIdx] : null;
   const laborVal  = rec.laborInsurance  || 0;
   const healthVal = rec.healthInsurance || 0;
   const depCount  = rec.dependentCount  || 0;
@@ -1539,37 +1541,47 @@ function renderInsuranceSection(empName, rec, idx) {
 
   // ── 投保級距選擇器 ──
   const gradeLabel = !gradeSet ? '—'
-    : rec.insuranceGrade === 0 ? '未投保'
-    : `$${rec.insuranceGrade.toLocaleString()}`;
+    : gradeIdx === -1 ? '未投保'
+    : gradeObj ? (gradeObj.type === 'partTime'
+        ? `月薪 ${gradeObj.wageMin.toLocaleString()}~${gradeObj.wageMax.toLocaleString()}`
+        : `$${gradeObj.insuredSalary.toLocaleString()}`)
+    : '—';
+
+  const grades = insuranceGradesData?.grades || [];
+  const ptGrades = grades.map((g,i)=>({...g,i})).filter(g=>g.type==='partTime');
+  const ftGrades = grades.map((g,i)=>({...g,i})).filter(g=>g.type==='fullTime');
 
   const gradeSelector = ro
     ? `<div class="salary-row"><span class="salary-row-label">投保級距</span>
         <span class="salary-row-val">${gradeLabel}</span></div>`
     : `<div class="salary-row"><span class="salary-row-label">投保級距</span>
-        <select class="salary-input" style="width:130px;font-size:13px;"
+        <select class="salary-input" style="width:150px;font-size:12px;"
           onchange="onInsuranceGradeChange('${empName}',this.value,${idx})">
           <option value="">— 未設定 —</option>
-          <option value="0" ${rec.insuranceGrade===0?'selected':''}>未投保</option>
-          ${(insuranceGradesData?.grades||[]).map(g =>
-            `<option value="${g.insuredSalary}" ${rec.insuranceGrade===g.insuredSalary?'selected':''}>
-              $${g.insuredSalary.toLocaleString()}</option>`).join('')}
+          <option value="-1" ${gradeIdx===-1?'selected':''}>未投保</option>
+          <optgroup label="── 部分工時 ──">
+            ${ptGrades.map(g=>`<option value="${g.i}" ${gradeIdx===g.i?'selected':''}>月薪 ${g.wageMin.toLocaleString()}~${g.wageMax.toLocaleString()}</option>`).join('')}
+          </optgroup>
+          <optgroup label="── 月薪制 ──">
+            ${ftGrades.map(g=>`<option value="${g.i}" ${gradeIdx===g.i?'selected':''}>$${g.insuredSalary.toLocaleString()}</option>`).join('')}
+          </optgroup>
         </select></div>`;
 
   // ── 勞保費（永遠唯讀，只能由級距帶入）──
   const laborRow = `<div class="salary-row"><span class="salary-row-label">勞保費（個人）</span>
       <span class="salary-row-val">$${laborVal.toLocaleString()}</span></div>
-     ${gradeSet && rec.insuranceGrade !== 0
+     ${gradeSet && gradeIdx >= 0
        ? `<div style="font-size:11px;color:#94a3b8;text-align:right;margin-top:-6px;padding-bottom:4px;">
             雇主負擔：$${(rec.laborEr||0).toLocaleString()}</div>` : ''}`;
 
   // ── 健保費（永遠唯讀，只能由級距帶入）+ 健保未投保切換 ──
   const healthUninsured = !!rec.healthUninsured;
-  const healthToggle = (!ro && gradeSet && rec.insuranceGrade !== 0)
+  const healthToggle = (!ro && gradeSet && gradeIdx >= 0)
     ? `<button onclick="toggleHealthUninsured('${empName}',${idx})"
         style="background:${healthUninsured?'#fce8e6':'#e8f5e9'};color:${healthUninsured?'#d93025':'#2e7d32'};
                border:none;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:700;cursor:pointer;margin-left:6px;white-space:nowrap;">
         ${healthUninsured?'未投保':'已投保'}</button>` : '';
-  const healthErLine = (gradeSet && rec.insuranceGrade !== 0 && !healthUninsured)
+  const healthErLine = (gradeSet && gradeIdx >= 0 && !healthUninsured)
     ? `<div style="font-size:11px;color:#94a3b8;text-align:right;margin-top:-6px;padding-bottom:4px;">
          雇主負擔：$${(rec.healthEr||0).toLocaleString()}</div>` : '';
 
@@ -1625,23 +1637,23 @@ function onInsuranceGradeChange(empName, value, idx) {
   if(!value) {
     rec.insuranceGrade = null;
     rec.laborEr = 0; rec.healthEr = 0; rec.pensionEr = 0;
-  } else if(value === '0') {
+  } else if(value === '-1') {
     // 未投保：全部清零
-    rec.insuranceGrade = 0;
+    rec.insuranceGrade = -1;
     rec.laborInsurance = 0; rec.healthInsurance = 0;
     rec.laborEr = 0; rec.healthEr = 0; rec.pensionEr = 0;
     rec.healthUninsured = false;
   } else {
-    const salary = parseInt(value);
-    const grade = (insuranceGradesData?.grades || []).find(g => g.insuredSalary === salary);
+    const gradeIdx = parseInt(value);
+    const grade = (insuranceGradesData?.grades || [])[gradeIdx];
     if(grade) {
-      rec.insuranceGrade = salary;
+      rec.insuranceGrade = gradeIdx;
       rec.laborInsurance = grade.laborEmp;
       rec.healthInsurance = grade.healthEmp;
       rec.laborEr  = grade.laborEr;
       rec.healthEr = grade.healthEr;
       rec.pensionEr= grade.pension;
-      rec.healthUninsured = false; // 切換級距時重置健保狀態
+      rec.healthUninsured = false;
     }
   }
   const dc = rec.dependentCount || 0;
@@ -1662,7 +1674,7 @@ function toggleHealthUninsured(empName, idx) {
     rec.dependentInsurance = 0;
   } else {
     // 還原：從備份或重新從級距帶入
-    const grade = (insuranceGradesData?.grades||[]).find(g => g.insuredSalary === rec.insuranceGrade);
+    const grade = (insuranceGradesData?.grades||[])[rec.insuranceGrade] || null;
     rec.healthInsurance = grade ? grade.healthEmp : 0;
     rec.healthEr        = rec._healthErBackup || (grade ? grade.healthEr : 0);
     const dc = rec.dependentCount || 0;
