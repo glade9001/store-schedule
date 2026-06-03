@@ -1635,8 +1635,8 @@ async function fetchAllStoreData() {
       const effectDate = data.transferDate;
       if(!effectDate) return; // 沒有生效日視為已生效，隱藏
 
-      if(isPublished) {
-        // 已發布的週：調走員工一律正常顯示（方便核對歷史）
+      if(isPublished && effectDate >= weekMonStr) {
+        // 已發布的週：只顯示本週或之後才調走的員工（本週前已調走者不顯示）
         appData.employees.push({ name: d.id, ...data });
       } else if(effectDate > weekSunStr) {
         // transferDate 在本週之後：正常顯示
