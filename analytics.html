@@ -266,7 +266,7 @@ select.range-sel:focus{border-color:var(--primary);}
         <div class="support-note">支援調整：正職以（底薪＋全勤獎金）÷30÷8 × 支援時數；工讀以時薪 × 支援時數</div>
         <label style="display:flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:var(--text-muted);cursor:pointer;user-select:none;">
           <input type="checkbox" id="showPensionCol" onchange="togglePensionCol()" style="accent-color:var(--primary);width:14px;height:14px;">
-          顯示勞退欄
+          顯示公司負擔欄
         </label>
       </div>
       <div style="overflow-x:auto;margin-top:10px;">
@@ -279,7 +279,7 @@ select.range-sel:focus{border-color:var(--primary);}
               <th class="num">加班費</th>
               <th class="num">國假費用</th>
               <th class="num">支援調整</th>
-              <th class="num col-pension">勞退(6%)</th>
+              <th class="num col-pension">公司負擔</th>
               <th class="num">實際成本</th>
             </tr>
           </thead>
@@ -617,8 +617,9 @@ const calcGross = (rec, role) => {
 };
 const calcDeduct = rec => n(rec.laborInsurance)+n(rec.healthInsurance)+n(rec.dependentInsurance)+n(rec.laborPension)+n(rec.otherDeduction);
 const calcNet = (rec,role) => calcGross(rec,role)-calcDeduct(rec);
-const calcPension = (rec,role) => role==='工讀'?0:Math.round((n(rec.baseSalary)+n(rec.fullAttendBonus))*0.06);
-const calcRealCost = (rec,role) => calcNet(rec,role)+calcPension(rec,role);
+const calcPension = (rec,role) => role==='工讀'?0:(rec.pensionEr!=null?n(rec.pensionEr):Math.round((n(rec.baseSalary)+n(rec.fullAttendBonus))*0.06));
+const calcErBurden = (rec,role) => n(rec.laborEr||0)+n(rec.healthEr||0)+calcPension(rec,role);
+const calcRealCost = (rec,role) => calcGross(rec,role)+calcErBurden(rec,role);
 
 // 判斷員工在指定月份是否在職（含離職/調走員工的歷史月份）
 function isEmpActiveInMonth(emp, ym) {
@@ -833,10 +834,9 @@ function renderCostTab(){
           base += n(rec.baseSalary);
           bonus += n(rec.fullAttendBonus)+['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+n(rec[k]),0)+n(rec.laborAllowance)+n(rec.performance)+n(rec.nightAllowance)+n(rec.roleBonus)+n(rec.otherBonus);
           hol  += n(rec.holidayOtPay);
-          pension += calcPension(rec,emp.role);
         }
         ot += calcOtPay(rec);
-        // 實際成本 = 應發薪資（不扣代扣）+ 勞退（選填）
+        pension += calcErBurden(rec, emp.role);
         grossSum += calcGross(rec,emp.role);
       });
       const storeAdj = adjMatrix[store]?.[ym]||0;
