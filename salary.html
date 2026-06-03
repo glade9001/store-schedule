@@ -2842,18 +2842,15 @@ function renderSalaryForm(emp, rec, idx, readonly) {
 
   // === 第二欄：代扣項目 ===
   let col2 = `<div class="col-card"><div class="col-header c2"><span>3. 代扣項目</span><span style="font-size:11px;">(減項)</span></div>`;
-  col2 += inp('laborInsurance', rec.laborInsurance, '勞保費');
-  col2 += inp('healthInsurance', rec.healthInsurance, '健保費');
-  col2 += inp('dependentInsurance', rec.dependentInsurance, '眷屬健保費');
-  col2 += inp('laborPension', rec.laborPension, '勞退個人自提');
+  col2 += renderInsuranceSection(emp.name, rec, idx);
   col2 += inp('otherDeduction', rec.otherDeduction, '其他扣款');
-  
+
   if(!ro) {
     col2 += `<div style="margin-top:4px;"><input class="salary-input input-text" type="text" value="${rec.otherDeductionNote||''}" placeholder="請輸入扣款備註內容..." onchange="updateFieldModal('${emp.name}','otherDeductionNote',this.value)"></div>`;
   } else if(rec.otherDeductionNote) {
     col2 += `<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">備註：${rec.otherDeductionNote}</div>`;
   }
-  
+
   col2 += `<div class="salary-total-row"><span class="salary-total-label">小計 (代扣合計)</span><span class="salary-total-val" style="color:var(--danger);">-$${deduct.toLocaleString()}</span></div></div>`;
 
   // === 第 2.5 欄 + 第三欄：考勤紀錄 ===
