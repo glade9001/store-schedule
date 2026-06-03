@@ -767,16 +767,20 @@ function renderCostTab(){
     });
   });
 
-  // 支援調整：以薪資記錄的 _store 為當月所屬門市
+  // 支援調整：優先用薪資記錄，沒有則 fallback 到 allEmps 員工資料
   ymList.forEach(ym=>{
     Object.entries(supportMap[ym]||{}).forEach(([empName,supports])=>{
       const empRec = salaryMap[ym]?.[empName];
-      if(!empRec) return;
-      const homeStore = empRec._store;
-      if(!fStores.includes(homeStore)) return;
-      const role = empRec.role||'';
+      const empData = allEmps.find(e=>e.name===empName);
+      if(!empRec && !empData) return;
+      const homeStore = empRec?._store || empData?.store;
+      if(!homeStore || !fStores.includes(homeStore)) return;
+      const role = empRec?.role || empData?.role || '';
       const isPart = role==='工讀';
-      const hrRate = isPart ? n(empRec.wage||0) : (n(empRec.baseSalary||0)+n(empRec.fullAttendBonus||0))/30/8;
+      const base   = n(empRec?.baseSalary||0)      || n(empData?.baseSalary||0);
+      const attend = n(empRec?.fullAttendBonus||0)  || n(empData?.fullAttendBonus||0);
+      const wage   = n(empRec?.wage||0)             || n(empData?.wage||0);
+      const hrRate = isPart ? wage : (base+attend)/30/8;
       supports.forEach(s=>{
         if(s.fromStore !== homeStore) return;
         const amt = Math.round(hrRate * s.hours);

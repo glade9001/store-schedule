@@ -4049,15 +4049,20 @@ async function fetchSupportInRates(supportInList) {
     }
   }));
   supportInList.forEach(s => {
-    const recs = salByStore[s.fromStore]; const emps = empByStore[s.fromStore];
-    if(!recs || !emps) return;
-    const empData = emps[s.empName]; const salRec = recs.find(r => r.empName === s.empName);
-    if(!empData || !salRec) return;
+    const emps = empByStore[s.fromStore];
+    if(!emps) return;
+    const empData = emps[s.empName];
+    if(!empData) return;
+    const recs = salByStore[s.fromStore] || [];
+    const salRec = recs.find(r => r.empName === s.empName);
     s.role = empData.role || '';
     if(empData.role === ROLE_PART) {
-      s.hrRate = parseFloat(salRec.wage || empData.wage || 0);
+      s.hrRate = parseFloat(salRec?.wage || empData.wage || 0);
     } else {
-      s.hrRate = (parseFloat(salRec.baseSalary||0) + parseFloat(salRec.fullAttendBonus||0)) / 30 / 8;
+      // 有薪資記錄用薪資記錄，否則 fallback 到員工資料底薪
+      const base   = parseFloat(salRec?.baseSalary       || empData.baseSalary       || 0);
+      const attend = parseFloat(salRec?.fullAttendBonus  || empData.fullAttendBonus  || 0);
+      s.hrRate = (base + attend) / 30 / 8;
     }
     s.cost = Math.round(s.hrRate * s.hours);
   });
