@@ -3984,9 +3984,6 @@ function getSupportOut() {
       const emp = empList.find(e => e.name === empName);
       if(!emp) return;
       const targetStore = r._store;  // 去支援的那間門市
-      // 若此員工有待生效的調店且目的地正是 targetStore，本月仍屬本店正職，排除出人力支援
-      const pt = pendingTransferMap[empName];
-      if(pt && pt.pendingStore === targetStore && pt.transferDate.substring(0,7) > currentMonth) return;
       const salRec = getSalaryRecord(empName) || {};
       const isPart = emp.role === ROLE_PART;
       const hours = parseFloat(r.actualHours || 0);
