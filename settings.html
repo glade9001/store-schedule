@@ -148,6 +148,21 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
     </div>
   </div>
 
+  <!-- 更新日誌（所有人可見）-->
+  <div id="sectionChangelog">
+    <div class="card-title" style="padding:0 0 8px;">📋 更新日誌</div>
+    <div class="menu-list" style="margin-bottom:16px;">
+      <div class="menu-item" onclick="openChangelogModal()">
+        <div class="menu-item-icon" style="background:#f3e8ff;">📋</div>
+        <div class="menu-item-text">
+          <div class="menu-item-title">系統更新紀錄</div>
+          <div class="menu-item-sub">查看歷次功能更新與修正內容</div>
+        </div>
+        <div class="menu-item-arrow">›</div>
+      </div>
+    </div>
+  </div>
+
   <!-- 門市班別設定（店長以上）-->
   <div id="sectionStoreConfig">
     <div class="card-title" style="padding:0 0 8px;">🔧 門市班別設定
@@ -259,6 +274,17 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
 
     <button class="save-btn" onclick="saveInsuranceGrades()">💾 儲存級距設定</button>
     <button class="cancel-btn" onclick="closeModal('insuranceModal')">關閉</button>
+  </div>
+</div>
+
+<!-- ===== 更新日誌 Modal ===== -->
+<div class="modal-overlay" id="changelogModal" onclick="if(event.target===this)closeModal('changelogModal')">
+  <div class="modal-box" style="max-height:92vh;">
+    <div class="modal-handle"></div>
+    <div class="modal-title">📋 系統更新日誌</div>
+    <div class="modal-sub" id="changelogSub">載入中...</div>
+    <div id="changelogContent" style="max-height:65vh; overflow-y:auto; font-size:13px; line-height:1.7;"></div>
+    <button class="cancel-btn" style="margin-top:12px;" onclick="closeModal('changelogModal')">關閉</button>
   </div>
 </div>
 
@@ -649,6 +675,81 @@ async function saveStoreConfig() {
     showToast('❌ 儲存失敗：' + e.message);
   }
   hideLoading();
+}
+
+// ===== 更新日誌 =====
+const README_URL = 'https://raw.githubusercontent.com/glade9001/store-schedule/main/README.md';
+
+async function openChangelogModal() {
+  openModal('changelogModal');
+  const content = document.getElementById('changelogContent');
+  const sub = document.getElementById('changelogSub');
+  if(content.dataset.loaded) return;
+
+  content.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-muted);">載入中...</div>';
+  try {
+    const res = await fetch(README_URL, { cache: 'no-cache' });
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const md = await res.text();
+
+    // 擷取「## 更新紀錄」之後的所有內容
+    const match = md.match(/## 更新紀錄\n([\s\S]*)/);
+    if(!match) { content.innerHTML = '<div style="color:var(--text-muted);">尚無更新紀錄。</div>'; return; }
+
+    content.innerHTML = parseChangelog(match[1]);
+    // 取第一個日期作為副標題
+    const firstDate = match[1].match(/### (\d{4}-\d{2}-\d{2})/);
+    sub.textContent = firstDate ? `最近更新：${firstDate[1]}` : '';
+    content.dataset.loaded = '1';
+  } catch(e) {
+    content.innerHTML = `<div style="color:var(--danger);">❌ 載入失敗：${e.message}</div>`;
+  }
+}
+
+function parseChangelog(md) {
+  const lines = md.split('\n');
+  let html = '';
+  for(const raw of lines) {
+    const line = raw.trimEnd();
+    if(!line) { html += '<div style="height:6px;"></div>'; continue; }
+
+    // ### 日期標題
+    if(/^### \d{4}-\d{2}-\d{2}/.test(line)) {
+      const date = line.replace('### ', '');
+      html += `<div style="font-size:15px; font-weight:900; color:var(--primary); margin:14px 0 6px; padding-bottom:4px; border-bottom:2px solid var(--border);">${date}</div>`;
+      continue;
+    }
+    // #### 分類標題
+    if(/^#### /.test(line)) {
+      html += `<div style="font-size:13px; font-weight:800; color:var(--text); margin:10px 0 4px;">${line.replace('#### ', '')}</div>`;
+      continue;
+    }
+    // --- 分隔線
+    if(/^---/.test(line)) {
+      html += '<hr style="border:none; border-top:1px solid var(--border); margin:12px 0;">';
+      continue;
+    }
+    // - **粗體** 主要項目
+    if(/^- \*\*/.test(line)) {
+      const text = line.replace(/^- \*\*(.+?)\*\*(.*)/, (_, bold, rest) =>
+        `<span style="font-weight:800;">${bold}</span>${rest || ''}`);
+      html += `<div style="margin:4px 0 2px; display:flex; gap:6px;"><span style="color:var(--primary); flex-shrink:0;">•</span><div>${text}</div></div>`;
+      continue;
+    }
+    // - 一般項目
+    if(/^- /.test(line)) {
+      const text = line.replace(/^- /, '').replace(/`([^`]+)`/g, '<code style="background:#f0f4ff; padding:1px 5px; border-radius:4px; font-size:12px;">$1</code>');
+      html += `<div style="margin:2px 0 2px 12px; display:flex; gap:6px; color:var(--text-muted);"><span style="flex-shrink:0;">–</span><div>${text}</div></div>`;
+      continue;
+    }
+    //   - 縮排項目
+    if(/^  - /.test(line)) {
+      const text = line.replace(/^  - /, '').replace(/`([^`]+)`/g, '<code style="background:#f0f4ff; padding:1px 5px; border-radius:4px; font-size:12px;">$1</code>');
+      html += `<div style="margin:2px 0 2px 20px; display:flex; gap:6px; color:var(--text-muted); font-size:12px;"><span style="flex-shrink:0;">·</span><div>${text}</div></div>`;
+      continue;
+    }
+  }
+  return html;
 }
 
 // ===== 勞健保級距設定 =====
