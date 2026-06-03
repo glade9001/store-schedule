@@ -168,7 +168,7 @@ th:first-child { background: #1557b0; z-index: 12; }
 /* ===== TOTAL ROW ===== */
 .total-row { background: #e8f5e9; }
 .total-row td { font-size: 13px; font-weight: 800; color: #2e7d32; }
-.note-input { width: 100%; border: none; background: transparent; text-align: center; font-size: 12px; padding: 4px; min-height: 52px; }
+.note-input { width: 100%; border: none; background: transparent; text-align: center; font-size: 12px; padding: 4px; min-height: 52px; resize: none; overflow: hidden; display: block; box-sizing: border-box; line-height: 1.4; }
 
 /* ===== MODAL ===== */
 .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(30,41,59,0.7); z-index: 5000; justify-content: center; align-items: flex-end; backdrop-filter: blur(3px); }
@@ -1349,6 +1349,11 @@ async function runHistoricalCompFix() {
 }
 
 // ===== 自動儲存 =====
+function autoResizeNote(el) {
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 'px';
+}
+
 function triggerAutoSave() {
   setSyncStatus('syncing', '儲存中...');
   clearTimeout(autoSaveTimer);
@@ -2223,10 +2228,12 @@ function renderTable() {
   nTr.innerHTML = `<td style="background:#fff8e1;"><strong>📝 備註</strong></td>`;
   dayNames.forEach(day => {
     const rec = appData.records.find(r => r.name==='門市備註' && r.day===day && r.week===weekStr);
-    nTr.innerHTML += `<td style="padding:0; background:#fffde7;"><input class="note-input" data-day="${day}" oninput="triggerAutoSave()" value="${rec?.note||''}"></td>`;
+    const noteVal = (rec?.note||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    nTr.innerHTML += `<td style="padding:0; background:#fffde7;"><textarea class="note-input" data-day="${day}" oninput="autoResizeNote(this);triggerAutoSave()" rows="2">${noteVal}</textarea></td>`;
   });
   nTr.innerHTML += '<td></td>';
   tbody.appendChild(nTr);
+  nTr.querySelectorAll('.note-input').forEach(autoResizeNote);
 
   updateDailyTotals();
   document.getElementById('tableFoot').style.display = 'table-row-group';
