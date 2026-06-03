@@ -767,25 +767,25 @@ function renderCostTab(){
     });
   });
 
-  // 支援調整：優先用薪資記錄，沒有則 fallback 到 allEmps 員工資料
+  // 支援調整：以支援記錄的 fromStore 為準（與 salary.html 一致）
   ymList.forEach(ym=>{
     Object.entries(supportMap[ym]||{}).forEach(([empName,supports])=>{
-      const empRec = salaryMap[ym]?.[empName];
-      const empData = allEmps.find(e=>e.name===empName);
-      if(!empRec && !empData) return;
-      const homeStore = empRec?._store || empData?.store;
-      if(!homeStore || !fStores.includes(homeStore)) return;
-      const role = empRec?.role || empData?.role || '';
-      const isPart = role==='工讀';
-      const base   = n(empRec?.baseSalary||0)      || n(empData?.baseSalary||0);
-      const attend = n(empRec?.fullAttendBonus||0)  || n(empData?.fullAttendBonus||0);
-      const wage   = n(empRec?.wage||0)             || n(empData?.wage||0);
-      const hrRate = isPart ? wage : (base+attend)/30/8;
       supports.forEach(s=>{
-        if(s.fromStore !== homeStore) return;
+        if(!fStores.includes(s.fromStore)) return;
+        // 薪資記錄需與 fromStore 一致，否則 fallback 到 allEmps
+        const empRec = (salaryMap[ym]?.[empName]?._store === s.fromStore)
+          ? salaryMap[ym][empName] : null;
+        const empData = allEmps.find(e=>e.name===empName && e.store===s.fromStore)
+                     || allEmps.find(e=>e.name===empName);
+        if(!empRec && !empData) return;
+        const role = empRec?.role || empData?.role || '';
+        const isPart = role==='工讀';
+        const base   = n(empRec?.baseSalary||0)     || n(empData?.baseSalary||0);
+        const attend = n(empRec?.fullAttendBonus||0) || n(empData?.fullAttendBonus||0);
+        const wage   = n(empRec?.wage||0)            || n(empData?.wage||0);
+        const hrRate = isPart ? wage : (base+attend)/30/8;
         const amt = Math.round(hrRate * s.hours);
-        outMatrix[homeStore] = outMatrix[homeStore]||{};
-        outMatrix[homeStore][ym] = (outMatrix[homeStore][ym]||0) + amt;
+        outMatrix[s.fromStore][ym] = (outMatrix[s.fromStore][ym]||0) + amt;
         inMatrix[s.toStore] = inMatrix[s.toStore]||{};
         inMatrix[s.toStore][ym] = (inMatrix[s.toStore][ym]||0) + amt;
       });
@@ -831,10 +831,17 @@ function renderCostTab(){
   fStores.forEach(store=>{
     ymList.forEach(ym=>{
       let grossSum=0, erSum=0;
+      const recNames = new Set();
       Object.values(salaryMap[ym]||{}).filter(r=>r._store===store).forEach(rec=>{
         const role = rec.role||'';
         grossSum += calcGross(rec, role);
         erSum    += calcErBurden(rec, role);
+        recNames.add(rec.empName||'');
+      });
+      // 補算：有員工資料但無薪資記錄者（與 salary.html buildDefaultRecord 一致）
+      allEmps.filter(e=>e.store===store && isEmpActiveInMonth(e,ym) && !recNames.has(e.name)).forEach(emp=>{
+        const fakeRec = { baseSalary: emp.baseSalary||0, fullAttendBonus: emp.fullAttendBonus||0, wage: emp.wage||0, laborEr:0, healthEr:0, pensionEr:0 };
+        erSum += calcErBurden(fakeRec, emp.role||'');
       });
       const supportIn  = inMatrix[store]?.[ym]||0;
       const supportOut = outMatrix[store]?.[ym]||0;
