@@ -11,9 +11,9 @@
 #### 🐛 修正
 
 - **人事成本分析與薪資頁數字不一致（`analytics.html`）**
-  - `isEmpActiveInMonth` 原本只排除「月份開始前」已離開的員工，導致月底調走/離職的員工仍被計入，薪資合計偏高。修正：條件改為「月底之前」（`<= ym + '-31'`）。
-  - 支援調整：調走員工在 `allEmps` 同時出現於舊店與新店，舊店的支援記錄被重複計入，導致來源門市調整偏高。修正：加入 `d.fromStore === emp.store` 守衛，只計算當月所屬門市的支援記錄。
-  - `calcPension` fallback：`pensionEr = 0` 時原本直接用 0，改為退回 `(底薪+全勤)×0.06` 公式，與 `salary.html` 一致。
+  - 根本修正：人事成本表（costMatrix / adjMatrix / 明細表）全面改為直接迭代 `salaryMap[ym]._store`，以薪資記錄為員工來源，不再透過 `allEmps + isEmpActiveInMonth` 篩選，確保與 `salary.html` 完全一致。
+  - 支援調整以薪資記錄的 `_store` 為當月所屬門市，防止調走員工重複計入。
+  - `calcPension` fallback、`isEmpActiveInMonth` 條件等前期修正亦包含在內。
 
 ---
 
