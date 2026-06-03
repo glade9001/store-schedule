@@ -624,7 +624,7 @@ const calcGross = (rec, role) => {
 };
 const calcDeduct = rec => n(rec.laborInsurance)+n(rec.healthInsurance)+n(rec.dependentInsurance)+n(rec.laborPension)+n(rec.otherDeduction);
 const calcNet = (rec,role) => calcGross(rec,role)-calcDeduct(rec);
-const calcPension = (rec,role) => role==='工讀'?0:(n(rec.pensionEr||0)||Math.round((n(rec.baseSalary)+n(rec.fullAttendBonus))*0.06));
+const calcPension = (rec,role) => n(rec.pensionEr||0)||(role==='工讀'?0:Math.round((n(rec.baseSalary)+n(rec.fullAttendBonus))*0.06));
 const calcErBurden = (rec,role) => n(rec.laborEr||0)+n(rec.healthEr||0)+calcPension(rec,role);
 const calcRealCost = (rec,role) => calcGross(rec,role)+calcErBurden(rec,role);
 
