@@ -868,7 +868,7 @@ function renderCostTab(){
         erDetails.push({ name:emp.name, role:emp.role||'', er:e2 });
       });
       const key = store+'|'+ym;
-      _costDetailData[key] = { grossDetails, erDetails, inDetails:supportInDetails[key]||[], outDetails:supportOutDetails[key]||[] };
+      window._costDetailData[key] = { grossDetails, erDetails, inDetails:supportInDetails[key]||[], outDetails:supportOutDetails[key]||[] };
       const supportIn  = inMatrix[store]?.[ym]||0;
       const supportOut = outMatrix[store]?.[ym]||0;
       const actual     = grossSum + supportIn - supportOut;
@@ -1333,9 +1333,9 @@ function exportHourlyTable(){
 }
 
 // ===== 人事成本明細 Modal =====
-let _costDetailData = {}; // _costDetailData[store+'|'+ym] = { grossDetails, erDetails, inDetails, outDetails }
+window._costDetailData = {};
 
-function showCostDetail(store, ym, type) {
+window.showCostDetail = function(store, ym, type) {
   const key = store+'|'+ym;
   const d = _costDetailData[key];
   if(!d) return;
@@ -1367,7 +1367,7 @@ function showCostDetail(store, ym, type) {
   document.getElementById('costDetailTotal').textContent = '$'+comma(total);
   document.getElementById('costDetailOverlay').classList.add('open');
 }
-function closeCostDetail(){ document.getElementById('costDetailOverlay').classList.remove('open'); }
+window.closeCostDetail = function(){ document.getElementById('costDetailOverlay').classList.remove('open'); };
 </script>
 
 <div class="detail-overlay" id="costDetailOverlay" onclick="if(event.target===this)closeCostDetail()">
