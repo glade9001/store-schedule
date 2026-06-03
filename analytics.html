@@ -893,14 +893,14 @@ function renderCostTab(){
   fStores.forEach(store=>{
     const color = storeColors[store];
     rows.filter(r=>r.store===store).forEach(r=>{
-      const st = JSON.stringify(r.store), ym2 = JSON.stringify(r.ym);
+      const st = r.store.replace(/'/g,"\\'"), ym2 = r.ym;
       html += mkRow([
         `<span class="store-badge" style="background:${color};">${r.store}</span>`,
         r.ym.replace('-','年').replace(/^(\d+)年0?(\d+)$/,'$1年$2月'),
-        `<span class="detail-clickable" onclick="showCostDetail(${st},${ym2},'gross')">$${comma(r.gross)}</span>`,
-        `<span class="detail-clickable" onclick="showCostDetail(${st},${ym2},'er')">$${comma(r.er)}</span>`,
-        r.supportIn>0?`<span class="detail-clickable" onclick="showCostDetail(${st},${ym2},'in')">${fmtIn(r.supportIn)}</span>`:'—',
-        r.supportOut>0?`<span class="detail-clickable" onclick="showCostDetail(${st},${ym2},'out')">${fmtOut(r.supportOut)}</span>`:'—',
+        `<span class="detail-clickable" onclick="showCostDetail('${st}','${ym2}','gross')">$${comma(r.gross)}</span>`,
+        `<span class="detail-clickable" onclick="showCostDetail('${st}','${ym2}','er')">$${comma(r.er)}</span>`,
+        r.supportIn>0?`<span class="detail-clickable" onclick="showCostDetail('${st}','${ym2}','in')">${fmtIn(r.supportIn)}</span>`:'—',
+        r.supportOut>0?`<span class="detail-clickable" onclick="showCostDetail('${st}','${ym2}','out')">${fmtOut(r.supportOut)}</span>`:'—',
         '<strong>$'+comma(r.actual)+'</strong>',
         '$'+comma(r.total)
       ]);
