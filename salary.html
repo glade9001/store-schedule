@@ -1353,7 +1353,7 @@ function buildPayslipRows(rec, emp, rate, isPartTime) {
   const hasCustomOt2 = rec.customOtEnabled === true;
   const otRate2 = hasCustomOt2 ? parseFloat(rec.customOtRate||0) : Math.ceil(rate);
   const otMult2 = hasCustomOt2 ? (rec.customOtX134 !== false ? 1.34 : 1) : 1.34;
-  const wdOtAmt2 = (isPartTime || isMgr) ? 0 : Math.ceil(otRate2 * otMult2 * parseFloat(rec.otHours||0));
+  const wdOtAmt2 = isPartTime ? 0 : Math.ceil(otRate2 * otMult2 * parseFloat(rec.otHours||0));
 
   if(isPartTime) {
     const { totalH } = calcEmpHours(emp.name);
@@ -1403,18 +1403,21 @@ function buildPayslipRows(rec, emp, rate, isPartTime) {
       rows.push(['特休折現', `$${parseFloat(rec.annualLeaveEncash).toLocaleString()}`, '', '']);
     if(parseFloat(rec.compLeaveEncash||0)>0)
       rows.push(['補休折現', `$${parseFloat(rec.compLeaveEncash).toLocaleString()}`, '', '']);
-    // 店長不顯示加班
-    if(!isMgr) {
-      if(parseFloat(rec.otHours||0)>0) {
-        const otLabel2 = hasCustomOt2
-          ? `平日加班 $${otRate2}${otMult2>1?'×1.34':''}×${rec.otHours}h`
-          : `平日加班 ${rec.otHours}h`;
-        rows.push([otLabel2, `+$${wdOtAmt2.toLocaleString()}`, '', '']);
-      }
-      if(parseFloat(rec.restDayOtPay||0)>0)
-        rows.push(['休息日加班費', `+$${parseFloat(rec.restDayOtPay).toLocaleString()}`, '', '']);
-      if(parseFloat(rec.holidayOtPay||0)>0)
-        rows.push(['國假加班費', `+$${parseFloat(rec.holidayOtPay).toLocaleString()}`, '', '']);
+    if(parseFloat(rec.otHours||0)>0) {
+      const otLabel2 = hasCustomOt2
+        ? `平日加班 $${otRate2}${otMult2>1?'×1.34':''}×${rec.otHours}h`
+        : `平日加班 ${rec.otHours}h`;
+      rows.push([otLabel2, `+$${wdOtAmt2.toLocaleString()}`, '', '']);
+    }
+    if(parseFloat(rec.restDayOtPay||0)>0)
+      rows.push(['休息日加班費', `+$${parseFloat(rec.restDayOtPay).toLocaleString()}`, '', '']);
+    if(parseFloat(rec.holidayOtPay||0)>0)
+      rows.push(['國假加班費', `+$${parseFloat(rec.holidayOtPay).toLocaleString()}`, '', '']);
+    const _supH = calcHourlySupportHours(rec.empName||'');
+    const _supRate = parseFloat(rec.hourlySupportRate||0);
+    if(_supRate > 0) {
+      const _supAmt = Math.round(_supH * _supRate);
+      rows.push([`時薪支援 ${_supH}h`, `+$${_supAmt.toLocaleString()}`, '', '']);
     }
     if(parseFloat(rec.lateMinutes||0)>0)
       rows.push([`遲到 ${rec.lateMinutes}分`, `-$${Math.round(rate/60*parseFloat(rec.lateMinutes)).toLocaleString()}`, '', '']);
