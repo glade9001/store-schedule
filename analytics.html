@@ -114,6 +114,18 @@ select.range-sel:focus{border-color:var(--primary);}
 .col-pension{transition:none;}
 .hide-pension .col-pension{display:none;}
 
+/* 明細 Modal */
+.detail-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9000;align-items:flex-end;justify-content:center;}
+.detail-overlay.open{display:flex;}
+.detail-box{background:white;border-radius:16px 16px 0 0;width:100%;max-width:600px;max-height:85vh;overflow-y:auto;padding:16px;}
+.detail-title{font-size:15px;font-weight:900;margin-bottom:4px;}
+.detail-sub{font-size:11px;color:var(--text-muted);margin-bottom:12px;}
+.detail-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #f1f3f4;font-size:13px;}
+.detail-row:last-child{border-bottom:none;}
+.detail-row-label{color:var(--text-muted);font-size:11px;}
+.detail-total{display:flex;justify-content:space-between;padding:8px 0 0;font-weight:900;font-size:14px;border-top:2px solid var(--border);margin-top:4px;}
+.detail-clickable{cursor:pointer;text-decoration:underline dotted;color:var(--primary);}
+
 /* E. 圖表手機高度 */
 @media(max-width:600px){.chart-wrap{height:280px;}}
 
@@ -768,11 +780,13 @@ function renderCostTab(){
   });
 
   // 支援調整：以支援記錄的 fromStore 為準（與 salary.html 一致）
+  // 同時收集明細供 drill-down 使用
+  const supportInDetails  = {}; // [store|ym] = [{empName, fromStore, hours, hrRate, amt}]
+  const supportOutDetails = {}; // [store|ym] = [{empName, toStore, hours, hrRate, amt}]
   ymList.forEach(ym=>{
     Object.entries(supportMap[ym]||{}).forEach(([empName,supports])=>{
       supports.forEach(s=>{
         if(!fStores.includes(s.fromStore)) return;
-        // 薪資記錄需與 fromStore 一致，否則 fallback 到 allEmps
         const empRec = (salaryMap[ym]?.[empName]?._store === s.fromStore)
           ? salaryMap[ym][empName] : null;
         const empData = allEmps.find(e=>e.name===empName && e.store===s.fromStore)
@@ -788,6 +802,12 @@ function renderCostTab(){
         outMatrix[s.fromStore][ym] = (outMatrix[s.fromStore][ym]||0) + amt;
         inMatrix[s.toStore] = inMatrix[s.toStore]||{};
         inMatrix[s.toStore][ym] = (inMatrix[s.toStore][ym]||0) + amt;
+        const outKey = s.fromStore+'|'+ym;
+        if(!supportOutDetails[outKey]) supportOutDetails[outKey]=[];
+        supportOutDetails[outKey].push({ empName, toStore:s.toStore, hours:s.hours, hrRate:Math.round(hrRate*100)/100, amt });
+        const inKey = s.toStore+'|'+ym;
+        if(!supportInDetails[inKey]) supportInDetails[inKey]=[];
+        supportInDetails[inKey].push({ empName, fromStore:s.fromStore, hours:s.hours, hrRate:Math.round(hrRate*100)/100, amt });
       });
     });
   });
@@ -831,18 +851,24 @@ function renderCostTab(){
   fStores.forEach(store=>{
     ymList.forEach(ym=>{
       let grossSum=0, erSum=0;
-      const recNames = new Set();
+      const grossDetails=[], erDetails=[], recNames = new Set();
       Object.values(salaryMap[ym]||{}).filter(r=>r._store===store).forEach(rec=>{
-        const role = rec.role||'';
-        grossSum += calcGross(rec, role);
-        erSum    += calcErBurden(rec, role);
-        recNames.add(rec.empName||'');
+        const role = rec.role||'', name = rec.empName||'';
+        const g = calcGross(rec, role), e = calcErBurden(rec, role);
+        grossSum += g; erSum += e;
+        grossDetails.push({ name, role, gross:g });
+        erDetails.push({ name, role, er:e });
+        recNames.add(name);
       });
-      // 補算：有員工資料但無薪資記錄者（與 salary.html buildDefaultRecord 一致）
+      // 補算無薪資記錄員工的公司負擔
       allEmps.filter(e=>e.store===store && isEmpActiveInMonth(e,ym) && !recNames.has(e.name)).forEach(emp=>{
-        const fakeRec = { baseSalary: emp.baseSalary||0, fullAttendBonus: emp.fullAttendBonus||0, wage: emp.wage||0, laborEr:0, healthEr:0, pensionEr:0 };
-        erSum += calcErBurden(fakeRec, emp.role||'');
+        const fakeRec = { baseSalary:emp.baseSalary||0, fullAttendBonus:emp.fullAttendBonus||0, wage:emp.wage||0, laborEr:0, healthEr:0, pensionEr:0 };
+        const e2 = calcErBurden(fakeRec, emp.role||'');
+        erSum += e2;
+        erDetails.push({ name:emp.name, role:emp.role||'', er:e2 });
       });
+      const key = store+'|'+ym;
+      _costDetailData[key] = { grossDetails, erDetails, inDetails:supportInDetails[key]||[], outDetails:supportOutDetails[key]||[] };
       const supportIn  = inMatrix[store]?.[ym]||0;
       const supportOut = outMatrix[store]?.[ym]||0;
       const actual     = grossSum + supportIn - supportOut;
@@ -867,13 +893,14 @@ function renderCostTab(){
   fStores.forEach(store=>{
     const color = storeColors[store];
     rows.filter(r=>r.store===store).forEach(r=>{
+      const st = JSON.stringify(r.store), ym2 = JSON.stringify(r.ym);
       html += mkRow([
         `<span class="store-badge" style="background:${color};">${r.store}</span>`,
         r.ym.replace('-','年').replace(/^(\d+)年0?(\d+)$/,'$1年$2月'),
-        '$'+comma(r.gross),
-        '$'+comma(r.er),
-        fmtIn(r.supportIn),
-        fmtOut(r.supportOut),
+        `<span class="detail-clickable" onclick="showCostDetail(${st},${ym2},'gross')">$${comma(r.gross)}</span>`,
+        `<span class="detail-clickable" onclick="showCostDetail(${st},${ym2},'er')">$${comma(r.er)}</span>`,
+        r.supportIn>0?`<span class="detail-clickable" onclick="showCostDetail(${st},${ym2},'in')">${fmtIn(r.supportIn)}</span>`:'—',
+        r.supportOut>0?`<span class="detail-clickable" onclick="showCostDetail(${st},${ym2},'out')">${fmtOut(r.supportOut)}</span>`:'—',
         '<strong>$'+comma(r.actual)+'</strong>',
         '$'+comma(r.total)
       ]);
@@ -1304,6 +1331,55 @@ function exportHourlyTable(){
   XLSX.utils.book_append_sheet(wb, ws, '員工時薪');
   XLSX.writeFile(wb, `員工時薪_${document.getElementById('selStartYear').value}${document.getElementById('selStartMonth').value}-${document.getElementById('selEndYear').value}${document.getElementById('selEndMonth').value}.xlsx`);
 }
+
+// ===== 人事成本明細 Modal =====
+let _costDetailData = {}; // _costDetailData[store+'|'+ym] = { grossDetails, erDetails, inDetails, outDetails }
+
+function showCostDetail(store, ym, type) {
+  const key = store+'|'+ym;
+  const d = _costDetailData[key];
+  if(!d) return;
+  const ymLabel = ym.replace('-','年').replace(/^(\d+)年0?(\d+)$/, '$1年$2月');
+  const comma = v => Math.round(v).toLocaleString();
+  let title = '', rows = [], total = 0;
+
+  if(type==='gross'){
+    title = '本月薪資合計明細';
+    rows = d.grossDetails.map(r=>`<div class="detail-row"><div><span>${r.name}</span><span class="detail-row-label" style="margin-left:8px;">${r.role}</span></div><div>$${comma(r.gross)}</div></div>`);
+    total = d.grossDetails.reduce((s,r)=>s+r.gross,0);
+  } else if(type==='er'){
+    title = '公司負擔合計明細';
+    rows = d.erDetails.map(r=>`<div class="detail-row"><div><span>${r.name}</span><span class="detail-row-label" style="margin-left:8px;">${r.role}</span></div><div>$${comma(r.er)}</div></div>`);
+    total = d.erDetails.reduce((s,r)=>s+r.er,0);
+  } else if(type==='in'){
+    title = '被支援費用明細';
+    rows = d.inDetails.map(r=>`<div class="detail-row"><div><span>${r.empName}</span><span class="detail-row-label" style="margin-left:6px;">來自 ${r.fromStore}</span></div><div style="text-align:right;"><div style="font-size:11px;color:var(--text-muted);">$${comma(r.hrRate)}/h × ${r.hours}h</div><div>$${comma(r.amt)}</div></div></div>`);
+    total = d.inDetails.reduce((s,r)=>s+r.amt,0);
+  } else if(type==='out'){
+    title = '支援別人明細';
+    rows = d.outDetails.map(r=>`<div class="detail-row"><div><span>${r.empName}</span><span class="detail-row-label" style="margin-left:6px;">→ ${r.toStore}</span></div><div style="text-align:right;"><div style="font-size:11px;color:var(--text-muted);">$${comma(r.hrRate)}/h × ${r.hours}h</div><div>$${comma(r.amt)}</div></div></div>`);
+    total = d.outDetails.reduce((s,r)=>s+r.amt,0);
+  }
+
+  document.getElementById('costDetailTitle').textContent = title;
+  document.getElementById('costDetailSub').textContent = `${store}・${ymLabel}`;
+  document.getElementById('costDetailRows').innerHTML = rows.join('')||'<div style="color:var(--text-muted);font-size:13px;padding:8px 0;">無資料</div>';
+  document.getElementById('costDetailTotal').textContent = '$'+comma(total);
+  document.getElementById('costDetailOverlay').classList.add('open');
+}
+function closeCostDetail(){ document.getElementById('costDetailOverlay').classList.remove('open'); }
 </script>
+
+<div class="detail-overlay" id="costDetailOverlay" onclick="if(event.target===this)closeCostDetail()">
+  <div class="detail-box">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">
+      <div class="detail-title" id="costDetailTitle"></div>
+      <button onclick="closeCostDetail()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted);line-height:1;">✕</button>
+    </div>
+    <div class="detail-sub" id="costDetailSub"></div>
+    <div id="costDetailRows"></div>
+    <div class="detail-total"><span>合計</span><span id="costDetailTotal"></span></div>
+  </div>
+</div>
 </body>
 </html>
