@@ -625,9 +625,9 @@ const calcRealCost = (rec,role) => calcGross(rec,role)+calcErBurden(rec,role);
 function isEmpActiveInMonth(emp, ym) {
   // 到職日晚於該月：尚未到職
   if(emp.startDate && emp.startDate > ym + '-31') return false;
-  // 離職/調走日期：若早於該月1日則已離開
+  // 離職/調走日期：若在該月底之前則已離開（與 salary.html 一致）
   const departDate = emp.retireDate || emp.transferDate;
-  if(departDate && departDate < ym + '-01') return false;
+  if(departDate && departDate <= ym + '-31') return false;
   return true;
 }
 
