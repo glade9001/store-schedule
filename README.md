@@ -21,6 +21,10 @@
   - 修正一：移除 `settings.html` 頁面級權限擋關，改為各 section 各自控制顯示條件。員工進入後僅見更新日誌；班別設定需店長以上；假日/勞健保需加盟主以上；系統基礎設定需 admin。
   - 修正二：首頁設定 sheet 新增「📋 更新日誌」入口，對所有登入使用者顯示。
 
+- **密碼錯誤顯示原始 JSON**
+  - Firebase SDK 新版將密碼錯誤碼改為 `auth/invalid-login-credentials`，原 codeMap 未涵蓋，導致 fallback 顯示原始 JSON 給使用者。
+  - 修正：補上 `auth/invalid-login-credentials` 對應訊息，並將 fallback 從 `e.message` 改為「帳號或密碼錯誤，請再次確認」，避免任何未知錯誤碼外露。
+
 ---
 
 ### 2026-06-02
