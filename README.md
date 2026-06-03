@@ -50,6 +50,10 @@
   - 調店建立新門市員工記錄時，直接展開 `...fromEmpData` 複製了舊門市的 `sortKey`，若目的地門市已有相同值，排序移動（▲▼）會失效。
   - 修正：改為查詢目的地門市員工總數，以 `toEmpCount.size` 指派新 `sortKey`，排在最後。
 
+- **更新日誌各人顯示版本不一致**
+  - `dataset.loaded` 快取旗標使同一 session 內只 fetch 一次，不同時間點開啟 modal 的使用者看到不同版本。
+  - 修正：移除快取旗標，每次開啟更新日誌都重新 fetch GitHub raw README。
+
 ---
 
 ### 2026-06-02
