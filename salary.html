@@ -4159,7 +4159,7 @@ function renderCostModal(supportOut, supportIn) {
     const rec = getSalaryRecord(emp.name) || buildDefaultRecord(emp);
     const laborEr  = pf(rec.laborEr||0);
     const healthEr = pf(rec.healthEr||0);
-    const pensionEr= pf(rec.pensionEr||0) || (emp.role===ROLE_PART ? 0 : Math.round((pf(rec.baseSalary)+pf(rec.fullAttendBonus))*0.06));
+    const pensionEr= (rec.insuranceGrade===-1) ? 0 : (pf(rec.pensionEr||0) || (emp.role===ROLE_PART ? 0 : Math.round((pf(rec.baseSalary)+pf(rec.fullAttendBonus))*0.06)));
     return { emp, laborEr, healthEr, pensionEr, total: laborEr + healthEr + pensionEr };
   });
   const totalEr = erRows.reduce((s, r) => s + r.total, 0);
