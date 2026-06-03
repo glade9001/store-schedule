@@ -264,23 +264,18 @@ select.range-sel:focus{border-color:var(--primary);}
       <div class="chart-title">🏪 各門市人事成本明細（含支援調整）</div>
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-top:4px;">
         <div class="support-note">支援調整：正職以（底薪＋全勤獎金）÷30÷8 × 支援時數；工讀以時薪 × 支援時數</div>
-        <label style="display:flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:var(--text-muted);cursor:pointer;user-select:none;">
-          <input type="checkbox" id="showPensionCol" onchange="togglePensionCol()" style="accent-color:var(--primary);width:14px;height:14px;">
-          顯示公司負擔欄
-        </label>
       </div>
       <div style="overflow-x:auto;margin-top:10px;">
-        <table class="data-table hide-pension" id="tableCostDetail">
+        <table class="data-table" id="tableCostDetail">
           <thead>
             <tr>
               <th>門市</th><th>月份</th>
-              <th class="num">底薪/本薪</th>
-              <th class="num">獎金津貼</th>
-              <th class="num">加班費</th>
-              <th class="num">國假費用</th>
-              <th class="num">支援調整</th>
-              <th class="num col-pension">公司負擔</th>
+              <th class="num">本月薪資合計</th>
+              <th class="num">公司負擔合計</th>
+              <th class="num">被支援費用</th>
+              <th class="num">支援別人</th>
               <th class="num">實際成本</th>
+              <th class="num">含公司負擔</th>
             </tr>
           </thead>
           <tbody id="tbodyCostDetail"></tbody>
@@ -757,9 +752,10 @@ function renderCostTab(){
   const costMatrix = {}; // costMatrix[store][ym]
   fStores.forEach(s=>{ costMatrix[s]={}; ymList.forEach(ym=>costMatrix[s][ym]=0); });
 
-  // 支援調整矩陣
-  const adjMatrix = {}; // adjMatrix[store][ym]
-  fStores.forEach(s=>{ adjMatrix[s]={}; ymList.forEach(ym=>adjMatrix[s][ym]=0); });
+  // 支援調整矩陣（拆為進/出）
+  const inMatrix  = {}; // 被支援費用（外店來）
+  const outMatrix = {}; // 支援別人（本店出）
+  fStores.forEach(s=>{ inMatrix[s]={}; outMatrix[s]={}; ymList.forEach(ym=>{ inMatrix[s][ym]=0; outMatrix[s][ym]=0; }); });
 
   // 以薪資記錄為準（與 salary.html 一致）
   fStores.forEach(store=>{
@@ -784,10 +780,10 @@ function renderCostTab(){
       supports.forEach(s=>{
         if(s.fromStore !== homeStore) return;
         const amt = Math.round(hrRate * s.hours);
-        adjMatrix[homeStore] = adjMatrix[homeStore]||{};
-        adjMatrix[homeStore][ym] = (adjMatrix[homeStore][ym]||0) - amt;
-        adjMatrix[s.toStore] = adjMatrix[s.toStore]||{};
-        adjMatrix[s.toStore][ym] = (adjMatrix[s.toStore][ym]||0) + amt;
+        outMatrix[homeStore] = outMatrix[homeStore]||{};
+        outMatrix[homeStore][ym] = (outMatrix[homeStore][ym]||0) + amt;
+        inMatrix[s.toStore] = inMatrix[s.toStore]||{};
+        inMatrix[s.toStore][ym] = (inMatrix[s.toStore][ym]||0) + amt;
       });
     });
   });
@@ -801,7 +797,7 @@ function renderCostTab(){
       labels: ymList.map(ym=>{ const [y,m]=ym.split('-'); return `${parseInt(m)}月`; }),
       datasets: fStores.map(s=>({
         label: s,
-        data: ymList.map(ym=>Math.round(((costMatrix[s]?.[ym]||0)+(adjMatrix[s]?.[ym]||0))/1000)),
+        data: ymList.map(ym=>Math.round(((costMatrix[s]?.[ym]||0)+(inMatrix[s]?.[ym]||0)-(outMatrix[s]?.[ym]||0))/1000)),
         borderColor: storeColors[s],
         backgroundColor: storeColors[s]+'20',
         borderWidth:2.5, pointRadius:4, tension:0.3, fill:false
@@ -826,70 +822,70 @@ function renderCostTab(){
   const tbody = document.getElementById('tbodyCostDetail');
   const rows = [];
   const storeTotals = {};
-  fStores.forEach(s=>{ storeTotals[s]={ base:0, bonus:0, ot:0, hol:0, adj:0, pension:0, total:0 }; });
+  fStores.forEach(s=>{ storeTotals[s]={ gross:0, er:0, supportIn:0, supportOut:0, actual:0, total:0 }; });
 
   fStores.forEach(store=>{
     ymList.forEach(ym=>{
-      let base=0,bonus=0,ot=0,hol=0,pension=0,grossSum=0;
+      let grossSum=0, erSum=0;
       Object.values(salaryMap[ym]||{}).filter(r=>r._store===store).forEach(rec=>{
         const role = rec.role||'';
-        if(role==='工讀'){
-          base += Math.round(n(rec.wage)*n(rec.hours||0));
-          hol  += Math.round(n(rec.wage)*n(rec.holidayHours));
-        } else {
-          base += n(rec.baseSalary);
-          bonus += n(rec.fullAttendBonus)+['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+n(rec[k]),0)+n(rec.laborAllowance)+n(rec.performance)+n(rec.nightAllowance)+n(rec.roleBonus)+n(rec.otherBonus);
-          hol  += n(rec.holidayOtPay);
-        }
-        ot += calcOtPay(rec);
-        pension += calcErBurden(rec, role);
         grossSum += calcGross(rec, role);
+        erSum    += calcErBurden(rec, role);
       });
-      const storeAdj = adjMatrix[store]?.[ym]||0;
-      const withPension = document.getElementById('showPensionCol')?.checked ?? false;
-      const total = grossSum + storeAdj + (withPension ? pension : 0);
-      rows.push({ store, ym, base, bonus, ot, hol, adj:storeAdj, pension, total });
-      storeTotals[store].base+=base; storeTotals[store].bonus+=bonus;
-      storeTotals[store].ot+=ot; storeTotals[store].hol+=hol;
-      storeTotals[store].adj+=storeAdj; storeTotals[store].pension+=pension;
-      storeTotals[store].total+=total;
+      const supportIn  = inMatrix[store]?.[ym]||0;
+      const supportOut = outMatrix[store]?.[ym]||0;
+      const actual     = grossSum + supportIn - supportOut;
+      const total      = actual + erSum;
+      rows.push({ store, ym, gross:grossSum, er:erSum, supportIn, supportOut, actual, total });
+      storeTotals[store].gross    += grossSum;
+      storeTotals[store].er       += erSum;
+      storeTotals[store].supportIn  += supportIn;
+      storeTotals[store].supportOut += supportOut;
+      storeTotals[store].actual   += actual;
+      storeTotals[store].total    += total;
     });
   });
 
   const mkRow = (cells, cls='') =>
-    `<tr class="${cls}">${cells.map((c,i)=>`<td class="${[i>=2?'num':'', i===7?'col-pension':''].filter(Boolean).join(' ')}">${c}</td>`).join('')}</tr>`;
+    `<tr class="${cls}">${cells.map((c,i)=>`<td class="${i>=2?'num':''}">${c}</td>`).join('')}</tr>`;
+
+  const fmtIn  = v => v > 0 ? `<span style="color:var(--danger);">+$${comma(v)}</span>` : '—';
+  const fmtOut = v => v > 0 ? `<span style="color:var(--accent);">-$${comma(v)}</span>` : '—';
 
   let html = '';
   fStores.forEach(store=>{
     const color = storeColors[store];
     rows.filter(r=>r.store===store).forEach(r=>{
-      const adjTxt = r.adj===0?'—':(r.adj>0?'+':'')+comma(r.adj);
-      const adjColor = r.adj>0?'color:var(--danger);':r.adj<0?'color:var(--accent);':'';
       html += mkRow([
         `<span class="store-badge" style="background:${color};">${r.store}</span>`,
         r.ym.replace('-','年').replace(/^(\d+)年0?(\d+)$/,'$1年$2月'),
-        '$'+comma(r.base), '$'+comma(r.bonus), '$'+comma(r.ot), '$'+comma(r.hol),
-        `<span style="${adjColor}">${adjTxt}</span>`,
-        '$'+comma(r.pension), '<strong>$'+comma(r.total)+'</strong>'
+        '$'+comma(r.gross),
+        '$'+comma(r.er),
+        fmtIn(r.supportIn),
+        fmtOut(r.supportOut),
+        '<strong>$'+comma(r.actual)+'</strong>',
+        '$'+comma(r.total)
       ]);
     });
     const t = storeTotals[store];
-    const adjTxt = t.adj===0?'—':(t.adj>0?'+':'')+comma(t.adj);
     html += mkRow([
       `<strong>${store} 小計</strong>`,'—',
-      '$'+comma(t.base),'$'+comma(t.bonus),'$'+comma(t.ot),'$'+comma(t.hol),
-      adjTxt,'$'+comma(t.pension),'<strong>$'+comma(t.total)+'</strong>'
+      '$'+comma(t.gross),'$'+comma(t.er),
+      fmtIn(t.supportIn), fmtOut(t.supportOut),
+      '<strong>$'+comma(t.actual)+'</strong>', '$'+comma(t.total)
     ], 'store-subtotal');
   });
 
   const grand = Object.values(storeTotals).reduce((a,b)=>({
-    base:a.base+b.base,bonus:a.bonus+b.bonus,ot:a.ot+b.ot,hol:a.hol+b.hol,
-    adj:a.adj+b.adj,pension:a.pension+b.pension,total:a.total+b.total
-  }),{base:0,bonus:0,ot:0,hol:0,adj:0,pension:0,total:0});
+    gross:a.gross+b.gross, er:a.er+b.er,
+    supportIn:a.supportIn+b.supportIn, supportOut:a.supportOut+b.supportOut,
+    actual:a.actual+b.actual, total:a.total+b.total
+  }),{gross:0,er:0,supportIn:0,supportOut:0,actual:0,total:0});
   html += mkRow([
     '<strong>合計</strong>','—',
-    '$'+comma(grand.base),'$'+comma(grand.bonus),'$'+comma(grand.ot),'$'+comma(grand.hol),
-    '—','$'+comma(grand.pension),'<strong>$'+comma(grand.total)+'</strong>'
+    '$'+comma(grand.gross),'$'+comma(grand.er),
+    fmtIn(grand.supportIn), fmtOut(grand.supportOut),
+    '<strong>$'+comma(grand.actual)+'</strong>', '$'+comma(grand.total)
   ], 'grand-total');
   tbody.innerHTML = html;
 
@@ -899,16 +895,15 @@ function renderCostTab(){
     let ch='';
     fStores.forEach(store=>{
       rows.filter(r=>r.store===store).forEach(r=>{
-        const adjTxt=r.adj===0?'':((r.adj>0?'+':'')+comma(r.adj));
         ch+=`<div class="m-card">
           <div class="m-card-hd"><span class="store-badge" style="background:${storeColors[store]};">${r.store}</span><span style="font-size:12px;color:var(--text-muted);font-weight:700;">${r.ym.replace('-','年').replace(/^(\d+)年0?(\d+)$/,'$1年$2月')}</span></div>
-          <div class="m-card-main">$${comma(r.total)}</div>
+          <div class="m-card-main">$${comma(r.actual)}</div>
           <div class="m-card-grid">
-            <div class="m-card-row">底薪/本薪 <span>$${comma(r.base)}</span></div>
-            <div class="m-card-row">獎金津貼 <span>$${comma(r.bonus)}</span></div>
-            <div class="m-card-row">加班費 <span>$${comma(r.ot)}</span></div>
-            <div class="m-card-row">勞退 <span>$${comma(r.pension)}</span></div>
-            ${adjTxt?`<div class="m-card-row" style="grid-column:span 2;">支援調整 <span>${adjTxt}</span></div>`:''}
+            <div class="m-card-row">本月薪資合計 <span>$${comma(r.gross)}</span></div>
+            <div class="m-card-row">公司負擔合計 <span>$${comma(r.er)}</span></div>
+            ${r.supportIn>0?`<div class="m-card-row">被支援費用 <span style="color:var(--danger);">+$${comma(r.supportIn)}</span></div>`:''}
+            ${r.supportOut>0?`<div class="m-card-row">支援別人 <span style="color:var(--accent);">-$${comma(r.supportOut)}</span></div>`:''}
+            <div class="m-card-row" style="grid-column:span 2;">含公司負擔 <span>$${comma(r.total)}</span></div>
           </div>
         </div>`;
       });
