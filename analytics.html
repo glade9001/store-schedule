@@ -761,24 +761,33 @@ function renderCostTab(){
   const adjMatrix = {}; // adjMatrix[store][ym]
   fStores.forEach(s=>{ adjMatrix[s]={}; ymList.forEach(ym=>adjMatrix[s][ym]=0); });
 
-  fEmps.forEach(emp=>{
+  // 以薪資記錄為準（與 salary.html 一致）
+  fStores.forEach(store=>{
     ymList.forEach(ym=>{
-      if(!isEmpActiveInMonth(emp,ym)) return;
-      const rec = salaryMap[ym]?.[emp.name];
-      if(!rec) return;
-      const baseCost = calcRealCost(rec,emp.role);
-      const { adj, details } = calcSupportAdj(emp.name, ym, salaryMap, supportMap, allEmps);
+      Object.values(salaryMap[ym]||{}).filter(r=>r._store===store).forEach(rec=>{
+        const role = rec.role||'';
+        costMatrix[store][ym] = (costMatrix[store][ym]||0) + calcRealCost(rec,role);
+      });
+    });
+  });
 
-      // 基本成本算在員工所屬門市
-      costMatrix[emp.store][ym] = (costMatrix[emp.store][ym]||0) + baseCost;
-
-      // 支援調整（只計算當月所屬門市的支援記錄）
-      details.forEach(d=>{
-        if(d.fromStore !== emp.store) return;
-        adjMatrix[d.fromStore] = adjMatrix[d.fromStore]||{};
-        adjMatrix[d.fromStore][ym] = (adjMatrix[d.fromStore][ym]||0) - d.amt;
-        adjMatrix[d.toStore] = adjMatrix[d.toStore]||{};
-        adjMatrix[d.toStore][ym] = (adjMatrix[d.toStore][ym]||0) + d.amt;
+  // 支援調整：以薪資記錄的 _store 為當月所屬門市
+  ymList.forEach(ym=>{
+    Object.entries(supportMap[ym]||{}).forEach(([empName,supports])=>{
+      const empRec = salaryMap[ym]?.[empName];
+      if(!empRec) return;
+      const homeStore = empRec._store;
+      if(!fStores.includes(homeStore)) return;
+      const role = empRec.role||'';
+      const isPart = role==='工讀';
+      const hrRate = isPart ? n(empRec.wage||0) : (n(empRec.baseSalary||0)+n(empRec.fullAttendBonus||0))/30/8;
+      supports.forEach(s=>{
+        if(s.fromStore !== homeStore) return;
+        const amt = Math.round(hrRate * s.hours);
+        adjMatrix[homeStore] = adjMatrix[homeStore]||{};
+        adjMatrix[homeStore][ym] = (adjMatrix[homeStore][ym]||0) - amt;
+        adjMatrix[s.toStore] = adjMatrix[s.toStore]||{};
+        adjMatrix[s.toStore][ym] = (adjMatrix[s.toStore][ym]||0) + amt;
       });
     });
   });
@@ -822,11 +831,9 @@ function renderCostTab(){
   fStores.forEach(store=>{
     ymList.forEach(ym=>{
       let base=0,bonus=0,ot=0,hol=0,pension=0,grossSum=0;
-      fEmps.filter(e=>e.store===store && isEmpActiveInMonth(e,ym)).forEach(emp=>{
-        const rec = salaryMap[ym]?.[emp.name];
-        if(!rec) return;
-        // 明細欄（供分解顯示）
-        if(emp.role==='工讀'){
+      Object.values(salaryMap[ym]||{}).filter(r=>r._store===store).forEach(rec=>{
+        const role = rec.role||'';
+        if(role==='工讀'){
           base += Math.round(n(rec.wage)*n(rec.hours||0));
           hol  += Math.round(n(rec.wage)*n(rec.holidayHours));
         } else {
@@ -835,8 +842,8 @@ function renderCostTab(){
           hol  += n(rec.holidayOtPay);
         }
         ot += calcOtPay(rec);
-        pension += calcErBurden(rec, emp.role);
-        grossSum += calcGross(rec,emp.role);
+        pension += calcErBurden(rec, role);
+        grossSum += calcGross(rec, role);
       });
       const storeAdj = adjMatrix[store]?.[ym]||0;
       const withPension = document.getElementById('showPensionCol')?.checked ?? false;
