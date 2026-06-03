@@ -2992,6 +2992,31 @@ async function openLogModal() {
 }
 
 
+function calcCanvasLines(ctx, text, maxWidth) {
+  if (!text) return 1;
+  let line = '', lines = 1;
+  for (const ch of text) {
+    const test = line + ch;
+    if (ctx.measureText(test).width > maxWidth && line) { lines++; line = ch; }
+    else line = test;
+  }
+  return lines;
+}
+
+function canvasDrawWrappedText(ctx, text, cx, startY, maxWidth, lineHeight) {
+  let y = startY;
+  for (const segment of text.split('\n')) {
+    let line = '';
+    for (const ch of segment) {
+      const test = line + ch;
+      if (ctx.measureText(test).width > maxWidth && line) {
+        ctx.fillText(line, cx, y); line = ch; y += lineHeight;
+      } else { line = test; }
+    }
+    if (line) { ctx.fillText(line, cx, y); y += lineHeight; }
+  }
+}
+
 // ===== 共用產圖核心（黑白版）=====
 function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, allStoresRecs) {
   // allStoresRecs: 全部門市的記錄，用來查跨店支援
@@ -3006,9 +3031,21 @@ function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, al
   const rowH = 100;
   const headerH = 100;
   const titleH = 200;
-  const numDataRows = emps.length + 1; // +備註列
   const emptyRows = 5;
-  const H = titleH + headerH + (numDataRows + emptyRows) * rowH + 80;
+  const noteLineH = 28;
+  const noteMaxW = dataColW - 16;
+  // 動態計算備註列高度
+  const _tmpCtx = document.createElement('canvas').getContext('2d');
+  _tmpCtx.font = `bold 20px ${font}`;
+  const _notedays = ['週一','週二','週三','週四','週五','週六','週日'];
+  let _maxNoteLines = 1;
+  _notedays.forEach(day => {
+    const r = (allStoresRecs || records).find(r => r.name === '門市備註' && r.day === day);
+    if (r?.note) _maxNoteLines = Math.max(_maxNoteLines, calcCanvasLines(_tmpCtx, r.note, noteMaxW));
+  });
+  const noteRowH = Math.max(rowH, _maxNoteLines * noteLineH + 24);
+  const numDataRows = emps.length; // 備註列單獨計算
+  const H = titleH + headerH + numDataRows * rowH + noteRowH + emptyRows * rowH + 80;
 
   canvas.width = W;
   canvas.height = H;
@@ -3031,7 +3068,7 @@ function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, al
 
   // ===== 表格外框 =====
   const tableTop = titleH;
-  const tableH = headerH + (numDataRows + emptyRows) * rowH;
+  const tableH = headerH + numDataRows * rowH + noteRowH + emptyRows * rowH;
   ctx.strokeStyle = '#000';
   ctx.lineWidth = 3;
   ctx.strokeRect(margin, tableTop, tableW, tableH);
@@ -3045,11 +3082,18 @@ function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, al
     ctx.beginPath(); ctx.moveTo(x, tableTop); ctx.lineTo(x, tableTop + tableH); ctx.stroke();
   }
 
-  // 列線
-  let lineY = tableTop + headerH;
-  while (lineY < tableTop + tableH) {
-    ctx.beginPath(); ctx.moveTo(margin, lineY); ctx.lineTo(margin + tableW, lineY); ctx.stroke();
-    lineY += rowH;
+  // 列線（員工列）
+  for (let i = 0; i <= numDataRows; i++) {
+    const ly = tableTop + headerH + i * rowH;
+    ctx.beginPath(); ctx.moveTo(margin, ly); ctx.lineTo(margin + tableW, ly); ctx.stroke();
+  }
+  // 備註列底線
+  const _noteRowBottom = tableTop + headerH + numDataRows * rowH + noteRowH;
+  ctx.beginPath(); ctx.moveTo(margin, _noteRowBottom); ctx.lineTo(margin + tableW, _noteRowBottom); ctx.stroke();
+  // 空白列
+  for (let i = 1; i <= emptyRows; i++) {
+    const ly = _noteRowBottom + i * rowH;
+    ctx.beginPath(); ctx.moveTo(margin, ly); ctx.lineTo(margin + tableW, ly); ctx.stroke();
   }
 
   // ===== 表頭 =====
@@ -3196,17 +3240,19 @@ function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, al
   });
 
   // ===== 備註列 =====
-  const noteY = rowY + rowH / 2;
   ctx.fillStyle = '#000';
   ctx.font = `900 24px ${font}`;
   ctx.textAlign = 'center';
-  ctx.fillText('門市備註', margin + nameColW / 2, noteY);
+  ctx.fillText('門市備註', margin + nameColW / 2, rowY + noteRowH / 2 + 8);
   dayNames.forEach((day, i) => {
     const rec = records.find(r => r.name === '門市備註' && r.day === day);
     if (rec?.note) {
       ctx.fillStyle = '#0077aa';
       ctx.font = `bold 20px ${font}`;
-      ctx.fillText(rec.note, margin + nameColW + i * dataColW + dataColW / 2, noteY);
+      const cx = margin + nameColW + i * dataColW + dataColW / 2;
+      const totalLines = calcCanvasLines(ctx, rec.note, noteMaxW);
+      const startY = rowY + (noteRowH - totalLines * noteLineH) / 2 + noteLineH * 0.8;
+      canvasDrawWrappedText(ctx, rec.note, cx, startY, noteMaxW, noteLineH);
     }
   });
 
