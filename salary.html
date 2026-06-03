@@ -1144,11 +1144,11 @@ function isReadonly() {
   if(canApprove()) return s === 'published';
   return s !== 'draft';
 }
-// 勞健保唯讀：送審後店長不能改
+// 勞健保唯讀：送審後店長不能改；發布後所有人不能改
 function isInsuranceReadonly() {
   const s = salaryData.status || 'draft';
-  if(canApprove()) return false; // 加盟主永遠可改
-  return s !== 'draft'; // 店長送審後不能改
+  if(canApprove()) return s === 'published'; // 加盟主：發布後不可改
+  return s !== 'draft'; // 店長：送審後不可改
 }
 
 // ===== Toast =====
