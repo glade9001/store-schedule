@@ -4152,6 +4152,16 @@ function renderCostModal(supportOut, supportIn) {
   // 支援別人合計
   const totalOut = supportOut.reduce((s, r) => s + (r.cost||0), 0);
 
+  // 公司負擔合計
+  const erRows = empList.map(emp => {
+    const rec = getSalaryRecord(emp.name) || buildDefaultRecord(emp);
+    const laborEr  = pf(rec.laborEr||0);
+    const healthEr = pf(rec.healthEr||0);
+    const pensionEr= pf(rec.pensionEr||0) || (emp.role===ROLE_PART ? 0 : Math.round((pf(rec.baseSalary)+pf(rec.fullAttendBonus))*0.06));
+    return { emp, laborEr, healthEr, pensionEr, total: laborEr + healthEr + pensionEr };
+  });
+  const totalEr = erRows.reduce((s, r) => s + r.total, 0);
+
   // 實際成本
   const actual = totalSalary + totalIn - totalOut;
 
@@ -4185,6 +4195,29 @@ function renderCostModal(supportOut, supportIn) {
         </div>
       </div>`;
   });
+  html += `</div></div>`;
+
+  // ── 公司負擔 ──
+  html += `<div class="cost-section"><div class="cost-header-row" onclick="toggleCostSection('er')">
+    <div class="cost-header-title">🏢 公司負擔合計<span style="font-size:10px;font-weight:600;color:var(--text-muted);margin-left:6px;">勞保＋健保＋勞退</span></div>
+    <div class="cost-header-amount">$${comma(totalEr)}</div>${arrowEl('er')}</div>
+    <div id="detail-er" style="display:none;" class="cost-detail-area">`;
+  erRows.filter(r => r.total > 0).forEach(({ emp, laborEr, healthEr, pensionEr, total }) => {
+    html += `<div class="cost-emp-row" onclick="toggleCostSection('er-${emp.name}')">
+      <div class="cost-emp-name">${getDisplayName(emp.name)}<span class="cost-emp-role-tag">${emp.role||''}</span></div>
+      <div class="cost-emp-amount">$${comma(total)}</div>${arrowEl('er-' + emp.name)}</div>
+      <div id="detail-er-${emp.name}" style="display:none;" class="cost-emp-breakdown">
+        ${laborEr  > 0 ? `<div class="cost-br-row"><span class="cost-br-label">勞保（雇主端）</span><span>$${comma(laborEr)}</span></div>` : ''}
+        ${healthEr > 0 ? `<div class="cost-br-row"><span class="cost-br-label">健保（雇主端）</span><span>$${comma(healthEr)}</span></div>` : ''}
+        ${pensionEr> 0 ? `<div class="cost-br-row"><span class="cost-br-label">勞退提撥（6%）</span><span>$${comma(pensionEr)}</span></div>` : ''}
+        <div class="cost-br-row" style="border-top:1.5px solid var(--border);margin-top:4px;padding-top:8px;">
+          <span class="cost-br-label" style="color:var(--text);font-weight:800;">小計</span>
+          <span style="font-weight:900;color:var(--primary);">$${comma(total)}</span>
+        </div>
+      </div>`;
+  });
+  if(!erRows.some(r => r.total > 0))
+    html += `<div style="font-size:12px;color:var(--text-muted);padding:6px 0;">尚未設定投保級距</div>`;
   html += `</div></div>`;
 
   // ── 被支援費用 ──
@@ -4224,6 +4257,10 @@ function renderCostModal(supportOut, supportIn) {
   html += `<div class="cost-total-box">
     <div class="cost-total-label">實際人事成本</div>
     <div class="cost-total-amount">$${comma(actual)}</div>
+  </div>
+  <div class="cost-total-box" style="background:#f0fdf4;border-color:#86efac;margin-top:8px;">
+    <div class="cost-total-label" style="color:#166534;">含公司負擔總成本</div>
+    <div class="cost-total-amount" style="color:#166534;">$${comma(actual + totalEr)}</div>
   </div>`;
 
   // ── 國定假日費用 ──
