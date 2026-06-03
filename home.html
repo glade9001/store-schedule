@@ -1346,6 +1346,10 @@ async function _afterLogin(profile, { skipPwdChange = false, showBindSuggestion 
   }
   await initApp();
   if(showBindSuggestion) maybeShowGoogleBindSuggestion();
+  // 管理者登入後背景掃描並套用所有到期的待轉換職稱
+  if(['manager','owner','admin'].includes(profile.permission)) {
+    applyOverduePendingRoles().catch(() => {});
+  }
 }
 
 function startFirstLoginSetup() {

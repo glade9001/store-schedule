@@ -97,6 +97,57 @@ async function handleGoogleRedirectResult() {
   return profile;
 }
 
+// ===== 掃描並套用所有到期的待轉換職稱（管理者登入後呼叫）=====
+async function applyOverduePendingRoles() {
+  const today = new Date().toISOString().split('T')[0];
+  try {
+    const snap = await window.db.collection('account')
+      .where('roleChangeDate', '<=', today).get();
+    if (snap.empty) return;
+
+    const batch = window.db.batch();
+    const tasks = [];
+
+    snap.forEach(doc => {
+      const data = doc.data();
+      if (!data.pendingRole || data.pendingStore) return; // 跳過無效或調店中的
+
+      // 更新 account
+      batch.update(doc.ref, {
+        role: data.pendingRole,
+        pendingRole: firebase.firestore.FieldValue.delete(),
+        roleChangeDate: firebase.firestore.FieldValue.delete(),
+      });
+
+      // 更新 stores/employees
+      if (data.store && data.empName) {
+        const empRef = window.db.collection('stores').doc(data.store)
+          .collection('employees').doc(data.empName);
+        batch.update(empRef, { role: data.pendingRole });
+      }
+
+      // 更新 users（非同步，不阻塞 batch）
+      tasks.push(
+        window.db.collection('users')
+          .where('empName', '==', data.empName).limit(1).get()
+          .then(uSnap => {
+            if (!uSnap.empty) {
+              return uSnap.docs[0].ref.update({
+                role: data.pendingRole,
+                pendingRole: firebase.firestore.FieldValue.delete(),
+                roleChangeDate: firebase.firestore.FieldValue.delete(),
+              });
+            }
+          }).catch(() => {})
+      );
+    });
+
+    await Promise.all([batch.commit(), ...tasks]);
+  } catch(e) {
+    console.warn('applyOverduePendingRoles 失敗:', e);
+  }
+}
+
 // ===== 登出 =====
 async function authLogout() {
   await firebase.auth().signOut();
