@@ -24,6 +24,10 @@
 
 #### 🐛 修正
 
+- **代扣區塊投保級距未顯示**
+  - `renderInsuranceSection` 函式已定義但未被呼叫，`col2` 仍沿用舊的手動輸入欄位渲染。
+  - 修正：將 `col2` 代扣欄位改為呼叫 `renderInsuranceSection`，投保級距選單正常顯示。
+
 - **員工看不到設定頁與更新日誌**
   - 設定頁進入時有 `canManager()` 擋關，員工被直接導回首頁，無法查看更新日誌。且首頁設定 sheet 中所有通往 `settings.html` 的入口皆為 `display:none`，員工無從進入。
   - 修正一：移除 `settings.html` 頁面級權限擋關，改為各 section 各自控制顯示條件。員工進入後僅見更新日誌；班別設定需店長以上；假日/勞健保需加盟主以上；系統基礎設定需 admin。
