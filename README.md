@@ -23,6 +23,7 @@
 - **公司負擔工讀生勞退少算（`analytics.html`）**
   - `calcPension` 對工讀強制回傳 0，即使 `rec.pensionEr` 有值也忽略，與 `salary.html` modal 不一致。
   - 修正：改為 `rec.pensionEr` 有值就用，沒有才依角色決定（工讀回 0，正職用公式）。
+  - 追加修正：未投保（`insuranceGrade === -1`）員工的勞退補算公式不應觸發，改為直接回 0。
 
 - **人事成本支援費用計算持續優化（`analytics.html`）**
   - 支援費用改以支援記錄的 `fromStore` 為準（不再從薪資記錄推導），避免員工轉調後記錄被跳過。
