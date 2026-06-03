@@ -51,8 +51,9 @@
   - 修正：改為查詢目的地門市員工總數，以 `toEmpCount.size` 指派新 `sortKey`，排在最後。
 
 - **更新日誌各人顯示版本不一致**
-  - `dataset.loaded` 快取旗標使同一 session 內只 fetch 一次，不同時間點開啟 modal 的使用者看到不同版本。
-  - 修正：移除快取旗標，每次開啟更新日誌都重新 fetch GitHub raw README。
+  - `dataset.loaded` 快取旗標使同一 session 內只 fetch 一次，不同時間點開啟 modal 的使用者看到不同版本；加上 GitHub CDN 本身也可能快取舊內容。
+  - 修正一：移除快取旗標，每次開啟更新日誌都重新 fetch。
+  - 修正二：fetch URL 加上時間戳（`?t=Date.now()`），強制繞過 GitHub CDN 快取，確保每次都拿到最新 README。
 
 ---
 
