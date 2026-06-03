@@ -847,6 +847,26 @@ function renderSalaryForm(emp, rec, idx, readonly) {
       <span class="salary-total-label">代扣合計</span>
       <span class="salary-total-val" style="color:var(--danger);">-$${deduct.toLocaleString()}</span>
     </div>
+    ${(()=>{
+      const lEr = rec.laborEr||0, hEr = rec.healthEr||0, pEr = rec.pensionEr||0;
+      const total = lEr + hEr + pEr;
+      if(!total) return '';
+      const row = (label, val) => val > 0
+        ? `<div style="display:flex;justify-content:space-between;font-size:11px;color:#94a3b8;padding:2px 0;">
+             <span>${label}</span><span>$${val.toLocaleString()}</span></div>` : '';
+      return `<div style="margin-top:12px;padding:10px;background:#f8fafc;border-radius:8px;border:1px dashed #cbd5e1;">
+        <div style="font-size:11px;font-weight:800;color:#94a3b8;margin-bottom:6px;letter-spacing:0.3px;">公司負擔備註欄</div>
+        ${row('勞保（公司付）', lEr)}
+        ${row('健保（公司付）', hEr)}
+        ${row('勞退提撥（公司）', pEr)}
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:#94a3b8;padding-top:6px;margin-top:4px;border-top:1px solid #e2e8f0;font-weight:800;">
+          <span>小計</span><span>$${total.toLocaleString()}</span>
+        </div>
+        <div style="margin-top:8px;font-size:10px;color:#94a3b8;line-height:1.6;background:#fff;border-radius:6px;padding:6px 8px;border:1px solid #e2e8f0;">
+          ⚠️ 注意：此區塊為「公司負擔額備註欄」，非員工扣款項目。實領薪資計算公式已排除此區金額，特此說明。
+        </div>
+      </div>`;
+    })()}
   </div>`;
 
   return `<div class="layout-3col-scroll">${col1}${col2}${col3}</div>
