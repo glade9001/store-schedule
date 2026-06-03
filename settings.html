@@ -683,7 +683,6 @@ async function openChangelogModal() {
   openModal('changelogModal');
   const content = document.getElementById('changelogContent');
   const sub = document.getElementById('changelogSub');
-  if(content.dataset.loaded) return;
 
   content.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-muted);">載入中...</div>';
   try {
@@ -691,15 +690,12 @@ async function openChangelogModal() {
     if(!res.ok) throw new Error(`HTTP ${res.status}`);
     const md = await res.text();
 
-    // 擷取「## 更新紀錄」之後的所有內容
     const match = md.match(/## 更新紀錄\n([\s\S]*)/);
     if(!match) { content.innerHTML = '<div style="color:var(--text-muted);">尚無更新紀錄。</div>'; return; }
 
     content.innerHTML = parseChangelog(match[1]);
-    // 取第一個日期作為副標題
     const firstDate = match[1].match(/### (\d{4}-\d{2}-\d{2})/);
     sub.textContent = firstDate ? `最近更新：${firstDate[1]}` : '';
-    content.dataset.loaded = '1';
   } catch(e) {
     content.innerHTML = `<div style="color:var(--danger);">❌ 載入失敗：${e.message}</div>`;
   }
