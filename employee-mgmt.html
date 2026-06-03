@@ -1170,8 +1170,13 @@ async function confirmTransfer() {
     const fromEmpSnap = await window.db.collection('stores').doc(fromStore).collection('employees').doc(empId).get();
     const fromEmpData = fromEmpSnap.exists ? fromEmpSnap.data() : {};
 
+    // 重新指派 sortKey，避免與目的地門市現有員工碰撞
+    const toEmpCount = await window.db.collection('stores').doc(toStore).collection('employees').get();
+    const newSortKey = toEmpCount.size;
+
     await window.db.collection('stores').doc(toStore).collection('employees').doc(empId).set({
       ...fromEmpData, role: newRole, status: '在職',
+      sortKey: newSortKey,
       startDate: date, transferDate: date, transferFrom: fromStore
     });
 
