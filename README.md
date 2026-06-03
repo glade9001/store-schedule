@@ -37,6 +37,10 @@
   - Firebase SDK 新版將密碼錯誤碼改為 `auth/invalid-login-credentials`，原 codeMap 未涵蓋，導致 fallback 顯示原始 JSON 給使用者。
   - 修正：補上 `auth/invalid-login-credentials` 對應訊息，並將 fallback 從 `e.message` 改為「帳號或密碼錯誤，請再次確認」，避免任何未知錯誤碼外露。
 
+- **薪資發布後加盟主仍可修改代扣項目**
+  - `isInsuranceReadonly()` 對 `canApprove()` 永遠回傳 `false`，導致加盟主在已發布狀態仍可修改投保級距等代扣欄位。
+  - 修正：改為與 `isReadonly()` 一致，`published` 狀態下所有人均不可修改。
+
 ---
 
 ### 2026-06-02
