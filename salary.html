@@ -1530,44 +1530,44 @@ function printPayslip() {
 // ===== 代扣區塊渲染（含唯讀控制）=====
 function renderInsuranceSection(empName, rec, idx) {
   const ro = isInsuranceReadonly();
-  const hasGrade = !!rec.insuranceGrade;
+  // insuranceGrade: null=未設定, 0=未投保, number=級距薪資
+  const gradeSet  = rec.insuranceGrade !== null && rec.insuranceGrade !== undefined;
   const laborVal  = rec.laborInsurance  || 0;
   const healthVal = rec.healthInsurance || 0;
   const depCount  = rec.dependentCount  || 0;
   const depTotal  = healthVal * depCount;
 
   // ── 投保級距選擇器 ──
+  const gradeLabel = !gradeSet ? '—'
+    : rec.insuranceGrade === 0 ? '未投保'
+    : `$${rec.insuranceGrade.toLocaleString()}`;
+
   const gradeSelector = ro
     ? `<div class="salary-row"><span class="salary-row-label">投保級距</span>
-        <span class="salary-row-val">${hasGrade ? `$${rec.insuranceGrade.toLocaleString()}` : '—'}</span></div>`
+        <span class="salary-row-val">${gradeLabel}</span></div>`
     : `<div class="salary-row"><span class="salary-row-label">投保級距</span>
-        <select class="salary-input" style="width:120px;font-size:13px;"
+        <select class="salary-input" style="width:130px;font-size:13px;"
           onchange="onInsuranceGradeChange('${empName}',this.value,${idx})">
           <option value="">— 未設定 —</option>
+          <option value="0" ${rec.insuranceGrade===0?'selected':''}>未投保</option>
           ${(insuranceGradesData?.grades||[]).map(g =>
             `<option value="${g.insuredSalary}" ${rec.insuranceGrade===g.insuredSalary?'selected':''}>
               $${g.insuredSalary.toLocaleString()}</option>`).join('')}
         </select></div>`;
 
-  // ── 勞保費（有級距時唯讀）──
-  const laborRow = (ro || hasGrade)
-    ? `<div class="salary-row"><span class="salary-row-label">勞保費（個人）</span>
-        <span class="salary-row-val">$${laborVal.toLocaleString()}</span></div>
-       <div style="font-size:11px;color:#94a3b8;text-align:right;margin-top:-6px;padding-bottom:4px;">
-         雇主負擔：$${(rec.laborEr||0).toLocaleString()}</div>`
-    : `<div class="salary-row"><span class="salary-row-label">勞保費（個人）</span>
-        <input class="salary-input" type="number" value="${laborVal}"
-          onchange="updateField('${empName}','laborInsurance',this.value,${idx})"></div>`;
+  // ── 勞保費（永遠唯讀，只能由級距帶入）──
+  const laborRow = `<div class="salary-row"><span class="salary-row-label">勞保費（個人）</span>
+      <span class="salary-row-val">$${laborVal.toLocaleString()}</span></div>
+     ${gradeSet && rec.insuranceGrade !== 0
+       ? `<div style="font-size:11px;color:#94a3b8;text-align:right;margin-top:-6px;padding-bottom:4px;">
+            雇主負擔：$${(rec.laborEr||0).toLocaleString()}</div>` : ''}`;
 
-  // ── 健保費（有級距時唯讀）+ 眷屬 ──
-  const healthRow = (ro || hasGrade)
-    ? `<div class="salary-row"><span class="salary-row-label">健保費（個人）</span>
-        <span class="salary-row-val">$${healthVal.toLocaleString()}</span></div>
-       <div style="font-size:11px;color:#94a3b8;text-align:right;margin-top:-6px;padding-bottom:4px;">
-         雇主負擔：$${(rec.healthEr||0).toLocaleString()}</div>`
-    : `<div class="salary-row"><span class="salary-row-label">健保費（個人）</span>
-        <input class="salary-input" type="number" value="${healthVal}"
-          onchange="updateField('${empName}','healthInsurance',this.value,${idx})"></div>`;
+  // ── 健保費（永遠唯讀，只能由級距帶入）+ 眷屬 ──
+  const healthRow = `<div class="salary-row"><span class="salary-row-label">健保費（個人）</span>
+      <span class="salary-row-val">$${healthVal.toLocaleString()}</span></div>
+     ${gradeSet && rec.insuranceGrade !== 0
+       ? `<div style="font-size:11px;color:#94a3b8;text-align:right;margin-top:-6px;padding-bottom:4px;">
+            雇主負擔：$${(rec.healthEr||0).toLocaleString()}</div>` : ''}`;
 
   // ── 眷屬人數 ──
   const depRow = ro
@@ -1615,6 +1615,11 @@ function onInsuranceGradeChange(empName, value, idx) {
 
   if(!value) {
     rec.insuranceGrade = null;
+    rec.laborEr = 0; rec.healthEr = 0; rec.pensionEr = 0;
+  } else if(value === '0') {
+    // 未投保：全部清零
+    rec.insuranceGrade = 0;
+    rec.laborInsurance = 0; rec.healthInsurance = 0;
     rec.laborEr = 0; rec.healthEr = 0; rec.pensionEr = 0;
   } else {
     const salary = parseInt(value);
