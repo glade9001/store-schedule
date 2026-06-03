@@ -2014,8 +2014,8 @@ function buildSinglePayslipHtml(emp, y, m) {
   const _hasCustomOt = rec.customOtEnabled === true;
   const _otRate = _hasCustomOt ? parseFloat(rec.customOtRate||0) : Math.ceil(rph);
   const _otMult = _hasCustomOt ? (rec.customOtX134 !== false ? 1.34 : 1) : 1.34;
-  const otPayAmt = (isPartTime || isMgr) ? 0 : Math.ceil(_otRate * _otMult * parseFloat(rec.otHours||0));
-  const otPayLabel = (isPartTime || isMgr) ? '' : (_hasCustomOt
+  const otPayAmt = isPartTime ? 0 : Math.ceil(_otRate * _otMult * parseFloat(rec.otHours||0));
+  const otPayLabel = isPartTime ? '' : (_hasCustomOt
     ? `$${_otRate}${_otMult>1?'×1.34':''}×${rec.otHours||0}h`
     : `$${Math.ceil(rph)}×1.34×${rec.otHours||0}h`);
   const workedH = detectHolidayWork(emp.name, currentMonth);
@@ -2159,9 +2159,9 @@ function buildSinglePayslipHtml(emp, y, m) {
       </tr>` : ''}
       <tr>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">${isMgr?'平日加班':'平日加班'}${otPayLabel?`<br><span style="font-size:9px;color:#64748b;">${otPayLabel}</span>`:''}</td>
-        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${isMgr?'--':`+$${otPayAmt.toLocaleString()}`}</td>
+        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${isPartTime?'--':`+$${otPayAmt.toLocaleString()}`}</td>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;background:#d9e1f2;font-weight:800;">平日加班時數</td>
-        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${(isMgr||isPartTime)?'--':`${otH}h`}</td>
+        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${isPartTime?'--':`${otH}h`}</td>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;background:#d9e1f2;font-weight:800;">國定假日時數</td>
         <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${holidayHoursVal}h</td>
       </tr>
