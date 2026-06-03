@@ -1091,6 +1091,7 @@ function canSchedule() { return ['manager','owner','admin'].includes(currentUser
 let empList = []; // 員工資料
 let scheduleData = {}; // 排班記錄（當月）
 let prevSalaryData = {}; // 上月薪資（預設用）
+let insuranceGradesData = null; // 勞健保投保級距資料
 let expandedCards = new Set();
 // 目前 Modal 開啟的 Tab index
 let currentModalTab = 0;
@@ -1529,42 +1530,134 @@ function printPayslip() {
 // ===== 代扣區塊渲染（含唯讀控制）=====
 function renderInsuranceSection(empName, rec, idx) {
   const ro = isInsuranceReadonly();
-  const inp2 = (key, val, label) => ro
-    ? `<div class="salary-row"><span class="salary-row-label">${label}</span><span class="salary-row-val">$${parseFloat(val||0).toLocaleString()}</span></div>`
-    : `<div class="salary-row"><span class="salary-row-label">${label}</span><input class="salary-input" type="number" value="${val||0}" onchange="updateField('${empName}','${key}',this.value,${idx})"></div>`;
+  const hasGrade = !!rec.insuranceGrade;
+  const laborVal  = rec.laborInsurance  || 0;
+  const healthVal = rec.healthInsurance || 0;
+  const depCount  = rec.dependentCount  || 0;
+  const depTotal  = healthVal * depCount;
 
-  const depBtn = ro
-    ? (rec.hasDependent ? `<span style="background:#e8f0fe;color:var(--primary);border-radius:8px;padding:4px 10px;font-size:12px;font-weight:700;">有眷屬</span>` : '')
-    : `<button onclick="toggleDependent('${empName}',${idx})"
-        style="background:${rec.hasDependent?'#1a73e8':'#f1f3f4'};color:${rec.hasDependent?'white':'var(--text)'};border:none;border-radius:8px;padding:6px 10px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">
-        ${rec.hasDependent?'✓ 眷屬':'+ 眷屬'}
-      </button>`;
+  // ── 投保級距選擇器 ──
+  const gradeSelector = ro
+    ? `<div class="salary-row"><span class="salary-row-label">投保級距</span>
+        <span class="salary-row-val">${hasGrade ? `$${rec.insuranceGrade.toLocaleString()}` : '—'}</span></div>`
+    : `<div class="salary-row"><span class="salary-row-label">投保級距</span>
+        <select class="salary-input" style="width:120px;font-size:13px;"
+          onchange="onInsuranceGradeChange('${empName}',this.value,${idx})">
+          <option value="">— 未設定 —</option>
+          ${(insuranceGradesData?.grades||[]).map(g =>
+            `<option value="${g.insuredSalary}" ${rec.insuranceGrade===g.insuredSalary?'selected':''}>
+              $${g.insuredSalary.toLocaleString()}</option>`).join('')}
+        </select></div>`;
 
-  const depInput = rec.hasDependent
-    ? `<div style="display:flex;align-items:center;gap:8px;margin-top:8px;padding-left:4px;">
-        <span style="font-size:12px;color:var(--text-muted);flex:1;">眷屬健保費</span>
-        ${ro
-          ? `<span style="font-weight:800;">$${parseFloat(rec.dependentInsurance||0).toLocaleString()}</span>`
-          : `<input class="salary-input" type="number" value="${rec.dependentInsurance||0}" onchange="updateField('${empName}','dependentInsurance',this.value,${idx})" style="width:90px;">`
-        }
-      </div>` : '';
+  // ── 勞保費（有級距時唯讀）──
+  const laborRow = (ro || hasGrade)
+    ? `<div class="salary-row"><span class="salary-row-label">勞保費（個人）</span>
+        <span class="salary-row-val">$${laborVal.toLocaleString()}</span></div>
+       <div style="font-size:11px;color:#94a3b8;text-align:right;margin-top:-6px;padding-bottom:4px;">
+         雇主負擔：$${(rec.laborEr||0).toLocaleString()}</div>`
+    : `<div class="salary-row"><span class="salary-row-label">勞保費（個人）</span>
+        <input class="salary-input" type="number" value="${laborVal}"
+          onchange="updateField('${empName}','laborInsurance',this.value,${idx})"></div>`;
+
+  // ── 健保費（有級距時唯讀）+ 眷屬 ──
+  const healthRow = (ro || hasGrade)
+    ? `<div class="salary-row"><span class="salary-row-label">健保費（個人）</span>
+        <span class="salary-row-val">$${healthVal.toLocaleString()}</span></div>
+       <div style="font-size:11px;color:#94a3b8;text-align:right;margin-top:-6px;padding-bottom:4px;">
+         雇主負擔：$${(rec.healthEr||0).toLocaleString()}</div>`
+    : `<div class="salary-row"><span class="salary-row-label">健保費（個人）</span>
+        <input class="salary-input" type="number" value="${healthVal}"
+          onchange="updateField('${empName}','healthInsurance',this.value,${idx})"></div>`;
+
+  // ── 眷屬人數 ──
+  const depRow = ro
+    ? (depCount > 0
+        ? `<div class="salary-row" style="font-size:12px;">
+            <span class="salary-row-label">眷屬健保（${depCount}人）</span>
+            <span style="font-weight:800;">$${depTotal.toLocaleString()}</span></div>` : '')
+    : `<div class="salary-row"><span class="salary-row-label">眷屬人數</span>
+        <input class="salary-input" type="number" min="0" max="9" value="${depCount}" style="width:70px;"
+          onchange="onDependentCountChange('${empName}',this.value,${idx})"></div>
+       ${depCount > 0
+         ? `<div style="font-size:11px;color:var(--text-muted);text-align:right;padding-bottom:4px;">
+              健保 $${healthVal.toLocaleString()} × ${depCount}人 =
+              <strong style="color:var(--text);">$${depTotal.toLocaleString()}</strong></div>` : ''}`;
+
+  // ── 勞退個人自提 ──
+  const pensionRow = ro
+    ? `<div class="salary-row"><span class="salary-row-label">勞退個人自提</span>
+        <span class="salary-row-val">$${(rec.laborPension||0).toLocaleString()}</span></div>`
+    : `<div class="salary-row"><span class="salary-row-label">勞退個人自提</span>
+        <input class="salary-input" type="number" value="${rec.laborPension||0}"
+          onchange="updateField('${empName}','laborPension',this.value,${idx})"></div>`;
+
+  // ── 雇主勞退提撥 6%（灰字） ──
+  const pensionErRow = rec.pensionEr
+    ? `<div style="font-size:11px;color:#94a3b8;text-align:right;margin-top:-6px;padding-bottom:4px;">
+         雇主勞退提撥：$${rec.pensionEr.toLocaleString()}</div>` : '';
 
   return `<div class="salary-section" style="background:#fef2f2;border-radius:10px;padding:12px;">
-    <div class="salary-section-title" style="color:#991b1b;">代扣項目${ro && !canApprove()?'<span style="font-size:10px;font-weight:500;color:#b91c1c;margin-left:6px;">送審後不可修改</span>':''}</div>
-    ${inp2('laborInsurance', rec.laborInsurance??0, '勞保費（個人）')}
-    <div style="padding:8px 0;border-bottom:1px solid #fecaca;">
-      <div style="display:flex;align-items:center;gap:8px;">
-        <span class="salary-row-label" style="flex:1;">健保費</span>
-        ${ro
-          ? `<span class="salary-row-val">$${parseFloat(rec.healthInsurance||0).toLocaleString()}</span>`
-          : `<input class="salary-input" type="number" value="${rec.healthInsurance||0}" onchange="updateField('${empName}','healthInsurance',this.value,${idx})" style="width:90px;">`
-        }
-        ${depBtn}
-      </div>
-      ${depInput}
-    </div>
-    ${inp2('laborPension', rec.laborPension??0, '勞退個人自提')}
+    <div class="salary-section-title" style="color:#991b1b;">代扣項目${ro&&!canApprove()?'<span style="font-size:10px;font-weight:500;color:#b91c1c;margin-left:6px;">送審後不可修改</span>':''}</div>
+    ${gradeSelector}
+    ${laborRow}
+    ${healthRow}
+    ${depRow}
+    ${pensionRow}
+    ${pensionErRow}
   </div>`;
+}
+
+// ===== 投保級距變更 =====
+function onInsuranceGradeChange(empName, value, idx) {
+  let rec = getSalaryRecord(empName);
+  const emp = empList.find(e => e.name === empName);
+  if(!rec) { rec = buildDefaultRecord(emp); salaryData.records.push(rec); }
+
+  if(!value) {
+    rec.insuranceGrade = null;
+    rec.laborEr = 0; rec.healthEr = 0; rec.pensionEr = 0;
+  } else {
+    const salary = parseInt(value);
+    const grade = (insuranceGradesData?.grades || []).find(g => g.insuredSalary === salary);
+    if(grade) {
+      rec.insuranceGrade = salary;
+      rec.laborInsurance = grade.laborEmp;
+      rec.healthInsurance = grade.healthEmp;
+      rec.laborEr  = grade.laborEr;
+      rec.healthEr = grade.healthEr;
+      rec.pensionEr= grade.pension;
+    }
+  }
+  const dc = rec.dependentCount || 0;
+  rec.dependentInsurance = (rec.healthInsurance || 0) * dc;
+  rec.hasDependent = dc > 0;
+  _rerenderModal(empName, rec);
+}
+
+function onDependentCountChange(empName, value, idx) {
+  let rec = getSalaryRecord(empName);
+  const emp = empList.find(e => e.name === empName);
+  if(!rec) { rec = buildDefaultRecord(emp); salaryData.records.push(rec); }
+
+  const count = Math.max(0, parseInt(value) || 0);
+  rec.dependentCount = count;
+  rec.hasDependent   = count > 0;
+  rec.dependentInsurance = (rec.healthInsurance || 0) * count;
+  _rerenderModal(empName, rec);
+}
+
+function _rerenderModal(empName, rec) {
+  const emp = empList.find(e => e.name === empName) || { name: empName, role: rec.role };
+  document.getElementById('empModalBody').innerHTML = renderSalaryForm(emp, rec, 0, isReadonly());
+  document.getElementById('empModalTotal').textContent = `$${calcTotal(rec).toLocaleString()}`;
+  switchModalTab(currentModalTab, false);
+  document.querySelectorAll('.emp-salary-card').forEach(card => {
+    if(card.dataset.emp === empName) {
+      const el = card.querySelector('.emp-salary-total');
+      if(el) el.textContent = `$${calcTotal(rec).toLocaleString()}`;
+    }
+  });
+  triggerAutoSave();
 }
 
 // ===== 正職時薪支援 =====
@@ -2200,12 +2293,14 @@ async function loadSalaryData() {
 
   try {
     // 平行讀取：員工名單、當月薪資、上月薪資、displayName
-    const [empSnap, salSnap, prevSalSnap, accSnap] = await Promise.all([
+    const [empSnap, salSnap, prevSalSnap, accSnap, gradeSnap] = await Promise.all([
       window.db.collection('stores').doc(currentStore).collection('employees').get(),
       window.db.collection('stores').doc(currentStore).collection('salary').doc(currentMonth).get(),
       window.db.collection('stores').doc(currentStore).collection('salary').doc(getPrevMonth(currentMonth)).get(),
-      window.db.collection('account').where('store','==',currentStore).get().catch(()=>null)
+      window.db.collection('account').where('store','==',currentStore).get().catch(()=>null),
+      insuranceGradesData ? Promise.resolve(null) : window.db.collection('settings').doc('insuranceGrades').get().catch(()=>null)
     ]);
+    if(gradeSnap?.exists) insuranceGradesData = gradeSnap.data();
 
     // ✅ displayName 對應表
     displayNameMap = {};
@@ -2592,7 +2687,11 @@ function buildDefaultRecord(emp) {
       laborInsurance: prev.laborInsurance !== undefined ? prev.laborInsurance : (emp.laborInsurance || 0),
       healthInsurance: prev.healthInsurance !== undefined ? prev.healthInsurance : (emp.healthInsurance || 0),
       hasDependent: prev.hasDependent !== undefined ? prev.hasDependent : (emp.hasDependent || false),
+      dependentCount: prev.dependentCount !== undefined ? prev.dependentCount : 0,
+      dependentInsurance: prev.dependentInsurance !== undefined ? prev.dependentInsurance : 0,
       laborPension: prev.laborPension !== undefined ? prev.laborPension : (emp.laborPension || 0),
+      insuranceGrade: prev.insuranceGrade || null,
+      laborEr: prev.laborEr || 0, healthEr: prev.healthEr || 0, pensionEr: prev.pensionEr || 0,
       personalSickLeave: 0,
       otherDeduction: 0, otherDeductionNote: ''
     };
@@ -2611,7 +2710,11 @@ function buildDefaultRecord(emp) {
       laborInsurance: prev.laborInsurance !== undefined ? prev.laborInsurance : (emp.laborInsurance || 0),
       healthInsurance: prev.healthInsurance !== undefined ? prev.healthInsurance : (emp.healthInsurance || 0),
       hasDependent: prev.hasDependent !== undefined ? prev.hasDependent : (emp.hasDependent || false),
+      dependentCount: prev.dependentCount !== undefined ? prev.dependentCount : 0,
+      dependentInsurance: prev.dependentInsurance !== undefined ? prev.dependentInsurance : 0,
       laborPension: prev.laborPension !== undefined ? prev.laborPension : (emp.laborPension || 0),
+      insuranceGrade: prev.insuranceGrade || null,
+      laborEr: prev.laborEr || 0, healthEr: prev.healthEr || 0, pensionEr: prev.pensionEr || 0,
       otherDeduction: 0, otherDeductionNote: ''
     };
   }
