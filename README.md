@@ -10,6 +10,12 @@
 
 #### 🐛 修正
 
+- **已發布班表顯示本週前已調走的員工（`schedule-V2.html`）**
+  - `isPublished` 條件原本無條件顯示所有 `status: 調走` 員工，導致早已調走的員工在發布後重新出現。
+  - 修正：加上 `transferDate >= weekMonStr` 條件，已發布班表只顯示本週或之後才調走的員工。
+
+
+
 - **人事成本計算與薪資頁公司負擔不一致（`analytics.html`）**
   - `calcPension` 原用 `(底薪+全勤)×0.06` 公式估算，改為直接讀取薪資記錄中的 `pensionEr`（舊資料無此欄則退回公式）。
   - `calcRealCost` 原為 `calcNet + pension`（含員工代扣扣法），修正為 `calcGross + laborEr + healthEr + pensionEr`，與薪資頁實際人事成本一致。
