@@ -6,6 +6,17 @@
 
 ## 更新紀錄
 
+### 2026-06-04（三）
+
+#### 🐛 修正
+
+- **人事成本計算與薪資頁公司負擔不一致（`analytics.html`）**
+  - `calcPension` 原用 `(底薪+全勤)×0.06` 公式估算，改為直接讀取薪資記錄中的 `pensionEr`（舊資料無此欄則退回公式）。
+  - `calcRealCost` 原為 `calcNet + pension`（含員工代扣扣法），修正為 `calcGross + laborEr + healthEr + pensionEr`，與薪資頁實際人事成本一致。
+  - 明細表「公司負擔」欄（原「勞退(6%)」）改為涵蓋 `laborEr + healthEr + pensionEr` 合計。
+
+---
+
 ### 2026-06-03（二）
 
 #### ✨ 新功能
