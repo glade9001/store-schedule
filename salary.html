@@ -2040,6 +2040,9 @@ function buildSinglePayslipHtml(emp, y, m) {
     parseFloat(rec.holidayOtPay||0)>0 || parseFloat(rec.lateMinutes||0)>0
   );
   const companyPension = Math.round(pensionBase * 0.06);
+  const _supH2 = calcHourlySupportHours(emp.name);
+  const _supRate2 = parseFloat(rec.hourlySupportRate||0);
+  const _supAmt2 = Math.round(_supH2 * _supRate2);
 
   // 表格行生成
   const row = (label, val, cls='') =>
@@ -2149,6 +2152,11 @@ function buildSinglePayslipHtml(emp, y, m) {
         <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">$${(rec.otherBonus||0).toLocaleString()}</td>
         <td colspan="6" style="padding:3px 6px;border:1px solid #ccc;">&nbsp;</td>
       </tr>
+      ${_supRate2 > 0 ? `<tr>
+        <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">時薪支援 ${_supH2}h</td>
+        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">+$${_supAmt2.toLocaleString()}</td>
+        <td colspan="6" style="padding:3px 6px;border:1px solid #ccc;">&nbsp;</td>
+      </tr>` : ''}
       <tr>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">${isMgr?'平日加班':'平日加班'}${otPayLabel?`<br><span style="font-size:9px;color:#64748b;">${otPayLabel}</span>`:''}</td>
         <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${isMgr?'--':`+$${otPayAmt.toLocaleString()}`}</td>
