@@ -686,7 +686,7 @@ async function openChangelogModal() {
 
   content.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-muted);">載入中...</div>';
   try {
-    const res = await fetch(README_URL, { cache: 'no-cache' });
+    const res = await fetch(`${README_URL}?t=${Date.now()}`, { cache: 'no-cache' });
     if(!res.ok) throw new Error(`HTTP ${res.status}`);
     const md = await res.text();
 
