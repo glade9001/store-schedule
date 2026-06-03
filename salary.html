@@ -1562,12 +1562,21 @@ function renderInsuranceSection(empName, rec, idx) {
        ? `<div style="font-size:11px;color:#94a3b8;text-align:right;margin-top:-6px;padding-bottom:4px;">
             雇主負擔：$${(rec.laborEr||0).toLocaleString()}</div>` : ''}`;
 
-  // ── 健保費（永遠唯讀，只能由級距帶入）+ 眷屬 ──
-  const healthRow = `<div class="salary-row"><span class="salary-row-label">健保費（個人）</span>
+  // ── 健保費（永遠唯讀，只能由級距帶入）+ 健保未投保切換 ──
+  const healthUninsured = !!rec.healthUninsured;
+  const healthToggle = (!ro && gradeSet && rec.insuranceGrade !== 0)
+    ? `<button onclick="toggleHealthUninsured('${empName}',${idx})"
+        style="background:${healthUninsured?'#fce8e6':'#e8f5e9'};color:${healthUninsured?'#d93025':'#2e7d32'};
+               border:none;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:700;cursor:pointer;margin-left:6px;white-space:nowrap;">
+        ${healthUninsured?'未投保':'已投保'}</button>` : '';
+  const healthErLine = (gradeSet && rec.insuranceGrade !== 0 && !healthUninsured)
+    ? `<div style="font-size:11px;color:#94a3b8;text-align:right;margin-top:-6px;padding-bottom:4px;">
+         雇主負擔：$${(rec.healthEr||0).toLocaleString()}</div>` : '';
+
+  const healthRow = `<div class="salary-row">
+      <span class="salary-row-label" style="display:flex;align-items:center;">健保費（個人）${healthToggle}</span>
       <span class="salary-row-val">$${healthVal.toLocaleString()}</span></div>
-     ${gradeSet && rec.insuranceGrade !== 0
-       ? `<div style="font-size:11px;color:#94a3b8;text-align:right;margin-top:-6px;padding-bottom:4px;">
-            雇主負擔：$${(rec.healthEr||0).toLocaleString()}</div>` : ''}`;
+     ${healthErLine}`;
 
   // ── 眷屬人數 ──
   const depRow = ro
@@ -1621,6 +1630,7 @@ function onInsuranceGradeChange(empName, value, idx) {
     rec.insuranceGrade = 0;
     rec.laborInsurance = 0; rec.healthInsurance = 0;
     rec.laborEr = 0; rec.healthEr = 0; rec.pensionEr = 0;
+    rec.healthUninsured = false;
   } else {
     const salary = parseInt(value);
     const grade = (insuranceGradesData?.grades || []).find(g => g.insuredSalary === salary);
@@ -1631,11 +1641,33 @@ function onInsuranceGradeChange(empName, value, idx) {
       rec.laborEr  = grade.laborEr;
       rec.healthEr = grade.healthEr;
       rec.pensionEr= grade.pension;
+      rec.healthUninsured = false; // 切換級距時重置健保狀態
     }
   }
   const dc = rec.dependentCount || 0;
   rec.dependentInsurance = (rec.healthInsurance || 0) * dc;
   rec.hasDependent = dc > 0;
+  _rerenderModal(empName, rec);
+}
+
+function toggleHealthUninsured(empName, idx) {
+  let rec = getSalaryRecord(empName);
+  if(!rec) return;
+  rec.healthUninsured = !rec.healthUninsured;
+  if(rec.healthUninsured) {
+    // 未投保：健保清零，保留雇主負擔原值供還原用
+    rec._healthErBackup   = rec.healthEr;
+    rec.healthInsurance   = 0;
+    rec.healthEr          = 0;
+    rec.dependentInsurance = 0;
+  } else {
+    // 還原：從備份或重新從級距帶入
+    const grade = (insuranceGradesData?.grades||[]).find(g => g.insuredSalary === rec.insuranceGrade);
+    rec.healthInsurance = grade ? grade.healthEmp : 0;
+    rec.healthEr        = rec._healthErBackup || (grade ? grade.healthEr : 0);
+    const dc = rec.dependentCount || 0;
+    rec.dependentInsurance = rec.healthInsurance * dc;
+  }
   _rerenderModal(empName, rec);
 }
 
