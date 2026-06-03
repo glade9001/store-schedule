@@ -164,7 +164,7 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
   </div>
 
   <!-- 門市班別設定（店長以上）-->
-  <div id="sectionStoreConfig">
+  <div id="sectionStoreConfig" style="display:none;">
     <div class="card-title" style="padding:0 0 8px;">🔧 門市班別設定
       <span class="perm-badge perm-manager">店長</span>
     </div>
@@ -375,7 +375,6 @@ window.onload = async () => {
   try { currentUser = JSON.parse(saved); } catch { window.location.replace('home.html'); return; }
   const _fbAuth = await new Promise(r => { const u = firebase.auth().onAuthStateChanged(fb => { u(); r(fb); }); });
   if (!_fbAuth) { localStorage.removeItem('currentUser'); sessionStorage.removeItem('currentUser'); window.location.replace('home.html'); return; }
-  if(!canManager()) { window.location.replace('home.html'); return; }
 
   try {
     const snap = await window.db.collection('settings').doc('globalConfig').get();
@@ -388,10 +387,10 @@ window.onload = async () => {
     `${currentUser.displayName || currentUser.empName || ''}<br>${PERM_LABELS[currentUser.permission] || ''} · ${currentUser.store || ''}`;
 
   // 依權限顯示區塊
-  if(canAdmin())  document.getElementById('sectionSysConfig').style.display = 'block';
-  if(canOwner())  document.getElementById('sectionHoliday').style.display  = 'block';
-  if(canOwner())  document.getElementById('sectionInsurance').style.display = 'block';
-  // storeConfig 預設顯示（店長以上）
+  if(canAdmin())   document.getElementById('sectionSysConfig').style.display  = 'block';
+  if(canOwner())   document.getElementById('sectionHoliday').style.display   = 'block';
+  if(canOwner())   document.getElementById('sectionInsurance').style.display  = 'block';
+  if(canManager()) document.getElementById('sectionStoreConfig').style.display = 'block';
 
   hideLoading();
 };
