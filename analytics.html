@@ -617,7 +617,7 @@ const calcGross = (rec, role) => {
 };
 const calcDeduct = rec => n(rec.laborInsurance)+n(rec.healthInsurance)+n(rec.dependentInsurance)+n(rec.laborPension)+n(rec.otherDeduction);
 const calcNet = (rec,role) => calcGross(rec,role)-calcDeduct(rec);
-const calcPension = (rec,role) => role==='工讀'?0:(rec.pensionEr!=null?n(rec.pensionEr):Math.round((n(rec.baseSalary)+n(rec.fullAttendBonus))*0.06));
+const calcPension = (rec,role) => role==='工讀'?0:(n(rec.pensionEr||0)||Math.round((n(rec.baseSalary)+n(rec.fullAttendBonus))*0.06));
 const calcErBurden = (rec,role) => n(rec.laborEr||0)+n(rec.healthEr||0)+calcPension(rec,role);
 const calcRealCost = (rec,role) => calcGross(rec,role)+calcErBurden(rec,role);
 
@@ -772,12 +772,11 @@ function renderCostTab(){
       // 基本成本算在員工所屬門市
       costMatrix[emp.store][ym] = (costMatrix[emp.store][ym]||0) + baseCost;
 
-      // 支援調整
+      // 支援調整（只計算當月所屬門市的支援記錄）
       details.forEach(d=>{
-        // 扣除來源門市
+        if(d.fromStore !== emp.store) return;
         adjMatrix[d.fromStore] = adjMatrix[d.fromStore]||{};
         adjMatrix[d.fromStore][ym] = (adjMatrix[d.fromStore][ym]||0) - d.amt;
-        // 增加目標門市
         adjMatrix[d.toStore] = adjMatrix[d.toStore]||{};
         adjMatrix[d.toStore][ym] = (adjMatrix[d.toStore][ym]||0) + d.amt;
       });
