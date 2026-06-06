@@ -1929,7 +1929,7 @@ async function loadEmpView() {
         const effectDate = data.transferDate;
         if(!effectDate) return;
 
-        if(empViewPublished) {
+        if(empViewPublished && effectDate >= evWeekMonStr) {
           emps.push({ name: d.id, ...data });
         } else if(effectDate > evWeekSunStr) {
           emps.push({ name: d.id, ...data });
