@@ -1980,6 +1980,7 @@ function renderMyCalendar(year, month, dayMap) {
     const isToday = ds === todayStr;
     const isWe = cur.getDay() === 0 || cur.getDay() === 6;
     const info = dayMap[ds];
+    if(ds === '2026-06-08') console.log('[月曆render] 06-08 info:', JSON.stringify(info));
 
     let cls = 'my-cal-cell';
     if(!isThis) cls += ' blank';
