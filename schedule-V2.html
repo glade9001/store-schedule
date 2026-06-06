@@ -403,6 +403,7 @@ th:first-child { background: #1557b0; z-index: 12; }
       <div class="form-field">
         <label>班別名稱</label>
         <input type="text" id="modalShift" oninput="autoFillHours()">
+        <div id="shiftFmtHint" style="display:none; font-size:11px; color:var(--danger); font-weight:700; margin-top:4px; line-height:1.5;"></div>
       </div>
       <div class="form-field">
         <label>工時（自動）</label>
@@ -1415,6 +1416,8 @@ function openShiftModal(btn) {
 
 function saveShiftModal() {
   if(!currentBtn) return;
+  const _fmtErr = validateShiftFormat(document.getElementById('modalShift').value);
+  if(_fmtErr) { alert('❌ ' + _fmtErr); return; }
   const shift = document.getElementById('modalShift').value.trim();
   const hours = parseFloat(document.getElementById('modalHours').value) || 0;
   const ot = document.getElementById('modalOT').checked;
@@ -2366,6 +2369,10 @@ function handleCellClick(btn, eIdx, isVirtual) {
   }
   renderQuickShiftBtns();
 
+  // 重置班別格式提示（開新格子不殘留上一格的錯誤）
+  const _fmtHint = document.getElementById('shiftFmtHint');
+  if(_fmtHint) _fmtHint.style.display = 'none';
+
   // ✅ 劃休申請提示橫幅
   const lrBanner = document.getElementById('leaveReqBanner');
   if(lrBanner && !isVirtual) {
@@ -2457,9 +2464,37 @@ function appendNote(t) {
   const el=document.getElementById('modalNote');
   el.value=el.value.trim() ? el.value+' '+t : t;
 }
+// 驗證班別格式：回傳錯誤訊息字串；正確則回傳 null
+// 規則：時間班別必須是「開始-結束」，小數只允許 .25/.5/.75（=15/30/45分）
+function validateShiftFormat(raw) {
+  const s = (raw||'').trim();
+  if(!s) return null; // 空白（清空）不擋
+  // 純文字班別（排休/指休/特休/補休等，無數字）放行
+  if(!/\d/.test(s)) return null;
+  // 時間班別必須符合「數字[.小數]-數字[.小數]」
+  const m = s.match(/^(\d{1,2}(?:\.\d+)?)-(\d{1,2}(?:\.\d+)?)$/);
+  if(!m) return `班別格式錯誤：請用「開始-結束」，例如 7-15、15.5-18`;
+  for(const part of [m[1], m[2]]) {
+    const dot = part.indexOf('.');
+    if(dot >= 0) {
+      const dec = part.slice(dot+1);
+      if(!['25','5','75'].includes(dec))
+        return `時間「${part}」小數錯誤：30分寫 .5、15分寫 .25、45分寫 .75（勿用 .30）`;
+    }
+  }
+  return null;
+}
+
 function autoFillHours() {
   const s=document.getElementById('modalShift').value.trim();
   const t=document.getElementById('modalHours');
+  // 即時格式提示
+  const hint=document.getElementById('shiftFmtHint');
+  const err=validateShiftFormat(s);
+  if(hint) {
+    hint.style.display = err ? 'block' : 'none';
+    hint.textContent = err || '';
+  }
   if((appConfig.shiftHours||{})[s]) { t.value=(appConfig.shiftHours||{})[s]; return; }
   const m=s.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)/);
   if(m) { let sT=parseFloat(m[1]),eT=parseFloat(m[2]); if(eT<=sT) eT+=24; t.value=eT-sT; }
@@ -2549,6 +2584,10 @@ function detectScheduleConflicts(empName, day, weekStr, newShift, newHours) {
 }
 
 function applyShift() {
+  // ✅ 班別格式驗證（避免 .30 被當 .3、. 後空白等造成工時誤算）
+  const fmtErr = validateShiftFormat(document.getElementById('modalShift').value);
+  if(fmtErr) { alert('❌ ' + fmtErr); return; }
+
   pushToUndo(currentCell);
   const isVirtual = currentCell.dataset.emp.startsWith('🆘');
 
