@@ -1939,6 +1939,7 @@ async function loadMyCalendar() {
 
     // 其他門市：找 supportEmp === '本店-自己' 且 approved → 去支援別店
     others.forEach((snap, idx) => {
+      console.log('[月曆snap]', w, otherStores[idx], 'null?', snap===null, 'exists?', snap?.exists, '===recSnap?', snap===recSnap);
       if(!snap?.exists || snap === recSnap) return;
       const toStore = otherStores[idx];
       (snap.data().records || []).forEach(r => {
