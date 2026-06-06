@@ -1901,6 +1901,7 @@ async function loadMyCalendar() {
   const dayMap = {};
 
   snaps.forEach(({ w, own, others }) => {
+    if(w === '2026-W24') console.log('[W24] own exists?', own?.exists, 'own records:', own?.exists ? own.data().records?.filter(r=>r.name===empName).length : 0, 'others:', others.map((s,i)=>`${otherStores[i]}:${s?.exists}`));
     // 優先用本店；若本店無此員工記錄（調店過渡期），fallback 到舊店
     let recSnap = null, recPub = false, recStoreName = store;
     if(own?.exists && (own.data().records || []).some(r => r.name === empName)) {
@@ -1941,9 +1942,11 @@ async function loadMyCalendar() {
 
     // 其他門市：找 supportEmp === '本店-自己' 且 approved → 去支援別店
     others.forEach((snap, idx) => {
+      if(w === '2026-W24') console.log('[W24 support]', otherStores[idx], 'exists?', snap?.exists, 'skip?', otherStores[idx] === recStoreName, 'recStoreName:', recStoreName);
       if(!snap?.exists || otherStores[idx] === recStoreName) return;
       const toStore = otherStores[idx];
       (snap.data().records || []).forEach(r => {
+        if(w === '2026-W24' && r.supportEmp) console.log('[W24 rec]', toStore, r.day, r.supportEmp, r.approvalStatus);
         if(r.approvalStatus !== 'approved' || r.supportEmp !== supportKey) return;
         const di = dNamesLocal.indexOf(r.day);
         if(di < 0) return;
