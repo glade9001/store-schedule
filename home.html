@@ -1903,7 +1903,22 @@ async function loadMyCalendar() {
   const dayMap = {};
 
   snaps.forEach(({ w, own, others }) => {
-    const published = (own?.exists && own.data().published) || isAutoPublishedHome(w);
+    // 優先用本店；若本店無此員工記錄（調店過渡期），fallback 到舊店
+    let recSnap = null, recPub = false;
+    if(own?.exists && (own.data().records || []).some(r => r.name === empName)) {
+      recSnap = own;
+      recPub = own.data().published || isAutoPublishedHome(w);
+    } else {
+      for(const snap of others) {
+        if(!snap?.exists) continue;
+        if((snap.data().records || []).some(r => r.name === empName)) {
+          recSnap = snap;
+          recPub = snap.data().published || isAutoPublishedHome(w);
+          break;
+        }
+      }
+    }
+    const published = recSnap ? recPub : ((own?.exists && own.data().published) || isAutoPublishedHome(w));
 
     // 標記該週所有天（published 狀態）
     dNamesLocal.forEach((_, di) => {
@@ -1911,9 +1926,9 @@ async function loadMyCalendar() {
       if(!dayMap[ds]) dayMap[ds] = { shift:'', note:'', isSupport:false, supportStore:'', published };
     });
 
-    // 本店記錄
-    if(own?.exists) {
-      (own.data().records || []).forEach(r => {
+    // 員工本人記錄（本店或 fallback 舊店）
+    if(recSnap) {
+      (recSnap.data().records || []).forEach(r => {
         if(r.name !== empName) return;
         const di = dNamesLocal.indexOf(r.day);
         if(di < 0) return;
@@ -1924,7 +1939,7 @@ async function loadMyCalendar() {
 
     // 其他門市：找 supportEmp === '本店-自己' 且 approved → 去支援別店
     others.forEach((snap, idx) => {
-      if(!snap?.exists) return;
+      if(!snap?.exists || snap === recSnap) return;
       const toStore = otherStores[idx];
       (snap.data().records || []).forEach(r => {
         if(r.approvalStatus !== 'approved' || r.supportEmp !== supportKey) return;
