@@ -1884,7 +1884,6 @@ async function loadMyCalendar() {
   const otherStores = (appConfig.stores || []).filter(s => s !== store);
   const dNamesLocal = ['週一','週二','週三','週四','週五','週六','週日'];
   const supportKey = `${store}-${empName}`;
-  console.log('[月曆] store:', store, 'empName:', empName, 'supportKey:', supportKey);
 
   // 平行讀取本店各週 + 其他門市（支援記錄）
   const snaps = await Promise.all(
@@ -1903,16 +1902,19 @@ async function loadMyCalendar() {
 
   snaps.forEach(({ w, own, others }) => {
     // 優先用本店；若本店無此員工記錄（調店過渡期），fallback 到舊店
-    let recSnap = null, recPub = false;
+    let recSnap = null, recPub = false, recStoreName = store;
     if(own?.exists && (own.data().records || []).some(r => r.name === empName)) {
       recSnap = own;
       recPub = own.data().published || isAutoPublishedHome(w);
+      recStoreName = store;
     } else {
-      for(const snap of others) {
+      for(let fi = 0; fi < others.length; fi++) {
+        const snap = others[fi];
         if(!snap?.exists) continue;
         if((snap.data().records || []).some(r => r.name === empName)) {
           recSnap = snap;
           recPub = snap.data().published || isAutoPublishedHome(w);
+          recStoreName = otherStores[fi];
           break;
         }
       }
@@ -1939,11 +1941,9 @@ async function loadMyCalendar() {
 
     // 其他門市：找 supportEmp === '本店-自己' 且 approved → 去支援別店
     others.forEach((snap, idx) => {
-      console.log('[月曆snap]', w, otherStores[idx], 'null?', snap===null, 'exists?', snap?.exists, '===recSnap?', snap===recSnap);
-      if(!snap?.exists || snap === recSnap) return;
+      if(!snap?.exists || otherStores[idx] === recStoreName) return;
       const toStore = otherStores[idx];
       (snap.data().records || []).forEach(r => {
-        if(r.supportEmp) console.log('[月曆支援]', toStore, r.day, r.week, 'supportEmp:', r.supportEmp, 'key:', supportKey, 'match:', r.supportEmp === supportKey);
         if(r.approvalStatus !== 'approved' || r.supportEmp !== supportKey) return;
         const di = dNamesLocal.indexOf(r.day);
         if(di < 0) return;
