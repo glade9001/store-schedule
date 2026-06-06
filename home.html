@@ -1991,8 +1991,8 @@ function renderMyCalendar(year, month, dayMap) {
         } else if(info.published) {
           const s = info.shift;
           if(info.isSupport && s) {
-            inner += `<span class="my-cal-st su" title="支援 ${info.supportStore}">${s.replace('-','/')}</span>`;
-            inner += `<span style="font-size:8px;color:#16a34a;font-weight:700;">${info.supportStore}</span>`;
+            inner += `<span style="font-size:9px;color:#16a34a;font-weight:900;display:block;text-align:center;line-height:1.4;">${info.supportStore}</span>`;
+            inner += `<span class="my-cal-st su">${s.replace('-','/')}</span>`;
           } else if(s === '指休') {
             inner += `<span class="my-cal-st or">休</span>`;
           } else if(s === '排休') {
