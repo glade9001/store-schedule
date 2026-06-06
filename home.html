@@ -1931,6 +1931,7 @@ async function loadMyCalendar() {
         const di = dNamesLocal.indexOf(r.day);
         if(di < 0) return;
         const ds = myCalDateStr(w, di);
+        console.log('[月曆記錄]', ds, 'shift:', r.shift, 'location:', r.location, 'note:', r.note);
         const loc = (r.location && r.location !== '本店') ? r.location : '';
         dayMap[ds] = { shift: r.shift||'', note: r.note||'', isSupport: !!loc, supportStore: loc, published };
       });
