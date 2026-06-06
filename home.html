@@ -462,6 +462,27 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 .section-title { font-size: 15px; font-weight: 800; }
 .section-more { font-size: 12px; color: var(--primary); font-weight: 700; cursor: pointer; }
 
+/* ===== 個人月曆 ===== */
+.my-cal-toggle { background:#f1f3f4; border:none; border-radius:8px; padding:5px 12px; font-size:12px; font-weight:700; cursor:pointer; color:var(--primary); }
+.my-cal-toggle.active { background:var(--primary); color:white; }
+.my-cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:2px; margin-top:8px; }
+.my-cal-hdr { text-align:center; font-size:10px; font-weight:700; color:var(--text-muted); padding:3px 0; }
+.my-cal-hdr.we { color:#d93025; }
+.my-cal-cell { border-radius:7px; min-height:48px; padding:2px 2px 3px; display:flex; flex-direction:column; align-items:center; background:#f8fafc; border:1px solid #f1f3f4; }
+.my-cal-cell.blank { background:transparent; border-color:transparent; }
+.my-cal-cell.today { border:2px solid var(--primary); background:#eff6ff; }
+.my-cal-cell.we-cell { background:#fafafa; }
+.my-cal-dn { font-size:10px; font-weight:700; color:var(--text-muted); align-self:flex-start; padding:0 2px; line-height:1.6; }
+.my-cal-cell.today .my-cal-dn { color:var(--primary); font-weight:900; }
+.my-cal-st { font-size:10px; font-weight:800; text-align:center; margin-top:1px; line-height:1.3; }
+.my-cal-st.w  { color:#1a73e8; }
+.my-cal-st.o  { color:#34a853; }
+.my-cal-st.or { color:#d93025; }
+.my-cal-st.sp { color:#9334e6; }
+.my-cal-st.cp { color:#0891b2; }
+.my-cal-st.su { color:#16a34a; }
+.my-cal-st.np { color:#cbd5e1; font-size:9px; }
+
 /* ===== SCHEDULE PAGE ===== */
 .week-nav {
   display: flex; align-items: center; justify-content: space-between;
@@ -695,15 +716,30 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       <div class="card">
         <div class="section-header">
           <div class="section-title" style="font-size:13px;">📅 我的班表</div>
-          <div class="section-more" onclick="window.location.href='schedule-V2.html'" style="font-size:12px;">查看完整 →</div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button id="myCalToggleBtn" class="my-cal-toggle" onclick="toggleMyCalendar()">月曆</button>
+            <div class="section-more" onclick="window.location.href='schedule-V2.html'" style="font-size:12px;">查看完整 →</div>
+          </div>
         </div>
-        <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
-          <button id="homePrevBtn" onclick="homeChangeWeek(-1)" style="background:#f1f3f4; border:none; border-radius:8px; padding:5px 12px; font-size:13px; font-weight:700; cursor:pointer; color:var(--text);">‹</button>
-          <div style="flex:1; text-align:center; font-size:11px; font-weight:800; color:var(--primary);" id="homeWeekLabel">--</div>
-          <button id="homeNextBtn" onclick="homeChangeWeek(1)" style="background:#f1f3f4; border:none; border-radius:8px; padding:5px 12px; font-size:13px; font-weight:700; cursor:pointer; color:var(--text);">›</button>
+        <!-- 週次視角 -->
+        <div id="homeWeekView">
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+            <button id="homePrevBtn" onclick="homeChangeWeek(-1)" style="background:#f1f3f4; border:none; border-radius:8px; padding:5px 12px; font-size:13px; font-weight:700; cursor:pointer; color:var(--text);">‹</button>
+            <div style="flex:1; text-align:center; font-size:11px; font-weight:800; color:var(--primary);" id="homeWeekLabel">--</div>
+            <button id="homeNextBtn" onclick="homeChangeWeek(1)" style="background:#f1f3f4; border:none; border-radius:8px; padding:5px 12px; font-size:13px; font-weight:700; cursor:pointer; color:var(--text);">›</button>
+          </div>
+          <div id="homeWeekShifts">
+            <div style="text-align:center; color:var(--text-muted); font-size:13px; padding:8px 0;">載入中...</div>
+          </div>
         </div>
-        <div id="homeWeekShifts">
-          <div style="text-align:center; color:var(--text-muted); font-size:13px; padding:8px 0;">載入中...</div>
+        <!-- 月曆視角 -->
+        <div id="myCalView" style="display:none;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+            <button id="myCalPrevBtn" onclick="myCalChangeMonth(-1)" style="background:#f1f3f4;border:none;border-radius:8px;width:32px;height:32px;font-size:16px;font-weight:700;cursor:pointer;" disabled>‹</button>
+            <span id="myCalMonthTitle" style="font-size:13px;font-weight:900;"></span>
+            <button id="myCalNextBtn" onclick="myCalChangeMonth(1)" style="background:#f1f3f4;border:none;border-radius:8px;width:32px;height:32px;font-size:16px;font-weight:700;cursor:pointer;" disabled>›</button>
+          </div>
+          <div class="my-cal-grid" id="myCalGrid"></div>
         </div>
       </div>
 
@@ -1772,6 +1808,200 @@ function isAutoPublishedHome(weekStr) {
 window.addEventListener('beforeunload', () => {
   if (homePublishUnsubscribe) homePublishUnsubscribe();
 });
+
+// ===== 個人出勤月曆 =====
+let myCalMonth = null; // { year, month }
+
+function toggleMyCalendar() {
+  const btn = document.getElementById('myCalToggleBtn');
+  const calView = document.getElementById('myCalView');
+  const weekView = document.getElementById('homeWeekView');
+  const isOpen = calView.style.display !== 'none';
+  if(!isOpen) {
+    weekView.style.display = 'none';
+    calView.style.display = 'block';
+    btn.textContent = '週次';
+    btn.classList.add('active');
+    const now = new Date();
+    myCalMonth = { year: now.getFullYear(), month: now.getMonth() };
+    loadMyCalendar();
+  } else {
+    calView.style.display = 'none';
+    weekView.style.display = 'block';
+    btn.textContent = '月曆';
+    btn.classList.remove('active');
+  }
+}
+
+function myCalChangeMonth(offset) {
+  myCalMonth.month += offset;
+  if(myCalMonth.month < 0)  { myCalMonth.month = 11; myCalMonth.year--; }
+  if(myCalMonth.month > 11) { myCalMonth.month = 0;  myCalMonth.year++; }
+  loadMyCalendar();
+}
+
+function myCalMonthWeeks(year, month) {
+  const weeks = new Set();
+  const last = new Date(year, month + 1, 0).getDate();
+  for(let d = 1; d <= last; d++) {
+    const date = new Date(year, month, d);
+    const yr = date.getFullYear();
+    const first = new Date(yr, 0, 1);
+    const w = Math.ceil((((date - first) / 86400000) + first.getDay() + 1) / 7);
+    weeks.add(`${yr}-W${String(w).padStart(2,'0')}`);
+  }
+  return [...weeks];
+}
+
+function myCalDateStr(weekStr, dayIdx) {
+  const mon = weekStringToDateHome(weekStr);
+  const d = new Date(mon);
+  d.setDate(mon.getDate() + dayIdx);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+async function loadMyCalendar() {
+  const empName = currentUser?.empName;
+  const store   = currentUser?.store;
+  const { year, month } = myCalMonth;
+
+  document.getElementById('myCalMonthTitle').textContent = `${year} 年 ${month + 1} 月`;
+
+  const now = new Date();
+  const diff = (year - now.getFullYear()) * 12 + (month - now.getMonth());
+  const prevBtn = document.getElementById('myCalPrevBtn');
+  const nextBtn = document.getElementById('myCalNextBtn');
+  if(prevBtn) prevBtn.disabled = diff <= -2;
+  if(nextBtn) nextBtn.disabled = diff >= 2;
+
+  const grid = document.getElementById('myCalGrid');
+  grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:16px;color:var(--text-muted);font-size:12px;">載入中...</div>';
+
+  if(!store || !empName) {
+    grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:16px;color:var(--text-muted);font-size:12px;">無個人班表</div>';
+    return;
+  }
+
+  const weeks = myCalMonthWeeks(year, month);
+  const otherStores = (appConfig.stores || []).filter(s => s !== store);
+  const dNamesLocal = ['週一','週二','週三','週四','週五','週六','週日'];
+  const supportKey = `${store}-${empName}`;
+
+  // 平行讀取本店各週 + 其他門市（支援記錄）
+  const snaps = await Promise.all(
+    weeks.map(w =>
+      Promise.all([
+        window.db.collection('stores').doc(store).collection('weeks').doc(w).get().catch(()=>null),
+        ...otherStores.map(s =>
+          window.db.collection('stores').doc(s).collection('weeks').doc(w).get().catch(()=>null)
+        )
+      ]).then(([own, ...others]) => ({ w, own, others }))
+    )
+  );
+
+  // dateStr -> { shift, note, isSupport, supportStore, published }
+  const dayMap = {};
+
+  snaps.forEach(({ w, own, others }) => {
+    const published = (own?.exists && own.data().published) || isAutoPublishedHome(w);
+
+    // 標記該週所有天（published 狀態）
+    dNamesLocal.forEach((_, di) => {
+      const ds = myCalDateStr(w, di);
+      if(!dayMap[ds]) dayMap[ds] = { shift:'', note:'', isSupport:false, supportStore:'', published };
+    });
+
+    // 本店記錄
+    if(own?.exists) {
+      (own.data().records || []).forEach(r => {
+        if(r.name !== empName) return;
+        const di = dNamesLocal.indexOf(r.day);
+        if(di < 0) return;
+        const ds = myCalDateStr(w, di);
+        dayMap[ds] = { shift: r.shift||'', note: r.note||'', isSupport:false, supportStore:'', published };
+      });
+    }
+
+    // 其他門市：找 supportEmp === '本店-自己' 且 approved → 去支援別店
+    others.forEach((snap, idx) => {
+      if(!snap?.exists) return;
+      const toStore = otherStores[idx];
+      (snap.data().records || []).forEach(r => {
+        if(r.approvalStatus !== 'approved' || r.supportEmp !== supportKey) return;
+        const di = dNamesLocal.indexOf(r.day);
+        if(di < 0) return;
+        const ds = myCalDateStr(w, di);
+        if(!dayMap[ds]?.shift) {
+          dayMap[ds] = { shift: r.shift||'', note: r.note||'', isSupport:true, supportStore: toStore, published };
+        }
+      });
+    });
+  });
+
+  renderMyCalendar(year, month, dayMap);
+}
+
+function renderMyCalendar(year, month, dayMap) {
+  const grid = document.getElementById('myCalGrid');
+  const todayStr = new Date().toISOString().split('T')[0];
+  const hdrs = ['一','二','三','四','五','六','日'];
+  let html = hdrs.map((h,i) => `<div class="my-cal-hdr${i>=5?' we':''}">${h}</div>`).join('');
+
+  const firstDay = new Date(year, month, 1);
+  const dow = firstDay.getDay() || 7;
+  let cur = new Date(firstDay);
+  cur.setDate(cur.getDate() - (dow - 1));
+
+  const lastDay = new Date(year, month + 1, 0);
+  let end = new Date(lastDay);
+  const edow = end.getDay() || 7;
+  end.setDate(end.getDate() + (7 - edow));
+
+  while(cur <= end) {
+    const ds = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}-${String(cur.getDate()).padStart(2,'0')}`;
+    const isThis = cur.getMonth() === month;
+    const isToday = ds === todayStr;
+    const isWe = cur.getDay() === 0 || cur.getDay() === 6;
+    const info = dayMap[ds];
+
+    let cls = 'my-cal-cell';
+    if(!isThis) cls += ' blank';
+    else if(isToday) cls += ' today';
+    else if(isWe) cls += ' we-cell';
+
+    let inner = '';
+    if(isThis) {
+      inner += `<span class="my-cal-dn">${cur.getDate()}</span>`;
+      if(info) {
+        if(!info.published && ds >= todayStr) {
+          inner += `<span class="my-cal-st np">待公布</span>`;
+        } else if(info.published) {
+          const s = info.shift;
+          if(info.isSupport && s) {
+            inner += `<span class="my-cal-st su" title="支援 ${info.supportStore}">${s.replace('-','/')}</span>`;
+            inner += `<span style="font-size:8px;color:#16a34a;font-weight:700;">${info.supportStore}</span>`;
+          } else if(s === '指休') {
+            inner += `<span class="my-cal-st or">休</span>`;
+          } else if(s === '排休') {
+            inner += `<span class="my-cal-st o">休</span>`;
+          } else if(s === '特休') {
+            inner += `<span class="my-cal-st sp">特休</span>`;
+          } else if(s === '補休') {
+            inner += `<span class="my-cal-st cp">補休</span>`;
+          } else if(s) {
+            inner += `<span class="my-cal-st w">${s.replace('-','/')}</span>`;
+          }
+          if(info.note) {
+            inner += `<span style="font-size:8px;color:#0088aa;overflow:hidden;width:100%;text-align:center;white-space:nowrap;text-overflow:ellipsis;">${info.note}</span>`;
+          }
+        }
+      }
+    }
+    html += `<div class="${cls}">${inner}</div>`;
+    cur.setDate(cur.getDate() + 1);
+  }
+  grid.innerHTML = html;
+}
 
 function updateTodayShiftBadge(myRecs, dates, dNames, todayStr) {
   const badge = document.getElementById('todayShiftBadge');
