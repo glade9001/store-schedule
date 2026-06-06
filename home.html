@@ -1940,6 +1940,7 @@ async function loadMyCalendar() {
       if(!snap?.exists || snap === recSnap) return;
       const toStore = otherStores[idx];
       (snap.data().records || []).forEach(r => {
+        if(r.supportEmp) console.log('[月曆支援]', toStore, r.day, r.supportEmp, '===', supportKey, r.approvalStatus);
         if(r.approvalStatus !== 'approved' || r.supportEmp !== supportKey) return;
         const di = dNamesLocal.indexOf(r.day);
         if(di < 0) return;
