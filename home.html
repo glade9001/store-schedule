@@ -482,6 +482,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 .my-cal-st.cp { color:#0891b2; }
 .my-cal-st.su { color:#16a34a; }
 .my-cal-st.np { color:#cbd5e1; font-size:9px; }
+.my-cal-note { font-size:8px; color:#0088aa; font-weight:600; width:100%; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block; margin-top:1px; }
 
 /* ===== SCHEDULE PAGE ===== */
 .week-nav {
@@ -2004,7 +2005,7 @@ function renderMyCalendar(year, month, dayMap) {
             inner += `<span class="my-cal-st w">${s.replace('-','/')}</span>`;
           }
           if(info.note) {
-            inner += `<span style="font-size:8px;color:#0088aa;overflow:hidden;width:100%;text-align:center;white-space:nowrap;text-overflow:ellipsis;">${info.note}</span>`;
+            inner += `<span class="my-cal-note">${info.note}</span>`;
           }
         }
       }
