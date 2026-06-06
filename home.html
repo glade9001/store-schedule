@@ -1948,9 +1948,9 @@ async function loadMyCalendar() {
         const di = dNamesLocal.indexOf(r.day);
         if(di < 0) return;
         const ds = myCalDateStr(w, di);
-        if(!dayMap[ds]?.shift) {
-          dayMap[ds] = { shift: r.shift||'', note: r.note||'', isSupport:true, supportStore: toStore, published };
-        }
+        // 有支援記錄就補上目的門市，不論 own record 有無 shift
+        const prev = dayMap[ds] || {};
+        dayMap[ds] = { shift: prev.shift || r.shift||'', note: prev.note||'', isSupport:true, supportStore: toStore, published: prev.published ?? published };
       });
     });
   });
@@ -1980,8 +1980,6 @@ function renderMyCalendar(year, month, dayMap) {
     const isToday = ds === todayStr;
     const isWe = cur.getDay() === 0 || cur.getDay() === 6;
     const info = dayMap[ds];
-    if(ds === '2026-06-08') console.log('[月曆render] 06-08 info:', JSON.stringify(info));
-
     let cls = 'my-cal-cell';
     if(!isThis) cls += ' blank';
     else if(isToday) cls += ' today';
