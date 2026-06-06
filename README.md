@@ -14,6 +14,10 @@
   - 員工查看班表頁面的 canvas 傳入 `mergedRecords`（含跨店支援者額外列），與管理者產圖邏輯不同，導致畫面不一致。
   - 修正：改傳本店原始 `records` 與 `emps`，使 `renderEmpCanvas` 輸出結果與 `exportImage` 完全一致。
 
+- **員工班表已發布週顯示已調走員工（`schedule-V2.html`）**
+  - 已發布週 `empViewPublished = true` 時，調走員工不論 `transferDate` 早晚一律顯示，導致本週前已調走的員工仍出現在班表 canvas。
+  - 修正：發布週改為 `empViewPublished && effectDate >= evWeekMonStr`，與管理者視角邏輯一致。
+
 ---
 
 ### 2026-06-05（四）
