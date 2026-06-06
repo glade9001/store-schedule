@@ -206,6 +206,29 @@ th:first-child { background: #1557b0; z-index: 12; }
 }
 .schedule-img-wrap { background: white; border-radius: var(--radius); overflow-x: auto; overflow-y: hidden; border: 1px solid var(--border); margin-bottom: 14px; -webkit-overflow-scrolling: touch; }
 .schedule-img-wrap canvas { display: block; max-width: 100%; height: auto; }
+/* ===== 月曆視角 ===== */
+.cal-toggle-btn { background:white; border:1.5px solid var(--border); border-radius:10px; padding:7px 14px; font-size:13px; font-weight:700; cursor:pointer; color:var(--primary); }
+.cal-toggle-btn.active { background:var(--primary); color:white; border-color:var(--primary); }
+.cal-nav { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+.cal-nav-btn { background:white; border:1.5px solid var(--border); border-radius:10px; width:36px; height:36px; font-size:18px; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.cal-nav-btn:disabled { opacity:0.3; cursor:not-allowed; }
+.cal-month-title { font-size:15px; font-weight:900; }
+.cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:3px; }
+.cal-day-hdr { text-align:center; font-size:11px; font-weight:700; color:var(--text-muted); padding:4px 0; }
+.cal-day-hdr.weekend { color:#d93025; }
+.cal-cell { background:white; border-radius:8px; border:1px solid var(--border); min-height:52px; padding:3px 2px; display:flex; flex-direction:column; align-items:center; }
+.cal-cell.other-month { background:transparent; border-color:transparent; }
+.cal-cell.today { border:2px solid var(--primary); background:#eff6ff; }
+.cal-cell.weekend-cell { background:#fafafa; }
+.cal-date-num { font-size:11px; font-weight:700; color:var(--text-muted); align-self:flex-start; padding:0 3px; line-height:1.6; }
+.cal-cell.today .cal-date-num { color:var(--primary); }
+.cal-shift-tag { font-size:11px; font-weight:800; text-align:center; margin-top:1px; line-height:1.4; }
+.cal-shift-tag.work { color:var(--primary); }
+.cal-shift-tag.off { color:var(--accent); }
+.cal-shift-tag.off-red { color:var(--danger); }
+.cal-shift-tag.special { color:var(--purple); }
+.cal-shift-tag.comp { color:#0891b2; }
+.cal-shift-tag.unpub { color:#cbd5e1; font-size:10px; }
 .req-off-card { background: white; border-radius: var(--radius); padding: 16px; border: 1px solid var(--border); }
 .req-off-title { font-size: 14px; font-weight: 800; margin-bottom: 12px; }
 .req-day-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
@@ -364,24 +387,38 @@ th:first-child { background: #1557b0; z-index: 12; }
           <div style="font-size:13px; color:var(--text-muted);">每週五 00:00 自動發布下週班表<br>或由店長手動發布</div>
         </div>
 
-        <!-- 週次切換（員工版） -->
-        <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
-          <button class="week-btn" onclick="empChangeWeek(-1)" style="background:white; border:1.5px solid var(--border);">‹</button>
-          <div style="flex:1; text-align:center; font-size:14px; font-weight:800;" id="empWeekLabel">--</div>
-          <button class="week-btn" onclick="empChangeWeek(1)" style="background:white; border:1.5px solid var(--border);">›</button>
-        </div>
         <!-- 門市選擇（店長以上才顯示）-->
         <div id="empStoreSelectWrap" style="display:none; margin-bottom:12px;">
           <select id="empStoreSelector" onchange="onEmpStoreChange()"
             style="width:100%; padding:9px 12px; border:1.5px solid var(--border); border-radius:10px; font-size:14px; font-weight:700; background:white;"></select>
         </div>
 
-        <!-- 班表圖片 -->
-        <div class="schedule-img-wrap" id="scheduleImgWrap" style="display:none;">
-          <canvas id="scheduleCanvas" style="width:100%; display:block;"></canvas>
+        <!-- 視角切換 -->
+        <div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
+          <button id="calToggleBtn" class="cal-toggle-btn" onclick="toggleCalendarView()">📅 月曆</button>
         </div>
 
-<!-- 申請排休已移除 -->
+        <!-- 週視角 -->
+        <div id="empWeekView">
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+            <button class="week-btn" onclick="empChangeWeek(-1)" style="background:white; border:1.5px solid var(--border);">‹</button>
+            <div style="flex:1; text-align:center; font-size:14px; font-weight:800;" id="empWeekLabel">--</div>
+            <button class="week-btn" onclick="empChangeWeek(1)" style="background:white; border:1.5px solid var(--border);">›</button>
+          </div>
+          <div class="schedule-img-wrap" id="scheduleImgWrap" style="display:none;">
+            <canvas id="scheduleCanvas" style="width:100%; display:block;"></canvas>
+          </div>
+        </div>
+
+        <!-- 月曆視角 -->
+        <div id="calViewWrap" style="display:none;">
+          <div class="cal-nav">
+            <button class="cal-nav-btn" id="calPrevBtn" onclick="calChangeMonth(-1)">‹</button>
+            <span class="cal-month-title" id="calMonthTitle"></span>
+            <button class="cal-nav-btn" id="calNextBtn" onclick="calChangeMonth(1)">›</button>
+          </div>
+          <div class="cal-grid" id="calGrid"></div>
+        </div>
 
       </div>
     </div>
@@ -1810,7 +1847,11 @@ function updateHeaderInfo() {
 async function onEmpStoreChange() {
   empWeekStr = getCurrentWeekString();
   updateEmpWeekLabel();
-  await loadEmpView();
+  if(document.getElementById('calViewWrap')?.style.display !== 'none') {
+    loadCalendarView();
+  } else {
+    await loadEmpView();
+  }
 }
 
 function empChangeWeek(offset) {
@@ -2023,6 +2064,171 @@ async function loadEmpView() {
     imgWrap.style.display = 'none';
   }
   hideLoading();
+}
+
+// ===== 月曆視角 =====
+let calViewMonth = null; // { year, month }  month: 0-indexed
+
+function toggleCalendarView() {
+  const btn = document.getElementById('calToggleBtn');
+  const calWrap = document.getElementById('calViewWrap');
+  const weekView = document.getElementById('empWeekView');
+  const infoCard = document.getElementById('publishInfoCard');
+  const notPubCard = document.getElementById('notPublishedCard');
+  const isCalActive = calWrap.style.display !== 'none';
+
+  if(!isCalActive) {
+    calWrap.style.display = 'block';
+    weekView.style.display = 'none';
+    infoCard.style.display = 'none';
+    notPubCard.style.display = 'none';
+    btn.textContent = '📅 週次';
+    btn.classList.add('active');
+    const now = new Date();
+    calViewMonth = { year: now.getFullYear(), month: now.getMonth() };
+    loadCalendarView();
+  } else {
+    calWrap.style.display = 'none';
+    weekView.style.display = 'block';
+    btn.textContent = '📅 月曆';
+    btn.classList.remove('active');
+    loadEmpView();
+  }
+}
+
+function calChangeMonth(offset) {
+  calViewMonth.month += offset;
+  if(calViewMonth.month < 0) { calViewMonth.month = 11; calViewMonth.year--; }
+  if(calViewMonth.month > 11) { calViewMonth.month = 0; calViewMonth.year++; }
+  loadCalendarView();
+}
+
+function getMonthWeekStrs(year, month) {
+  const weeks = new Set();
+  const last = new Date(year, month + 1, 0).getDate();
+  for(let d = 1; d <= last; d++) {
+    const date = new Date(year, month, d);
+    const yr = date.getFullYear();
+    const first = new Date(yr, 0, 1);
+    const w = Math.ceil((((date - first) / 86400000) + first.getDay() + 1) / 7);
+    weeks.add(`${yr}-W${String(w).padStart(2,'0')}`);
+  }
+  return [...weeks];
+}
+
+function fullDateStr(weekStr, dayIdx) {
+  const mon = weekStringToDate(weekStr);
+  const d = new Date(mon);
+  d.setDate(mon.getDate() + dayIdx);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+async function loadCalendarView() {
+  const empStoreSel = document.getElementById('empStoreSelector');
+  const adminStoreSel = document.getElementById('storeSelector');
+  const store = (empStoreSel?.value) || (adminStoreSel?.value) || currentUser.store;
+  const empName = currentUser.empName;
+  const { year, month } = calViewMonth;
+
+  // 月份標題
+  document.getElementById('calMonthTitle').textContent = `${year} 年 ${month + 1} 月`;
+
+  // 上下月限制（前後 2 個月）
+  const now = new Date();
+  const diffMonths = (year - now.getFullYear()) * 12 + (month - now.getMonth());
+  document.getElementById('calPrevBtn').disabled = diffMonths <= -2;
+  document.getElementById('calNextBtn').disabled = diffMonths >= 2;
+
+  // loading placeholder
+  const calGrid = document.getElementById('calGrid');
+  calGrid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--text-muted);font-size:13px;">載入中...</div>';
+
+  const weeks = getMonthWeekStrs(year, month);
+  const dayNamesLocal = ['週一','週二','週三','週四','週五','週六','週日'];
+
+  const snaps = await Promise.all(
+    weeks.map(w =>
+      window.db.collection('stores').doc(store).collection('weeks').doc(w).get()
+        .then(snap => ({ w, snap })).catch(() => null)
+    )
+  );
+
+  // dateStr -> { shift, published }
+  const dayMap = {};
+  snaps.forEach(item => {
+    if(!item || !item.snap.exists) return;
+    const data = item.snap.data();
+    const published = data.published || isAutoPublished(item.w);
+    (data.records || []).forEach(r => {
+      if(r.name !== empName) return;
+      const di = dayNamesLocal.indexOf(r.day);
+      if(di < 0) return;
+      const ds = fullDateStr(item.w, di);
+      dayMap[ds] = { shift: r.shift || '', published };
+    });
+    // 標記該週所有天已讀到（即使無記錄，也知道是否 published）
+    dayNamesLocal.forEach((_, di) => {
+      const ds = fullDateStr(item.w, di);
+      if(!dayMap[ds]) dayMap[ds] = { shift: '', published };
+    });
+  });
+
+  renderCalendarGrid(year, month, dayMap);
+}
+
+function renderCalendarGrid(year, month, dayMap) {
+  const calGrid = document.getElementById('calGrid');
+  const todayStr = new Date().toISOString().split('T')[0];
+  const headers = ['一','二','三','四','五','六','日'];
+  let html = headers.map((h, i) =>
+    `<div class="cal-day-hdr${i>=5?' weekend':''}">${h}</div>`
+  ).join('');
+
+  // 找該月第一天是週幾，補齊到週一
+  const firstDay = new Date(year, month, 1);
+  const dow = firstDay.getDay() || 7; // 1=Mon 7=Sun
+  let cur = new Date(firstDay);
+  cur.setDate(cur.getDate() - (dow - 1));
+
+  const lastDay = new Date(year, month + 1, 0);
+  let endCur = new Date(lastDay);
+  const edow = endCur.getDay() || 7;
+  endCur.setDate(endCur.getDate() + (7 - edow));
+
+  while(cur <= endCur) {
+    const ds = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}-${String(cur.getDate()).padStart(2,'0')}`;
+    const isThisMonth = cur.getMonth() === month;
+    const isToday = ds === todayStr;
+    const isWeekend = cur.getDay() === 0 || cur.getDay() === 6;
+    const info = dayMap[ds];
+
+    let cellCls = 'cal-cell';
+    if(!isThisMonth) cellCls += ' other-month';
+    else if(isToday) cellCls += ' today';
+    else if(isWeekend) cellCls += ' weekend-cell';
+
+    let inner = '';
+    if(isThisMonth) {
+      inner += `<span class="cal-date-num">${cur.getDate()}</span>`;
+      if(info) {
+        if(!info.published && ds >= todayStr) {
+          inner += `<span class="cal-shift-tag unpub">待公布</span>`;
+        } else if(info.published && info.shift) {
+          const s = info.shift;
+          if(s === '指休') inner += `<span class="cal-shift-tag off-red">休</span>`;
+          else if(s === '排休') inner += `<span class="cal-shift-tag off">休</span>`;
+          else if(s === '特休') inner += `<span class="cal-shift-tag special">特休</span>`;
+          else if(s === '補休') inner += `<span class="cal-shift-tag comp">補休</span>`;
+          else inner += `<span class="cal-shift-tag work">${s.replace('-','/')}</span>`;
+        }
+      }
+    }
+
+    html += `<div class="${cellCls}">${inner}</div>`;
+    cur.setDate(cur.getDate() + 1);
+  }
+
+  calGrid.innerHTML = html;
 }
 
 function renderEmpCanvas(store, weekStr, records, emps) {
