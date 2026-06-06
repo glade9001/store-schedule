@@ -339,7 +339,7 @@ th:first-child { background: #1557b0; z-index: 12; }
             <tr class="total-row">
               <td style="text-align:right; font-size:12px;">每日工時</td>
               <td id="dt-0">0</td><td id="dt-1">0</td><td id="dt-2">0</td><td id="dt-3">0</td>
-              <td id="dt-4">0</td><td id="dt-5">0</td><td id="dt-6">0</td><td>本週總計</td>
+              <td id="dt-4">0</td><td id="dt-5">0</td><td id="dt-6">0</td><td id="weekTotalCell" style="min-width:110px;text-align:left;vertical-align:top;padding:4px 6px;">本週總計</td>
             </tr>
             <tr style="height:80px;"><td colspan="9"></td></tr>
           </tfoot>
@@ -504,7 +504,7 @@ th:first-child { background: #1557b0; z-index: 12; }
 // ===== 全域狀態 =====
 let currentUser = null;
 let appConfig = { stores: [], shifts: [], shiftHours: {} };
-let appData = { employees: [], records: [], allStoresRecords: [], allStoresEmployees: {}, leaveRequests: [] };
+let appData = { employees: [], records: [], allStoresRecords: [], allStoresEmployees: {}, leaveRequests: [], salaryRecData: {} };
 let currentWeekDates = [];
 let virtualRowNames = [];
 let undoStack = [];
@@ -1449,6 +1449,7 @@ function saveShiftModal() {
   const eIdx = appData.employees.findIndex(e=>e.name===currentBtn.dataset.emp);
   updateCellUI(currentBtn, '');
   updateDailyTotals();
+  updateWeekTotalCell();
   const empObj = appData.employees.find(e=>e.name===currentBtn.dataset.emp)||{name:currentBtn.dataset.emp,role:'待補'};
   updateSummary(eIdx, empObj);
   closeModal('shiftModal');
@@ -1482,6 +1483,7 @@ function paintCell(btn) {
   const eIdx=appData.employees.findIndex(e=>e.name===btn.dataset.emp);
   updateCellUI(btn,'');
   updateDailyTotals();
+  updateWeekTotalCell();
   const empObj=appData.employees.find(e=>e.name===btn.dataset.emp)||{name:btn.dataset.emp,role:'待補'};
   updateSummary(eIdx,empObj);
   triggerAutoSave();
@@ -1719,6 +1721,17 @@ async function fetchAllStoreData() {
     });
 
     await Promise.all(allFetches);
+
+    // 本月薪資記錄（供本週總計人力成本估算用）
+    appData.salaryRecData = {};
+    try {
+      const salSnap = await window.db.collection('stores').doc(store).collection('salary').doc(currentMonthStr).get();
+      if(salSnap.exists) {
+        (salSnap.data().records || []).forEach(r => {
+          if(r.empName) appData.salaryRecData[r.empName] = r;
+        });
+      }
+    } catch(e) {}
 
     // leaveRequests: 讀本週七天（改用 store 單欄索引 + JS 端過濾日期，不需複合索引）
     try {
@@ -2236,6 +2249,7 @@ function renderTable() {
   nTr.querySelectorAll('.note-input').forEach(autoResizeNote);
 
   updateDailyTotals();
+  updateWeekTotalCell();
   document.getElementById('tableFoot').style.display = 'table-row-group';
 }
 
@@ -2735,6 +2749,58 @@ function updateDailyTotals() {
     if(idx>=0 && !isCrossStore) sums[idx]+=parseFloat(b.dataset.hours||0);
   });
   sums.forEach((s,i)=>{ const el=document.getElementById(`dt-${i}`); if(el) el.textContent=Math.round(s); });
+}
+
+function updateWeekTotalCell() {
+  const td = document.getElementById('weekTotalCell');
+  if(!td) return;
+
+  const weekStr = document.getElementById('weekSelector').value;
+  const store = document.getElementById('storeSelector').value;
+  const weekMon = weekStringToDate(weekStr);
+  const monthKey = `${weekMon.getFullYear()}-${String(weekMon.getMonth()+1).padStart(2,'0')}`;
+
+  // 本週全店總工時（本店出勤、非休假、非外派）
+  let weekH = 0;
+  (appData.allStoresRecords || []).forEach(r => {
+    if(r._store !== store || r.week !== weekStr) return;
+    const loc = r.location || '本店';
+    if(loc !== '本店' && loc !== '') return;
+    if(!r.shift || ['排休','指休','特休','補休'].includes(r.shift)) return;
+    weekH += parseFloat(r.actualHours || 0);
+  });
+
+  // 累計至本週人力成本（不含公司負擔）
+  let monthCost = 0;
+  (appData.employees || []).forEach(emp => {
+    if(emp.name.startsWith('🆘')) return;
+    const role = emp.role || '';
+    const isPartTime = role === '工讀';
+    if(isPartTime) {
+      const wage = parseFloat(emp.wage || 0);
+      let monthH = 0;
+      (appData.allStoresRecords || []).forEach(r => {
+        if(!isEmpRecord(r, store, emp.name)) return;
+        if(getRecordMonth(r) !== monthKey) return;
+        if(r.week > weekStr) return;
+        if(!r.shift || ['排休','指休','特休','補休'].includes(r.shift)) return;
+        monthH += parseFloat(r.actualHours || 0);
+      });
+      monthCost += Math.round(wage * monthH);
+    } else {
+      const rec = (appData.salaryRecData || {})[emp.name];
+      const base = parseFloat(rec?.baseSalary ?? emp.baseSalary ?? 0);
+      const attend = parseFloat(rec?.fullAttendBonus ?? emp.fullAttendBonus ?? 0);
+      monthCost += base + attend;
+    }
+  });
+
+  const r10 = v => Math.round(v * 10) / 10;
+  const mLabel = weekMon.getMonth() + 1;
+  td.innerHTML = `<div style="font-size:11px;line-height:1.9;font-weight:600;">
+    <span style="color:#1a73e8;">週總工時：${r10(weekH)}h</span><br>
+    <span style="color:#34a853;">${mLabel}月人力：$${monthCost.toLocaleString()}</span>
+  </div>`;
 }
 
 // 取得某記錄屬於哪個月份（YYYY-MM）
