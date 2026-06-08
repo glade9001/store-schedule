@@ -2059,7 +2059,7 @@ function buildSinglePayslipHtml(emp, y, m) {
     earningRows += row('職務津貼', `$${(rec.roleBonus||0).toLocaleString()}`);
     earningRows += row('績效獎金', '$0');
     earningRows += row('其他獎金/津貼', `$${(rec.otherBonus||0).toLocaleString()}`);
-    earningRows += row('國定假日加班', `$${Math.round((rec.wage||0)*(rec.holidayHours||0)*2).toLocaleString()}`);
+    earningRows += row('國定假日加給', `$${Math.round((rec.wage||0)*(rec.holidayHours||0)*1).toLocaleString()}`);
     deductItemRows += row('勞保費', `$${(rec.laborInsurance||0).toLocaleString()}`);
     deductItemRows += row('健保費', `$${((rec.healthInsurance||0)+(rec.dependentInsurance||0)).toLocaleString()}`);
     deductItemRows += row('勞退個人自提', `$${(rec.laborPension||0).toLocaleString()}`);
@@ -2166,8 +2166,8 @@ function buildSinglePayslipHtml(emp, y, m) {
         <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${holidayHoursVal}h</td>
       </tr>
       <tr>
-        <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">國定假日加班</td>
-        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">$${isPartTime?Math.round((rec.wage||0)*(rec.holidayHours||0)*2).toLocaleString():0}</td>
+        <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">國定假日加給</td>
+        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">$${isPartTime?Math.round((rec.wage||0)*(rec.holidayHours||0)*1).toLocaleString():0}</td>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;background:#d9e1f2;font-weight:800;">遲到分鐘數</td>
         <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${rec.lateMinutes||0}分</td>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;background:#d9e1f2;font-weight:800;">${showOtBasis?'加班費計算基礎':''}</td>
