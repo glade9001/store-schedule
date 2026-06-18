@@ -1627,6 +1627,17 @@ async function fetchAllStoreData() {
 
       // 正常員工：直接顯示
       if(!['離職','調走'].includes(status)) {
+        const dep = data.departDate, st = data.startDate;
+        // 曾離開又回任（dep 離開日 < st 回任日）
+        if(dep && st && dep < st) {
+          if(weekMonStr >= st) appData.employees.push({ name: d.id, ...data });                 // 回任後：正常顯示
+          else if(weekSunStr < dep) appData.employees.push({ name: d.id, ...data });             // 首次離開前：原本就在
+          else if(dep >= weekMonStr && dep <= weekSunStr) appData.employees.push({ name: d.id, ...data, _transferThisWeek: true }); // 離開那週：已調職
+          // 離開後、回任前：隱藏
+          return;
+        }
+        // 一般在職：尚未到職（整週都早於 startDate）→ 不顯示（含調入過渡期）
+        if(st && weekSunStr < st) return;
         appData.employees.push({ name: d.id, ...data });
         return;
       }
@@ -1934,7 +1945,17 @@ async function loadEmpView() {
       empSnap.forEach(d => {
         const data = d.data();
         const status = data.status;
-        if(!['離職','調走'].includes(status)) { emps.push({ name: d.id, ...data }); return; }
+        if(!['離職','調走'].includes(status)) {
+          const dep = data.departDate, st = data.startDate;
+          if(dep && st && dep < st) {
+            if(evWeekMonStr >= st) emps.push({ name: d.id, ...data });
+            else if(evWeekSunStr < dep) emps.push({ name: d.id, ...data });
+            else if(dep >= evWeekMonStr && dep <= evWeekSunStr) emps.push({ name: d.id, ...data, _transferThisWeek: true });
+            return;
+          }
+          if(st && evWeekSunStr < st) return; // 尚未到職 → 不顯示
+          emps.push({ name: d.id, ...data }); return;
+        }
 
         // 離職：永遠隱藏
         if(status === '離職') return;

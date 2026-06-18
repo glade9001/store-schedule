@@ -1173,10 +1173,21 @@ async function confirmTransfer() {
     const toEmpCount = await window.db.collection('stores').doc(toStore).collection('employees').get();
     const newSortKey = toEmpCount.size;
 
+    // 若此人原本曾從目的店「調走」→ 視為回任，保留當初離開日（departDate），
+    // 不讓本次 set 覆蓋掉離開記錄；排班才能呈現「離開那週已調職、回任後再出現」。
+    const existingToDoc = toEmpCount.docs.find(d => d.id === empId);
+    const existingTo = existingToDoc ? existingToDoc.data() : null;
+    const returnFields = (existingTo && existingTo.status === '調走' && existingTo.transferDate)
+      ? { departDate: existingTo.transferDate, departTo: existingTo.transferTo || '' }
+      : {};
+    // 避免把來源店記錄裡可能殘留的 departDate/departTo 帶過來
+    const { departDate: _dd, departTo: _dt, ...cleanFromData } = fromEmpData;
+
     await window.db.collection('stores').doc(toStore).collection('employees').doc(empId).set({
-      ...fromEmpData, role: newRole, status: '在職',
+      ...cleanFromData, role: newRole, status: '在職',
       sortKey: newSortKey,
-      startDate: date, transferDate: date, transferFrom: fromStore
+      startDate: date, transferDate: date, transferFrom: fromStore,
+      ...returnFields
     });
 
     // 標記原門市為「調走」
