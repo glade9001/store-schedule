@@ -361,7 +361,7 @@ th:first-child { background: #1557b0; z-index: 12; }
         <div class="not-published-card" id="notPublishedCard" style="display:none;">
           <div style="font-size:40px; margin-bottom:10px;">🔒</div>
           <div style="font-size:16px; font-weight:900; margin-bottom:6px;">班表尚未發布</div>
-          <div style="font-size:13px; color:var(--text-muted);">每週五 00:00 自動發布下週班表<br>或由店長手動發布</div>
+          <div style="font-size:13px; color:var(--text-muted);">每週五 18:00 自動發布下週班表<br>或由店長手動發布</div>
         </div>
 
         <!-- 週次切換（員工版） -->
@@ -639,14 +639,14 @@ function weekLabelFromStr(wStr) {
   return `${dates[0]} ～ ${dates[6]}`;
 }
 
-// 判斷是否已自動發布：每週五 00:00 自動發布「下週」班表
+// 判斷是否已自動發布：每週五 18:00 自動發布「下週」班表
 // 對給定的 weekStr，其「上週五」= 該週週一 - 3 天
-// 若今天 >= 上週五 00:00，代表到了可發布的時間點
+// 若今天 >= 上週五 18:00，代表到了可發布的時間點
 function isAutoPublished(weekStr) {
   const weekMon = weekStringToDate(weekStr);
   const prevFri = new Date(weekMon);
   prevFri.setDate(weekMon.getDate() - 3); // 週一 - 3 = 上週五
-  prevFri.setHours(0, 0, 0, 0);
+  prevFri.setHours(18, 0, 0, 0);
   return new Date() >= prevFri;
 }
 

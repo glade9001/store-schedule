@@ -101,14 +101,13 @@ async function handleGoogleRedirectResult() {
 async function applyOverduePendingRoles() {
   const today = new Date().toISOString().split('T')[0];
   try {
-    const snap = await window.db.collection('account')
-      .where('roleChangeDate', '<=', today).get();
-    if (snap.empty) return;
-
     const batch = window.db.batch();
     const tasks = [];
 
-    snap.forEach(doc => {
+    // 1) 純職稱生效（無調店）：roleChangeDate 已到期
+    const roleSnap = await window.db.collection('account')
+      .where('roleChangeDate', '<=', today).get();
+    roleSnap.forEach(doc => {
       const data = doc.data();
       if (!data.pendingRole || data.pendingStore) return; // 跳過無效或調店中的
 
@@ -138,6 +137,42 @@ async function applyOverduePendingRoles() {
                 roleChangeDate: firebase.firestore.FieldValue.delete(),
               });
             }
+          }).catch(() => {})
+      );
+    });
+
+    // 2) 調店生效：transferDate 已到期，不必等本人登入
+    //    （stores/employees 在調店當下已建好/標記，這裡只切換 account/users 的 store）
+    const transSnap = await window.db.collection('account')
+      .where('transferDate', '<=', today).get();
+    transSnap.forEach(doc => {
+      const data = doc.data();
+      if (!data.pendingStore) return; // 只處理待調店的
+
+      const accUpdate = {
+        store: data.pendingStore,
+        pendingStore: firebase.firestore.FieldValue.delete(),
+        transferDate: firebase.firestore.FieldValue.delete(),
+      };
+      const userUpdate = {
+        store: data.pendingStore,
+        pendingStore: firebase.firestore.FieldValue.delete(),
+        transferDate: firebase.firestore.FieldValue.delete(),
+      };
+      if (data.pendingRole) {
+        accUpdate.role = data.pendingRole;
+        accUpdate.pendingRole = firebase.firestore.FieldValue.delete();
+        userUpdate.role = data.pendingRole;
+        userUpdate.pendingRole = firebase.firestore.FieldValue.delete();
+      }
+
+      batch.update(doc.ref, accUpdate);
+
+      tasks.push(
+        window.db.collection('users')
+          .where('empName', '==', data.empName).limit(1).get()
+          .then(uSnap => {
+            if (!uSnap.empty) return uSnap.docs[0].ref.update(userUpdate);
           }).catch(() => {})
       );
     });

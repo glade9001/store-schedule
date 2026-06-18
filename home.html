@@ -1794,12 +1794,12 @@ function weekStringToDateHome(weekStr) {
   return mon;
 }
 
-// 週五自動發布判斷（下週班表的上週五 00:00 起即視為已發布）
+// 週五自動發布判斷（下週班表的上週五 18:00 起即視為已發布）
 function isAutoPublishedHome(weekStr) {
   const weekMon = weekStringToDateHome(weekStr);
   const prevFri = new Date(weekMon);
   prevFri.setDate(weekMon.getDate() - 3); // 週一 - 3 = 上週五
-  prevFri.setHours(0, 0, 0, 0);
+  prevFri.setHours(18, 0, 0, 0);
   return new Date() >= prevFri;
 }
 
