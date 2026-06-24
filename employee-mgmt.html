@@ -801,6 +801,8 @@ async function saveAccountSetting() {
     }
     if(usersSnap && !usersSnap.empty) {
       const { password: _pw, changeHistory: _ch, ...userFields } = data;
+      // 店長重設既有帳號密碼 → 視為臨時密碼，強制員工下次登入自訂密碼
+      if(pwd && !existing.empty) userFields.pwdChanged = false;
       await usersSnap.docs[0].ref.set(userFields, { merge: true });
     } else if(pwd && existing.empty) {
       // 完全新帳號：建立 Firebase Auth + users/{uid}
