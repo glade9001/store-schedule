@@ -2,7 +2,7 @@
   "name": "functions",
   "description": "莉學商行管理系統 Cloud Functions",
   "engines": {
-    "node": "20"
+    "node": "22"
   },
   "main": "index.js",
   "dependencies": {
