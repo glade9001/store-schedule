@@ -1,0 +1,13 @@
+{
+  "name": "functions",
+  "description": "莉學商行管理系統 Cloud Functions",
+  "engines": {
+    "node": "20"
+  },
+  "main": "index.js",
+  "dependencies": {
+    "firebase-admin": "^12.6.0",
+    "firebase-functions": "^5.1.0"
+  },
+  "private": true
+}

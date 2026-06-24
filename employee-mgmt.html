@@ -11,6 +11,7 @@
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-functions.js"></script>
 <script src="firebase-init.js"></script>
 <script src="auth.js"></script>
 <script>window.db.settings({ experimentalForceLongPolling: true });</script>
@@ -808,6 +809,18 @@ async function saveAccountSetting() {
         const { password: _pw, changeHistory: _ch, ...userFields } = data;
         await window.db.collection('users').doc(uid).set({ ...userFields, disabled: false }, { merge: true });
       } catch(authErr) { console.warn('Firebase Auth 建立失敗:', authErr.message); }
+    }
+
+    // ✅ 既有帳號改密碼：前端無法改他人 Firebase Auth 密碼，改呼叫 Cloud Function（Admin SDK）
+    if(pwd && !existing.empty) {
+      try {
+        const resetFn = firebase.app().functions('asia-east1').httpsCallable('adminResetPassword');
+        await resetFn({ empId: username, newPassword: pwd });
+      } catch(authErr) {
+        hideLoading();
+        showToast('❌ 帳號資料已存，但登入密碼更新失敗：' + (authErr.message || authErr.code || '請稍後再試'));
+        return;
+      }
     }
 
     // ✅ 同步員工記錄：全新員工自動建立，已存在則更新 role
