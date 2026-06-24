@@ -592,8 +592,8 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       <label for="rememberMe" style="font-size:13px; color:var(--text-muted); cursor:pointer; font-weight:600;">記住我（下次自動登入）</label>
     </div>
     <button class="login-btn" onclick="doLogin()">登入</button>
-    <div class="login-divider">或</div>
-    <button class="login-google-btn" onclick="doGoogleLogin()">
+    <div class="login-divider" style="display:none;">或</div>
+    <button class="login-google-btn" onclick="doGoogleLogin()" style="display:none;">
       <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#fff" d="M44.5 20H24v8.5h11.8C34.7 33.9 30.1 37 24 37c-7.2 0-13-5.8-13-13s5.8-13 13-13c3.1 0 5.9 1.1 8.1 2.9l6.4-6.4C34.6 5.1 29.6 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21c10.5 0 20-7.6 20-21 0-1.4-.1-2.7-.5-4z"/></svg>
       使用 Google 帳號登入
     </button>
@@ -1421,8 +1421,14 @@ async function doFirstTimePwdChange() {
     document.getElementById('pcNewPwd').value = '';
     document.getElementById('pcNewPwdC').value = '';
 
-    // 下一步：強制 Google 綁定
-    document.getElementById('googleBindScreen').classList.add('active');
+    // [Google 綁定凍結] 不再進入強制綁定畫面，改密碼完成直接進 App
+    const redirect = localStorage.getItem('redirectAfterLogin');
+    if(redirect) {
+      localStorage.removeItem('redirectAfterLogin');
+      window.location.href = redirect;
+      return;
+    }
+    await initApp();
   } catch(e) {
     hideLoading();
     const codeMap = {
@@ -1438,6 +1444,7 @@ async function doFirstTimePwdChange() {
 async function doGoogleLogin() {
   const errEl = document.getElementById('loginError');
   errEl.textContent = '';
+  return; // [Google 登入凍結] 暫停 Google 登入功能
   showLoading('Google 登入中...');
   try {
     const profile = await authLoginWithGoogle();
@@ -1466,6 +1473,7 @@ async function doGoogleLogin() {
 
 // ===== Google 綁定建議 =====
 function maybeShowGoogleBindSuggestion() {
+  return; // [Google 綁定凍結] 暫停顯示綁定建議說明視窗
   if(authIsGoogleLinked()) return;
   setTimeout(() => {
     document.getElementById('googleBindOverlay').classList.add('active');

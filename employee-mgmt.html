@@ -127,7 +127,7 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
     <div style="font-size:14px;"><span style="color:var(--text-muted);">密碼：</span><strong>••••••</strong></div>
     <button onclick="openChangePwd()" style="width:100%; margin-top:14px; padding:12px; background:none; border:1.5px solid var(--primary); color:var(--primary); border-radius:10px; font-size:14px; font-weight:700; cursor:pointer;">🔑 修改密碼</button>
   </div>
-  <div class="card">
+  <div class="card" style="display:none;"><!-- [Google 綁定凍結] 暫停 Google 綁定 -->
     <div class="card-title">🔗 Google 帳號</div>
     <div id="googleBindStatus" style="font-size:14px; color:var(--text-muted); margin-bottom:12px;">讀取中...</div>
     <button id="googleBindBtn" onclick="doSelfGoogleBind()" style="width:100%; padding:12px; background:none; border:1.5px solid var(--primary); color:var(--primary); border-radius:10px; font-size:14px; font-weight:700; cursor:pointer; display:none;">
