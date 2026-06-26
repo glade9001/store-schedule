@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>補休遞延對帳回填工具</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 20px; background: #f8fafc; color: #1e293b; }
+    h1 { font-size: 20px; font-weight: 900; margin-bottom: 4px; }
+    .sub { font-size: 13px; color: #64748b; margin-bottom: 24px; line-height:1.6; }
+    .card { background: white; border-radius: 12px; padding: 20px; margin-bottom: 16px; border: 1px solid #e2e8f0; }
+    .btn { padding: 12px 24px; border: none; border-radius: 8px; font-size: 14px; font-weight: 800; cursor: pointer; }
+    .btn-primary { background: #2563eb; color: white; }
+    .btn-primary:disabled { background: #93c5fd; cursor: not-allowed; }
+    .btn-danger { background: #dc2626; color: white; }
+    .btn-danger:disabled { background: #fca5a5; cursor: not-allowed; }
+    .log { background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 16px; font-size: 12px; font-family: monospace; height: 360px; overflow-y: auto; margin-top: 16px; white-space: pre-wrap; }
+    .ok { color: #4ade80; } .err { color: #f87171; } .warn { color: #fbbf24; } .chg { color: #fcd34d; font-weight:700; } .dim { color:#94a3b8; }
+    .progress { margin-top: 12px; font-size: 13px; font-weight: 700; color: #2563eb; }
+    input { width: 100%; padding: 10px; border: 1.5px solid #e2e8f0; border-radius: 8px; font-size: 14px; margin-top: 8px; box-sizing: border-box; }
+    label { font-size: 13px; font-weight: 700; color: #475569; }
+  </style>
+</head>
+<body>
+  <h1>🔁 補休遞延對帳回填工具</h1>
+  <p class="sub">
+    一次性校正「先扣遞延、再扣當年度」修正前的舊資料。<br>
+    <b>只重新分配既有的「總使用量」</b>：把當年度被多記的補休使用，改記到前一年度遞延 bucket（寫入 <code>carriedUsed</code>），
+    並對應調整當年度 <code>used</code>。<b>不會更動 earned（補休取得/發放天數）</b>，總可用天數不變。<br>
+    ⚠️ 僅供管理員操作，完成後請刪除此頁或限制存取。
+  </p>
+
+  <div class="card">
+    <label>管理員工號</label>
+    <input type="text" id="adminId" placeholder="例：A00001">
+    <label style="margin-top:12px;display:block;">管理員密碼</label>
+    <input type="password" id="adminPwd" placeholder="你的現有密碼">
+    <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;">
+      <button class="btn btn-primary" id="previewBtn" onclick="run(true)">① 預覽（不寫入）</button>
+      <button class="btn btn-danger" id="applyBtn" onclick="run(false)" disabled>② 確認寫入</button>
+    </div>
+    <div class="progress" id="progress"></div>
+    <div class="log" id="log">等待操作...</div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+  <script src="firebase-init.js"></script>
+  <script>
+    function log(msg, type='') { const el=document.getElementById('log'); const s=document.createElement('span'); s.className=type; s.textContent=msg+'\n'; el.appendChild(s); el.scrollTop=el.scrollHeight; }
+    function clearLog(){ document.getElementById('log').innerHTML=''; }
+    const _padPwd = pwd => String(pwd||'').padEnd(6,'0');
+
+    // 驗證管理員（沿用 migration 模式：account 集合比對 + Firebase Auth 登入取得寫入權杖）
+    async function authAdmin() {
+      const adminId = document.getElementById('adminId').value.trim();
+      const adminPwd = document.getElementById('adminPwd').value;
+      if(!adminId || !adminPwd){ log('⚠️ 請填寫工號與密碼','warn'); return false; }
+      const accSnap = await window.db.collection('account').where('ID','==',adminId).limit(1).get();
+      if(accSnap.empty){ log('❌ 找不到此工號','err'); return false; }
+      const a = accSnap.docs[0].data();
+      if(a.password !== adminPwd){ log('❌ 密碼錯誤','err'); return false; }
+      if(!['owner','admin'].includes(a.permission)){ log('❌ 權限不足（需 owner / admin）','err'); return false; }
+      try { await firebase.auth().signInWithEmailAndPassword(`${adminId.toLowerCase()}@lixue.internal`, _padPwd(adminPwd)); }
+      catch(e){ log('❌ Firebase Auth 登入失敗：'+e.message,'err'); return false; }
+      log('✅ 管理員驗證通過','ok');
+      return true;
+    }
+
+    // 取一位員工：各年度 comp 文件 + 各年度 leaveLog 淨額（earned/used）
+    async function loadEmp(empName) {
+      const compSnap = await window.db.collection('employees').doc(empName).collection('comp').get();
+      const comp = {}; compSnap.forEach(d=> comp[d.id] = d.data());
+      const logSnap = await window.db.collection('employees').doc(empName).collection('leaveLog').get();
+      const logUse = {}; // year -> 淨 comp 使用量
+      logSnap.forEach(d=>{
+        const y = d.id.slice(0,4);
+        (d.data().records||[]).forEach(r=>{
+          const rd = parseFloat(r.days)||0;
+          if(r.type==='comp_use')        logUse[y]=(logUse[y]||0)+rd;
+          if(r.type==='comp_use_cancel') logUse[y]=Math.max(0,(logUse[y]||0)-rd);
+        });
+      });
+      return { comp, logUse };
+    }
+
+    async function run(dryRun) {
+      clearLog();
+      document.getElementById('progress').textContent='';
+      if(!(await authAdmin())) return;
+      log(dryRun ? '\n=== 預覽模式（不寫入）===\n' : '\n=== 寫入模式 ===\n', 'warn');
+
+      const empSnap = await window.db.collection('employees').get();
+      const emps = []; empSnap.forEach(d=> emps.push(d.id));
+      log(`共 ${emps.length} 位員工，逐一檢查...\n`,'dim');
+
+      let changeCount = 0, writeBatchPlan = [];
+      for(const empName of emps){
+        const { comp, logUse } = await loadEmp(empName);
+        // 蒐集所有出現過的年度，由小到大處理（讓遞延鏈正確）
+        const years = [...new Set([...Object.keys(comp), ...Object.keys(logUse)])].filter(y=>/^\d{4}$/.test(y)).sort();
+        const proj = {}; // year -> { earned, used }（投影後的當年度值）
+        const empChanges = [];
+        for(const y of years){
+          const docY = comp[y] || {};
+          const earned = (docY.earned!=null) ? Number(docY.earned)||0 : 0; // earned 一律保留，不動
+          const totalUsed = (logUse[y]!=null) ? logUse[y] : (Number(docY.used)||0); // 真實總使用量（優先用 log 淨額）
+          const prevY = String(parseInt(y)-1);
+          const prevDoc = comp[prevY] || {};
+          const carriedActive = prevDoc.carried===true && !prevDoc.settled;
+          // 遞延可用量 = 前一年度（投影後）earned - used
+          const prevProj = proj[prevY] || { earned: Number(prevDoc.earned)||0, used: Number(prevDoc.used)||0 };
+          const carriedAvail = carriedActive ? Math.max(0, prevProj.earned - prevProj.used) : 0;
+          const carriedUsed = carriedActive ? Math.min(totalUsed, carriedAvail) : 0;
+          const currentUsed = totalUsed - carriedUsed;
+          proj[y] = { earned, used: currentUsed };
+
+          // 與現況比較
+          const curUsedNow = Number(docY.used)||0;
+          const prevCarriedUsedNow = Number(prevDoc.carriedUsed)||0;
+          const usedChanged = currentUsed !== curUsedNow;
+          const carriedChanged = carriedActive && carriedUsed !== prevCarriedUsedNow;
+          if(usedChanged || carriedChanged){
+            empChanges.push({ y, prevY, earned, totalUsed, carriedActive, carriedAvail,
+              curUsedNow, currentUsed, prevCarriedUsedNow, carriedUsed, usedChanged, carriedChanged });
+          }
+        }
+        if(empChanges.length){
+          changeCount++;
+          log(`\n● ${empName}`, 'chg');
+          for(const c of empChanges){
+            if(c.usedChanged) log(`   ${c.y} 當年度 used：${c.curUsedNow} → ${c.currentUsed}（總用 ${c.totalUsed}）`, 'chg');
+            if(c.carriedChanged) log(`   ${c.prevY} 遞延 carriedUsed：${c.prevCarriedUsedNow} → ${c.carriedUsed}（遞延可用 ${c.carriedAvail}）`, 'chg');
+            writeBatchPlan.push({ empName, ...c });
+          }
+        }
+      }
+
+      log(`\n──────────────`);
+      if(changeCount===0){ log('✅ 沒有需要校正的資料，現況已正確。','ok'); document.getElementById('applyBtn').disabled=true; return; }
+      log(`需校正 ${changeCount} 位員工，共 ${writeBatchPlan.length} 筆變更。`, 'warn');
+
+      if(dryRun){
+        log('\n確認無誤後按「② 確認寫入」。','warn');
+        document.getElementById('applyBtn').disabled=false;
+        return;
+      }
+
+      if(!confirm(`確定寫入 ${writeBatchPlan.length} 筆補休校正？此操作會更動薪資相關餘額。`)) { log('已取消。','warn'); return; }
+      document.getElementById('applyBtn').disabled=true; document.getElementById('previewBtn').disabled=true;
+      let done=0;
+      for(const c of writeBatchPlan){
+        try{
+          const ops=[];
+          if(c.usedChanged) ops.push(window.db.collection('employees').doc(c.empName).collection('comp').doc(c.y).set({ used:c.currentUsed },{merge:true}));
+          if(c.carriedChanged) ops.push(window.db.collection('employees').doc(c.empName).collection('comp').doc(c.prevY).set({ carriedUsed:c.carriedUsed },{merge:true}));
+          await Promise.all(ops);
+          done++;
+          document.getElementById('progress').textContent = `寫入中... ${done}/${writeBatchPlan.length}`;
+        }catch(e){ log(`❌ ${c.empName} ${c.y} 寫入失敗：${e.message}`,'err'); }
+      }
+      log(`\n✅ 完成，已寫入 ${done} 筆。`,'ok');
+    }
+  </script>
+</body>
+</html>
