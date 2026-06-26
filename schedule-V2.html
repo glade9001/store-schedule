@@ -1112,10 +1112,22 @@ async function deductLeave(empName, day, weekStr, prevShift, newShift) {
     const finalCompEarn = Math.max(0, cEarn - cCan);
     const finalCompUse = Math.max(0, cUse - cUseCan);
 
-    await Promise.all([
+    // 🌟 先扣遞延（前一年度 carried，快到期、不可再延）再扣當年度：把補休使用優先記到遞延 bucket
+    const prevYearStr = String(parseInt(yearStr) - 1);
+    const prevCompRef = window.db.collection('employees').doc(empName).collection('comp').doc(prevYearStr);
+    const prevCompSnap = await prevCompRef.get();
+    const prevC = prevCompSnap.exists ? prevCompSnap.data() : null;
+    const carriedActive = !!(prevC && prevC.carried === true && !prevC.settled);
+    const carriedAvail  = carriedActive ? Math.max(0, (prevC.earned||0) - (prevC.used||0)) : 0;
+    const carriedUsedNow = carriedActive ? Math.min(finalCompUse, carriedAvail) : 0;
+    const currentCompUse = finalCompUse - carriedUsedNow;   // 其餘記入當年度（可能為負，符合既有設計）
+
+    const _writes = [
       leaveRef.set({ ...ld, usedAnnual: finalAnnualUse, earnedComp: finalCompEarn, usedComp: finalCompUse, updatedAt: new Date().toISOString() }, { merge: true }),
-      compRef.set({ earned: finalCompEarn, used: finalCompUse }, { merge: true })
-    ]);
+      compRef.set({ earned: finalCompEarn, used: currentCompUse }, { merge: true })
+    ];
+    if(carriedActive) _writes.push(prevCompRef.set({ carriedUsed: carriedUsedNow }, { merge: true }));
+    await Promise.all(_writes);
 
     // --- 🌟 強制更新畫面上的統計數字 (延遲 0.5 秒讓 DB 寫入完成) ---
     setTimeout(() => {

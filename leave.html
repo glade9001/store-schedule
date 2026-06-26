@@ -618,6 +618,39 @@ async function loadEmpComp(empName) {
   };
 }
 
+// ===== 補休重算（先扣遞延、再扣當年度）=====
+// 規則：使用補休時，優先消耗「前一年度遞延（快到期、不可再延）」的補休，用完才動當年度。
+// 由整年 leaveLog 重算後寫回，idempotent；同時更新前一年度的 carriedUsed（遞延已用量）。
+async function recalcCompCarriedFirst(empName, year) {
+  const y = String(year), prevY = String(parseInt(y) - 1);
+  const logSnaps = await window.db.collection('employees').doc(empName).collection('leaveLog').get();
+  let earned = 0, used = 0;
+  logSnaps.forEach(d => {
+    if(!d.id.startsWith(y)) return;
+    (d.data().records || []).forEach(r => {
+      const rd = parseFloat(r.days) || 0;
+      if(r.type === 'comp_earn')       earned += rd;
+      if(r.type === 'comp_cancel')     earned  = Math.max(0, earned - rd);
+      if(r.type === 'comp_use')        used   += rd;
+      if(r.type === 'comp_use_cancel') used    = Math.max(0, used  - rd);
+    });
+  });
+  // 前一年度遞延補休可用量（= 前一年自身剩餘），先從這裡扣
+  const prevRef = window.db.collection('employees').doc(empName).collection('comp').doc(prevY);
+  const prevSnap = await prevRef.get();
+  const prev = prevSnap.exists ? prevSnap.data() : null;
+  const carriedActive = !!(prev && prev.carried === true && !prev.settled);
+  const carriedAvail  = carriedActive ? Math.max(0, (prev.earned||0) - (prev.used||0)) : 0;
+  const carriedUsed   = carriedActive ? Math.min(used, carriedAvail) : 0;
+  const currentUsed   = used - carriedUsed;   // 其餘記入當年度（可能使餘額為負，符合既有設計）
+  const writes = [
+    window.db.collection('employees').doc(empName).collection('comp').doc(y)
+      .set({ earned, used: currentUsed }, { merge: true })
+  ];
+  if(carriedActive) writes.push(prevRef.set({ carriedUsed }, { merge: true }));
+  await Promise.all(writes);
+}
+
 // ===== 計算特休概況 =====
 function calcEmpSummary(empName) {
   const batches = batchesAll[empName] || [];
@@ -1430,18 +1463,9 @@ async function saveAddLog() {
     await window.db.collection('employees').doc(empName).collection('leaveLog').doc(ym).set({
       records: firebase.firestore.FieldValue.arrayUnion(_logRec)
     },{ merge:true });
-    // 若是補休取得，同步更新 comp 文件
-    if(type==='comp_earn') {
-      const compRef = window.db.collection('employees').doc(empName).collection('comp').doc(year);
-      const compSnap = await compRef.get();
-      const existing = compSnap.exists ? compSnap.data() : { earned:0, used:0 };
-      await compRef.set({ earned:(existing.earned||0)+days, used:existing.used||0 },{ merge:true });
-    }
-    if(type==='comp_use') {
-      const compRef = window.db.collection('employees').doc(empName).collection('comp').doc(year);
-      const compSnap = await compRef.get();
-      const existing = compSnap.exists ? compSnap.data() : { earned:0, used:0 };
-      await compRef.set({ used:Math.min((existing.used||0)+days, existing.earned||0) },{ merge:true });
+    // 補休異動 → 以「先扣遞延、再扣當年度」整年重算（取代舊的增量更新；舊版會把使用夾在 earned 內導致少扣）
+    if(['comp_earn','comp_use','comp_cancel','comp_use_cancel'].includes(type)) {
+      await recalcCompCarriedFirst(empName, year);
     }
     closeModal('addLogModal');
     await loadEmpBatches(empName);
@@ -1485,8 +1509,15 @@ async function saveEditLog() {
     const snap = await logRef.get();
     if(!snap.exists){ showToast('⚠️ 找不到紀錄'); hideLoading(); return; }
     const records = [...(snap.data().records||[])];
+    const oldRec = records[idx] || {};
     records[idx] = { ...records[idx], type:newType, date:newDate, days:newDays, note:newNote, editedBy:currentUser.empName, editedAt:today() };
     await logRef.update({ records });
+    // 若異動涉及補休，重算受影響年度（含改年份的情況），讓 comp 文件與遞延扣抵保持正確
+    const _compTypes = ['comp_earn','comp_use','comp_cancel','comp_use_cancel'];
+    if(_compTypes.includes(oldRec.type) || _compTypes.includes(newType)) {
+      const yrs = new Set([(oldRec.date||'').slice(0,4), newDate.slice(0,4)].filter(Boolean));
+      for(const yr of yrs) await recalcCompCarriedFirst(empName, yr);
+    }
     closeModal('editLogModal');
     await loadEmpBatches(empName);
     await loadEmpComp(empName);
@@ -1505,8 +1536,13 @@ async function confirmDeleteLog(empName, ym, idx) {
     const snap = await logRef.get();
     if(!snap.exists){ hideLoading(); return; }
     const records = [...(snap.data().records||[])];
+    const removed = records[idx] || {};
     records.splice(idx,1);
     await logRef.update({ records });
+    // 刪到補休紀錄 → 重算該年度（先扣遞延再扣當年度）
+    if(['comp_earn','comp_use','comp_cancel','comp_use_cancel'].includes(removed.type)) {
+      await recalcCompCarriedFirst(empName, (removed.date||ym).slice(0,4));
+    }
     await loadEmpBatches(empName);
     await loadEmpComp(empName);
     renderEmpDetail(empName, true);

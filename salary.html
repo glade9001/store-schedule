@@ -947,13 +947,8 @@ async function confirmCompEarned(empName) {
     const updatedLeave = { ...existing, usedAnnual, earnedComp, usedComp, updatedAt: new Date().toISOString() };
     await leaveRef.set(updatedLeave, { merge: true });
 
-    // 同步 comp/{year}
-    await window.db.collection('employees').doc(empName).collection('comp').doc(year)
-      .set({ earned: earnedComp, used: usedComp }, { merge: true });
-    if(compDataMap[empName]) {
-      compDataMap[empName].current = { earned: earnedComp, used: usedComp, remaining: earnedComp - usedComp };
-      compDataMap[empName].totalRemaining = earnedComp - usedComp + (compDataMap[empName].carried?.remaining||0);
-    }
+    // 同步 comp/{year}（用統一的 recalcComp：先扣遞延再扣當年度，並更新 carriedUsed / in-memory 快取）
+    await recalcComp(empName, year);
 
     rec.unworkedCompGranted = true;
     rec.unworkedCompDays = shortage;
@@ -968,10 +963,11 @@ async function confirmCompEarned(empName) {
 
 // 重算 comp/{year} 總帳（同時同步 leaves/{year} 與 in-memory leaveDataMap，避免補休撤回後顯示舊值）
 async function recalcComp(empName, year) {
+  const y = String(year), prevY = String(parseInt(y) - 1);
   const logSnaps = await window.db.collection('employees').doc(empName).collection('leaveLog').get();
   let earned = 0, used = 0;
   logSnaps.forEach(d => {
-    if(!d.id.startsWith(year)) return;
+    if(!d.id.startsWith(y)) return;
     (d.data().records || []).forEach(r => {
       const rd = parseFloat(r.days) || 0;
       if(r.type === 'comp_earn')         earned += rd;
@@ -980,15 +976,28 @@ async function recalcComp(empName, year) {
       if(r.type === 'comp_use_cancel')   used    = Math.max(0, used   - rd);
     });
   });
-  await Promise.all([
-    window.db.collection('employees').doc(empName).collection('comp').doc(year)
-      .set({ earned, used }, { merge: true }),
-    window.db.collection('employees').doc(empName).collection('leaves').doc(year)
+  // 先扣前一年度遞延補休（快到期、不可再延），用完才動當年度
+  const prevRef = window.db.collection('employees').doc(empName).collection('comp').doc(prevY);
+  const prevSnap = await prevRef.get();
+  const prev = prevSnap.exists ? prevSnap.data() : null;
+  const carriedActive = !!(prev && prev.carried === true && !prev.settled);
+  const carriedAvail  = carriedActive ? Math.max(0, (prev.earned||0) - (prev.used||0)) : 0;
+  const carriedUsed   = carriedActive ? Math.min(used, carriedAvail) : 0;
+  const currentUsed   = used - carriedUsed;
+  const carriedRem    = carriedActive ? Math.max(0, carriedAvail - carriedUsed) : 0;
+  const _writes = [
+    window.db.collection('employees').doc(empName).collection('comp').doc(y)
+      .set({ earned, used: currentUsed }, { merge: true }),
+    window.db.collection('employees').doc(empName).collection('leaves').doc(y)
       .set({ earnedComp: earned, usedComp: used }, { merge: true }),
-  ]);
+  ];
+  if(carriedActive) _writes.push(prevRef.set({ carriedUsed }, { merge: true }));
+  await Promise.all(_writes);
   if(compDataMap[empName]) {
-    compDataMap[empName].current = { earned, used, remaining: earned - used };
-    compDataMap[empName].totalRemaining = earned - used + (compDataMap[empName].carried?.remaining||0);
+    compDataMap[empName].current = { earned, used: currentUsed, remaining: earned - currentUsed };
+    if(carriedActive && compDataMap[empName].carried) compDataMap[empName].carried.remaining = carriedRem;
+    const effCarriedRem = carriedActive ? carriedRem : (compDataMap[empName].carried?.remaining || 0);
+    compDataMap[empName].totalRemaining = (earned - currentUsed) + effCarriedRem;
   }
   if(leaveDataMap[empName]) {
     leaveDataMap[empName].earnedComp = earned;
