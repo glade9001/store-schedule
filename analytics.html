@@ -638,6 +638,21 @@ function isEmpActiveInMonth(emp, ym) {
   return true;
 }
 
+// 該員當月是否「由某門市發薪」——完全比照 salary.html empList 的納入條件。
+// 用於跨店支援成本歸屬：被支援(in) 排除已由接收門市發薪者；支援別人(out) 只算發薪門市的員工。
+// 注意：不能用 isEmpActiveInMonth，因為調入本店者(如楷岳)其 transferDate 是「調入日」會被誤判為離開。
+function isPaidByStoreInMonth(empName, store, ym, allEmps) {
+  const [cy, cm] = ym.split('-').map(Number);
+  const monthEnd = `${ym}-${new Date(cy, cm, 0).getDate()}`;
+  return allEmps.some(e => {
+    if(e.name !== empName || e.store !== store) return false;
+    const eff = e.retireDate || e.transferDate;            // 僅在「離職/調走」狀態下才視為離開
+    if(['離職','調走'].includes(e.status) && (!eff || eff <= monthEnd)) return false;
+    if(e.startDate){ const [sy, sm] = e.startDate.split('-').map(Number); if(sy > cy || (sy === cy && sm > cm)) return false; }
+    return true;
+  });
+}
+
 // 計算支援調整金額（正職日薪 or 工讀時薪）
 function calcSupportAdj(empName, ym, salaryMap, supportMap, allEmps){
   const emp = allEmps.find(e=>e.name===empName);
@@ -799,15 +814,24 @@ function renderCostTab(){
         const wage   = n(empRec?.wage||0)            || n(empData?.wage||0);
         const hrRate = isPart ? wage : (base+attend)/30/8;
         const amt = Math.round(hrRate * s.hours);
-        outMatrix[s.fromStore][ym] = (outMatrix[s.fromStore][ym]||0) + amt;
-        inMatrix[s.toStore] = inMatrix[s.toStore]||{};
-        inMatrix[s.toStore][ym] = (inMatrix[s.toStore][ym]||0) + amt;
-        const outKey = s.fromStore+'|'+ym;
-        if(!supportOutDetails[outKey]) supportOutDetails[outKey]=[];
-        supportOutDetails[outKey].push({ empName, toStore:s.toStore, hours:s.hours, hrRate:Math.round(hrRate*100)/100, amt });
-        const inKey = s.toStore+'|'+ym;
-        if(!supportInDetails[inKey]) supportInDetails[inKey]=[];
-        supportInDetails[inKey].push({ empName, fromStore:s.fromStore, hours:s.hours, hrRate:Math.round(hrRate*100)/100, amt });
+        // 對齊 salary.html 規則：
+        //  支援別人(out) 只算 fromStore 當月實際發薪的員工；
+        //  被支援(in) 排除已由 toStore 發薪者（例：調入本店計薪、卻仍有支援身分排班者）。
+        const activeAtFrom = isPaidByStoreInMonth(empName, s.fromStore, ym, allEmps);
+        const activeAtTo   = isPaidByStoreInMonth(empName, s.toStore,   ym, allEmps);
+        if(activeAtFrom){
+          outMatrix[s.fromStore][ym] = (outMatrix[s.fromStore][ym]||0) + amt;
+          const outKey = s.fromStore+'|'+ym;
+          if(!supportOutDetails[outKey]) supportOutDetails[outKey]=[];
+          supportOutDetails[outKey].push({ empName, toStore:s.toStore, hours:s.hours, hrRate:Math.round(hrRate*100)/100, amt });
+        }
+        if(!activeAtTo){
+          inMatrix[s.toStore] = inMatrix[s.toStore]||{};
+          inMatrix[s.toStore][ym] = (inMatrix[s.toStore][ym]||0) + amt;
+          const inKey = s.toStore+'|'+ym;
+          if(!supportInDetails[inKey]) supportInDetails[inKey]=[];
+          supportInDetails[inKey].push({ empName, fromStore:s.fromStore, hours:s.hours, hrRate:Math.round(hrRate*100)/100, amt });
+        }
       });
     });
   });
