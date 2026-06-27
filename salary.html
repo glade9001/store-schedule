@@ -2462,9 +2462,13 @@ async function loadSalaryData() {
             const tagged = recs.map(r => ({ ...r, _store: store }));
             if(!scheduleData[ws]) scheduleData[ws] = [];
             // 合併，避免重複（同一人同一天以本店優先）
+            // ⚠️ 去重身分需含 supportEmp：支援記錄在接收門市的 name 是佔位名「🆘待補1」，
+            //    會與本店自己的「🆘待補1」格子（被別店支援來補）同名同日誤判為重複而被丟棄，
+            //    導致跨店支援成本嚴重低估。納入 supportEmp 後不同支援記錄才不會互相碰撞。
             tagged.forEach(r => {
               const exists = scheduleData[ws].find(
                 e => e.name === r.name && e.day === r.day && e._store === currentStore
+                     && (e.supportEmp||'') === (r.supportEmp||'')
               );
               if(!exists) scheduleData[ws].push(r);
             });
