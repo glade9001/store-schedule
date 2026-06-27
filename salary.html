@@ -4054,6 +4054,9 @@ function getSupportIn() {
       const homeStore = r.supportEmp.substring(0, dashIdx);
       if(homeStore === currentStore) return;  // 排除本店員工（不應出現，但防呆）
       const empName = r.supportEmp.substring(dashIdx + 1);
+      // 被支援者若本月已由本店發薪（出現在本店員工名單），其成本已計入本店薪資，
+      // 不重複列入「被支援費用」（例：原以支援身分排班、後來調回本店計薪者，如楷岳）
+      if(empList.some(e => e.name === empName)) return;
       result.push({ empName, fromStore: homeStore, date: wDates[dIdx], hours: parseFloat(r.actualHours||0), hrRate: null, cost: null, role: '' });
     });
   });
