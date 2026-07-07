@@ -799,7 +799,8 @@ async function saveAccountSetting() {
       usersSnap = await window.db.collection('users')
         .where('empName','==',empName).limit(1).get().catch(()=>null);
     }
-    if(usersSnap && !usersSnap.empty) {
+    const usersDocFound = usersSnap && !usersSnap.empty;
+    if(usersDocFound) {
       const { password: _pw, changeHistory: _ch, ...userFields } = data;
       // 店長重設既有帳號密碼 → 視為臨時密碼，強制員工下次登入自訂密碼
       if(pwd && !existing.empty) userFields.pwdChanged = false;
@@ -817,7 +818,15 @@ async function saveAccountSetting() {
     if(pwd && !existing.empty) {
       try {
         const resetFn = firebase.app().functions('asia-east1').httpsCallable('adminResetPassword');
-        await resetFn({ empId: username, newPassword: pwd });
+        const res = await resetFn({ empId: username, newPassword: pwd });
+        // 🩹 修復 account/users 不同步：既有帳號但 users 文件遺失時，用回傳的 uid 補建，
+        //    否則本人登入時 _loadProfile 會回 null 而進不去（白畫面）
+        if(!usersDocFound && res?.data?.uid) {
+          const full = (await docRef.get().catch(()=>null))?.data() || data;
+          const { password: _pw, changeHistory: _ch, ...userFields } = full;
+          userFields.pwdChanged = false;
+          await window.db.collection('users').doc(res.data.uid).set({ ...userFields, disabled: false }, { merge: true });
+        }
       } catch(authErr) {
         hideLoading();
         showToast('❌ 帳號資料已存，但登入密碼更新失敗：' + (authErr.message || authErr.code || '請稍後再試'));

@@ -16,6 +16,11 @@
 - **登入後白畫面防呆（`home.html`）**
   - `doLogin` 失敗時改為重新顯示登入畫面並在 console 印出真正錯誤；帳密驗證通過後才發生的載入錯誤，會直接把原因顯示在登入頁，避免出現無訊息的白畫面。
 
+- **修正「帳號可登入但 `users` 文件遺失」導致白畫面（`home.html`、`employee-mgmt.html`）**
+  - 成因：編輯既有帳號並重設密碼時，若該員 `users` 文件查不到，程式仍更新了 Firebase Auth 密碼卻沒補建 `users/{uid}`，本人登入時 `_loadProfile` 回 `null` → 白畫面（account/users 不同步）。
+  - `home.html`：`doLogin` 對 `null` profile 給明確提示（請聯絡管理員重設密碼），不再崩潰。
+  - `employee-mgmt.html`：重設密碼時若 `users` 文件遺失，改用 `adminResetPassword` 回傳的 `uid` 自動補建 `users/{uid}`；日後對這類帳號**重設一次密碼即自動修復**。
+
 ### 2026-06-19（五）
 
 #### ✨ 新功能

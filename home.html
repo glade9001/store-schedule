@@ -1323,6 +1323,13 @@ async function doLogin() {
     );
 
     const profile = await authLogin(username, password);
+    if(!profile) {
+      // Auth 驗證成功但 users 文件不存在（account/users 不同步）→ 給清楚訊息，不進入會崩潰的初始化
+      await firebase.auth().signOut().catch(()=>{});
+      hideLoading();
+      errEl.textContent = '❌ 此帳號尚未建立個人資料，請聯絡管理員在「員工管理」重設一次密碼（工號 ' + username + '）';
+      return;
+    }
     currentUser = profile;
 
     localStorage.setItem('lastLoginUsername', username);
