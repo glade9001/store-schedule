@@ -800,30 +800,23 @@ async function saveAccountSetting() {
         .where('empName','==',empName).limit(1).get().catch(()=>null);
     }
     const usersDocFound = usersSnap && !usersSnap.empty;
+    const { password: _pw, changeHistory: _ch, ...userFields } = data;
+
+    // 已有 users 文件 → 直接更新
     if(usersDocFound) {
-      const { password: _pw, changeHistory: _ch, ...userFields } = data;
-      // 店長重設既有帳號密碼 → 視為臨時密碼，強制員工下次登入自訂密碼
-      if(pwd && !existing.empty) userFields.pwdChanged = false;
+      // 有重設密碼 → 視為臨時密碼，強制員工下次登入自訂
+      if(pwd) userFields.pwdChanged = false;
       await usersSnap.docs[0].ref.set(userFields, { merge: true });
-    } else if(pwd && existing.empty) {
-      // 完全新帳號：建立 Firebase Auth + users/{uid}
-      try {
-        const uid = await _createAuthUser(username, pwd);
-        const { password: _pw, changeHistory: _ch, ...userFields } = data;
-        await window.db.collection('users').doc(uid).set({ ...userFields, disabled: false }, { merge: true });
-      } catch(authErr) { console.warn('Firebase Auth 建立失敗:', authErr.message); }
     }
 
-    // ✅ 既有帳號改密碼：前端無法改他人 Firebase Auth 密碼，改呼叫 Cloud Function（Admin SDK）
-    if(pwd && !existing.empty) {
+    // ✅ 有輸入密碼 → 一律用 Cloud Function（Admin SDK）建立/更新 Auth 密碼並取得 uid，
+    //    不需舊密碼、不影響管理者登入狀態；同時確保 users/{uid} 存在，
+    //    可修復「只有 Auth、account/users 遺失或對不上」的帳號（避免本人登入時 _loadProfile 回 null → 白畫面）
+    if(pwd) {
       try {
         const resetFn = firebase.app().functions('asia-east1').httpsCallable('adminResetPassword');
         const res = await resetFn({ empId: username, newPassword: pwd });
-        // 🩹 修復 account/users 不同步：既有帳號但 users 文件遺失時，用回傳的 uid 補建，
-        //    否則本人登入時 _loadProfile 會回 null 而進不去（白畫面）
         if(!usersDocFound && res?.data?.uid) {
-          const full = (await docRef.get().catch(()=>null))?.data() || data;
-          const { password: _pw, changeHistory: _ch, ...userFields } = full;
           userFields.pwdChanged = false;
           await window.db.collection('users').doc(res.data.uid).set({ ...userFields, disabled: false }, { merge: true });
         }
