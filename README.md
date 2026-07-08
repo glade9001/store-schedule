@@ -19,7 +19,8 @@
 - **修正「帳號可登入但 `users` 文件遺失」導致白畫面（`home.html`、`employee-mgmt.html`）**
   - 成因：編輯既有帳號並重設密碼時，若該員 `users` 文件查不到，程式仍更新了 Firebase Auth 密碼卻沒補建 `users/{uid}`，本人登入時 `_loadProfile` 回 `null` → 白畫面（account/users 不同步）。
   - `home.html`：`doLogin` 對 `null` profile 給明確提示（請聯絡管理員重設密碼），不再崩潰。
-  - `employee-mgmt.html`：重設密碼改為**一律走 `adminResetPassword`（Admin SDK，可建可改、回傳 uid，不需舊密碼）**，並確保 `users/{uid}` 存在；無論該員 `account` 是否存在、或 empName/store 對不對得上，**重設一次密碼即自動修復**（取代原本依賴 `_createAuthUser` 與 `existing` 判斷的脆弱流程）。
+  - `employee-mgmt.html`：重設密碼改為**一律走 `adminResetPassword`（Admin SDK，可建可改、回傳 uid，不需舊密碼）**，取代原本依賴 `_createAuthUser` 與 `existing` 判斷的脆弱流程。
+  - `functions/index.js`：`adminResetPassword` 於後端用 Admin SDK 檢查並**補建遺失的 `users/{uid}`**（缺的資料從 `account` 的 `ID` 欄位補齊，`pwdChanged:false`）。因前端安全規則不允許管理者寫別人的 `users` 文件，改由後端修復；**對只有 Auth、`users`／`account` 遺失的帳號，重設一次密碼即自動修復**。
 
 ### 2026-06-19（五）
 

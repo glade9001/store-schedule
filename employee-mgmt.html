@@ -815,11 +815,8 @@ async function saveAccountSetting() {
     if(pwd) {
       try {
         const resetFn = firebase.app().functions('asia-east1').httpsCallable('adminResetPassword');
-        const res = await resetFn({ empId: username, newPassword: pwd });
-        if(!usersDocFound && res?.data?.uid) {
-          userFields.pwdChanged = false;
-          await window.db.collection('users').doc(res.data.uid).set({ ...userFields, disabled: false }, { merge: true });
-        }
+        // Cloud Function 會更新/建立 Auth 密碼，並在 users 文件遺失時用 Admin SDK 自動補建（繞過前端規則、uid 一定正確）
+        await resetFn({ empId: username, newPassword: pwd });
       } catch(authErr) {
         hideLoading();
         showToast('❌ 帳號資料已存，但登入密碼更新失敗：' + (authErr.message || authErr.code || '請稍後再試'));
