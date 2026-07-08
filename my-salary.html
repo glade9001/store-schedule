@@ -463,6 +463,29 @@ function calcEmpHours(empName) {
   return { totalH: Math.round(totalH*10)/10, otH: Math.round(otH*10)/10 };
 }
 
+// 時薪支援時數（與 salary.html 一致）：本月排班中 isHourly=true 的時數
+function calcHourlySupportHours(empName) {
+  const [cy, cm] = currentMonth.split('-').map(Number);
+  let total = 0;
+  const counted = new Set();
+  Object.entries(scheduleData).forEach(([ws, weekRecs]) => {
+    (weekRecs || []).forEach(r => {
+      if(r.name !== empName || !r.isHourly) return;
+      const wDates = getWeekDatesFromStr(ws);
+      const dIdx = ['週一','週二','週三','週四','週五','週六','週日'].indexOf(r.day);
+      if(dIdx < 0) return;
+      const dateStr = wDates[dIdx]; if(!dateStr) return;
+      const [dm, dd] = dateStr.split('/').map(Number);
+      if(dm !== cm) return;
+      const key = `${dm}/${dd}`;
+      if(counted.has(key)) return;
+      counted.add(key);
+      total += parseFloat(r.actualHours || 0);
+    });
+  });
+  return Math.round(total * 10) / 10;
+}
+
 function calcGross(rec) {
   const isPart = rec.role === ROLE_PART;
   const rph = isPart ? 0 : hourlyRate(rec);
@@ -488,14 +511,18 @@ function calcGross(rec) {
     const annualEncash = parseFloat(rec.annualLeaveEncash || 0);
     const compEncash = parseFloat(rec.compLeaveEncash || 0);
     
-    const _hasCustomOt = parseFloat(rec.customOtRate||0) > 0;
-    const _otRate = _hasCustomOt ? parseFloat(rec.customOtRate) : Math.ceil(rph);
+    // ✅ 與 salary.html 一致：以 customOtEnabled 旗標判定是否套用自訂平日加班時薪
+    const _hasCustomOt = rec.customOtEnabled === true;
+    const _otRate = _hasCustomOt ? parseFloat(rec.customOtRate||0) : Math.ceil(rph);
     const _otMult = _hasCustomOt ? (rec.customOtX134 !== false ? 1.34 : 1) : 1.34;
     const wdOtAmt = Math.ceil(_otRate * _otMult * parseFloat(rec.otHours||0));
     const restOtAmt = parseFloat(rec.restDayOtPay || 0);
     const holOtAmt = parseFloat(rec.holidayOtPay || 0);
-    
-    const additions = base + attend + mgmt + laborAllow + perf + night + roleBonus + otherBonus + annualEncash + compEncash + wdOtAmt + restOtAmt + holOtAmt;
+
+    // ✅ 與 salary.html 一致：正職跨店時薪支援費計入應發
+    const _hourlySupHG = calcHourlySupportHours(rec.empName || rec.name || '');
+    const _hourlySupportAmt = Math.round(_hourlySupHG * parseFloat(rec.hourlySupportRate||0));
+    const additions = base + attend + mgmt + laborAllow + perf + night + roleBonus + otherBonus + annualEncash + compEncash + wdOtAmt + restOtAmt + holOtAmt + _hourlySupportAmt;
     const lateDeduct = Math.round(rph/60 * parseFloat(rec.lateMinutes||0));
     const personalSick = Math.abs(parseFloat(rec.personalSickLeave||0));
     
@@ -838,7 +865,13 @@ function renderSalaryForm(emp, rec, idx, readonly) {
     ${isPart ? `<div class="salary-row"><span class="salary-row-label">本薪 (${totalH}h)</span><span class="salary-row-val">$${Math.round(totalH*(rec.wage||0)).toLocaleString()}</span></div>` : `<div class="salary-row"><span class="salary-row-label">本薪 (底薪)</span><span class="salary-row-val">$${(rec.baseSalary||0).toLocaleString()}</span></div>`}
     ${fieldIfExist('全勤獎金', rec.fullAttendBonus)}
     ${fieldIfExist('職務津貼', rec.roleBonus)}
-    ${fieldIfExist('平日加班費', Math.ceil(rph * (rec.otHours||0) * 1.34))}
+    ${(()=>{ // 平日加班費：與 calcGross 一致（支援自訂加班時薪）
+      const hasCustom = rec.customOtEnabled === true;
+      const otRate = hasCustom ? parseFloat(rec.customOtRate||0) : Math.ceil(rph);
+      const otMult = hasCustom ? (rec.customOtX134 !== false ? 1.34 : 1) : 1.34;
+      return fieldIfExist('平日加班費', Math.ceil(otRate * otMult * parseFloat(rec.otHours||0)));
+    })()}
+    ${fieldIfExist('時薪支援費', Math.round(calcHourlySupportHours(rec.empName||emp.name||'') * parseFloat(rec.hourlySupportRate||0)))}
     ${fieldIfExist('補貼/其他', (parseFloat(rec.nightAllowance||0) + parseFloat(rec.laborAllowance||0) + parseFloat(rec.otherBonus||0)))}
     <div class="salary-total-row">
       <span class="salary-total-label">應發薪資總計</span>

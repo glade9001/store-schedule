@@ -10,6 +10,10 @@
 
 #### 🐛 修正
 
+- **「算薪水」與「查看薪水」金額不一致（`my-salary.html`）**
+  - 個人薪資頁 `calcGross` 未計入正職**跨店時薪支援費**，且平日加班的自訂時薪判定旗標與 `salary.html` 不同（`customOtRate>0` vs `customOtEnabled===true`），導致兩頁總額不同。
+  - 以 `salary.html` 為基準對齊：補上 `calcHourlySupportHours()` 並將時薪支援費計入應發、加班判定改用 `customOtEnabled`；薪資單明細同步顯示「時薪支援費」與正確的平日加班費公式。
+
 - **劃休申請月曆手機版橫向爆版（`leave-request.html`）**
   - 月曆 grid 由 `repeat(7,1fr)` 改為 `repeat(7,minmax(0,1fr))`，並讓格子與標籤加上 `min-width:0`；長名字改以「…」省略，7 欄固定平均塞滿手機寬度，不再往右超出或被裁掉。
 
