@@ -12,7 +12,7 @@
 
 - **Phase 2 手機排班優化規格（`docs/phase2-mobile-scheduling-spec.md`）**
   - 排班優化第二階段規格（尚未實作）。核心：**經典寬表格保留、手機版可切換**，優化版共用 `appData.records`／`syncUIToMemory`／`applyShift`（含 Phase 1 全部勞基法偵測），不分裂資料。
-  - 內容：檢視切換（經典／單日／單人，localStorage 記憶）、單日／單人縱向卡片檢視、班別按鈕化（`shiftPresets` 設定、免手打）、複製上週、批次違規紅點（🔴 未處理／🟠 已放行）、底部即時人力計數。
+  - 內容：檢視切換（經典／單日／單人，localStorage 記憶）、單日／單人縱向卡片檢視、複製上週、批次違規紅點（🔴 未處理／🟠 已放行）、底部即時人力計數。（班別按鈕化現況已有 `renderQuickShiftBtns`＋`appConfig.shifts`，不列入。）
   - 關鍵風險：手機版格子須沿用 table 的 `.cell-btn` `dataset` 契約，否則偵測與存檔會失聯。
 
 #### ✨ 兩頭班（分割班）支援 + 勞基法多段調整（`schedule-V2.html`）

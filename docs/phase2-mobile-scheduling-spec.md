@@ -13,10 +13,11 @@ Phase 2 只優化 **adminView（可編輯排班）在手機上的操作**。不�
 做這些：
 1. 檢視模式切換（經典寬表格 ↔ 手機版），使用者自選、記在裝置。
 2. 手機版兩種版面：**單日檢視**、**單人檢視**。
-3. 班別按鈕化強化（含時間班段預設、免手打）。
-4. 複製上週。
-5. 儲存格違規標記（複用 Phase 1 偵測）。
-6. 底部即時人力計數（每日各時段覆蓋）。
+3. 複製上週。
+4. 儲存格違規標記（複用 Phase 1 偵測）。
+5. 底部即時人力計數（每日各時段覆蓋）。
+
+> 註：班別按鈕化**現況已有**（`renderQuickShiftBtns` + `appConfig.shifts` 含時間班別＋自動時數），Phase 2 不需再做，詳見 §4。
 
 不做：多店同畫面、拖曳排班（列為 Phase 2.5 選配）。
 
@@ -102,26 +103,20 @@ scheduleViewMode = 'classic' | 'day' | 'emp'
 
 ---
 
-## 4. 班別按鈕化強化
+## 4. 班別按鈕化 — ✅ 現況已有，基本不需做
 
-現況 `renderQuickShiftBtns` 已有按鈕，但多是文字班別（排休/指休/特休/補休）＋ `appConfig.shifts`。強化重點：
+**更正（2026-07-25）**：班別按鈕化**原本就存在**，不是 Phase 2 要做的。現況：
 
-1. **時間班段進 `appConfig.shifts`**：在 `settings.html` 讓店長定義本店常用班別（如 `早 7-15`、`中 15-23`、`晚 16-24`、`大夜 23-07`），存成 `{label, value}`。`shiftModal` 一鍵套用，免手打 `15.5-18`。
-2. **兩頭班快捷**：常見組合（如 `7-11,17-21`）也可存成一顆按鈕。
-3. 手打輸入保留（進階／臨時班），但手機主要走按鈕。
-4. 按鈕加大、可換行（`quick-grid` 現有 class 調整）。
+- `renderQuickShiftBtns()` 依 `appConfig.shifts` 產生按鈕，`shiftModal` 一鍵套用。
+- 預設 `DEFAULT_SHIFTS = ['7-15','15-23','23-07','18-23','清空','指休','排休']` → **時間班別按鈕本來就在**。
+- `DEFAULT_SHIFT_HOURS = {'7-15':8,'15-23':8,'23-07':8,'18-23':5}` → 套用後**時數自動帶入，免手打**。
+- `settings.html` 有 `addShift` UI，店長可自訂班別＋時數。
 
-### 資料（settings）
+**唯二選配（皆非必要）：**
+1. **兩頭班 combo 按鈕**（如 `7-11,17-21`）：多段已支援 → **直接到 `settings.html` 新增此班別即有按鈕，零改碼**（時數靠多段 autofill 自動加總）。
+2. **顯示標籤**：讓按鈕顯示「早」而非「7-15」，需把 `appConfig.shifts` 從字串陣列改為 `{label, value}`。純美化，改動遍及 `renderQuickShiftBtns`／`updateCellUI`／`settings.html`，**投報低，建議不做**。
 
-```js
-appConfig.shiftPresets = [
-  { label: '早', value: '7-15' },
-  { label: '中', value: '15-23' },
-  { label: '大夜', value: '23-07' },
-  { label: '兩頭', value: '7-11,17-21' }
-]
-```
-（相容舊 `appConfig.shifts`：無 presets 時 fallback 現行行為。）
+> 結論：手機版沿用現有 `shiftModal` 的按鈕即可，Phase 2 不必為「按鈕化」寫任何碼。
 
 ---
 
@@ -143,13 +138,13 @@ appConfig.shiftPresets = [
 
 ## 7. 底部即時人力計數
 
-現有 `dt-0..dt-6` 是每日工時。新增**每日各時段人力覆蓋**（依 `shiftPresets` 的班段分組）：
+現有 `dt-0..dt-6` 是每日工時。新增**每日各時段人力覆蓋**（依班別起始時間分組）：
 
 ```
 7/21(一)  早2 中1 晚1 大夜1   ← 各時段幾人在班
 ```
 
-- 依班別起始時間歸類到早/中/晚/大夜（或依 `shiftPresets` label）。
+- 依班別**起始時間**歸類到早/中/晚/大夜（用時段分界設定，見 §8）。
 - 幫店長即時看出「週三大夜沒人」。
 - 單日檢視可置頂顯示當日這行。
 
@@ -159,8 +154,9 @@ appConfig.shiftPresets = [
 
 | 設定 | 用途 |
 |---|---|
-| `shiftPresets[]` | 本店常用班別／班段（按鈕化、人力分組依據） |
-| 時段分界（早/中/晚/大夜起訖） | 底部人力計數分組 |
+| 時段分界（早/中/晚/大夜起訖時間） | 底部人力計數分組依據 |
+
+> 班別本身沿用現有 `appConfig.shifts`／`shiftHours`（`settings.html` 已可自訂），不新增設定。
 
 ---
 
@@ -168,10 +164,9 @@ appConfig.shiftPresets = [
 
 ### 落地順序
 1. **檢視切換骨架**：`renderSchedule()` 分派器 + segmented control + localStorage。先讓 `classic` 走現有 `renderTable`，確認切換不壞。
-2. **單日檢視** `renderDayView()`（最有感），複用 `handleCellClick`/`shiftModal`。
-3. **班別按鈕化 + shiftPresets 設定**。
-4. **複製上週**。
-5. **單人檢視**、**批次違規紅點**、**底部人力計數**。
+2. **單日檢視** `renderDayView()`（最有感），複用 `handleCellClick`/`shiftModal`（班別按鈕沿用現有 `shiftModal`，不另做）。
+3. **複製上週**。
+4. **單人檢視**、**批次違規紅點**、**底部人力計數**。
 
 ### 風險
 - ⚠️ **`handleCellClick`/`applyShift` 目前綁定 table 的 `currentCell`（`.cell-btn` DOM）**。手機版卡片的按鈕也要當成「等效 cell」：帶相同 `dataset.emp/day/shift/...`，讓 `applyShift`→`syncUIToMemory` 照舊運作。**關鍵：手機版的「格子」要沿用同一套 dataset 契約**，否則 Phase 1 偵測與存檔會失聯。
