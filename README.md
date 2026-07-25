@@ -22,6 +22,7 @@
 - **知情放行確認 sheet（`lawOverrideModal`）**：列出違規項，**強制選填放行理由**（員工自願／營運急需／排不出人／其他）＋選填備註，確認後才存。
 - **稽核紀錄**：放行時於該筆排班記錄寫入 `lawOverrides[]`（規則、實測值、理由、備註、放行者 `displayName`／權限、時間），供日後加盟主稽核。經 render／`syncUIToMemory`／畫筆／undo 全鏈路保存。
 - **儲存格標記**：已知情放行的班別顯示 🟠「已放行」標記。
+- **Phase 1 收於步驟 1–3**；步驟 4「單筆計薪覆寫 payOverride」暫緩：薪資模型非逐班計薪，且現有 `isHourly`／`customOtRate`／`otherBonus` 已覆蓋多數「其他薪資基礎」需求（詳見 `docs/phase1-labor-compliance-spec.md` §7）。
 
 #### 📋 規劃
 

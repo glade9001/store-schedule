@@ -204,29 +204,30 @@ return { errors, warnings, softBlocks };
 
 ---
 
-## 7. 欄位規格：`payOverride`（＋薪資三檔接點）
+## 7. 欄位規格：`payOverride`（⛔ 2026-07-25 決議：暫緩）
 
-```js
-{
-  payOverride: {
-    basis: 'fixed',   // legal(預設,不填即此) | hourly | fixed | none
-    amount: 800,      // hourly=時薪；fixed=整班金額
-    note: '談定包班'
-  }
-}
-```
+> **狀態：暫緩，改用現有欄位。** 探勘 `salary.html` 後發現薪資模型**不是逐班計薪**，`payOverride`「單筆班用不同 basis 計錢」無法自然套入，且與現有機制重疊，硬做風險高（算錯直接錯薪水），故暫不實作。
 
-### 7.1 薪資三檔接點（必須同步，否則金額對不上）
+### 7.1 為什麼不適合逐班計薪
 
-以 `salary.html` 的 `calcGross` 為正確基準，三檔逐條對齊：
+薪資分兩種結構，均非「每筆班 × 時薪加總」：
 
-| 檔案 | 函式 | 改動 |
-|---|---|---|
-| `salary.html` | `calcGross` | 計某筆工時薪資前先看 `payOverride.basis`：`fixed`→加 amount 不乘時數；`hourly`→amount×時數；`none`→跳過此筆；`legal`/無→現行邏輯 |
-| `my-salary.html` | `calcGross` | 同上逐條對齊 |
-| `analytics.html` | `calcGross` / 成本矩陣 | 同上，人事成本才正確 |
+- **工讀**：`時薪 × (calcEmpHours 整月總時數 + extraH) + 國假加給 + 職務津貼`。時數是整月加總。
+- **正職／店長**：`底薪 + 各項獎金 + 加班費(otHours) + 時薪支援費`。底薪固定，per-班時數只影響「加班時數」與「時薪支援時數」。
 
-> `payOverride` 用意是收斂現有散落旗標（`isHourly` / `hourlySupportRate` / `customOtRate` / `customOtEnabled`）。**第一版只新增、先不拔舊旗標**，確認三檔一致後再遷移。
+### 7.2 現有欄位已覆蓋多數「其他薪資基礎」
+
+| 需求 | 現有作法 |
+|---|---|
+| 某班以另一時薪計（支援/臨時） | `isHourly=true`（`calcEmpHours` 已排除正常時數，改由 `hourlySupportRate` 計）+ `customOtRate` |
+| 自訂加班時薪 | `customOtEnabled` + `customOtRate`（三檔已對齊） |
+| 加任意金額 | 手動獎金欄 `roleBonus` / `otherBonus` 等 |
+| **單筆包班費（如談定 800）** | ⚠️ 尚缺 → 先用 `otherBonus` 手動加 |
+| **某班不計薪／已付現金** | ⚠️ 尚缺 → 先在排班標 `排休`/備註，薪資端手動調 |
+
+### 7.3 若未來真要做（保留設計）
+
+只補真正缺的 `fixed`/`none`，建議用**單一 helper** `calcPayOverrideAdjust(empName)` 掃排班回傳「要加的金額 / 要排除的時數」，三檔以同一函式消費（比逐檔改 `calcEmpHours`/`calcGross` 安全）。⚠️ 三檔（`salary`/`my-salary`/`analytics`）計薪必須同步，以 `salary.html` 為基準。
 
 ---
 
@@ -274,6 +275,8 @@ return { errors, warnings, softBlocks };
 ## 11. 落地順序（Phase 1 內部）
 
 1. **修間隔算法**：以 `shiftToInterval` + `checkRestInterval` 取代壞掉的 `parseEndHour` mod-24。→ 案例 1–3、7 轉綠。最小改動、可獨立驗證。
-2. **補鄰班撈取 + 同日跨店改判**：跨週 + 跨店 `allIntervals`；同日跨店由「同天硬擋」改「重疊硬擋、超時軟擋」，當日總時數跨店加總。→ 案例 4–6、8–10 轉綠。
-3. **三級 + `lawOverride` 確認框**：`detectScheduleConflicts` 回傳三級；`applyShift` 接確認框；格子紅/橘點；稽核表資料源。
-4. **`payOverride` + 薪資三檔**：獨立一批做，用既有薪資對帳流程驗（風險在薪資端）。
+2. ✅ **補鄰班撈取 + 同日跨店改判**（commit `5a563c0`）：跨週 + 跨店 `allIntervals`；同日跨店由「同天硬擋」改「重疊硬擋、超時軟擋」，當日總時數跨店加總。→ 案例 4–6、8–10 轉綠。
+3. ✅ **三級 + `lawOverride` 確認框**（commit `5b1fe01`）：`detectScheduleConflicts` 回傳三級；`applyShift` 接確認框；格子橘點；`lawOverrides[]` 全鏈路保存。
+4. ⛔ **`payOverride` + 薪資三檔**：**暫緩**（見 §7）。薪資模型非逐班計薪，改用現有 `isHourly`/`customOtRate`/`otherBonus`。
+
+> 步驟 1 commit `d4f9912`。Phase 1 落地於步驟 1–3。
