@@ -3465,7 +3465,7 @@ function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, al
   const tableW = W - margin * 2;
   const nameColW = 160;
   const dataColW = (tableW - nameColW) / 7;
-  const rowH = 100;
+  const rowH = 116;
   const headerH = 100;
   const titleH = 200;
   const emptyRows = 5;
@@ -3596,82 +3596,77 @@ function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, al
       const shift = rec.shift || '';
       const note = rec.note || '';
       const loc = (rec.location && rec.location !== '本店') ? rec.location : '';
-      // ✅ 支援人員名字（待補行 supportEmp 格式："門市-姓名"）
       const supportEmp = rec.supportEmp || '';
       const supportName = supportEmp ? (supportEmp.split('-')[1] || supportEmp) : '';
-      const approvalStatus = rec.approvalStatus || '';
-      const isApproved = approvalStatus === 'approved';
+      const isApproved = (rec.approvalStatus || '') === 'approved';
+      const h = parseFloat(rec.actualHours || 0);
+      const recIsSupportOut = !!(loc && loc.startsWith('支援'));
 
-      // hasSub：有附加文字時把班別往上移
-      const hasSub = note || loc || (supportName && isApproved);
-      const textY = hasSub ? midY - 14 : midY;
+      // 跨店支援：本店員工當天另去他店支援（與 buildCellButton 一致，補進產圖）
+      let supportOut = null;
+      if(!emp.name.startsWith('🆘') && !recIsSupportOut && shift && shift !== '排休' && shift !== '指休') {
+        supportOut = allRecs.find(r =>
+          r.supportEmp === `${store}-${emp.name}` && r.day === day && r.week === weekStr && r.approvalStatus === 'approved'
+        );
+      }
+
+      // 附加資訊（由上到下堆疊）
+      const subs = [];
+      const stdH = (appConfig.shiftHours || {})[shift];
+      if (shift && shift !== '排休' && shift !== '指休' && h && h !== stdH) subs.push({ t:`(${h}h)`, c:'#666', s:15 });
+      if (supportName && isApproved) subs.push({ t: supportName, c:'#1a73e8', s:20 });
+      if (loc) subs.push({ t: loc, c:'#c0392b', s:18 });
+      if (supportOut) subs.push({ t:`支援${supportOut._store} ${supportOut.shift}`, c:'#1a73e8', s:17 });
+      if (note) subs.push({ t: note, c:'#0077aa', s:16 });
+
+      // 班別主文字 Y：有附加行時整體往上挪
+      const shiftY = subs.length ? midY - 6 - (subs.length - 1) * 6 : midY;
 
       if (shift === '指休') {
-        // 紅框「休」
         ctx.strokeStyle = '#d93025'; ctx.lineWidth = 2.5;
         const bw = 52, bh = 44;
-        const bx = cx - bw/2, by = textY - bh/2 - 4;
-        ctx.strokeRect(bx, by, bw, bh);
+        ctx.strokeRect(cx - bw/2, shiftY - bh/2 - 4, bw, bh);
         ctx.fillStyle = '#d93025';
         ctx.font = `900 30px ${font}`;
-        ctx.fillText('休', cx, textY);
+        ctx.fillText('休', cx, shiftY);
       } else if (shift === '排休') {
-        // 普通「休」（黑色無框）
         ctx.fillStyle = '#000';
         ctx.font = `900 30px ${font}`;
-        ctx.fillText('休', cx, textY);
+        ctx.fillText('休', cx, shiftY);
       } else if (shift) {
-        const h = parseFloat(rec.actualHours || 0);
         const isOT = rec.isOT === true;
+        const multi = shift.includes(',');       // 兩頭班：不做開始/結束拆色
         const overHours = h > 8;
-        ctx.font = `900 28px ${font}`;
-
+        ctx.font = `900 26px ${font}`;
         if (isOT) {
-          // 勾選加班：全部紅色
           ctx.fillStyle = '#d93025';
-          ctx.fillText(shift.replace('-', ' / '), cx, textY);
-        } else if (overHours && shift.includes('-')) {
-          // 超過8小時：「開始時間 / 」黑色，結束時間數字紅色
+          ctx.fillText(shift, cx, shiftY);
+        } else if (overHours && !multi && shift.includes('-')) {
+          // 超過8小時：結束時間數字標紅（保留 - 分隔）
           const parts = shift.split('-');
-          if (parts.length === 2) {
-            const startTxt = parts[0] + ' / '; // 黑色部分
-            const endTxt = parts[1];            // 紅色部分（只有數字）
-            const startW = ctx.measureText(startTxt).width;
-            const endW = ctx.measureText(endTxt).width;
-            const totalW = startW + endW;
-            ctx.textAlign = 'left';
-            ctx.fillStyle = '#000';
-            ctx.fillText(startTxt, cx - totalW/2, textY);
-            ctx.fillStyle = '#d93025';
-            ctx.fillText(endTxt, cx - totalW/2 + startW, textY);
-            ctx.textAlign = 'center';
-          } else {
-            ctx.fillStyle = '#000';
-            ctx.fillText(shift.replace('-', ' / '), cx, textY);
-          }
+          const startTxt = parts[0] + '-', endTxt = parts[1];
+          const startW = ctx.measureText(startTxt).width;
+          const totalW = startW + ctx.measureText(endTxt).width;
+          ctx.textAlign = 'left';
+          ctx.fillStyle = '#000';
+          ctx.fillText(startTxt, cx - totalW/2, shiftY);
+          ctx.fillStyle = '#d93025';
+          ctx.fillText(endTxt, cx - totalW/2 + startW, shiftY);
+          ctx.textAlign = 'center';
         } else {
           ctx.fillStyle = '#000';
-          ctx.fillText(shift.replace('-', ' / '), cx, textY);
+          ctx.fillText(shift, cx, shiftY);
         }
       }
 
-      // 備註 or 地點 or 支援人員名字
-      if (hasSub) {
-        if (supportName && isApproved) {
-          // ✅ 待補行：顯示支援人員名字（藍色）
-          ctx.fillStyle = '#1a73e8';
-          ctx.font = `900 20px ${font}`;
-          ctx.fillText(supportName, cx, midY + 20);
-        } else if (loc) {
-          ctx.fillStyle = '#c0392b';
-          ctx.font = `bold 18px ${font}`;
-          ctx.fillText(loc, cx, midY + 20);
-        } else if (note) {
-          ctx.fillStyle = '#0077aa';
-          ctx.font = `bold 18px ${font}`;
-          ctx.fillText(note, cx, midY + 20);
-        }
-      }
+      // 附加行（堆疊）
+      let subY = shiftY + 22;
+      subs.forEach(sub => {
+        ctx.fillStyle = sub.c;
+        ctx.font = `bold ${sub.s}px ${font}`;
+        ctx.fillText(sub.t, cx, subY);
+        subY += sub.s + 6;
+      });
     });
     rowY += rowH;
   });
