@@ -14,7 +14,7 @@
 - **抽出共用 `buildCellButton()`**：把 `renderTable` 建 `.cell-btn`（完整 dataset＋跨店支援標籤＋待審徽章＋點擊編輯）的邏輯抽成 helper，經典／單日共用 → 三檢視走**同一套** `handleCellClick`／`applyShift`／`syncUIToMemory`，免費繼承 Phase 1 全部勞基法偵測與存檔，不分裂邏輯。
 - **修 `.cell-btn` 殘留污染**：切換檢視時清掉「隱藏那一側」的 `.cell-btn`，否則 `syncUIToMemory` 的 `querySelectorAll('.cell-btn')` 會掃到另一檢視殘留格子（帶舊 dataset）污染存檔。
 - **修跨店支援重複顯示**：某員當天整日外派他店時，格子原本會同時出現「派出側 📍支援X」與新加的「🔵 支援X」藍標籤（重複）。修正：`rec` 本身若已是派出支援記錄（`location` 以「支援」開頭）就不算本店主班、不加藍標籤（藍標籤只用於「本店有真主班＋又去他店支援」的情況）。
-- 單人檢視仍為 stub（暫回退經典），之後再實作。
+- **單人檢視 `renderEmpGridView`**：員工選擇器（左右切換＋下拉）＋該員整週 7 列縱向，複用 `buildCellButton`；適合「幫某人把一週排完」。`eIdx` 僅作 dataset／傳入不參與陣列索引，`updateSummary` 對缺少的 `sum-{eIdx}` 已防呆，手機版畫筆不出錯。
 
 #### ✨ Phase 2 步驟1：排班檢視切換骨架（`schedule-V2.html`）
 
