@@ -2331,7 +2331,6 @@ function setScheduleViewMode(m) {
   scheduleViewMode = m;
   localStorage.setItem('scheduleViewMode', m);
   updateViewToggleUI();
-  if(m === 'day' || m === 'emp') showToast('🚧 此檢視建置中（步驟2），暫以經典版顯示');
   renderSchedule();
 }
 function updateViewToggleUI() {
