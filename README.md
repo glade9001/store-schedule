@@ -8,6 +8,13 @@
 
 ### 2026-07-26（日）
 
+#### ✨ 員工薪資簽收 步驟1：salary 記錄存 `payHash`（`salary.html`）
+
+- 新增 `cyrb53` 雜湊 + `computePayHash`（涵蓋應發/代扣/實發及主要金額欄位）+ `stampPayHashes`。
+- 四個存檔點（autoSaveDraft／saveDraft／submitSalary／publishSalary）存檔前對每筆記錄打上 `record.payHash`（金額指紋），供員工簽收比對「薪資是否變過」。
+- payHash **只由 salary.html 計算並寫入**（單一來源），my-salary/home 之後只讀比對。
+- 舊有已存記錄下次存檔/重發時才會補上 payHash。
+
 #### 📋 規劃
 
 - **員工薪資簽收（簽名板版）規格（`docs/salary-acknowledgment-spec.md`）**

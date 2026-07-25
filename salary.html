@@ -3716,6 +3716,7 @@ async function autoSaveDraft() {
       rec.hourlySupportAmt = Math.round(hH * parseFloat(rec.hourlySupportRate||0));
     }
   });
+  stampPayHashes(); // 存檔前打上金額指紋（供員工簽收比對）
   try {
     await window.db.collection('stores').doc(currentStore).collection('salary').doc(currentMonth).set({
       ...salaryData,
@@ -3792,8 +3793,29 @@ function collectRecords() {
   });
 }
 
+// ===== 薪資簽收：內容指紋 payHash（步驟1）=====
+// 只有 salary.html 計算並寫入 record.payHash；my-salary/home 只讀比對（單一來源，避免多處算法不一致）
+function cyrb53(str, seed=0){
+  let h1=0xdeadbeef^seed, h2=0x41c6ce57^seed;
+  for(let i=0,ch;i<str.length;i++){ ch=str.charCodeAt(i); h1=Math.imul(h1^ch,2654435761); h2=Math.imul(h2^ch,1597334677); }
+  h1=Math.imul(h1^(h1>>>16),2246822507)^Math.imul(h2^(h2>>>13),3266489909);
+  h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909);
+  return (h2>>>0).toString(16).padStart(8,'0')+(h1>>>0).toString(16).padStart(8,'0');
+}
+const PAYHASH_FIELDS = ['baseSalary','fullAttendBonus','mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader','laborAllowance','performance','nightAllowance','roleBonus','otherBonus','annualLeaveEncash','compLeaveEncash','otHours','restDayOtPay','holidayOtPay','hourlySupportRate','hourlySupportAmt','wage','extraHours','holidayHours','lateMinutes','personalSickLeave','laborInsurance','healthInsurance','dependentInsurance','laborPension','otherDeduction'];
+function computePayHash(rec){
+  const parts = PAYHASH_FIELDS.map(k => `${k}=${rec[k]!=null?rec[k]:''}`);
+  parts.push(`_gross=${calcGross(rec)}`);
+  parts.push(`_deduct=${calcDeduct(rec)}`);
+  return cyrb53(parts.join('|'));
+}
+function stampPayHashes(){
+  (salaryData.records||[]).forEach(rec => { rec.payHash = computePayHash(rec); });
+}
+
 async function saveDraft() {
   collectRecords();
+  stampPayHashes();
   showLoading('儲存中...');
   try {
     await window.db.collection('stores').doc(currentStore).collection('salary').doc(currentMonth).set({
@@ -3862,6 +3884,7 @@ async function submitSalary() {
 
   if(!confirm(`確定送出 ${getMonthLabel(currentMonth)} 薪資？\n\n送出後若發現錯誤，可點「↩️ 收回修改」自行收回重填，\n無需等待加盟主退回。`)) return;
   collectRecords();
+  stampPayHashes();
   showLoading('送出中...');
   try {
     await window.db.collection('stores').doc(currentStore).collection('salary').doc(currentMonth).set({
@@ -3884,6 +3907,7 @@ async function publishSalary() {
   if(!confirm(`確定發布 ${getMonthLabel(currentMonth)} 薪資？\n發布後員工可查看。`)) return;
   
   collectRecords();
+  stampPayHashes();
   showLoading('發布中...');
   try {
     await window.db.collection('stores').doc(currentStore).collection('salary').doc(currentMonth).set({
