@@ -2583,33 +2583,44 @@ function detectScheduleConflicts(empName, day, weekStr, newShift, newHours) {
     }
   }
 
-  // 4. 距上次下班未達 11 小時（警告）
-  // 從班別字串解析下班時間，例如 "7-15" → 下班 15:00
-  function parseEndHour(shift) {
-    if(!shift || !shift.includes('-')) return null;
-    const parts = shift.split('-');
-    return parseInt(parts[1]);
+  // 4. 輪班間隔 < 11 小時（§34；改用「帶日期的絕對時間軸」正確處理跨夜/跨日）
+  //    Phase 1 第 1 步：本週本店範圍。跨週/跨店鄰班於第 2 步補上。
+  const MIN_REST_H = 11;
+  // 班次字串 → {start,end}(ms)；非時間班別(排休/特休…)回 null
+  function shiftIntervalFor(dIdx, shiftStr) {
+    const mm = (shiftStr || '').match(/^(\d{1,2}(?:\.\d+)?)-(\d{1,2}(?:\.\d+)?)$/);
+    if(!mm) return null;
+    const startH = parseFloat(mm[1]), endH = parseFloat(mm[2]);
+    const base = weekStringToDate(weekStr).getTime() + dIdx * 24 * 3600e3; // 該日 00:00
+    let start = base + startH * 3600e3;
+    let end   = base + endH   * 3600e3;
+    if(endH <= startH) end += 24 * 3600e3; // 跨夜：下班推隔天
+    return { start, end };
   }
-  function parseStartHour(shift) {
-    if(!shift || !shift.includes('-')) return null;
-    return parseInt(shift.split('-')[0]);
-  }
-
-  const prevDayIdx = dayIdx - 1;
-  if(prevDayIdx >= 0) {
-    const prevDay = dayNames[prevDayIdx];
-    const prevRec = appData.records.find(r =>
-      r.name === empName && r.day === prevDay && r.week === weekStr
-    );
-    const prevEnd   = parseEndHour(prevRec?.shift || '');
-    const curStart  = parseStartHour(newShift);
-    if(prevEnd !== null && curStart !== null) {
-      // 夜班跨日計算（ex: 前天 15-23，今天 7-15 → 間隔 8h < 11h）
-      let gap = curStart - prevEnd;
-      if(gap < 0) gap += 24; // 跨日
-      if(gap < 11 && gap >= 0) {
-        warnings.push(`⚠️ ${empName} 距前一班下班僅 ${gap} 小時（未達 11 小時休息）`);
-      }
+  const fmtGap = g => (Math.round(g * 10) / 10);
+  const targetIv = shiftIntervalFor(dayIdx, newShift);
+  if(targetIv) {
+    // 蒐集同員本週其他日班次（目標格用 newShift，故排除其既有記錄）
+    const others = [];
+    for(let i = 0; i < dayNames.length; i++) {
+      if(i === dayIdx) continue;
+      const rec = appData.records.find(r =>
+        r.name === empName && r.day === dayNames[i] && r.week === weekStr
+      );
+      const iv = rec ? shiftIntervalFor(i, rec.shift) : null;
+      if(iv) others.push(iv);
+    }
+    // 左鄰：下班 ≤ 目標上班，取最晚下班者
+    const prev = others.filter(iv => iv.end <= targetIv.start).sort((a,b)=>b.end-a.end)[0];
+    if(prev) {
+      const g = (targetIv.start - prev.end) / 3600e3;
+      if(g < MIN_REST_H) warnings.push(`⚠️ ${empName} 距前一班下班僅 ${fmtGap(g)} 小時（未達 11 小時休息）`);
+    }
+    // 右鄰：上班 ≥ 目標下班，取最早上班者（插一班也會壓縮到後一班的休息）
+    const next = others.filter(iv => iv.start >= targetIv.end).sort((a,b)=>a.start-b.start)[0];
+    if(next) {
+      const g = (next.start - targetIv.end) / 3600e3;
+      if(g < MIN_REST_H) warnings.push(`⚠️ ${empName} 距下一班上班僅 ${fmtGap(g)} 小時（未達 11 小時休息）`);
     }
   }
 
