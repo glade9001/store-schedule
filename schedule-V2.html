@@ -2236,7 +2236,16 @@ function renderTable() {
           r.supportEmp === `${store}-${emp.name}` && r.day===day && r.week===weekStr && r.approvalStatus==='approved'
         );
       }
-      if(supportOutRec) {
+      // 跨店支援顯示：區分「整日外派」vs「本店有主班＋同日又去他店支援」
+      let supportBadge = '';
+      const homeHasShift = rec && rec.shift && rec.shift !== '排休' && rec.shift !== '指休';
+      const isFullDaySupport = !!supportOutRec && !homeHasShift;
+      if(supportOutRec && homeHasShift) {
+        // 本店有主班 + 同日去他店支援 → 主班保留可編輯，支援以唯讀標籤呈現
+        const _info = `${getDisplayName(emp.name)} 當日於「${supportOutRec._store}」支援 ${supportOutRec.shift}，請至該門市班表修改或取消`.replace(/'/g,'');
+        supportBadge = `<div style="background:#e0f2fe;color:#0369a1;padding:1px 4px;border-radius:4px;font-size:10px;font-weight:800;margin-top:2px;cursor:pointer;line-height:1.3;" onclick="event.stopPropagation(); alert('${_info}')">🔵 支援${supportOutRec._store} ${supportOutRec.shift}</div>`;
+      } else if(isFullDaySupport) {
+        // 整日外派（無本店主班）→ 整格顯示支援（原行為）
         rec = { shift: supportOutRec.shift, location: `支援${supportOutRec._store}`, note: supportOutRec.note, actualHours: supportOutRec.actualHours, isOT: supportOutRec.isOT, supportEmp:'', approvalStatus:'', requestOff:false };
       } else if(!rec) {
         rec = { shift:'', location:'本店', note:'', actualHours:0, isOT:false, isHourly:false, supportEmp:'', approvalStatus:'', requestOff:false };
@@ -2270,11 +2279,11 @@ function renderTable() {
           pendingBadges += `<div class="support-pending" onclick="event.stopPropagation(); openApprovalModal('${rd}')">🔔 ${req._store} ${req.shift} 申請支援</div>`;
         });
       }
-      btn.dataset.badges = pendingBadges;
+      btn.dataset.badges = pendingBadges + supportBadge;
 
-      updateCellUI(btn, pendingBadges);
+      updateCellUI(btn, pendingBadges + supportBadge);
 
-      if(supportOutRec) {
+      if(isFullDaySupport) {
         btn.onclick = () => alert(`此班別為跨店支援（前往 ${supportOutRec._store}）\n請由需求門市修改或取消！`);
       } else if(!isReadonly) {
         btn.onmousedown = (e) => { if(isPaintMode) { e.preventDefault(); isDragging=true; applyPaintToCell(btn,eIdx); } };
