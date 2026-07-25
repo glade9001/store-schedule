@@ -464,13 +464,23 @@ function calcEmpHours(empName) {
 }
 
 // 時薪支援時數（與 salary.html 一致）：本月排班中 isHourly=true 的時數
+// 判斷一筆排班記錄是否屬於某員工：本名出勤，或以支援身分（supportEmp='{homeStore}-{empName}'）出勤
+// 與 salary.html 一致——跨店支援記錄在接收店 name 是佔位名，須靠 supportEmp 認人
+function recBelongsTo(r, empName) {
+  if(r.name === empName) return true;
+  if(r.supportEmp) {
+    const i = r.supportEmp.indexOf('-');
+    if(i >= 0 && r.supportEmp.substring(i + 1) === empName) return true;
+  }
+  return false;
+}
 function calcHourlySupportHours(empName) {
   const [cy, cm] = currentMonth.split('-').map(Number);
   let total = 0;
   const counted = new Set();
   Object.entries(scheduleData).forEach(([ws, weekRecs]) => {
     (weekRecs || []).forEach(r => {
-      if(r.name !== empName || !r.isHourly) return;
+      if(!recBelongsTo(r, empName) || !r.isHourly) return;
       const wDates = getWeekDatesFromStr(ws);
       const dIdx = ['週一','週二','週三','週四','週五','週六','週日'].indexOf(r.day);
       if(dIdx < 0) return;

@@ -8,6 +8,13 @@
 
 ### 2026-07-26（日）
 
+#### 🐛 修正跨店支援「時薪另計」漏算時薪支援費（`salary.html`、`my-salary.html`）
+
+- **症狀**：正職跨店支援他店、該段班勾「時薪另計（isHourly）」時，時薪支援費算 0（少領）。
+- **根因**：`calcHourlySupportHours` 用 `r.name === empName` 篩選，但跨店支援記錄在**接收店**的 `name` 是佔位名（如 `🆘待補2`），要靠 `supportEmp='本店-姓名'` 才認得出是誰；而發薪店自己那筆是本人名、`isHourly=False`。兩邊都被漏抓 → 該時數哪裡都沒算到（`calcEmpHours` 也因 isHourly 排除在 totalH 外）。
+- **修正**：`calcHourlySupportHours` 改用 `recBelongsTo(r, empName)`（本名**或** supportEmp），與 `calcEmpHours` 對齊。`my-salary.html` 補上 `recBelongsTo`。實測資料（政 2026-07 W30 週六 23-07 8h）由 0 → 8。
+- `analytics.html` 讀存好的 `hourlySupportAmt`（salary.html 存），無需改碼；但**該月薪資需重存**一次才會更新聚合值。
+
 #### ✨ 產圖美觀與資訊完整度（`schedule-V2.html` `drawScheduleCanvas`）
 
 - **班別文字修正**：原本 `shift.replace('-', ' / ')` 把 `17-23` 畫成怪異的 `17 / 23`，且兩頭班 `7-11,17-21` 會被切錯。改為**原樣保留 `-` 與 `,`**（超時仍標紅結束時間、兩頭班不拆色）。
