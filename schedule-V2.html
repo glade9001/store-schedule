@@ -2623,6 +2623,22 @@ function detectScheduleConflicts(empName, day, weekStr, newShift, newHours) {
       errors.push(`🔴 ${empName} 該時段已在${where}排班，時間重疊無法排！`);
     }
 
+    // 1.5 連續工時（軟擋 §32）— 相接(間隔=0)的班合併成一段連續班，如大夜 23-07 直接接
+    //     早班 7-15 = 連續 16h、中間無休息。超過單日上限 → 知情放行。
+    let blkStart = targetIv.start, blkEnd = targetIv.end, grew = true;
+    while(grew) {
+      grew = false;
+      for(const iv of neighbors) {
+        if(iv.start <= blkEnd && iv.end >= blkStart) { // 相接或重疊 → 併入連續段
+          if(iv.start < blkStart) { blkStart = iv.start; grew = true; }
+          if(iv.end   > blkEnd)   { blkEnd   = iv.end;   grew = true; }
+        }
+      }
+    }
+    const contH = (blkEnd - blkStart) / 3600e3;
+    if(contH > DAILY_MAX_H)
+      softBlocks.push({ rule:'continuous12h', measured: fmtN(contH), msg:`連續工時 ${fmtN(contH)}h（含相接／跨夜、中間無休息），超過 ${DAILY_MAX_H} 小時` });
+
     // 2. 當日總工時 > 12h（跨店加總，軟擋 §32）
     const tKey = dayKey(targetIv.start);
     let dailyH = (targetIv.end - targetIv.start) / 3600e3;
@@ -2631,15 +2647,16 @@ function detectScheduleConflicts(empName, day, weekStr, newShift, newHours) {
       softBlocks.push({ rule:'daily12h', measured: fmtN(dailyH), msg:`當日總工時 ${fmtN(dailyH)}h（跨店加總），超過 ${DAILY_MAX_H} 小時` });
 
     // 4. 輪班間隔 < 11h（跨夜／跨週／跨店；左右鄰班雙向檢查，軟擋 §34）
+    // 間隔 = 0（相接）屬連續班，由上面「連續工時」硬擋處理，這裡只抓「有休息但不足 11h」
     const prev = neighbors.filter(iv => iv.end <= targetIv.start).sort((a,b)=>b.end-a.end)[0];
     if(prev) {
       const g = (targetIv.start - prev.end) / 3600e3;
-      if(g < MIN_REST_H) softBlocks.push({ rule:'rest11h', measured: fmtN(g), msg:`距前一班下班僅 ${fmtN(g)} 小時（未達 11 小時休息）` });
+      if(g > 0 && g < MIN_REST_H) softBlocks.push({ rule:'rest11h', measured: fmtN(g), msg:`距前一班下班僅 ${fmtN(g)} 小時（未達 11 小時休息）` });
     }
     const next = neighbors.filter(iv => iv.start >= targetIv.end).sort((a,b)=>a.start-b.start)[0];
     if(next) {
       const g = (next.start - targetIv.end) / 3600e3;
-      if(g < MIN_REST_H) softBlocks.push({ rule:'rest11h', measured: fmtN(g), msg:`距下一班上班僅 ${fmtN(g)} 小時（未達 11 小時休息）` });
+      if(g > 0 && g < MIN_REST_H) softBlocks.push({ rule:'rest11h', measured: fmtN(g), msg:`距下一班上班僅 ${fmtN(g)} 小時（未達 11 小時休息）` });
     }
   }
 
