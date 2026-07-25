@@ -15,6 +15,13 @@
 - **修正**：`calcHourlySupportHours` 改用 `recBelongsTo(r, empName)`（本名**或** supportEmp），與 `calcEmpHours` 對齊。`my-salary.html` 補上 `recBelongsTo`。實測資料（政 2026-07 W30 週六 23-07 8h）由 0 → 8。
 - `analytics.html` 讀存好的 `hourlySupportAmt`（salary.html 存），無需改碼；但**該月薪資需重存**一次才會更新聚合值。
 
+#### 🐛 修正出勤月曆：正職上班打勾被「時薪另計」蓋掉（`salary.html`）
+
+- **症狀**：正職當天既有正職班（如 17-23）又有時薪另計（如跨店支援 23-07）時，出勤月曆該日顯示「時薪另計」，**正職上班的打勾消失**。
+- **根因**：`buildCalendarData` 同日多筆「取第一筆」（`if(!empRecs[dd]) empRecs[dd]=r`），若 isHourly 那筆先被掃到就蓋掉工作班；而 `calcEmpHours` 是跳過 isHourly、算工作班 → 兩者不一致。（既有 bug，非此次薪資修正造成）
+- **修正**：同日多筆改為**實際工作班優先**（`_isWorkRec`：有班、非休假類、非 isHourly）於 isHourly／休假。整天只有 isHourly 的日子維持顯示「時薪另計」不變。
+- `my-salary.html` 月曆用 name-only 篩選、不會撈到跨店佔位記錄，對此情境結果正確，暫不動。
+
 #### ✨ 產圖美觀與資訊完整度（`schedule-V2.html` `drawScheduleCanvas`）
 
 - **班別文字修正**：原本 `shift.replace('-', ' / ')` 把 `17-23` 畫成怪異的 `17 / 23`，且兩頭班 `7-11,17-21` 會被切錯。改為**原樣保留 `-` 與 `,`**（超時仍標紅結束時間、兩頭班不拆色）。

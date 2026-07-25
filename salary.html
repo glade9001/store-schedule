@@ -3385,6 +3385,9 @@ function buildCalendarData(empName, role) {
   
   // 整理當月所有排班記錄
   const empRecs = {};
+  // 實際出勤工作班（非休假、非時薪另計）→ 出勤月曆優先顯示，避免正職當天既有正職班
+  //（如17-23）又有時薪另計（如23-07）時，出勤打勾被「時薪另計」蓋掉
+  const _isWorkRec = rr => rr.shift && !['排休','指休','特休','補休'].includes(rr.shift) && !rr.isHourly;
   Object.entries(scheduleData).forEach(([ws, recs]) => {
     recs.forEach(r => {
       if(!recBelongsTo(r, empName)) return;
@@ -3396,8 +3399,9 @@ function buildCalendarData(empName, role) {
       if(!dateStr) return;
       const [dm, dd] = dateStr.split('/').map(Number);
       if(dm !== m) return; // 只要當月
-      // 同日跨店多筆（本名 + 支援格）取第一筆，與 calcEmpHours 的按日去重一致
+      // 同日跨店多筆（本名 + 支援格）：實際工作班優先於 isHourly／休假
       if(!empRecs[dd]) empRecs[dd] = r;
+      else if(_isWorkRec(r) && !_isWorkRec(empRecs[dd])) empRecs[dd] = r;
     });
   });
   return { empRecs, daysInMonth, firstWeekday: new Date(y, m-1, 1).getDay() };
