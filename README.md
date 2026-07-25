@@ -8,6 +8,14 @@
 
 ### 2026-07-25（六）
 
+#### ✨ Phase 2 步驟2：單日檢視 `renderDayView`（`schedule-V2.html`）
+
+- 新增**單日檢視**：頂部星期選擇器（預設今天）＋該日所有員工縱向卡片，取代橫向捲動；適合手機「今天誰上班、缺不缺人」。
+- **抽出共用 `buildCellButton()`**：把 `renderTable` 建 `.cell-btn`（完整 dataset＋跨店支援標籤＋待審徽章＋點擊編輯）的邏輯抽成 helper，經典／單日共用 → 三檢視走**同一套** `handleCellClick`／`applyShift`／`syncUIToMemory`，免費繼承 Phase 1 全部勞基法偵測與存檔，不分裂邏輯。
+- **修 `.cell-btn` 殘留污染**：切換檢視時清掉「隱藏那一側」的 `.cell-btn`，否則 `syncUIToMemory` 的 `querySelectorAll('.cell-btn')` 會掃到另一檢視殘留格子（帶舊 dataset）污染存檔。
+- **修跨店支援重複顯示**：某員當天整日外派他店時，格子原本會同時出現「派出側 📍支援X」與新加的「🔵 支援X」藍標籤（重複）。修正：`rec` 本身若已是派出支援記錄（`location` 以「支援」開頭）就不算本店主班、不加藍標籤（藍標籤只用於「本店有真主班＋又去他店支援」的情況）。
+- 單人檢視仍為 stub（暫回退經典），之後再實作。
+
 #### ✨ Phase 2 步驟1：排班檢視切換骨架（`schedule-V2.html`）
 
 - adminView 週次列下方新增**檢視模式切換**（▦ 經典／▤ 單日／▥ 單人），選擇記在 `localStorage`（per 裝置）。

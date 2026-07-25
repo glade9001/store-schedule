@@ -351,6 +351,8 @@ th:first-child { background: #1557b0; z-index: 12; }
             <tr style="height:80px;"><td colspan="9"></td></tr>
           </tfoot>
         </table>
+        <!-- 手機版單日／單人檢視容器（Phase 2）-->
+        <div id="dayViewContainer" style="display:none; padding:8px 10px 100px;"></div>
       </div>
     </div>
 
@@ -2194,18 +2196,77 @@ function onApprovalChange(sel) {
   }
 }
 
-// ===== 檢視模式切換（Phase 2 步驟1 骨架）=====
+// ===== 檢視模式切換（Phase 2）=====
 let scheduleViewMode = localStorage.getItem('scheduleViewMode') || 'classic';
+let dayViewDayIdx = null; // 單日檢視選中的星期（0=週一..6=週日）
 function renderSchedule() {
-  // 分派器就緒；day/emp 於步驟2 實作，現暫回退經典版
   switch(scheduleViewMode) {
     case 'day': return renderDayView();
     case 'emp': return renderEmpGridView();
     default:    return renderTable();
   }
 }
-function renderDayView()     { renderTable(); }   // TODO 步驟2：單日縱向卡片
-function renderEmpGridView() { renderTable(); }   // TODO 步驟2：單人整週縱向
+function renderEmpGridView() { renderTable(); }   // TODO 步驟(後)：單人整週縱向
+
+// 切換「經典寬表格」與「手機版容器」的顯示
+function toggleScheduleContainers(mode) {
+  const table = document.getElementById('scheduleTable');
+  const dayC  = document.getElementById('dayViewContainer');
+  const tbody = document.getElementById('tableBody');
+  if(!table || !dayC) return;
+  const isMobile = (mode === 'day' || mode === 'emp');
+  table.style.display = isMobile ? 'none' : '';
+  dayC.style.display  = isMobile ? 'block' : 'none';
+  // ⚠️ 清掉「隱藏那一側」的 .cell-btn，否則 syncUIToMemory 的 querySelectorAll('.cell-btn')
+  //   會同時掃到另一檢視殘留的格子（帶舊 dataset）→ 污染存檔。
+  if(isMobile) { if(tbody) tbody.innerHTML = ''; }
+  else { dayC.innerHTML = ''; }
+}
+
+// 單日檢視：一天所有員工縱向卡片，複用 buildCellButton（同一套編輯/同步邏輯）
+function renderDayView() {
+  toggleScheduleContainers('day');
+  const weekStr = document.getElementById('weekSelector').value;
+  const store   = document.getElementById('storeSelector').value;
+  const isLockedHistory = isHistoryWeek(weekStr) && !historyEditUnlocked;
+  const isReadonly = !canScheduleStore(store) || isLockedHistory;
+  updateHistoryLockUI(weekStr, store);
+  currentWeekDates = getWeekDates(weekStr);
+  if(dayViewDayIdx === null) dayViewDayIdx = (new Date().getDay() + 6) % 7; // 預設今天
+
+  const emps = [...appData.employees];
+  virtualRowNames.forEach(n => emps.push({ name: n, role: '待補' }));
+
+  const cont = document.getElementById('dayViewContainer');
+  // 日選擇器
+  let html = `<div style="display:flex; gap:4px; overflow-x:auto; padding-bottom:8px; margin-bottom:6px;">`;
+  dayNames.forEach((d, i) => {
+    const on = i === dayViewDayIdx;
+    html += `<button onclick="setDayViewDay(${i})" style="flex:1; min-width:44px; padding:7px 3px; border:none; border-radius:8px; font-size:13px; font-weight:${on?'800':'600'}; background:${on?'var(--primary)':'#f1f3f4'}; color:${on?'#fff':'var(--text-muted)'}; cursor:pointer; line-height:1.35;">${d.replace('週','')}<br><span style="font-size:10px;">${currentWeekDates[i]||''}</span></button>`;
+  });
+  html += `</div><div id="dayViewCards"></div>`;
+  cont.innerHTML = html;
+
+  const cardsWrap = document.getElementById('dayViewCards');
+  const day = dayNames[dayViewDayIdx];
+  emps.forEach((emp, eIdx) => {
+    const isVirtual = emp.name.startsWith('🆘');
+    const card = document.createElement('div');
+    card.style.cssText = 'display:flex; align-items:center; gap:10px; padding:8px 4px; border-bottom:1px solid var(--border);';
+    const nameDiv = document.createElement('div');
+    nameDiv.style.cssText = 'flex:0 0 84px; min-width:84px;';
+    const dispName = isVirtual ? emp.name : getDisplayName(emp.name);
+    nameDiv.innerHTML = `<strong style="font-size:14px;">${dispName}</strong> <span class="role-tag">${emp.role||''}</span>`
+      + (isVirtual ? ` <span style="color:var(--danger);font-size:11px;cursor:pointer;" onclick="deleteVirtualRow('${emp.name}')">✖</span>` : '');
+    const btn = buildCellButton(emp, eIdx, day, store, weekStr, isReadonly);
+    btn.style.flex = '1';
+    btn.style.minHeight = '48px';
+    card.appendChild(nameDiv);
+    card.appendChild(btn);
+    cardsWrap.appendChild(card);
+  });
+}
+function setDayViewDay(i) { dayViewDayIdx = i; renderDayView(); }
 function setScheduleViewMode(m) {
   scheduleViewMode = m;
   localStorage.setItem('scheduleViewMode', m);
@@ -2224,7 +2285,80 @@ function updateViewToggleUI() {
   });
 }
 
+// 建一顆排班格按鈕（.cell-btn + 完整 dataset 契約）；經典／單日／單人檢視共用，
+// 確保三種檢視都走同一套編輯(handleCellClick/applyShift)與同步(syncUIToMemory)邏輯。
+function buildCellButton(emp, eIdx, day, store, weekStr, isReadonly) {
+  const isVirtual = emp.name.startsWith('🆘');
+  let rec = appData.records.find(r => r.name===emp.name && r.day===day && r.week===weekStr);
+  let supportOutRec = null;
+  const ownIsOff = rec && (rec.shift === '排休' || rec.shift === '指休');
+  if(!isVirtual && !ownIsOff) {
+    // 只有非休假才考慮跨店支援覆蓋
+    supportOutRec = appData.allStoresRecords.find(r =>
+      r.supportEmp === `${store}-${emp.name}` && r.day===day && r.week===weekStr && r.approvalStatus==='approved'
+    );
+  }
+  // 跨店支援顯示：區分「整日外派」vs「本店有主班＋同日又去他店支援」
+  // ⚠️ rec 本身若已是派出支援記錄（location=支援X）就不算「本店主班」，否則會與整格支援顯示重複
+  let supportBadge = '';
+  const recIsSupportOut = !!(rec && rec.location && rec.location.startsWith('支援'));
+  const homeHasShift = rec && rec.shift && rec.shift !== '排休' && rec.shift !== '指休' && !recIsSupportOut;
+  const isFullDaySupport = !!supportOutRec && !homeHasShift;
+  if(supportOutRec && homeHasShift) {
+    // 本店有主班 + 同日去他店支援 → 主班保留可編輯，支援以唯讀標籤呈現
+    const _info = `${getDisplayName(emp.name)} 當日於「${supportOutRec._store}」支援 ${supportOutRec.shift}，請至該門市班表修改或取消`.replace(/'/g,'');
+    supportBadge = `<div style="background:#e0f2fe;color:#0369a1;padding:1px 4px;border-radius:4px;font-size:10px;font-weight:800;margin-top:2px;cursor:pointer;line-height:1.3;" onclick="event.stopPropagation(); alert('${_info}')">🔵 支援${supportOutRec._store} ${supportOutRec.shift}</div>`;
+  } else if(isFullDaySupport) {
+    // 整日外派（無本店主班）→ 整格顯示支援（原行為）
+    rec = { shift: supportOutRec.shift, location: `支援${supportOutRec._store}`, note: supportOutRec.note, actualHours: supportOutRec.actualHours, isOT: supportOutRec.isOT, supportEmp:'', approvalStatus:'', requestOff:false };
+  } else if(!rec) {
+    rec = { shift:'', location:'本店', note:'', actualHours:0, isOT:false, isHourly:false, supportEmp:'', approvalStatus:'', requestOff:false };
+  }
+
+  const btn = document.createElement('button');
+  btn.className = 'cell-btn' + (isReadonly ? ' readonly' : '');
+  btn.dataset.emp = emp.name;
+  btn.dataset.day = day;
+  btn.dataset.shift = rec.shift || '';
+  btn.dataset.hours = rec.actualHours || 0;
+  btn.dataset.loc = rec.location || '本店';
+  btn.dataset.note = rec.note || '';
+  btn.dataset.ot = rec.isOT || false;
+  btn.dataset.hourly = rec.isHourly || false;
+  btn.dataset.support = rec.supportEmp || '';
+  btn.dataset.approval = rec.approvalStatus || '';
+  btn.dataset.reqoff = rec.requestOff || false;
+  btn.dataset.lawoverrides = (rec.lawOverrides && rec.lawOverrides.length) ? JSON.stringify(rec.lawOverrides) : '';
+  btn.dataset.eidx = eIdx;
+
+  // 待審核徽章
+  let pendingBadges = '';
+  if(!isVirtual) {
+    const pendingReqs = appData.allStoresRecords.filter(r =>
+      r.supportEmp === `${store}-${emp.name}` && r.day===day && r.approvalStatus==='pending' && r.week===weekStr
+    );
+    pendingReqs.forEach(req => {
+      const rd = encodeURIComponent(JSON.stringify(req));
+      pendingBadges += `<div class="support-pending" onclick="event.stopPropagation(); openApprovalModal('${rd}')">🔔 ${req._store} ${req.shift} 申請支援</div>`;
+    });
+  }
+  btn.dataset.badges = pendingBadges + supportBadge;
+
+  updateCellUI(btn, pendingBadges + supportBadge);
+
+  if(isFullDaySupport) {
+    btn.onclick = () => alert(`此班別為跨店支援（前往 ${supportOutRec._store}）\n請由需求門市修改或取消！`);
+  } else if(!isReadonly) {
+    btn.onmousedown = (e) => { if(isPaintMode) { e.preventDefault(); isDragging=true; applyPaintToCell(btn,eIdx); } };
+    btn.onmouseenter = () => { if(isPaintMode && isDragging) applyPaintToCell(btn,eIdx); };
+    btn.ontouchstart = () => { if(isPaintMode) { isDragging=true; applyPaintToCell(btn,eIdx); } };
+    btn.onclick = () => { if(!isPaintMode) handleCellClick(btn, eIdx, isVirtual); };
+  }
+  return btn;
+}
+
 function renderTable() {
+  toggleScheduleContainers('classic');
   const tbody = document.getElementById('tableBody');
   tbody.innerHTML = '';
   const weekStr = document.getElementById('weekSelector').value;
@@ -2265,72 +2399,8 @@ function renderTable() {
     tr.innerHTML = `<td>${nameHtml}</td>`;
 
     dayNames.forEach(day => {
-      let rec = appData.records.find(r => r.name===emp.name && r.day===day && r.week===weekStr);
-      let supportOutRec = null;
-      const ownIsOff = rec && (rec.shift === '排休' || rec.shift === '指休');
-      if(!isVirtual && !ownIsOff) {
-        // 只有非休假才考慮跨店支援覆蓋
-        supportOutRec = appData.allStoresRecords.find(r =>
-          r.supportEmp === `${store}-${emp.name}` && r.day===day && r.week===weekStr && r.approvalStatus==='approved'
-        );
-      }
-      // 跨店支援顯示：區分「整日外派」vs「本店有主班＋同日又去他店支援」
-      let supportBadge = '';
-      const homeHasShift = rec && rec.shift && rec.shift !== '排休' && rec.shift !== '指休';
-      const isFullDaySupport = !!supportOutRec && !homeHasShift;
-      if(supportOutRec && homeHasShift) {
-        // 本店有主班 + 同日去他店支援 → 主班保留可編輯，支援以唯讀標籤呈現
-        const _info = `${getDisplayName(emp.name)} 當日於「${supportOutRec._store}」支援 ${supportOutRec.shift}，請至該門市班表修改或取消`.replace(/'/g,'');
-        supportBadge = `<div style="background:#e0f2fe;color:#0369a1;padding:1px 4px;border-radius:4px;font-size:10px;font-weight:800;margin-top:2px;cursor:pointer;line-height:1.3;" onclick="event.stopPropagation(); alert('${_info}')">🔵 支援${supportOutRec._store} ${supportOutRec.shift}</div>`;
-      } else if(isFullDaySupport) {
-        // 整日外派（無本店主班）→ 整格顯示支援（原行為）
-        rec = { shift: supportOutRec.shift, location: `支援${supportOutRec._store}`, note: supportOutRec.note, actualHours: supportOutRec.actualHours, isOT: supportOutRec.isOT, supportEmp:'', approvalStatus:'', requestOff:false };
-      } else if(!rec) {
-        rec = { shift:'', location:'本店', note:'', actualHours:0, isOT:false, isHourly:false, supportEmp:'', approvalStatus:'', requestOff:false };
-      }
-
       const td = document.createElement('td');
-      const btn = document.createElement('button');
-      btn.className = 'cell-btn' + (isReadonly ? ' readonly' : '');
-      btn.dataset.emp = emp.name;
-      btn.dataset.day = day;
-      btn.dataset.shift = rec.shift || '';
-      btn.dataset.hours = rec.actualHours || 0;
-      btn.dataset.loc = rec.location || '本店';
-      btn.dataset.note = rec.note || '';
-      btn.dataset.ot = rec.isOT || false;
-      btn.dataset.hourly = rec.isHourly || false;
-      btn.dataset.support = rec.supportEmp || '';
-      btn.dataset.approval = rec.approvalStatus || '';
-      btn.dataset.reqoff = rec.requestOff || false;
-      btn.dataset.lawoverrides = (rec.lawOverrides && rec.lawOverrides.length) ? JSON.stringify(rec.lawOverrides) : '';
-      btn.dataset.eidx = eIdx;
-
-      // 待審核徽章
-      let pendingBadges = '';
-      if(!isVirtual) {
-        const pendingReqs = appData.allStoresRecords.filter(r =>
-          r.supportEmp === `${store}-${emp.name}` && r.day===day && r.approvalStatus==='pending' && r.week===weekStr
-        );
-        pendingReqs.forEach(req => {
-          const rd = encodeURIComponent(JSON.stringify(req));
-          pendingBadges += `<div class="support-pending" onclick="event.stopPropagation(); openApprovalModal('${rd}')">🔔 ${req._store} ${req.shift} 申請支援</div>`;
-        });
-      }
-      btn.dataset.badges = pendingBadges + supportBadge;
-
-      updateCellUI(btn, pendingBadges + supportBadge);
-
-      if(isFullDaySupport) {
-        btn.onclick = () => alert(`此班別為跨店支援（前往 ${supportOutRec._store}）\n請由需求門市修改或取消！`);
-      } else if(!isReadonly) {
-        btn.onmousedown = (e) => { if(isPaintMode) { e.preventDefault(); isDragging=true; applyPaintToCell(btn,eIdx); } };
-        btn.onmouseenter = () => { if(isPaintMode && isDragging) applyPaintToCell(btn,eIdx); };
-        btn.ontouchstart = () => { if(isPaintMode) { isDragging=true; applyPaintToCell(btn,eIdx); } };
-        btn.onclick = () => { if(!isPaintMode) handleCellClick(btn, eIdx, isVirtual); };
-      }
-
-      td.appendChild(btn);
+      td.appendChild(buildCellButton(emp, eIdx, day, store, weekStr, isReadonly));
       tr.appendChild(td);
     });
 
