@@ -3610,10 +3610,8 @@ function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, al
         );
       }
 
-      // 附加資訊（由上到下堆疊）
+      // 附加資訊（由上到下堆疊）；產圖不顯示時數
       const subs = [];
-      const stdH = (appConfig.shiftHours || {})[shift];
-      if (shift && shift !== '排休' && shift !== '指休' && h && h !== stdH) subs.push({ t:`(${h}h)`, c:'#666', s:15 });
       if (supportName && isApproved) subs.push({ t: supportName, c:'#1a73e8', s:20 });
       if (loc) subs.push({ t: loc, c:'#c0392b', s:18 });
       if (supportOut) subs.push({ t:`支援${supportOut._store} ${supportOut.shift}`, c:'#1a73e8', s:17 });
