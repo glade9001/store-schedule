@@ -2596,20 +2596,33 @@ function detectScheduleConflicts(empName, day, weekStr, newShift, newHours) {
   const targetIv = shiftIntervalWD(weekStr, day, newShift);
 
   // 蒐集該員（跨週＋跨店）所有已載入班次；排除正在編輯的本格；派出/接收雙記錄去重
-  // 來源 allStoresRecords 已含本店當月各週 + 其他店「本店員工支援」記錄
+  // ⚠️ 本店鄰班務必讀 live 的 appData.records（含當月各週、即時反映本 session 未存的編輯），
+  //   不可讀 allStoresRecords —— 後者是載入/存檔時的快照，session 內編輯不會即時更新，
+  //   會造成「未存前違規不擋」與「剛改休息卻仍以舊班誤擋」。他店支援才讀 allStoresRecords。
   const seen = new Set();
   const empIntervals = [];
-  (appData.allStoresRecords || []).forEach(r => {
-    const belongs = (r.name === empName) || (r.supportEmp === `${curStore}-${empName}`);
-    if(!belongs) return;
-    if(r._store === curStore && r.week === weekStr && r.day === day) return; // 目標格改用 newShift
+  const pushIv = (r, storeLabel) => {
     const iv = shiftIntervalWD(r.week, r.day, r.shift);
     if(!iv) return;
     const k = `${iv.start}|${iv.end}`;
     if(seen.has(k)) return; // 同一實體班次的雙記錄（派出店 location=支援X／接收店 supportEmp）去重
     seen.add(k);
-    iv._store = r._store;
+    iv._store = storeLabel;
     empIntervals.push(iv);
+  };
+  // (a) 本店：live appData.records
+  (appData.records || []).forEach(r => {
+    const belongs = (r.name === empName) || (r.supportEmp === `${curStore}-${empName}`);
+    if(!belongs) return;
+    if(r.week === weekStr && r.day === day) return; // 目標格改用 newShift
+    pushIv(r, curStore);
+  });
+  // (b) 他店支援：allStoresRecords 只取其他門市（本店員工去支援的記錄）
+  (appData.allStoresRecords || []).forEach(r => {
+    if(r._store === curStore) return; // 本店已用 appData.records
+    const belongs = (r.name === empName) || (r.supportEmp === `${curStore}-${empName}`);
+    if(!belongs) return;
+    pushIv(r, r._store);
   });
 
   if(targetIv) {
