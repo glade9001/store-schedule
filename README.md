@@ -8,6 +8,13 @@
 
 ### 2026-07-25（六）
 
+#### ✨ Phase 2 步驟1：排班檢視切換骨架（`schedule-V2.html`）
+
+- adminView 週次列下方新增**檢視模式切換**（▦ 經典／▤ 單日／▥ 單人），選擇記在 `localStorage`（per 裝置）。
+- 新增分派器 `renderSchedule()`：依 `scheduleViewMode` 分派；所有重繪路徑（載入、`applyShift`、undo、待補增刪、歷史解鎖）改走分派器。
+- 單日／單人為 stub（暫回退經典版並提示「建置中」），步驟2 才實作真正版面。經典版行為完全不變、預設仍為經典。
+- 目的：先把「切換骨架 + 重繪接點」定下來，風險最低、可獨立驗證。
+
 #### 📋 規劃
 
 - **Phase 2 手機排班優化規格（`docs/phase2-mobile-scheduling-spec.md`）**

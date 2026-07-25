@@ -299,6 +299,13 @@ th:first-child { background: #1557b0; z-index: 12; }
         </div>
       </div>
 
+      <!-- 檢視模式切換（Phase 2 步驟1 骨架）-->
+      <div id="viewToggle" style="display:flex; gap:4px; padding:6px 14px; background:#fff; border-bottom:1px solid var(--border); flex-shrink:0;">
+        <button id="viewBtn-classic" onclick="setScheduleViewMode('classic')" style="flex:1; padding:7px 4px; border:none; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer;">▦ 經典</button>
+        <button id="viewBtn-day" onclick="setScheduleViewMode('day')" style="flex:1; padding:7px 4px; border:none; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer;">▤ 單日</button>
+        <button id="viewBtn-emp" onclick="setScheduleViewMode('emp')" style="flex:1; padding:7px 4px; border:none; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer;">▥ 單人</button>
+      </div>
+
       <!-- 唯讀提示（店長看其他門市時顯示）-->
       <div id="readonlyBanner" style="display:none; background:#fff3e0; border-bottom:2px solid var(--warn); padding:8px 14px; align-items:center; gap:8px; font-size:13px; font-weight:700; color:#e65100; flex-shrink:0;">
         👁️ 目前為查閱模式，僅本店班表可編輯
@@ -770,6 +777,7 @@ window.onload = async () => {
         const fixBtn = document.getElementById('compFixBtn');
         if(fixBtn) fixBtn.style.display = 'inline-block';
       }
+      updateViewToggleUI();
       await fetchAllStoreData();
     } else {
       // 查閱模式：所有人都進員工視角（查看圖片）
@@ -977,7 +985,7 @@ function isHistoryWeek(weekStr) {
 function unlockHistoryEdit() {
   if(!confirm('⚠️ 歷史班表修改需謹慎！\n\n確定要編輯此已過週次的班表嗎？')) return;
   historyEditUnlocked = true;
-  renderTable();
+  renderSchedule();
   showToast('✏️ 歷史班表已解鎖，可進行編輯');
 }
 
@@ -1830,7 +1838,7 @@ async function fetchAllStoreData() {
     }
 
     renderSupportDropdown();
-    renderTable();
+    renderSchedule();
     setSyncStatus('ok', '已同步');
   } catch(e) {
     setSyncStatus('err', '同步失敗');
@@ -2184,6 +2192,36 @@ function onApprovalChange(sel) {
       sel.value = 'pending';
     }
   }
+}
+
+// ===== 檢視模式切換（Phase 2 步驟1 骨架）=====
+let scheduleViewMode = localStorage.getItem('scheduleViewMode') || 'classic';
+function renderSchedule() {
+  // 分派器就緒；day/emp 於步驟2 實作，現暫回退經典版
+  switch(scheduleViewMode) {
+    case 'day': return renderDayView();
+    case 'emp': return renderEmpGridView();
+    default:    return renderTable();
+  }
+}
+function renderDayView()     { renderTable(); }   // TODO 步驟2：單日縱向卡片
+function renderEmpGridView() { renderTable(); }   // TODO 步驟2：單人整週縱向
+function setScheduleViewMode(m) {
+  scheduleViewMode = m;
+  localStorage.setItem('scheduleViewMode', m);
+  updateViewToggleUI();
+  if(m === 'day' || m === 'emp') showToast('🚧 此檢視建置中（步驟2），暫以經典版顯示');
+  renderSchedule();
+}
+function updateViewToggleUI() {
+  ['classic','day','emp'].forEach(m => {
+    const b = document.getElementById('viewBtn-' + m);
+    if(!b) return;
+    const on = scheduleViewMode === m;
+    b.style.background = on ? 'var(--primary)' : '#f1f3f4';
+    b.style.color      = on ? '#fff' : 'var(--text-muted)';
+    b.style.fontWeight = on ? '800' : '600';
+  });
 }
 
 function renderTable() {
@@ -2836,7 +2874,7 @@ async function applyShift() {
     }
   }
   syncUIToMemory();
-  renderTable();
+  renderSchedule();
   closeModal('shiftModal');
   triggerAutoSave();
 }
@@ -3201,7 +3239,7 @@ function undoLastAction() {
   const l=undoStack.pop();
   l.btn.dataset.shift=l.s; l.btn.dataset.hours=l.h; l.btn.dataset.loc=l.l; l.btn.dataset.note=l.n;
   l.btn.dataset.ot=l.ot; l.btn.dataset.support=l.supp; l.btn.dataset.approval=l.app; l.btn.dataset.reqoff=l.reqOff; l.btn.dataset.lawoverrides=l.lo||'';
-  syncUIToMemory(); renderTable(); triggerAutoSave();
+  syncUIToMemory(); renderSchedule(); triggerAutoSave();
 }
 
 // ===== 待補欄位 =====
@@ -3210,7 +3248,7 @@ function addVirtualRow() {
   let n=1;
   while(virtualRowNames.includes('🆘待補'+n)) n++;
   virtualRowNames.push('🆘待補'+n);
-  renderTable();
+  renderSchedule();
   triggerAutoSave();
 }
 function deleteVirtualRow(name) {
@@ -3218,7 +3256,7 @@ function deleteVirtualRow(name) {
   const week=document.getElementById('weekSelector').value;
   appData.records=appData.records.filter(r=>!(r.name===name&&r.week===week));
   virtualRowNames=virtualRowNames.filter(n=>n!==name);
-  renderTable();
+  renderSchedule();
   triggerAutoSave();
 }
 
