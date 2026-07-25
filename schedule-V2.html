@@ -453,6 +453,30 @@ th:first-child { background: #1557b0; z-index: 12; }
   </div>
 </div>
 
+<!-- 勞基法軟擋：知情放行確認 -->
+<div class="modal-overlay" id="lawOverrideModal">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-title" style="color:var(--danger);">⚠️ 排班違反勞基法</div>
+    <div id="lawOverrideList" style="background:#fce8e6; border:1.5px solid var(--danger); border-radius:10px; padding:12px; font-size:13px; font-weight:700; color:var(--danger); line-height:1.8; margin-bottom:14px;"></div>
+    <div class="form-field">
+      <label>放行理由（必填）</label>
+      <select id="lawOverrideReason">
+        <option value="voluntary">員工自願</option>
+        <option value="urgent">營運急需</option>
+        <option value="coverage">排不出人／臨時代班</option>
+        <option value="other">其他</option>
+      </select>
+    </div>
+    <div class="form-field">
+      <label>備註（選填）</label>
+      <input type="text" id="lawOverrideNote" placeholder="例：阿明主動換班">
+    </div>
+    <button class="modal-action" style="background:var(--danger);" onclick="confirmLawOverride()">知情放行並儲存</button>
+    <button class="modal-cancel" onclick="cancelLawOverride()">取消，不排這班</button>
+  </div>
+</div>
+
 <!-- ===== 跨店支援審核 MODAL ===== -->
 <div class="modal-overlay" id="approvalModal">
   <div class="modal-box">
@@ -2232,6 +2256,7 @@ function renderTable() {
       btn.dataset.support = rec.supportEmp || '';
       btn.dataset.approval = rec.approvalStatus || '';
       btn.dataset.reqoff = rec.requestOff || false;
+      btn.dataset.lawoverrides = (rec.lawOverrides && rec.lawOverrides.length) ? JSON.stringify(rec.lawOverrides) : '';
       btn.dataset.eidx = eIdx;
 
       // 待審核徽章
@@ -2365,6 +2390,11 @@ function updateCellUI(btn, extraHtml='') {
         txt += `<br><span style="background:${lrBg};color:${lrColor};padding:1px 4px;border-radius:4px;font-size:10px;font-weight:700;">${lrLabel}</span>`;
       }
     }
+  }
+
+  // 🟠 勞基法知情放行標記
+  if(btn.dataset.lawoverrides) {
+    txt += `<br><span style="background:#fff3e0;color:#e65100;padding:1px 4px;border-radius:4px;font-size:9px;font-weight:800;" title="已知情放行（違勞基法）">🟠 已放行</span>`;
   }
 
   btn.innerHTML=txt+extraHtml;
@@ -2536,9 +2566,10 @@ function autoFillHours() {
 
 // ===== 排班衝突偵測 =====
 function detectScheduleConflicts(empName, day, weekStr, newShift, newHours) {
-  const warnings = [];
-  const errors   = [];
-  if(!newShift || newShift === '排休' || newShift === '指休' || newShift === '清空') return { warnings, errors };
+  const warnings   = [];
+  const errors     = [];
+  const softBlocks = []; // 軟擋：需知情放行（產生 lawOverride）
+  if(!newShift || newShift === '排休' || newShift === '指休' || newShift === '清空') return { warnings, errors, softBlocks };
 
   const dayIdx = dayNames.indexOf(day);
 
@@ -2592,27 +2623,27 @@ function detectScheduleConflicts(empName, day, weekStr, newShift, newHours) {
       errors.push(`🔴 ${empName} 該時段已在${where}排班，時間重疊無法排！`);
     }
 
-    // 2. 當日總工時 > 12h（跨店加總，警告）
+    // 2. 當日總工時 > 12h（跨店加總，軟擋 §32）
     const tKey = dayKey(targetIv.start);
     let dailyH = (targetIv.end - targetIv.start) / 3600e3;
     neighbors.forEach(iv => { if(dayKey(iv.start) === tKey) dailyH += (iv.end - iv.start) / 3600e3; });
     if(dailyH > DAILY_MAX_H)
-      warnings.push(`⚠️ ${empName} 當日總工時 ${fmtN(dailyH)}h（跨店加總），超過 ${DAILY_MAX_H} 小時`);
+      softBlocks.push({ rule:'daily12h', measured: fmtN(dailyH), msg:`當日總工時 ${fmtN(dailyH)}h（跨店加總），超過 ${DAILY_MAX_H} 小時` });
 
-    // 4. 輪班間隔 < 11h（跨夜／跨週／跨店；左右鄰班雙向檢查）
+    // 4. 輪班間隔 < 11h（跨夜／跨週／跨店；左右鄰班雙向檢查，軟擋 §34）
     const prev = neighbors.filter(iv => iv.end <= targetIv.start).sort((a,b)=>b.end-a.end)[0];
     if(prev) {
       const g = (targetIv.start - prev.end) / 3600e3;
-      if(g < MIN_REST_H) warnings.push(`⚠️ ${empName} 距前一班下班僅 ${fmtN(g)} 小時（未達 11 小時休息）`);
+      if(g < MIN_REST_H) softBlocks.push({ rule:'rest11h', measured: fmtN(g), msg:`距前一班下班僅 ${fmtN(g)} 小時（未達 11 小時休息）` });
     }
     const next = neighbors.filter(iv => iv.start >= targetIv.end).sort((a,b)=>a.start-b.start)[0];
     if(next) {
       const g = (next.start - targetIv.end) / 3600e3;
-      if(g < MIN_REST_H) warnings.push(`⚠️ ${empName} 距下一班上班僅 ${fmtN(g)} 小時（未達 11 小時休息）`);
+      if(g < MIN_REST_H) softBlocks.push({ rule:'rest11h', measured: fmtN(g), msg:`距下一班上班僅 ${fmtN(g)} 小時（未達 11 小時休息）` });
     }
   }
 
-  // 3. 連續工作天數（第七天，警告）
+  // 3. 連續工作天數（第七天，軟擋 §36 七休一）
   if(dayIdx >= 0) {
     let consecutive = 0;
     // 往前數連續工班天數（含今天）
@@ -2628,14 +2659,34 @@ function detectScheduleConflicts(empName, day, weekStr, newShift, newHours) {
     }
     // 往後數（下週的連續情況不在本週計算，簡化處理）
     if(consecutive >= 7) {
-      warnings.push(`⚠️ ${empName} 本週連續出勤已達 ${consecutive} 天（第七天）`);
+      softBlocks.push({ rule:'weekly1off', measured: consecutive, msg:`本週連續出勤已達 ${consecutive} 天（未滿七休一）` });
     }
   }
 
-  return { warnings, errors };
+  return { warnings, errors, softBlocks };
 }
 
-function applyShift() {
+// ===== 勞基法軟擋：知情放行確認 sheet（Promise 化）=====
+let _lawOverrideResolver = null;
+function showLawOverrideSheet(softBlocks) {
+  document.getElementById('lawOverrideList').innerHTML = softBlocks.map(sb => `• ${sb.msg}`).join('<br>');
+  document.getElementById('lawOverrideReason').value = 'voluntary';
+  document.getElementById('lawOverrideNote').value = '';
+  openModal('lawOverrideModal');
+  return new Promise(resolve => { _lawOverrideResolver = resolve; });
+}
+function confirmLawOverride() {
+  const reason = document.getElementById('lawOverrideReason').value;
+  const note   = document.getElementById('lawOverrideNote').value.trim();
+  closeModal('lawOverrideModal');
+  if(_lawOverrideResolver) { _lawOverrideResolver({ reason, note }); _lawOverrideResolver = null; }
+}
+function cancelLawOverride() {
+  closeModal('lawOverrideModal');
+  if(_lawOverrideResolver) { _lawOverrideResolver(null); _lawOverrideResolver = null; }
+}
+
+async function applyShift() {
   // ✅ 班別格式驗證（避免 .30 被當 .3、. 後空白等造成工時誤算）
   const fmtErr = validateShiftFormat(document.getElementById('modalShift').value);
   if(fmtErr) { alert('❌ ' + fmtErr); return; }
@@ -2651,19 +2702,27 @@ function applyShift() {
     const newShift = document.getElementById('modalShift').value;
     const newHours = document.getElementById('modalHours').value;
 
+    currentCell.dataset.lawoverrides = ''; // 預設清空（重新評估）
     if(newShift && newShift !== '排休' && newShift !== '指休' && newShift !== '清空') {
-      const { warnings, errors } = detectScheduleConflicts(empName, day, weekStr, newShift, newHours);
+      const { errors, softBlocks } = detectScheduleConflicts(empName, day, weekStr, newShift, newHours);
 
-      // 強制錯誤（同時間不同門市）→ 必須中止
+      // 🔴 硬擋（時間重疊等）→ 必須中止
       if(errors.length > 0) {
         alert(errors.join('\n\n') + '\n\n請修正後再儲存。');
         return;
       }
 
-      // 警告（允許繼續，但提示）
-      if(warnings.length > 0) {
-        const proceed = confirm(warnings.join('\n') + '\n\n確定要繼續排班嗎？');
-        if(!proceed) return;
+      // 🟠 軟擋（違勞基法）→ 知情放行 + 記錄 lawOverride
+      if(softBlocks.length > 0) {
+        const ov = await showLawOverrideSheet(softBlocks);
+        if(!ov) return; // 取消 → 不排這班
+        const at = new Date().toISOString();
+        const approvedBy = currentUser.displayName || currentUser.empName || '';
+        currentCell.dataset.lawoverrides = JSON.stringify(softBlocks.map(sb => ({
+          rule: sb.rule, measured: sb.measured,
+          reason: ov.reason, note: ov.note,
+          approvedBy, approverPerm: currentUser.permission || '', at
+        })));
       }
     }
   }
@@ -2784,6 +2843,7 @@ function applyPaintToCell(btn, eIdx) {
   pushToUndo(btn);
   const isVirtual=btn.dataset.emp.startsWith('🆘');
   const prevShift = btn.dataset.shift; // 記錄原班別
+  btn.dataset.lawoverrides=''; // 畫筆不跑勞基法偵測 → 清掉舊放行標記避免殘留
   if(paintShift==='清空') {
     btn.dataset.shift=''; btn.dataset.hours=0; btn.dataset.ot='false'; btn.dataset.note='';
     if(isVirtual) { btn.dataset.support=''; btn.dataset.approval=''; }
@@ -2816,7 +2876,7 @@ function applyPaintToCell(btn, eIdx) {
   // 局部更新記憶體
   const week=document.getElementById('weekSelector').value;
   const idx=appData.records.findIndex(r=>r.name===btn.dataset.emp&&r.day===btn.dataset.day&&r.week===week);
-  const data={ week, day:btn.dataset.day, name:btn.dataset.emp, shift:btn.dataset.shift||'', location:btn.dataset.loc||'本店', note:btn.dataset.note||'', actualHours:parseFloat(btn.dataset.hours||0), isOT:btn.dataset.ot==='true', isHourly:btn.dataset.hourly==='true', supportEmp:btn.dataset.support||'', approvalStatus:btn.dataset.approval||'', requestOff:btn.dataset.reqoff==='true' };
+  const data={ week, day:btn.dataset.day, name:btn.dataset.emp, shift:btn.dataset.shift||'', location:btn.dataset.loc||'本店', note:btn.dataset.note||'', actualHours:parseFloat(btn.dataset.hours||0), isOT:btn.dataset.ot==='true', isHourly:btn.dataset.hourly==='true', supportEmp:btn.dataset.support||'', approvalStatus:btn.dataset.approval||'', requestOff:btn.dataset.reqoff==='true', lawOverrides: btn.dataset.lawoverrides ? JSON.parse(btn.dataset.lawoverrides) : [] };
   const hasData=btn.dataset.shift||btn.dataset.note||btn.dataset.ot==='true'||btn.dataset.support||btn.dataset.reqoff==='true';
   if(hasData) { if(idx!==-1) appData.records[idx]=data; else appData.records.push(data); }
   else { if(idx!==-1) appData.records.splice(idx,1); }
@@ -3063,7 +3123,7 @@ function syncUIToMemory() {
   const week=document.getElementById('weekSelector').value;
   document.querySelectorAll('.cell-btn').forEach(btn=>{
     const idx=appData.records.findIndex(r=>r.name===btn.dataset.emp&&r.day===btn.dataset.day&&r.week===week);
-    const data={ week, day:btn.dataset.day, name:btn.dataset.emp, shift:btn.dataset.shift||'', location:btn.dataset.loc||'本店', note:btn.dataset.note||'', actualHours:parseFloat(btn.dataset.hours||0), isOT:btn.dataset.ot==='true', isHourly:btn.dataset.hourly==='true', supportEmp:btn.dataset.support||'', approvalStatus:btn.dataset.approval||'', requestOff:btn.dataset.reqoff==='true' };
+    const data={ week, day:btn.dataset.day, name:btn.dataset.emp, shift:btn.dataset.shift||'', location:btn.dataset.loc||'本店', note:btn.dataset.note||'', actualHours:parseFloat(btn.dataset.hours||0), isOT:btn.dataset.ot==='true', isHourly:btn.dataset.hourly==='true', supportEmp:btn.dataset.support||'', approvalStatus:btn.dataset.approval||'', requestOff:btn.dataset.reqoff==='true', lawOverrides: btn.dataset.lawoverrides ? JSON.parse(btn.dataset.lawoverrides) : [] };
     const hasData=btn.dataset.shift||btn.dataset.note||btn.dataset.ot==='true'||btn.dataset.support||btn.dataset.reqoff==='true';
     if(hasData) { if(idx!==-1) appData.records[idx]=data; else appData.records.push(data); }
     else { if(idx!==-1) appData.records.splice(idx,1); }
@@ -3078,14 +3138,14 @@ function syncUIToMemory() {
 
 // ===== Undo =====
 function pushToUndo(btn) {
-  undoStack.push({ btn, s:btn.dataset.shift, h:btn.dataset.hours, l:btn.dataset.loc, n:btn.dataset.note, ot:btn.dataset.ot, supp:btn.dataset.support, app:btn.dataset.approval, reqOff:btn.dataset.reqoff });
+  undoStack.push({ btn, s:btn.dataset.shift, h:btn.dataset.hours, l:btn.dataset.loc, n:btn.dataset.note, ot:btn.dataset.ot, supp:btn.dataset.support, app:btn.dataset.approval, reqOff:btn.dataset.reqoff, lo:btn.dataset.lawoverrides });
   if(undoStack.length>30) undoStack.shift();
 }
 function undoLastAction() {
   if(!undoStack.length) { showToast('沒有可回復的動作'); return; }
   const l=undoStack.pop();
   l.btn.dataset.shift=l.s; l.btn.dataset.hours=l.h; l.btn.dataset.loc=l.l; l.btn.dataset.note=l.n;
-  l.btn.dataset.ot=l.ot; l.btn.dataset.support=l.supp; l.btn.dataset.approval=l.app; l.btn.dataset.reqoff=l.reqOff;
+  l.btn.dataset.ot=l.ot; l.btn.dataset.support=l.supp; l.btn.dataset.approval=l.app; l.btn.dataset.reqoff=l.reqOff; l.btn.dataset.lawoverrides=l.lo||'';
   syncUIToMemory(); renderTable(); triggerAutoSave();
 }
 
