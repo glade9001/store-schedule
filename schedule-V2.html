@@ -2540,27 +2540,76 @@ function detectScheduleConflicts(empName, day, weekStr, newShift, newHours) {
   const errors   = [];
   if(!newShift || newShift === '排休' || newShift === '指休' || newShift === '清空') return { warnings, errors };
 
-  const dates    = getWeekDates(weekStr);
-  const dayIdx   = dayNames.indexOf(day);
-  const [m, d]   = (dates[dayIdx] || '').split('/');
-  const year     = weekStr.split('-W')[0];
-  const dateStr  = `${year}-${(m||'').padStart(2,'0')}-${(d||'').padStart(2,'0')}`;
+  const dayIdx = dayNames.indexOf(day);
 
-  // 1. 同天跨門市衝突（強制錯誤）
-  const crossConflict = appData.allStoresRecords.filter(r =>
-    r.name === empName && r.day === day && r.week === weekStr &&
-    r._store !== document.getElementById('storeSelector').value &&
-    r.shift && r.shift !== '排休' && r.shift !== '指休'
-  );
-  if(crossConflict.length > 0) {
-    const otherStore = crossConflict[0]._store;
-    errors.push(`🔴 ${empName} 同天已在「${otherStore}」排班，無法同時排在兩個門市！`);
+  const curStore    = document.getElementById('storeSelector').value;
+  const MIN_REST_H  = 11;
+  const DAILY_MAX_H = 12;
+  const fmtN = g => (Math.round(g * 10) / 10);
+
+  // 班次(週,日,字串) → {start,end}(ms)；非時間班別(排休/特休…)回 null
+  function shiftIntervalWD(recWeek, dayName, shiftStr) {
+    const mm = (shiftStr || '').match(/^(\d{1,2}(?:\.\d+)?)-(\d{1,2}(?:\.\d+)?)$/);
+    if(!mm) return null;
+    const di = dayNames.indexOf(dayName);
+    if(di < 0) return null;
+    const startH = parseFloat(mm[1]), endH = parseFloat(mm[2]);
+    const base = weekStringToDate(recWeek).getTime() + di * 24 * 3600e3; // 該日 00:00
+    let start = base + startH * 3600e3;
+    let end   = base + endH   * 3600e3;
+    if(endH <= startH) end += 24 * 3600e3; // 跨夜：下班推隔天
+    return { start, end };
   }
+  const dayKey = ms => { const dt = new Date(ms); return `${dt.getFullYear()}-${dt.getMonth()}-${dt.getDate()}`; };
 
-  // 2. 加班超時（單日 > 12h，警告）
-  const h = parseFloat(newHours) || 0;
-  if(h > 12) {
-    warnings.push(`⚠️ ${empName} 單日工時 ${h}h，超過 12 小時`);
+  const targetIv = shiftIntervalWD(weekStr, day, newShift);
+
+  // 蒐集該員（跨週＋跨店）所有已載入班次；排除正在編輯的本格；派出/接收雙記錄去重
+  // 來源 allStoresRecords 已含本店當月各週 + 其他店「本店員工支援」記錄
+  const seen = new Set();
+  const empIntervals = [];
+  (appData.allStoresRecords || []).forEach(r => {
+    const belongs = (r.name === empName) || (r.supportEmp === `${curStore}-${empName}`);
+    if(!belongs) return;
+    if(r._store === curStore && r.week === weekStr && r.day === day) return; // 目標格改用 newShift
+    const iv = shiftIntervalWD(r.week, r.day, r.shift);
+    if(!iv) return;
+    const k = `${iv.start}|${iv.end}`;
+    if(seen.has(k)) return; // 同一實體班次的雙記錄（派出店 location=支援X／接收店 supportEmp）去重
+    seen.add(k);
+    iv._store = r._store;
+    empIntervals.push(iv);
+  });
+
+  if(targetIv) {
+    // 排除與 target 完全同時段的鏡像（編輯支援日時，接收店那筆即本班的另一份記錄）
+    const neighbors = empIntervals.filter(iv => !(iv.start === targetIv.start && iv.end === targetIv.end));
+
+    // 1. 時間重疊（強制錯誤）— 一個人不可能同一時刻在兩處；不重疊的同日跨店補班放行
+    const overlap = neighbors.find(iv => iv.start < targetIv.end && targetIv.start < iv.end);
+    if(overlap) {
+      const where = overlap._store !== curStore ? `「${overlap._store}」` : '同日另一班';
+      errors.push(`🔴 ${empName} 該時段已在${where}排班，時間重疊無法排！`);
+    }
+
+    // 2. 當日總工時 > 12h（跨店加總，警告）
+    const tKey = dayKey(targetIv.start);
+    let dailyH = (targetIv.end - targetIv.start) / 3600e3;
+    neighbors.forEach(iv => { if(dayKey(iv.start) === tKey) dailyH += (iv.end - iv.start) / 3600e3; });
+    if(dailyH > DAILY_MAX_H)
+      warnings.push(`⚠️ ${empName} 當日總工時 ${fmtN(dailyH)}h（跨店加總），超過 ${DAILY_MAX_H} 小時`);
+
+    // 4. 輪班間隔 < 11h（跨夜／跨週／跨店；左右鄰班雙向檢查）
+    const prev = neighbors.filter(iv => iv.end <= targetIv.start).sort((a,b)=>b.end-a.end)[0];
+    if(prev) {
+      const g = (targetIv.start - prev.end) / 3600e3;
+      if(g < MIN_REST_H) warnings.push(`⚠️ ${empName} 距前一班下班僅 ${fmtN(g)} 小時（未達 11 小時休息）`);
+    }
+    const next = neighbors.filter(iv => iv.start >= targetIv.end).sort((a,b)=>a.start-b.start)[0];
+    if(next) {
+      const g = (next.start - targetIv.end) / 3600e3;
+      if(g < MIN_REST_H) warnings.push(`⚠️ ${empName} 距下一班上班僅 ${fmtN(g)} 小時（未達 11 小時休息）`);
+    }
   }
 
   // 3. 連續工作天數（第七天，警告）
@@ -2580,47 +2629,6 @@ function detectScheduleConflicts(empName, day, weekStr, newShift, newHours) {
     // 往後數（下週的連續情況不在本週計算，簡化處理）
     if(consecutive >= 7) {
       warnings.push(`⚠️ ${empName} 本週連續出勤已達 ${consecutive} 天（第七天）`);
-    }
-  }
-
-  // 4. 輪班間隔 < 11 小時（§34；改用「帶日期的絕對時間軸」正確處理跨夜/跨日）
-  //    Phase 1 第 1 步：本週本店範圍。跨週/跨店鄰班於第 2 步補上。
-  const MIN_REST_H = 11;
-  // 班次字串 → {start,end}(ms)；非時間班別(排休/特休…)回 null
-  function shiftIntervalFor(dIdx, shiftStr) {
-    const mm = (shiftStr || '').match(/^(\d{1,2}(?:\.\d+)?)-(\d{1,2}(?:\.\d+)?)$/);
-    if(!mm) return null;
-    const startH = parseFloat(mm[1]), endH = parseFloat(mm[2]);
-    const base = weekStringToDate(weekStr).getTime() + dIdx * 24 * 3600e3; // 該日 00:00
-    let start = base + startH * 3600e3;
-    let end   = base + endH   * 3600e3;
-    if(endH <= startH) end += 24 * 3600e3; // 跨夜：下班推隔天
-    return { start, end };
-  }
-  const fmtGap = g => (Math.round(g * 10) / 10);
-  const targetIv = shiftIntervalFor(dayIdx, newShift);
-  if(targetIv) {
-    // 蒐集同員本週其他日班次（目標格用 newShift，故排除其既有記錄）
-    const others = [];
-    for(let i = 0; i < dayNames.length; i++) {
-      if(i === dayIdx) continue;
-      const rec = appData.records.find(r =>
-        r.name === empName && r.day === dayNames[i] && r.week === weekStr
-      );
-      const iv = rec ? shiftIntervalFor(i, rec.shift) : null;
-      if(iv) others.push(iv);
-    }
-    // 左鄰：下班 ≤ 目標上班，取最晚下班者
-    const prev = others.filter(iv => iv.end <= targetIv.start).sort((a,b)=>b.end-a.end)[0];
-    if(prev) {
-      const g = (targetIv.start - prev.end) / 3600e3;
-      if(g < MIN_REST_H) warnings.push(`⚠️ ${empName} 距前一班下班僅 ${fmtGap(g)} 小時（未達 11 小時休息）`);
-    }
-    // 右鄰：上班 ≥ 目標下班，取最早上班者（插一班也會壓縮到後一班的休息）
-    const next = others.filter(iv => iv.start >= targetIv.end).sort((a,b)=>a.start-b.start)[0];
-    if(next) {
-      const g = (next.start - targetIv.end) / 3600e3;
-      if(g < MIN_REST_H) warnings.push(`⚠️ ${empName} 距下一班上班僅 ${fmtGap(g)} 小時（未達 11 小時休息）`);
     }
   }
 
