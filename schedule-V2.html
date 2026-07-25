@@ -2534,15 +2534,18 @@ function validateShiftFormat(raw) {
   if(!s) return null; // 空白（清空）不擋
   // 純文字班別（排休/指休/特休/補休等，無數字）放行
   if(!/\d/.test(s)) return null;
-  // 時間班別必須符合「數字[.小數]-數字[.小數]」
-  const m = s.match(/^(\d{1,2}(?:\.\d+)?)-(\d{1,2}(?:\.\d+)?)$/);
-  if(!m) return `班別格式錯誤：請用「開始-結束」，例如 7-15、15.5-18`;
-  for(const part of [m[1], m[2]]) {
-    const dot = part.indexOf('.');
-    if(dot >= 0) {
-      const dec = part.slice(dot+1);
-      if(!['25','5','75'].includes(dec))
-        return `時間「${part}」小數錯誤：30分寫 .5、15分寫 .25、45分寫 .75（勿用 .30）`;
+  // 支援兩頭班：逗號分隔多段，每段須為「數字[.小數]-數字[.小數]」
+  const segs = s.split(',').map(x => x.trim());
+  for(const seg of segs) {
+    const m = seg.match(/^(\d{1,2}(?:\.\d+)?)-(\d{1,2}(?:\.\d+)?)$/);
+    if(!m) return `班別格式錯誤：請用「開始-結束」，兩頭班用逗號，例如 7-15、7-11,17-21`;
+    for(const part of [m[1], m[2]]) {
+      const dot = part.indexOf('.');
+      if(dot >= 0) {
+        const dec = part.slice(dot+1);
+        if(!['25','5','75'].includes(dec))
+          return `時間「${part}」小數錯誤：30分寫 .5、15分寫 .25、45分寫 .75（勿用 .30）`;
+      }
     }
   }
   return null;
@@ -2559,8 +2562,13 @@ function autoFillHours() {
     hint.textContent = err || '';
   }
   if((appConfig.shiftHours||{})[s]) { t.value=(appConfig.shiftHours||{})[s]; return; }
-  const m=s.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)/);
-  if(m) { let sT=parseFloat(m[1]),eT=parseFloat(m[2]); if(eT<=sT) eT+=24; t.value=eT-sT; }
+  // 兩頭班：逐段加總時數
+  let total = 0, matched = false;
+  s.split(',').forEach(seg => {
+    const m = seg.trim().match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)/);
+    if(m) { let sT=parseFloat(m[1]), eT=parseFloat(m[2]); if(eT<=sT) eT+=24; total += eT-sT; matched=true; }
+  });
+  if(matched) t.value = Math.round(total*100)/100;
   else if(s==='排休'||s==='指休'||s==='特休'||s==='補休') t.value=0;
 }
 
@@ -2578,97 +2586,105 @@ function detectScheduleConflicts(empName, day, weekStr, newShift, newHours) {
   const DAILY_MAX_H = 12;
   const fmtN = g => (Math.round(g * 10) / 10);
 
-  // 班次(週,日,字串) → {start,end}(ms)；非時間班別(排休/特休…)回 null
-  function shiftIntervalWD(recWeek, dayName, shiftStr) {
-    const mm = (shiftStr || '').match(/^(\d{1,2}(?:\.\d+)?)-(\d{1,2}(?:\.\d+)?)$/);
-    if(!mm) return null;
+  // 班次(週,日,字串) → intervals[]（支援兩頭班：逗號多段）；非時間班別回 []
+  function shiftIntervalsWD(recWeek, dayName, shiftStr) {
     const di = dayNames.indexOf(dayName);
-    if(di < 0) return null;
-    const startH = parseFloat(mm[1]), endH = parseFloat(mm[2]);
+    if(di < 0) return [];
     const base = weekStringToDate(recWeek).getTime() + di * 24 * 3600e3; // 該日 00:00
-    let start = base + startH * 3600e3;
-    let end   = base + endH   * 3600e3;
-    if(endH <= startH) end += 24 * 3600e3; // 跨夜：下班推隔天
-    return { start, end };
+    const out = [];
+    (shiftStr || '').split(',').forEach(seg => {
+      const mm = seg.trim().match(/^(\d{1,2}(?:\.\d+)?)-(\d{1,2}(?:\.\d+)?)$/);
+      if(!mm) return;
+      const startH = parseFloat(mm[1]), endH = parseFloat(mm[2]);
+      let start = base + startH * 3600e3;
+      let end   = base + endH   * 3600e3;
+      if(endH <= startH) end += 24 * 3600e3; // 跨夜：下班推隔天
+      out.push({ start, end });
+    });
+    return out;
   }
   const dayKey = ms => { const dt = new Date(ms); return `${dt.getFullYear()}-${dt.getMonth()}-${dt.getDate()}`; };
 
-  const targetIv = shiftIntervalWD(weekStr, day, newShift);
+  const targetIvs = shiftIntervalsWD(weekStr, day, newShift);
 
-  // 蒐集該員（跨週＋跨店）所有已載入班次；排除正在編輯的本格；派出/接收雙記錄去重
-  // ⚠️ 本店鄰班務必讀 live 的 appData.records（含當月各週、即時反映本 session 未存的編輯），
-  //   不可讀 allStoresRecords —— 後者是載入/存檔時的快照，session 內編輯不會即時更新，
-  //   會造成「未存前違規不擋」與「剛改休息卻仍以舊班誤擋」。他店支援才讀 allStoresRecords。
+  // 蒐集該員（跨週＋跨店）所有已載入班次段；排除正在編輯的本格；派出/接收雙記錄去重
+  // ⚠️ 本店讀 live appData.records（即時反映未存編輯）；他店支援才讀 allStoresRecords 快照。
   const seen = new Set();
   const empIntervals = [];
-  const pushIv = (r, storeLabel) => {
-    const iv = shiftIntervalWD(r.week, r.day, r.shift);
-    if(!iv) return;
-    const k = `${iv.start}|${iv.end}`;
-    if(seen.has(k)) return; // 同一實體班次的雙記錄（派出店 location=支援X／接收店 supportEmp）去重
-    seen.add(k);
-    iv._store = storeLabel;
-    empIntervals.push(iv);
+  const pushIvs = (r, storeLabel) => {
+    shiftIntervalsWD(r.week, r.day, r.shift).forEach(iv => {
+      const k = `${iv.start}|${iv.end}`;
+      if(seen.has(k)) return; // 同一實體班次的雙記錄（派出/接收）去重
+      seen.add(k);
+      empIntervals.push({ start: iv.start, end: iv.end, _store: storeLabel });
+    });
   };
-  // (a) 本店：live appData.records
   (appData.records || []).forEach(r => {
     const belongs = (r.name === empName) || (r.supportEmp === `${curStore}-${empName}`);
     if(!belongs) return;
     if(r.week === weekStr && r.day === day) return; // 目標格改用 newShift
-    pushIv(r, curStore);
+    pushIvs(r, curStore);
   });
-  // (b) 他店支援：allStoresRecords 只取其他門市（本店員工去支援的記錄）
   (appData.allStoresRecords || []).forEach(r => {
     if(r._store === curStore) return; // 本店已用 appData.records
     const belongs = (r.name === empName) || (r.supportEmp === `${curStore}-${empName}`);
     if(!belongs) return;
-    pushIv(r, r._store);
+    pushIvs(r, r._store);
   });
 
-  if(targetIv) {
-    // 排除與 target 完全同時段的鏡像（編輯支援日時，接收店那筆即本班的另一份記錄）
-    const neighbors = empIntervals.filter(iv => !(iv.start === targetIv.start && iv.end === targetIv.end));
+  if(targetIvs.length) {
+    // 排除與任一 target 段完全同時段的鏡像（編輯支援日時，接收店那筆即本班另一份記錄）
+    const neighbors = empIntervals.filter(iv => !targetIvs.some(t => iv.start === t.start && iv.end === t.end));
+    const tFirstStart = Math.min(...targetIvs.map(t => t.start));
+    const tLastEnd    = Math.max(...targetIvs.map(t => t.end));
+    const tDay        = dayKey(tFirstStart);
 
-    // 1. 時間重疊（強制錯誤）— 一個人不可能同一時刻在兩處；不重疊的同日跨店補班放行
-    const overlap = neighbors.find(iv => iv.start < targetIv.end && targetIv.start < iv.end);
+    // 1. 時間重疊（強制錯誤）— 一個人不可能同一時刻在兩處
+    let overlap = null;
+    for(const t of targetIvs) { overlap = neighbors.find(iv => iv.start < t.end && t.start < iv.end); if(overlap) break; }
+    let selfOverlap = false; // 兩頭班兩段互相重疊 = 輸入錯誤
+    for(let i=0;i<targetIvs.length && !selfOverlap;i++)
+      for(let j=i+1;j<targetIvs.length;j++)
+        if(targetIvs[i].start < targetIvs[j].end && targetIvs[j].start < targetIvs[i].end) { selfOverlap = true; break; }
     if(overlap) {
       const where = overlap._store !== curStore ? `「${overlap._store}」` : '同日另一班';
       errors.push(`🔴 ${empName} 該時段已在${where}排班，時間重疊無法排！`);
+    } else if(selfOverlap) {
+      errors.push(`🔴 ${empName} 兩頭班的兩段時間重疊，請修正！`);
     }
 
-    // 1.5 連續工時（軟擋 §32）— 相接(間隔=0)的班合併成一段連續班，如大夜 23-07 直接接
-    //     早班 7-15 = 連續 16h、中間無休息。超過單日上限 → 知情放行。
-    let blkStart = targetIv.start, blkEnd = targetIv.end, grew = true;
-    while(grew) {
-      grew = false;
-      for(const iv of neighbors) {
-        if(iv.start <= blkEnd && iv.end >= blkStart) { // 相接或重疊 → 併入連續段
-          if(iv.start < blkStart) { blkStart = iv.start; grew = true; }
-          if(iv.end   > blkEnd)   { blkEnd   = iv.end;   grew = true; }
-        }
-      }
+    // 1.5 連續工時（軟擋 §32）— 把所有相接/重疊的段合併成連續區塊；含 target 段且跨度 >12h → 知情放行
+    //     兩頭班中間有休息 → 不相接 → 不會合併；大夜 23-07 直接接早班 7-15 → 相接 → 合併 16h → 觸發
+    const merged = neighbors.concat(targetIvs).sort((a,b)=>a.start-b.start);
+    const blocks = [];
+    for(const iv of merged) {
+      const last = blocks[blocks.length-1];
+      if(last && iv.start <= last.end) last.end = Math.max(last.end, iv.end);
+      else blocks.push({ start: iv.start, end: iv.end });
     }
-    const contH = (blkEnd - blkStart) / 3600e3;
-    if(contH > DAILY_MAX_H)
+    const contBlk = blocks.find(b => (b.end - b.start)/3600e3 > DAILY_MAX_H &&
+      targetIvs.some(t => t.start >= b.start && t.end <= b.end));
+    if(contBlk) {
+      const contH = (contBlk.end - contBlk.start)/3600e3;
       softBlocks.push({ rule:'continuous12h', measured: fmtN(contH), msg:`連續工時 ${fmtN(contH)}h（含相接／跨夜、中間無休息），超過 ${DAILY_MAX_H} 小時` });
+    }
 
-    // 2. 當日總工時 > 12h（跨店加總，軟擋 §32）
-    const tKey = dayKey(targetIv.start);
-    let dailyH = (targetIv.end - targetIv.start) / 3600e3;
-    neighbors.forEach(iv => { if(dayKey(iv.start) === tKey) dailyH += (iv.end - iv.start) / 3600e3; });
+    // 2. 當日總工時 > 12h（同日多段＝兩頭班＋跨店加總，軟擋 §32）
+    let dailyH = targetIvs.reduce((s,t)=>s+(t.end-t.start)/3600e3, 0);
+    neighbors.forEach(iv => { if(dayKey(iv.start) === tDay) dailyH += (iv.end - iv.start)/3600e3; });
     if(dailyH > DAILY_MAX_H)
-      softBlocks.push({ rule:'daily12h', measured: fmtN(dailyH), msg:`當日總工時 ${fmtN(dailyH)}h（跨店加總），超過 ${DAILY_MAX_H} 小時` });
+      softBlocks.push({ rule:'daily12h', measured: fmtN(dailyH), msg:`當日總工時 ${fmtN(dailyH)}h（含兩頭班／跨店加總），超過 ${DAILY_MAX_H} 小時` });
 
-    // 4. 輪班間隔 < 11h（跨夜／跨週／跨店；左右鄰班雙向檢查，軟擋 §34）
-    // 間隔 = 0（相接）屬連續班，由上面「連續工時」硬擋處理，這裡只抓「有休息但不足 11h」
-    const prev = neighbors.filter(iv => iv.end <= targetIv.start).sort((a,b)=>b.end-a.end)[0];
+    // 4. 輪班間隔 < 11h（軟擋 §34）— 只算「跨工作日」的休息；同日多段(兩頭班午休/同日跨店)不算，
+    //    由當日總工時把關。間隔 = 0（相接）屬連續班，由連續工時處理。
+    const prev = neighbors.filter(iv => dayKey(iv.start) !== tDay && iv.end <= tFirstStart).sort((a,b)=>b.end-a.end)[0];
     if(prev) {
-      const g = (targetIv.start - prev.end) / 3600e3;
+      const g = (tFirstStart - prev.end) / 3600e3;
       if(g > 0 && g < MIN_REST_H) softBlocks.push({ rule:'rest11h', measured: fmtN(g), msg:`距前一班下班僅 ${fmtN(g)} 小時（未達 11 小時休息）` });
     }
-    const next = neighbors.filter(iv => iv.start >= targetIv.end).sort((a,b)=>a.start-b.start)[0];
+    const next = neighbors.filter(iv => dayKey(iv.start) !== tDay && iv.start >= tLastEnd).sort((a,b)=>a.start-b.start)[0];
     if(next) {
-      const g = (next.start - targetIv.end) / 3600e3;
+      const g = (next.start - tLastEnd) / 3600e3;
       if(g > 0 && g < MIN_REST_H) softBlocks.push({ rule:'rest11h', measured: fmtN(g), msg:`距下一班上班僅 ${fmtN(g)} 小時（未達 11 小時休息）` });
     }
   }
