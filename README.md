@@ -8,6 +8,14 @@
 
 ### 2026-07-26（日）
 
+#### 📋 規劃
+
+- **員工薪資簽收（簽名板版）規格（`docs/salary-acknowledgment-spec.md`）**
+  - 員工每月對**已發布**薪資手寫簽名簽收；未簽首頁提醒；薪資改過需重簽；收回發布提醒自動消失；2026-07 起。全部有薪資記錄者（含店長）皆需簽。
+  - 資料：salary 記錄加 `payHash`（金額指紋）＋ `salaryAck`（狀態輕層）＋ `salaryAckSig`（簽名圖重層，按需載入）。發布閘門沿用現有 `status==='published'`。
+  - 安全：員工只能寫自己的 `salaryAck`，salary 記錄權限不動；payHash 單一由 salary.html 計算。
+  - 落地：①salary 存 payHash ②安全規則 ③my-salary 簽名板 ④home 提醒 ⑤管理者簽收欄。
+
 #### 🐛 修正跨店支援「時薪另計」漏算時薪支援費（`salary.html`、`my-salary.html`）
 
 - **症狀**：正職跨店支援他店、該段班勾「時薪另計（isHourly）」時，時薪支援費算 0（少領）。
