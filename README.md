@@ -20,6 +20,11 @@
 - 金鑰用 Secret（`LINE_CHANNEL_ACCESS_TOKEN`/`LINE_CHANNEL_SECRET`），部署時設、不進程式碼/前端。附 `linePush` 供之後事件推播共用。
 - ⏳ 待上線：需先建 LINE OA、設 secrets、部署後把 function URL 貼回 LINE console webhook。
 
+#### ✨ LINE 通知 步驟2：前端綁定入口（`home.html`）
+
+- 首頁選單新增「🔔 LINE 通知綁定」→ 開 Modal：未綁定則產 6 位數碼寫 `lineBindCodes`（10 分到期）＋顯示官方帳號加入鍵（讀 `appConfig.lineOaUrl`）＋綁定碼；已綁定則顯示狀態＋解除綁定。
+- 綁定碼傳到官方帳號由步驟1 `lineWebhook` 完成配對。⚠️ 管理者需在 `settings/globalConfig.lineOaUrl` 設官方帳號加好友連結（未設則提示）。
+
 ### 2026-07-26（日）
 
 #### ✨ 劃休優化 步驟6＋首頁提示強化（`schedule-V2.html`、`home.html`）

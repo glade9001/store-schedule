@@ -855,6 +855,14 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
           </div>
           <div class="menu-item-arrow">›</div>
         </div>
+        <div class="menu-item" onclick="openLineBindModal()">
+          <div class="menu-item-icon" style="background:#e6f7ea;">🔔</div>
+          <div class="menu-item-text">
+            <div class="menu-item-title">LINE 通知綁定</div>
+            <div class="menu-item-sub" id="lineBindSub">綁定後可收薪資/劃休等主動通知</div>
+          </div>
+          <div class="menu-item-arrow">›</div>
+        </div>
         <div class="menu-item" onclick="showWip('劃休紀錄')">
           <div class="menu-item-icon" style="background:#fce8e6;">📜</div>
           <div class="menu-item-text">
@@ -1104,6 +1112,15 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       立即綁定 Google
     </button>
     <button onclick="dismissGoogleBind()" style="width:100%;padding:12px;background:none;color:var(--text-muted);border:none;font-size:14px;cursor:pointer;">以後再說</button>
+  </div>
+</div>
+
+<!-- ===== LINE 通知綁定 ===== -->
+<div id="lineBindOverlay" style="display:none; position:fixed; inset:0; background:rgba(30,41,59,0.7); z-index:6000; justify-content:center; align-items:center; padding:20px;" onclick="if(event.target===this)closeLineBind()">
+  <div style="background:#fff; border-radius:18px; width:100%; max-width:400px; padding:22px; max-height:88vh; overflow-y:auto;">
+    <div style="font-size:17px; font-weight:900; margin-bottom:8px;">🔔 LINE 通知綁定</div>
+    <div id="lineBindBody" style="font-size:13px; color:var(--text); line-height:1.8;">載入中…</div>
+    <button onclick="closeLineBind()" style="width:100%; padding:11px; background:#f1f3f4; border:none; border-radius:10px; font-size:14px; font-weight:700; cursor:pointer; margin-top:14px;">關閉</button>
   </div>
 </div>
 
@@ -1652,6 +1669,45 @@ async function checkLeaveHint(){
 function dismissLeaveHint(){
   const bar=document.getElementById('leaveHintBanner');
   if(bar){ localStorage.setItem('leaveHintDismissed_'+(bar.dataset.week||''),'1'); bar.style.display='none'; }
+}
+
+// ===== LINE 通知綁定（綁定碼版）=====
+function closeLineBind(){ document.getElementById('lineBindOverlay').style.display='none'; }
+async function openLineBindModal(){
+  document.getElementById('lineBindOverlay').style.display='flex';
+  const body=document.getElementById('lineBindBody');
+  body.innerHTML='載入中…';
+  try{
+    const bs=await window.db.collection('lineBindings').doc(currentUser.uid).get().catch(()=>null);
+    if(bs && bs.exists){
+      body.innerHTML=`<div style="color:#2e7d32;font-weight:800;">✅ 已綁定 LINE 通知</div>
+        <div style="margin-top:8px;color:var(--text-muted);">綁定時間：${String(bs.data().boundAt||'').slice(0,16).replace('T',' ')}</div>
+        <button onclick="unbindLine()" style="width:100%;padding:10px;background:#fce8e6;color:var(--danger);border:none;border-radius:10px;font-weight:700;cursor:pointer;margin-top:14px;">解除綁定</button>`;
+      return;
+    }
+    const code=String(Math.floor(100000+Math.random()*900000));
+    await window.db.collection('lineBindCodes').doc(code).set({
+      uid:currentUser.uid, empName:currentUser.empName||'', store:currentUser.store||'',
+      createdAt:new Date().toISOString(), expiresAt:Date.now()+10*60*1000
+    });
+    const oa=(appConfig&&appConfig.lineOaUrl)||'';
+    const oaBtn = oa
+      ? `<a href="${oa}" target="_blank" style="display:block;text-align:center;background:#06c755;color:#fff;padding:11px;border-radius:10px;font-weight:800;text-decoration:none;margin:10px 0;">➕ 加入官方帳號</a>`
+      : `<div style="color:var(--danger);margin:10px 0;font-weight:700;">⚠️ 官方帳號連結尚未設定，請聯絡管理員設定 lineOaUrl。</div>`;
+    body.innerHTML=`
+      <div style="color:var(--text-muted);">綁定後，薪資發布、劃休開放等會主動用 LINE 通知你：</div>
+      <div style="margin-top:12px;font-weight:800;">① 加入官方帳號好友</div>
+      ${oaBtn}
+      <div style="font-weight:800;">② 在該官方帳號聊天室傳送這組綁定碼：</div>
+      <div style="text-align:center;font-size:30px;font-weight:900;letter-spacing:6px;color:var(--primary);background:#eef4ff;border-radius:10px;padding:12px;margin:8px 0;">${code}</div>
+      <div style="font-size:12px;color:var(--text-muted);">（10 分鐘內有效；傳送後會收到「綁定成功」）</div>`;
+  }catch(e){ body.innerHTML='載入失敗：'+e.message; }
+}
+async function unbindLine(){
+  if(!confirm('確定解除 LINE 通知綁定？')) return;
+  await window.db.collection('lineBindings').doc(currentUser.uid).delete().catch(()=>{});
+  closeLineBind();
+  if(typeof showToast==='function') showToast('已解除綁定');
 }
 
 // ===== 初始化 APP =====
