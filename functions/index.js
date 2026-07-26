@@ -249,3 +249,68 @@ exports.lineWebhook = onRequest(
     res.status(200).send("ok");
   }
 );
+
+// ===== LINE 通知：事件推播（步驟3、4）=====
+const { onDocumentWritten } = require("firebase-functions/v2/firestore");
+
+// 依 empName 找 LINE 綁定（優先同 store）並推播；buildText(displayName)→訊息
+async function notifyEmployees(db, empNames, store, buildText, token) {
+  const names = [...new Set((empNames || []).filter(Boolean))];
+  if (!names.length) return;
+  const snap = await db.collection("lineBindings").get();
+  const byEmp = {};
+  snap.forEach((d) => {
+    const b = d.data();
+    if (!b.empName || !b.lineUserId) return;
+    (byEmp[b.empName] = byEmp[b.empName] || []).push(b);
+  });
+  for (const emp of names) {
+    const list = byEmp[emp] || [];
+    const b = list.find((x) => x.store === store) || list[0];
+    if (b) await linePush(b.lineUserId, buildText(b.displayName || emp), token);
+  }
+}
+
+// 薪資發布 → 通知該月有記錄的員工
+exports.onSalaryPublished = onDocumentWritten(
+  { document: "stores/{store}/salary/{month}", region: "asia-east1", secrets: [LINE_TOKEN] },
+  async (event) => {
+    const before = event.data.before.exists ? event.data.before.data() : {};
+    const after = event.data.after.exists ? event.data.after.data() : {};
+    if (before.status === "published" || after.status !== "published") return; // 只在「變成 published」
+    const store = event.params.store;
+    const month = event.params.month;
+    // 薪資記錄的員工欄位是 name（非 empName）；lineBindings.empName 存的是同一組短名
+    const empNames = (after.records || []).map((r) => r.name);
+    const db = admin.firestore();
+    await notifyEmployees(
+      db, empNames, store,
+      (name) => `💰 ${name}，你的 ${month} 薪資已發布，請至 App 查看並簽收。`,
+      LINE_TOKEN.value()
+    );
+  }
+);
+
+// 劃休開放（下週）→ 通知全店在職員工
+exports.onLeaveWindowOpened = onDocumentWritten(
+  { document: "stores/{store}/config/leaveWindow", region: "asia-east1", secrets: [LINE_TOKEN] },
+  async (event) => {
+    const before = event.data.before.exists ? event.data.before.data() : {};
+    const after = event.data.after.exists ? event.data.after.data() : {};
+    if (before.nextWeekOpen === true || after.nextWeekOpen !== true) return; // 只在「剛開放」
+    const store = event.params.store;
+    const closeDT = after.closeDateTime || (after.closeDate ? after.closeDate + " 23:59" : "");
+    const db = admin.firestore();
+    const empsSnap = await db.collection("stores").doc(store).collection("employees").get();
+    const empNames = [];
+    empsSnap.forEach((d) => {
+      const e = d.data();
+      if (!["離職", "調走"].includes(e.status)) empNames.push(d.id);
+    });
+    await notifyEmployees(
+      db, empNames, store,
+      (name) => `📅 ${store} 下週劃休已開放${closeDT ? `，截止 ${closeDT}` : ""}。需要休假記得到 App 劃休～`,
+      LINE_TOKEN.value()
+    );
+  }
+);

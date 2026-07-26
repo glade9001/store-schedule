@@ -504,13 +504,15 @@ async function loadEmpAdminList(store) {
       tabsEl.innerHTML = `<div class="store-tab active">${store}</div>`;
     }
 
-    const [empSnap, accSnap, pendingAccSnap] = await Promise.all([
+    const [empSnap, accSnap, pendingAccSnap, lineSnap] = await Promise.all([
       window.db.collection('stores').doc(store).collection('employees').orderBy('sortKey').get().catch(() =>
         window.db.collection('stores').doc(store).collection('employees').get()
       ),
       window.db.collection('account').where('store','==',store).get().catch(()=>null),
       // 同時撈待調入此門市的帳號（store 尚未更新但 pendingStore 已指向此店）
-      window.db.collection('account').where('pendingStore','==',store).get().catch(()=>null)
+      window.db.collection('account').where('pendingStore','==',store).get().catch(()=>null),
+      // LINE 綁定狀態（顯示每人是否已綁定通知）
+      window.db.collection('lineBindings').where('store','==',store).get().catch(()=>null)
     ]);
 
     const accounts = {};
@@ -519,6 +521,10 @@ async function loadEmpAdminList(store) {
       const data = d.data();
       if(!accounts[data.empName]) accounts[data.empName] = data;
     });
+
+    // 已綁定 LINE 的 empName 集合
+    const lineBound = new Set();
+    if(lineSnap) lineSnap.forEach(d => { const b = d.data(); if(b.empName) lineBound.add(b.empName); });
 
     const listEl = document.getElementById('empAdminList');
     listEl.innerHTML = '';
@@ -560,6 +566,9 @@ async function loadEmpAdminList(store) {
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
             <span class="emp-name" style="font-size:15px;">${dName}</span>
             <span style="font-size:11px;background:#f1f3f4;padding:2px 7px;border-radius:20px;font-weight:700;color:#555;">${emp.role||''}</span>
+            ${lineBound.has(emp.id)
+              ? '<span title="已綁定 LINE 通知" style="font-size:11px;background:#e7f7ed;padding:2px 7px;border-radius:20px;font-weight:700;color:#06c755;">🟢 LINE</span>'
+              : '<span title="尚未綁定 LINE 通知" style="font-size:11px;background:#f1f3f4;padding:2px 7px;border-radius:20px;font-weight:700;color:#9aa0a6;">⚪ 未綁</span>'}
           </div>
           <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
             📅 ${hireDateMap[emp.id] ? hireDateMap[emp.id] : '未設到職日'}
