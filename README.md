@@ -14,6 +14,12 @@
   - 發送：`sendLineNotify` Cloud Function 讀綁定→LINE push；建議用 Firestore trigger。
   - 前置需你先建 LINE OA 取得 token/secret（存 Cloud Functions 環境、勿進前端）。
 
+#### ✨ LINE 通知 步驟1：綁定 webhook（`functions/index.js`）
+
+- 新增 Cloud Function `lineWebhook`（v2 onRequest，asia-east1）：驗 `X-Line-Signature`；`follow` 回歡迎詞；`message` 收 6 位數綁定碼→比對 `lineBindCodes`→寫 `lineBindings/{uid}`（uid↔lineUserId）→回覆綁定成功。
+- 金鑰用 Secret（`LINE_CHANNEL_ACCESS_TOKEN`/`LINE_CHANNEL_SECRET`），部署時設、不進程式碼/前端。附 `linePush` 供之後事件推播共用。
+- ⏳ 待上線：需先建 LINE OA、設 secrets、部署後把 function URL 貼回 LINE console webhook。
+
 ### 2026-07-26（日）
 
 #### ✨ 劃休優化 步驟6＋首頁提示強化（`schedule-V2.html`、`home.html`）
