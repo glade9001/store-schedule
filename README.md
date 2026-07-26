@@ -8,6 +8,12 @@
 
 ### 2026-07-26（日）
 
+#### ✨ 劃休優化 步驟1：settings 每日/每週劃休上限（`settings.html`）
+
+- 修正誤標：原「每週劃休上限」實際被 leave-request 當「每日」用 → 拆成正確兩區：**每日劃休上限**（正職人/天、工讀人/天）＋**每週劃休上限**（正職天/週）。
+- 新增**「工讀不受每日上限」toggle**（勾選＝工讀想休就劃、僅顯示不擋，數字欄自動禁用）。
+- `config/shifts.leaveQuota` 新增 `partTimeUnlimited`、`weeklyFull`（相容舊值，load 用 `??` fallback）。
+
 #### ✨ 發布時存實發金額，my-salary／analytics 直接讀（根治顯示分歧）
 
 - **salary.html 存檔/發布時**：`stampPayHashes` 一併把 `grossAmt`／`deductAmt`／`netAmt`（用 `salary-calc.js` 算的實發金額）寫進每筆記錄（四個存檔點皆涵蓋）。
