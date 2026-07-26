@@ -6,6 +6,14 @@
 
 ## 更新紀錄
 
+#### 📋 規劃
+
+- **LINE 通知系統規格（`docs/line-notification-spec.md`）**
+  - 用 LINE 官方帳號 Messaging API 主動推播（薪資發布、劃休開放…），不用點開 App。
+  - 綁定：App 產綁定碼→員工在 LINE 傳碼→`lineWebhook` 寫 `lineBindings`（uid↔lineUserId）。
+  - 發送：`sendLineNotify` Cloud Function 讀綁定→LINE push；建議用 Firestore trigger。
+  - 前置需你先建 LINE OA 取得 token/secret（存 Cloud Functions 環境、勿進前端）。
+
 ### 2026-07-26（日）
 
 #### ✨ 劃休優化 步驟6＋首頁提示強化（`schedule-V2.html`、`home.html`）
