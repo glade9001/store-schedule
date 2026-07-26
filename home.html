@@ -1702,7 +1702,7 @@ async function openLineBindModal(){
     }
     const code=String(Math.floor(100000+Math.random()*900000));
     await window.db.collection('lineBindCodes').doc(code).set({
-      uid:currentUser.uid, empName:currentUser.empName||'', store:currentUser.store||'',
+      uid:currentUser.uid, empName:currentUser.empName||'', displayName:currentUser.displayName||currentUser.empName||'', store:currentUser.store||'',
       createdAt:new Date().toISOString(), expiresAt:Date.now()+10*60*1000
     });
     const oa=(appConfig&&appConfig.lineOaUrl)||'';

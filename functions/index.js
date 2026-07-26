@@ -225,9 +225,11 @@ exports.lineWebhook = onRequest(
             await lineReply(ev.replyToken, "綁定碼已過期，請回 App 重新產生。", token);
             continue;
           }
+          const dispName = data.displayName || data.empName || "";
           await db.collection("lineBindings").doc(data.uid).set({
             uid: data.uid,
             empName: data.empName || "",
+            displayName: dispName,
             store: data.store || "",
             lineUserId: lineUserId || "",
             boundAt: new Date().toISOString(),
@@ -235,7 +237,7 @@ exports.lineWebhook = onRequest(
           await codeRef.delete().catch(() => {});
           await lineReply(
             ev.replyToken,
-            `✅ 綁定成功！${data.empName || ""} 之後會在這裡收到通知。`,
+            `✅ 綁定成功！${dispName} 之後會在這裡收到通知。`,
             token
           );
           continue;
