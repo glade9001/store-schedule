@@ -714,6 +714,12 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
         <div style="color:var(--danger); font-size:16px; font-weight:900;">›</div>
       </div>
 
+      <div id="salaryAckBanner" style="display:none; background:linear-gradient(135deg,#fff3e0,#fef2f2); border:1.5px solid #e65100; border-radius:12px; padding:10px 14px; margin-bottom:12px; cursor:pointer; align-items:center; gap:10px;" onclick="gotoSalaryAck()">
+        <div style="font-size:18px;">✍️</div>
+        <div style="flex:1; font-size:13px; font-weight:800; color:#e65100;">你有薪資待簽收（<span id="salaryAckMonths"></span>），點此簽收</div>
+        <div style="color:#e65100; font-size:16px; font-weight:900;">›</div>
+      </div>
+
       <div class="card">
         <div class="section-header">
           <div class="section-title" style="font-size:13px;">📅 我的班表</div>
@@ -1543,6 +1549,56 @@ function dismissGoogleBind() {
   document.getElementById('googleBindSheet').classList.remove('active');
 }
 
+// ===== 薪資待簽收提醒（步驟4）=====
+const SALARY_ACK_START = '2026-06'; // 與 my-salary.html 同值
+function _ackMonthsFromStart(){
+  const now=new Date();
+  const cur=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  const out=[]; let [y,m]=SALARY_ACK_START.split('-').map(Number);
+  for(let i=0;i<60;i++){ const ym=`${y}-${String(m).padStart(2,'0')}`; out.push(ym); if(ym===cur) break; m++; if(m>12){m=1;y++;} }
+  return out;
+}
+async function checkSalaryAck(){
+  try{
+    if(!currentUser?.uid || !currentUser?.empName) return;
+    const myStore=currentUser.store;
+    const stores=[myStore, ...((appConfig.stores||[]).filter(s=>s&&s!==myStore))].filter(Boolean);
+    const pending=[];
+    for(const ym of _ackMonthsFromStart()){
+      // 找本人在該月「已發布」的薪資記錄（先本店，找到就停）
+      let rec=null;
+      for(const st of stores){
+        const snap=await window.db.collection('stores').doc(st).collection('salary').doc(ym).get().catch(()=>null);
+        if(snap && snap.exists){
+          const d=snap.data();
+          if((d.status||'draft')==='published'){
+            const r=(d.records||[]).find(x=>x.empName===currentUser.empName);
+            if(r){ rec=r; break; }
+          }
+        }
+      }
+      if(!rec) continue; // 該月無已發布記錄 → 不提醒
+      const ackSnap=await window.db.collection('salaryAck').doc(`${currentUser.uid}_${ym}`).get().catch(()=>null);
+      const ack=ackSnap && ackSnap.exists ? ackSnap.data() : null;
+      const signed = ack && (ack.signedPayHash||'')===(rec.payHash||'');
+      if(!signed) pending.push(ym);
+    }
+    renderSalaryAckBanner(pending);
+  }catch(e){ console.error('checkSalaryAck 失敗', e); }
+}
+function renderSalaryAckBanner(pending){
+  const bar=document.getElementById('salaryAckBanner');
+  if(!bar) return;
+  if(!pending.length){ bar.style.display='none'; return; }
+  document.getElementById('salaryAckMonths').textContent = pending.map(m=>m.replace('-','/')).join('、');
+  bar.dataset.month = pending[0];
+  bar.style.display='flex';
+}
+function gotoSalaryAck(){
+  const m=document.getElementById('salaryAckBanner')?.dataset.month||'';
+  window.location.href='my-salary.html'+(m?`?month=${m}`:'');
+}
+
 // ===== 初始化 APP =====
 async function initApp() {
   showLoading('載入個人資料中...');
@@ -1585,6 +1641,7 @@ async function initApp() {
   document.getElementById('pendingCard').style.display = 'block';
 
   renderQuickBtns();
+  checkSalaryAck(); // 背景檢查薪資待簽收，完成後顯示橫幅
 
   if(canManageEmployee()) {
     document.getElementById('menuAccountSub').textContent = '管理員工帳號密碼';

@@ -1253,6 +1253,9 @@ async function _initSalaryShell() {
     const prevM = now.getMonth() === 0 ? 12 : now.getMonth();
     const prevY = now.getMonth() === 0 ? now.getFullYear()-1 : now.getFullYear();
     currentMonth = `${prevY}-${String(prevM).padStart(2,'0')}`;
+    // 允許 ?month=YYYY-MM 直接跳到指定月（首頁待簽收提醒用）
+    const _qMonth = new URLSearchParams(location.search).get('month');
+    if(_qMonth && /^\d{4}-\d{2}$/.test(_qMonth)) currentMonth = _qMonth;
     document.getElementById('monthLabel').textContent = getMonthLabel(currentMonth);
 
     const sel = document.getElementById('storeSelector');
