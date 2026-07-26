@@ -184,7 +184,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);
 .shift-btn.active{border-color:var(--primary);background:#e8f0fe;color:var(--primary);}
 
 /* 資訊提示框 */
-.info-box{border-radius:10px;padding:10px 13px;margin-bottom:12px;font-size:12px;line-height:1.7;}
+.info-box{border-radius:10px;padding:10px 13px;margin-bottom:12px;font-size:12px;line-height:1.7;background:#f1f5f9;border:1px solid var(--border);color:var(--text);}
 .info-box.blue{background:#e8f0fe;border:1px solid #b0c4f5;color:var(--primary-dark);}
 .info-box.warn{background:#fff3e0;border:1px solid #ffcc80;color:#e65100;}
 .info-box.danger{background:#fce8e6;border:1px solid #f5c6c6;color:var(--danger);}
@@ -341,7 +341,8 @@ let cancelTargetId = '';
 // 設定值
 const MAX_FULL_PER_DAY_SEATING = { full: 2, part: 1 }; // 預設，後面從 config 讀
 let dailyLimits = { fullTime: 2, partTime: 1 };
-const WEEKLY_OFF_LIMIT_FULL = 2; // 正職排休每週上限
+let partTimeUnlimited = false;   // 工讀不受每日上限（由 config 覆寫）
+let WEEKLY_OFF_LIMIT_FULL = 2;   // 正職排休每週上限（由 config 覆寫）
 
 // ===== 禁休模式切換 =====
 function toggleBlockMode() {
@@ -723,8 +724,11 @@ window.onload = async () => {
     try {
       const cfgSnap = await window.db.collection('stores').doc(currentStore).collection('config').doc('shifts').get();
       if(cfgSnap.exists && cfgSnap.data().leaveQuota){
-        dailyLimits.fullTime = cfgSnap.data().leaveQuota.fullTime ?? 2;
-        dailyLimits.partTime = cfgSnap.data().leaveQuota.partTime ?? 1;
+        const lq = cfgSnap.data().leaveQuota;
+        dailyLimits.fullTime = lq.fullTime ?? 2;
+        dailyLimits.partTime = lq.partTime ?? 1;
+        partTimeUnlimited = lq.partTimeUnlimited === true;
+        if(lq.weeklyFull != null) WEEKLY_OFF_LIMIT_FULL = lq.weeklyFull;
       }
     } catch(e) {}
 
@@ -1129,14 +1133,27 @@ function updateShiftWarn(){
 function updateQuotaWarn(){
   const qWarn = document.getElementById('quotaWarn');
   if(!applyDate){ qWarn.style.display='none'; return; }
-  const myType = isFullTime() ? 'fullTime' : 'partTime';
-  const myLimit = dailyLimits[myType];
-  const used = storeRequests.filter(r=>r.date===applyDate && !['cancelled','unfulfilled'].includes(r.status) && isFullTimeReq(r)===isFullTime()).length;
-  if(used >= myLimit){
-    qWarn.style.display='block';
-    qWarn.innerHTML = `<div class="info-box warn">⚠️ 此日${isFullTime()?'正職':'工讀'}名額已滿（上限 ${myLimit} 人），申請仍可送出，請自行與店長協調。</div>`;
+  const alive = r => !['cancelled','unfulfilled'].includes(r.status);
+  const full = isFullTime();
+  const offAll = storeRequests.filter(r=>r.date===applyDate && alive(r)).length; // 當天在休（所有假別，顯示用）
+  qWarn.style.display='block';
+  // 特休/補休是權利，不受排休名額限制，只顯示當天在休
+  if(applyType!=='off'){
+    qWarn.innerHTML = `<div class="info-box">特休/補休不受排休名額限制。當天已有 ${offAll} 人劃休。</div>`;
+    return;
+  }
+  // 排休：工讀不受上限
+  if(!full && partTimeUnlimited){
+    qWarn.innerHTML = `<div class="info-box">工讀不受每日排休上限。當天已有 ${offAll} 人劃休。</div>`;
+    return;
+  }
+  // 只以「排休」計入名額判定
+  const myLimit = dailyLimits[full ? 'fullTime' : 'partTime'];
+  const usedOff = storeRequests.filter(r=>r.date===applyDate && r.type==='off' && alive(r) && isFullTimeReq(r)===full).length;
+  if(usedOff >= myLimit){
+    qWarn.innerHTML = `<div class="info-box warn">⚠️ 此日${full?'正職':'工讀'}排休名額已滿（${usedOff}/${myLimit}），仍可送出，請與店長協調。</div>`;
   } else {
-    qWarn.style.display='none';
+    qWarn.innerHTML = `<div class="info-box">此日${full?'正職':'工讀'}排休名額 ${usedOff}/${myLimit}。</div>`;
   }
 }
 
