@@ -1067,17 +1067,29 @@ function openApplyModal(dateStr){
   openModal('applyModal');
 }
 
+function fmtReqTime(iso){
+  if(!iso) return '';
+  const d = new Date(iso);
+  return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
 function renderOthersBox(dateStr){
-  const others = storeRequests.filter(r=>r.date===dateStr && r.empName!==currentUser.empName && !['cancelled','unfulfilled'].includes(r.status));
+  const alive = r => !['cancelled','unfulfilled'].includes(r.status);
+  // 整日劃休依送出時間排序＝優先序（先送先贏）；含本人
+  const all = storeRequests.filter(r=>r.date===dateStr && alive(r))
+    .sort((a,b)=>(a.createdAt||'').localeCompare(b.createdAt||''));
   const box = document.getElementById('othersBox');
-  if(!others.length){ box.style.display='none'; return; }
+  if(!all.length){ box.style.display='none'; return; }
   box.style.display = 'block';
-  const items = others.map(r=>{
+  const items = all.map((r,i)=>{
     const color = r.type==='annual'?'var(--purple)':r.type==='comp'?'var(--comp-blue)':'var(--primary)';
     const typeLabel = r.type==='annual'?'特休':r.type==='comp'?'補休':'排休';
-    return `<div class="other-item"><div class="other-dot" style="background:${color};"></div>${getDN(r.empName)} — ${typeLabel}</div>`;
+    const isMe = r.empName===currentUser.empName;
+    const t = fmtReqTime(r.createdAt);
+    return `<div class="other-item" style="${isMe?'font-weight:800;background:#eef4ff;border-radius:6px;':''}">
+      <span style="color:var(--text-muted);font-size:11px;min-width:16px;">${i+1}.</span>
+      <div class="other-dot" style="background:${color};"></div>${isMe?'你':getDN(r.empName)} — ${typeLabel}${t?` <span style="color:var(--text-muted);font-size:10px;">${t}</span>`:''}</div>`;
   }).join('');
-  box.innerHTML = `<div class="others-list"><div class="others-title">同日已劃休的同事</div>${items}</div>`;
+  box.innerHTML = `<div class="others-list"><div class="others-title">同日劃休（依送出時間順位）</div>${items}</div>`;
 }
 
 function renderLimitBox(dateStr){
@@ -1150,10 +1162,11 @@ function updateQuotaWarn(){
   // 只以「排休」計入名額判定
   const myLimit = dailyLimits[full ? 'fullTime' : 'partTime'];
   const usedOff = storeRequests.filter(r=>r.date===applyDate && r.type==='off' && alive(r) && isFullTimeReq(r)===full).length;
+  const myPos = usedOff + 1; // 送出後的順位（先送先優先）
   if(usedOff >= myLimit){
-    qWarn.innerHTML = `<div class="info-box warn">⚠️ 此日${full?'正職':'工讀'}排休名額已滿（${usedOff}/${myLimit}），仍可送出，請與店長協調。</div>`;
+    qWarn.innerHTML = `<div class="info-box warn">⚠️ 此日${full?'正職':'工讀'}排休名額已滿（${usedOff}/${myLimit}）。你送出後為第 <b>${myPos}</b> 位＝<b>候補</b>，仍可送出，請與店長協調（先送先優先）。</div>`;
   } else {
-    qWarn.innerHTML = `<div class="info-box">此日${full?'正職':'工讀'}排休名額 ${usedOff}/${myLimit}。</div>`;
+    qWarn.innerHTML = `<div class="info-box">此日${full?'正職':'工讀'}排休名額 ${usedOff}/${myLimit}。你送出後為第 <b>${myPos}</b> 位（在名額內）。</div>`;
   }
 }
 
@@ -1265,6 +1278,18 @@ function renderMyList(){
   el.innerHTML = html;
 }
 
+// 排休即時順位/候補狀態（依 createdAt live 推導 → 有人取消自動遞補）
+function offSlotStatus(r){
+  if(r.type!=='off' || !['noted','pending'].includes(r.status)) return null;
+  const alive = x => !['cancelled','unfulfilled'].includes(x.status);
+  const full = isFullTimeReq(r);
+  if(!full && partTimeUnlimited) return { unlimited:true };
+  const sameDay = storeRequests.filter(x=>x.date===r.date && x.type==='off' && alive(x) && isFullTimeReq(x)===full)
+    .sort((a,b)=>(a.createdAt||'').localeCompare(b.createdAt||''));
+  const pos = sameDay.findIndex(x=>x.id===r.id) + 1;
+  const limit = dailyLimits[full?'fullTime':'partTime'];
+  return { pos, limit, within: pos>0 && pos<=limit };
+}
 function renderReqCard(r){
   const typeLabel = r.type==='annual'?'🏖️ 特休':r.type==='comp'?'🗓️ 補休':'📝 排休';
   const typeColor = r.type==='annual'?'var(--purple)':r.type==='comp'?'var(--comp-blue)':'var(--primary)';
@@ -1281,6 +1306,10 @@ function renderReqCard(r){
       <div class="req-info">
         <div class="req-date">${fmtDateFull(r.date)}（週${dowLabel}）</div>
         <div class="req-meta">${typeLabel} ${shiftLabel}${r.note?` · ${r.note}`:''}</div>
+        ${(()=>{ const s=offSlotStatus(r); if(!s) return '';
+          if(s.unlimited) return `<div class="req-meta" style="color:var(--primary);">工讀不受名額限制</div>`;
+          return `<div class="req-meta" style="color:${s.within?'var(--accent)':'#e65100'};font-weight:700;">排休順位 ${s.pos}/${s.limit}｜${s.within?'✅ 在名額內':'🕓 候補中'}</div>`;
+        })()}
         ${r.managerNote?`<div class="req-meta" style="color:var(--danger);">店長備註：${r.managerNote}</div>`:''}
       </div>
       <div class="req-status ${statusCls[r.status]||'noted'}">${statusMap[r.status]||r.status}</div>
