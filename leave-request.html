@@ -121,6 +121,10 @@ html,body{height:100%;overflow:hidden;background:var(--bg);
 .cal-tag.others-off{background:#e8f0fe;color:var(--primary);}
 .cal-tag.others-annual{background:#f3e8ff;color:var(--purple);}
 .cal-tag.others-comp{background:#ecfeff;color:var(--comp-blue);}
+.cal-heat{float:right;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;line-height:1.6;}
+.cal-heat.heat-green{background:#e8f5e9;color:#2e7d32;}
+.cal-heat.heat-yellow{background:#fff3e0;color:#e65100;}
+.cal-heat.heat-red{background:#fce8e6;color:var(--danger);}
 .cal-tag.locked-tag{background:#f1f3f4;color:#aaa;}
 .cal-tag.published-tag{background:#e8f5e9;color:var(--accent);}
 .cal-tag.shift-tag{background:#e8f5e9;color:var(--accent);}
@@ -1011,8 +1015,18 @@ function renderCalBody(){
     } else if((canClick || hasMyReq) && !isBlockMode) {
       onclick = `onclick="openApplyModal('${dateStr}')"`;
     }
+    // ── 每日熱度：依正職排休滿度上色，引導避開額滿日 ──
+    const _dayAll = storeRequests.filter(r=>r.date===dateStr && !['cancelled','unfulfilled'].includes(r.status));
+    const _offFull = _dayAll.filter(r=>r.type==='off' && isFullTimeReq(r)).length;
+    const _limitFull = dailyLimits.fullTime || 0;
+    let _heat = '';
+    if(_dayAll.length && !isPast){
+      const cls2 = _limitFull>0 && _offFull>=_limitFull ? 'heat-red'
+                 : _limitFull>0 && (_limitFull-_offFull===1) ? 'heat-yellow' : 'heat-green';
+      _heat = `<span class="cal-heat ${cls2}">休${_dayAll.length}</span>`;
+    }
     html += `<div class="${cls}" ${onclick}>
-      <div class="cal-date">${d}${holidayHtml}</div>
+      <div class="cal-date">${d}${_heat}${holidayHtml}</div>
       <div class="cal-tags">${tags}</div>
     </div>`;
   }

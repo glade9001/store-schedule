@@ -720,6 +720,13 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
         <div style="color:#e65100; font-size:16px; font-weight:900;">›</div>
       </div>
 
+      <div id="leaveHintBanner" style="display:none; background:linear-gradient(135deg,#fff8e1,#fffde7); border:1.5px solid #f0c000; border-radius:12px; padding:10px 14px; margin-bottom:12px; align-items:center; gap:10px;">
+        <div style="font-size:18px;">📅</div>
+        <div style="flex:1; font-size:13px; font-weight:700; color:#8a6d00;">下週劃休已開放，需要休假記得去劃休～</div>
+        <button onclick="window.location.href='leave-request.html'" style="background:#f0c000; color:#fff; border:none; border-radius:8px; padding:6px 12px; font-size:12px; font-weight:800; cursor:pointer; flex-shrink:0;">去劃休</button>
+        <button onclick="dismissLeaveHint()" style="background:none; border:none; color:#8a6d00; font-size:16px; cursor:pointer; padding:2px 6px; flex-shrink:0;">✕</button>
+      </div>
+
       <div class="card">
         <div class="section-header">
           <div class="section-title" style="font-size:13px;">📅 我的班表</div>
@@ -1599,6 +1606,33 @@ function gotoSalaryAck(){
   window.location.href='my-salary.html'+(m?`?month=${m}`:'');
 }
 
+// ===== 首頁劃休提醒（鼓勵、可關、有劃自動消失）=====
+function _nextWeekStr(){
+  const d=new Date(); d.setDate(d.getDate()+7);
+  const yr=d.getFullYear(); const first=new Date(yr,0,1);
+  const w=Math.ceil((((d-first)/86400000)+first.getDay()+1)/7);
+  return `${yr}-W${w<10?'0'+w:w}`;
+}
+async function checkLeaveHint(){
+  try{
+    if(!currentUser?.empName || !currentUser?.store) return;
+    const wk=_nextWeekStr();
+    const bar=document.getElementById('leaveHintBanner');
+    if(!bar) return;
+    bar.dataset.week=wk;
+    if(localStorage.getItem('leaveHintDismissed_'+wk)==='1') return; // 本人已關該週
+    // 本人下週是否已有劃休（含排休/特休/補休）
+    const snap=await window.db.collection('stores').doc(currentUser.store).collection('leaveRequests')
+      .where('empName','==',currentUser.empName).get().catch(()=>null);
+    const has = snap && snap.docs.some(d=>{ const r=d.data(); return r.week===wk && !['cancelled','unfulfilled'].includes(r.status); });
+    bar.style.display = has ? 'none' : 'flex';
+  }catch(e){ console.error('checkLeaveHint 失敗', e); }
+}
+function dismissLeaveHint(){
+  const bar=document.getElementById('leaveHintBanner');
+  if(bar){ localStorage.setItem('leaveHintDismissed_'+(bar.dataset.week||''),'1'); bar.style.display='none'; }
+}
+
 // ===== 初始化 APP =====
 async function initApp() {
   showLoading('載入個人資料中...');
@@ -1642,6 +1676,7 @@ async function initApp() {
 
   renderQuickBtns();
   checkSalaryAck(); // 背景檢查薪資待簽收，完成後顯示橫幅
+  checkLeaveHint(); // 背景檢查下週劃休提醒
 
   if(canManageEmployee()) {
     document.getElementById('menuAccountSub').textContent = '管理員工帳號密碼';
