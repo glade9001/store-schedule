@@ -993,6 +993,8 @@ function renderSalaryForm(emp, rec, idx, readonly) {
   let col2 = `<div class="col-card">
     <div class="col-header c1">2. 薪資項目</div>
     ${isPart ? `<div class="salary-row"><span class="salary-row-label">本薪 (${totalH}h)</span><span class="salary-row-val">$${Math.round(totalH*(rec.wage||0)).toLocaleString()}</span></div>` : `<div class="salary-row"><span class="salary-row-label">本薪 (底薪)</span><span class="salary-row-val">$${(rec.baseSalary||0).toLocaleString()}</span></div>`}
+    ${isPart ? fieldIfExist(`國假加給 (${rec.holidayHours||0}h×1)`, Math.round((rec.wage||0) * parseFloat(rec.holidayHours||0))) : ''}
+    ${isPart ? fieldIfExist(`額外時數 (${rec.extraHours||0}h)`, Math.round((rec.wage||0) * parseFloat(rec.extraHours||0))) : ''}
     ${fieldIfExist('全勤獎金', rec.fullAttendBonus)}
     ${fieldIfExist('職務津貼', rec.roleBonus)}
     ${(()=>{ // 平日加班費：與 calcGross 一致（支援自訂加班時薪）
