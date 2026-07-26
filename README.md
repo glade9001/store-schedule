@@ -8,6 +8,14 @@
 
 ### 2026-07-26（日）
 
+#### ✨ 薪資計算抽共用模組 `salary-calc.js`（根治三檔飄移，B）
+
+- 新增 `salary-calc.js`（`window.SalaryCalc`）：`recBelongsTo`/`hourlyRate`/`calcDeduct`/`calcEmpHours`/`calcHourlySupportHours`/`getWeekDatesFromStr`＋純算術 `grossFromParts`，以 salary.html 現行版為唯一基準。
+- **salary.html、my-salary.html** 的上述函式改為**薄 wrapper 委派**給模組（呼叫點一字不改）；`calcGross` 統一走 `grossFromParts`。→ 兩檔薪資計算從此**單一真相**，不再各抄一份飄移。
+- 驗證：Node 載入模組 + 撈美德 6 月實際資料，模組 gross 與 salary.html 現行邏輯**逐人 10/10 完全一致**（楷岳 $8,624）。my-salary 現與 salary.html 用同一份 wrapper。
+- `sw.js` precache 加入 `salary-calc.js` 並升 v8。
+- 待辦：analytics.html 併入（其工讀 gross 為逐項四捨五入、與 `grossFromParts` 整筆四捨五入有 ±1 差異，需先驗影響再接）。
+
 #### ✨ 查看薪資明細補列國定假日加給／額外時數（`my-salary.html`）
 
 - 工讀薪資明細原本只列「本薪(totalH)」，未把 `國假加給 (Nh×1)=時薪×holidayHours` 與 `額外時數` 獨立列出（總額 gross 已含）→ 明細各項加總對不上總額。
