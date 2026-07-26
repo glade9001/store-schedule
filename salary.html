@@ -225,6 +225,16 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
   </div>
 
 
+<!-- 查看員工簽名（步驟5）-->
+<div class="modal-overlay" id="empSigModal" onclick="if(event.target===this)closeModal('empSigModal')">
+  <div class="modal-box" style="max-width:520px;border-radius:22px 22px 0 0;text-align:center;">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="empSigTitle">員工簽名</div>
+    <img id="empSigImg" style="max-width:100%;border:1px solid var(--border);border-radius:8px;">
+    <button onclick="closeModal('empSigModal')" style="width:100%;padding:11px;background:var(--primary,#1a73e8);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;cursor:pointer;margin-top:12px;">關閉</button>
+  </div>
+</div>
+
 <div class="modal-overlay" id="empEditModal" onclick="if(event.target===this)closeEmpModal()">
   <div class="modal-box" style="max-width: 1100px; max-height:92vh; border-radius:22px 22px 0 0;">
     <div class="modal-handle"></div>
@@ -2496,6 +2506,7 @@ async function loadSalaryData() {
     // 確保外層卡片金額與排班計算一致，不需手動開 Modal 才更新
     autoSyncAllOtHours();
 
+    await loadSalaryAcks(); // 載入本月員工簽收狀態
     renderEmpList();
     renderBottomAction();
   } catch(e) {
@@ -2632,6 +2643,52 @@ function updateStatusBadge() {
 }
 
 // ===== 渲染員工列表 =====
+// ===== 員工簽收狀態（步驟5）=====
+const SALARY_ACK_START = '2026-06';
+let salaryAckMap = {}; // empName -> ack
+async function loadSalaryAcks(){
+  salaryAckMap = {};
+  try{
+    if((salaryData.status||'draft') !== 'published') return;
+    if(currentMonth < SALARY_ACK_START) return;
+    const snap = await window.db.collection('salaryAck').where('month','==',currentMonth).get();
+    snap.forEach(d=>{ const a=d.data(); if(a.store===currentStore && a.empName) salaryAckMap[a.empName]=a; });
+  }catch(e){ console.error('loadSalaryAcks 失敗', e); }
+}
+function getEmpAckState(rec){
+  if((salaryData.status||'draft') !== 'published') return 'na';
+  if(currentMonth < SALARY_ACK_START) return 'na';
+  const ack = salaryAckMap[rec.empName || rec.name];
+  if(!ack) return 'unsigned';
+  return (ack.signedPayHash||'') === (rec.payHash||'') ? 'signed' : 'resign';
+}
+function fmtAckAt(iso){ if(!iso) return ''; const d=new Date(iso); return `${d.getMonth()+1}/${d.getDate()}`; }
+function renderEmpAckBadge(emp, rec){
+  const st = getEmpAckState(rec);
+  const nm = rec.empName || emp.name;
+  if(st === 'na') return '';
+  if(st === 'signed'){
+    const ack = salaryAckMap[nm];
+    return `<span onclick="event.stopPropagation();viewEmpSignature('${nm.replace(/'/g,"\\'")}')" style="display:inline-block;margin-top:3px;font-size:11px;color:#2e7d32;font-weight:700;cursor:pointer;">✅ 已簽 ${fmtAckAt(ack.signedAt)}（看簽名）</span>`;
+  }
+  if(st === 'resign') return `<span style="display:inline-block;margin-top:3px;font-size:11px;color:#e65100;font-weight:800;">🟠 需重簽（薪資已改）</span>`;
+  return `<span style="display:inline-block;margin-top:3px;font-size:11px;color:#b91c1c;font-weight:700;">⬜ 未簽收</span>`;
+}
+async function viewEmpSignature(empName){
+  const ack = salaryAckMap[empName];
+  if(!ack || !ack.uid){ showToast('查無簽名'); return; }
+  showLoading('載入簽名...');
+  try{
+    const doc = await window.db.collection('salaryAckSig').doc(`${ack.uid}_${currentMonth}`).get();
+    hideLoading();
+    if(doc.exists && doc.data().signatureDataUrl){
+      document.getElementById('empSigImg').src = doc.data().signatureDataUrl;
+      document.getElementById('empSigTitle').textContent = `${getDisplayName(empName)} 的簽名（${fmtAckAt(ack.signedAt)} 簽收）`;
+      openModal('empSigModal');
+    } else showToast('找不到簽名圖');
+  }catch(e){ hideLoading(); showToast('❌ 載入失敗'); }
+}
+
 function renderEmpList() {
   const el = document.getElementById('empList');
   const readonly = isReadonly();
@@ -2672,6 +2729,7 @@ function renderEmpList() {
         <div class="emp-salary-info">
           <div class="emp-salary-name">${getDisplayName(emp.name)} <span style="font-size:11px;background:#f1f3f4;padding:2px 6px;border-radius:4px;font-weight:600;">${emp.role||''}</span></div>
           <div class="emp-salary-role">${currentMonth.replace('-','年')}月 薪資</div>
+          ${renderEmpAckBadge(emp, rec)}
         </div>
         <div class="emp-salary-total">$${total.toLocaleString()}</div>
         <div style="font-size:18px;color:var(--text-muted);">›</div>

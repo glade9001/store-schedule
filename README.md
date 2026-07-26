@@ -8,6 +8,11 @@
 
 ### 2026-07-26（日）
 
+#### ✨ 員工薪資簽收 步驟4+5：首頁提醒 + 管理者簽收狀態（`home.html`、`salary.html`、`my-salary.html`）
+
+- **步驟4 首頁提醒（`home.html`）**：登入後背景 `checkSalaryAck` 掃 ≥2026-06 各月，本人已發布薪資記錄且（未簽或 payHash 不符）→ 首頁橘色橫幅「薪資待簽收」，點擊跳 `my-salary.html?month=` 最早未簽月。`my-salary` 支援 `?month=YYYY-MM`。
+- **步驟5 管理者簽收狀態（`salary.html`）**：**店長以上在薪資頁該月員工清單，每位員工下方顯示簽收狀態**——✅ 已簽（日期＋點擊看簽名縮圖）／⬜ 未簽收／🟠 需重簽（薪資已改）。用 `salaryAck.where('month','==',月)` 撈、依 store 過濾；簽名圖點擊才從 `salaryAckSig` 載入。
+
 #### ✨ 員工薪資簽收 步驟3：my-salary 簽名板（`my-salary.html`）
 
 - 已發布月份（且 ≥ 啟動月 `SALARY_ACK_START='2026-06'`）顯示簽收狀態：**未簽 / 已簽（時間＋看簽名）/ 需重簽（薪資已更新）**。
