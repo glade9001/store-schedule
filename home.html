@@ -727,6 +727,12 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
         <button onclick="dismissLeaveHint()" style="background:none; border:none; color:#8a6d00; font-size:16px; cursor:pointer; padding:2px 6px; flex-shrink:0;">✕</button>
       </div>
 
+      <div id="lineBindHome" style="display:none; align-items:center; gap:8px; background:#e6f7ea; border:1px solid #06c755; border-radius:10px; padding:7px 12px; margin-bottom:12px; cursor:pointer;" onclick="openLineBindModal()">
+        <span style="font-size:15px;">🔔</span>
+        <span style="flex:1; font-size:12px; font-weight:700; color:#0b7a3b;">綁定 LINE，接收薪資／劃休主動通知</span>
+        <span style="color:#0b7a3b; font-size:14px; font-weight:900;">›</span>
+      </div>
+
       <div class="card">
         <div class="section-header">
           <div class="section-title" style="font-size:13px;">📅 我的班表</div>
@@ -1672,6 +1678,15 @@ function dismissLeaveHint(){
 }
 
 // ===== LINE 通知綁定（綁定碼版）=====
+// 首頁小條：僅在「未綁定」時顯示，綁定後（下次載入）自動消失
+async function checkLineBindHint(){
+  try{
+    if(!currentUser?.uid) return;
+    const el=document.getElementById('lineBindHome'); if(!el) return;
+    const bs=await window.db.collection('lineBindings').doc(currentUser.uid).get().catch(()=>null);
+    el.style.display = (bs && bs.exists) ? 'none' : 'flex';
+  }catch(e){ console.error('checkLineBindHint', e); }
+}
 function closeLineBind(){ document.getElementById('lineBindOverlay').style.display='none'; }
 async function openLineBindModal(){
   document.getElementById('lineBindOverlay').style.display='flex';
@@ -1754,6 +1769,7 @@ async function initApp() {
   renderQuickBtns();
   checkSalaryAck(); // 背景檢查薪資待簽收，完成後顯示橫幅
   checkLeaveHint(); // 背景檢查下週劃休提醒
+  checkLineBindHint(); // 未綁定 LINE → 首頁顯示小條
 
   if(canManageEmployee()) {
     document.getElementById('menuAccountSub').textContent = '管理員工帳號密碼';
