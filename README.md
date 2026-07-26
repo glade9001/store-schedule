@@ -8,6 +8,14 @@
 
 ### 2026-07-26（日）
 
+#### 🐛 修正查看薪水與算薪水不一致（跨店工讀工時漏算，`my-salary.html`）
+
+- **症狀**：楷岳 6 月「查看薪水」比「算薪水」少 $3,920。
+- **根因**：my-salary 的 `calcEmpHours` 用 `r.name !== empName`（name-only），但楷岳 6 月大部分班以跨店支援記錄存（美德 `name='🆘待補X'`、`supportEmp='人力支援-楷岳'`），name-only 全漏 → totalH 17h vs salary.html 37h（差 20h × 時薪196）。國定假日那天也在漏掉的支援記錄裡，導致「國定假日第二倍不見」實為同一病灶。
+- **修正（對齊 salary.html）**：`calcEmpHours` 改 `recBelongsTo`＋跳過 isHourly；`scheduleData` 去重補 `supportEmp`；`calcGross` 職稱改吃 `empList`（非 `rec.role`）。
+- `analytics.html` 讀存好的 `rec.hours`（salary.html 已用正確值同步），不受影響。
+- **根治建議**：三檔各抄一份薪資計算導致反覆飄移，應抽成單一共用 `salary-calc.js`。
+
 #### ✨ 員工薪資簽收 步驟4+5：首頁提醒 + 管理者簽收狀態（`home.html`、`salary.html`、`my-salary.html`）
 
 - **步驟4 首頁提醒（`home.html`）**：登入後背景 `checkSalaryAck` 掃 ≥2026-06 各月，本人已發布薪資記錄且（未簽或 payHash 不符）→ 首頁橘色橫幅「薪資待簽收」，點擊跳 `my-salary.html?month=` 最早未簽月。`my-salary` 支援 `?month=YYYY-MM`。

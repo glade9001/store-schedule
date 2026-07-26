@@ -469,7 +469,8 @@ function calcEmpHours(empName) {
 
   Object.entries(scheduleData).forEach(([ws, weekRecs]) => {
     (weekRecs || []).forEach(r => {
-      if(r.name !== empName || !r.shift || r.shift === '排休' || r.shift === '指休' || r.shift === '特休' || r.shift === '補休') return; // ✅ 特休補休不計工時
+      // ✅ 與 salary.html 對齊：用 recBelongsTo（跨店支援靠 supportEmp 認人）＋跳過 isHourly
+      if(!recBelongsTo(r, empName) || !r.shift || r.shift === '排休' || r.shift === '指休' || r.shift === '特休' || r.shift === '補休' || r.isHourly) return;
 
       const wDates = getWeekDatesFromStr(ws);
       const dIdx = ['週一','週二','週三','週四','週五','週六','週日'].indexOf(r.day);
@@ -523,7 +524,7 @@ function calcHourlySupportHours(empName) {
 }
 
 function calcGross(rec) {
-  const isPart = rec.role === ROLE_PART;
+  const isPart = (((empList.find(e=>e.name===(rec.empName||rec.name||''))||{}).role) || rec.role) === ROLE_PART; // ✅ 與 salary.html 對齊：用 empList 最新職稱
   const rph = isPart ? 0 : hourlyRate(rec);
 
   if(isPart) {
@@ -736,7 +737,8 @@ async function loadSalaryData() {
             const tagged = recs.map(r => ({ ...r, _store: store }));
             if(!scheduleData[ws]) scheduleData[ws] = [];
             tagged.forEach(r => {
-              const exists = scheduleData[ws].find(e => e.name === r.name && e.day === r.day && e._store === currentStore);
+              // ✅ 與 salary.html 對齊：去重身分含 supportEmp，避免同名佔位支援記錄被誤刪
+              const exists = scheduleData[ws].find(e => e.name === r.name && e.day === r.day && e._store === currentStore && (e.supportEmp||'') === (r.supportEmp||''));
               if(!exists) scheduleData[ws].push(r);
             });
           })
@@ -956,7 +958,7 @@ async function viewMySignature(){
 
 // 核心：一頁三欄橫向滑動佈局
 function renderSalaryForm(emp, rec, idx, readonly) {
-  const isPart = rec.role === ROLE_PART;
+  const isPart = (((empList.find(e=>e.name===(rec.empName||rec.name||''))||{}).role) || rec.role) === ROLE_PART; // ✅ 與 salary.html 對齊：用 empList 最新職稱
   const { totalH } = calcEmpHours(emp.name);
   const rph = isPart ? 0 : hourlyRate(rec);
   const gross = calcGross(rec);
