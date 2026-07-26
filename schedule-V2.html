@@ -1812,6 +1812,12 @@ async function fetchAllStoreData() {
       appData.leaveRequests = [];
     }
 
+    // 劃休配額（供排班時顯示順位 M/N）
+    try {
+      const lqSnap = await window.db.collection('stores').doc(store).collection('config').doc('shifts').get();
+      appData.leaveQuota = (lqSnap.exists && lqSnap.data().leaveQuota) || { fullTime:2, partTime:1 };
+    } catch(e) { appData.leaveQuota = { fullTime:2, partTime:1 }; }
+
     appData.allStoresEmployees[store] = appData.employees.map(e=>e.name);
     appData.records = appData.allStoresRecords.filter(r => r._store === store);
     virtualRowNames = [...new Set(mainWeekRecs.map(r=>r.name).filter(n=>n&&n.startsWith('🆘')))];
@@ -2560,9 +2566,20 @@ function updateCellUI(btn, extraHtml='') {
         (lr.type === 'comp'   && s === '補休') ||
         (lr.type === 'off'    && (s === '排休' || s === '指休'));
       if(!alreadyHandled) {
-        const lrLabel = lr.type==='annual'?'🏖️特休申請':lr.type==='comp'?'🗓️補休申請':'📝排休許願';
+        let lrLabel = lr.type==='annual'?'🏖️特休申請':lr.type==='comp'?'🗓️補休申請':'📝排休許願';
         const lrColor = lr.type==='annual'?'#9334e6':lr.type==='comp'?'#0891b2':'var(--primary)';
         const lrBg   = lr.type==='annual'?'#f3e8ff':lr.type==='comp'?'#ecfeff':'#e8f0fe';
+        // 排休：顯示順位 M/N（依 createdAt 先送先贏、同角色同日）→ 店長依序裁決
+        if(lr.type === 'off'){
+          const alive = x => !['cancelled','unfulfilled'].includes(x.status);
+          const full = lr.empType !== 'part';
+          const sameDay = (appData.leaveRequests||[]).filter(x=>x.date===fullDate && x.type==='off' && alive(x) && (x.empType!=='part')===full)
+            .sort((a,b)=>(a.createdAt||'').localeCompare(b.createdAt||''));
+          const pos = sameDay.findIndex(x=>x.id===lr.id)+1;
+          const lq = appData.leaveQuota || {fullTime:2, partTime:1};
+          const limit = full ? (lq.fullTime ?? 2) : (lq.partTimeUnlimited ? '∞' : (lq.partTime ?? 1));
+          if(pos>0) lrLabel += ` <b>順位${pos}/${limit}</b>${(limit!=='∞' && pos>limit)?'🕓候補':''}`;
+        }
         txt += `<br><span style="background:${lrBg};color:${lrColor};padding:1px 4px;border-radius:4px;font-size:10px;font-weight:700;">${lrLabel}</span>`;
       }
     }
