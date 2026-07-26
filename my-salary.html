@@ -235,6 +235,30 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
   </div>
 </div>
 
+<!-- 薪資簽收：簽名板 -->
+<div class="modal-overlay" id="signatureModal" onclick="if(event.target===this)closeSignatureModal()">
+  <div class="modal-box" style="max-width:520px;border-radius:22px 22px 0 0;">
+    <div class="modal-handle"></div>
+    <div class="modal-title">✍️ 薪資簽收</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:10px;line-height:1.6;">請在下方簽名。簽收即表示你已核對本月薪資明細無誤。</div>
+    <canvas id="sigCanvas" style="width:100%;height:200px;border:2px dashed #cbd5e1;border-radius:12px;background:#fff;touch-action:none;display:block;"></canvas>
+    <div style="display:flex;gap:8px;margin-top:12px;">
+      <button onclick="clearSignature()" style="flex:0 0 auto;padding:11px 16px;background:#f1f3f4;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;">🗑️ 清除</button>
+      <button onclick="confirmSignature()" style="flex:1;padding:11px;background:var(--primary,#1a73e8);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;cursor:pointer;">確認簽收</button>
+    </div>
+    <button onclick="closeSignatureModal()" style="width:100%;padding:9px;background:none;border:none;color:var(--text-muted);font-size:14px;cursor:pointer;margin-top:6px;">取消</button>
+  </div>
+</div>
+<!-- 看簽名 -->
+<div class="modal-overlay" id="viewSigModal" onclick="if(event.target===this)closeModal('viewSigModal')">
+  <div class="modal-box" style="max-width:520px;border-radius:22px 22px 0 0;text-align:center;">
+    <div class="modal-handle"></div>
+    <div class="modal-title">我的簽名</div>
+    <img id="viewSigImg" style="max-width:100%;border:1px solid var(--border);border-radius:8px;">
+    <button onclick="closeModal('viewSigModal')" style="width:100%;padding:11px;background:var(--primary,#1a73e8);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;cursor:pointer;margin-top:12px;">關閉</button>
+  </div>
+</div>
+
 <div class="modal-overlay" id="empEditModal" onclick="if(event.target===this)closeEmpModal()">
   <div class="modal-box" style="max-width: 1100px; max-height:92vh; border-radius:22px 22px 0 0;">
     <div class="modal-handle"></div>
@@ -288,6 +312,8 @@ let empList = [];
 let scheduleData = {}; 
 let prevSalaryData = {}; 
 let salaryData = {};
+let myAck = null; // 本人本月簽收狀態（salaryAck）
+const SALARY_ACK_START = '2026-06'; // 薪資簽收制度啟動月（此月起才需簽收；home.html 需同值）
 let currentEmpModal = null; 
 
 const ROLE_PART = '工讀';
@@ -720,6 +746,7 @@ async function loadSalaryData() {
 
     updateStatusBadge();
     await loadLeaveData();
+    await loadMyAck();
     renderEmpList();
   } catch(e) {
     console.error('loadSalaryData 失敗:', e);
@@ -770,6 +797,38 @@ function updateStatusBadge() {
   badge.className = `status-badge status-${s}`;
 }
 
+// ===== 薪資簽收（步驟3）=====
+async function loadMyAck() {
+  myAck = null;
+  if(!currentUser?.uid || (salaryData.status||'draft') !== 'published') return;
+  if(currentMonth < SALARY_ACK_START) return; // 早於啟動月不需簽
+  try {
+    const doc = await window.db.collection('salaryAck').doc(`${currentUser.uid}_${currentMonth}`).get();
+    if(doc.exists) myAck = doc.data();
+  } catch(e) { console.error('loadMyAck 失敗', e); }
+}
+// 簽收狀態：na(不需簽)/unsigned/signed/resign(薪資已更新需重簽)
+function getAckState(rec) {
+  if((salaryData.status||'draft') !== 'published') return 'na';
+  if(currentMonth < SALARY_ACK_START) return 'na';
+  if(!myAck) return 'unsigned';
+  return (myAck.signedPayHash || '') === (rec.payHash || '') ? 'signed' : 'resign';
+}
+function fmtSignedAt(iso){
+  if(!iso) return ''; const d=new Date(iso);
+  return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+function renderSignBlock(state){
+  const wrap = h => `<div style="padding:10px 14px;border-top:1px solid var(--border);">${h}</div>`;
+  if(state === 'signed')
+    return wrap(`<div style="font-size:13px;color:#2e7d32;font-weight:700;">✅ 已於 ${fmtSignedAt(myAck.signedAt)} 簽收 <span onclick="event.stopPropagation();viewMySignature()" style="color:#1a73e8;text-decoration:underline;cursor:pointer;margin-left:6px;">看簽名</span></div>`);
+  if(state === 'resign')
+    return wrap(`<div style="font-size:13px;color:#e65100;font-weight:800;margin-bottom:6px;">🟠 薪資已更新，請重新簽收</div><button onclick="event.stopPropagation();openSignatureModal()" style="width:100%;padding:11px;background:#e65100;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;cursor:pointer;">✍️ 重新簽名簽收</button>`);
+  if(state === 'unsigned')
+    return wrap(`<button onclick="event.stopPropagation();openSignatureModal()" style="width:100%;padding:11px;background:var(--danger,#d93025);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;cursor:pointer;">✍️ 簽名簽收</button>`);
+  return '';
+}
+
 // 渲染員工列表：強制過濾本人與發布狀態
 function renderEmpList() {
   const el = document.getElementById('empList');
@@ -798,6 +857,7 @@ function renderEmpList() {
   el.innerHTML = emps.map((emp, idx) => {
     let rec = getSalaryRecord(emp.name) || buildDefaultRecord(emp);
     const total = calcTotal(rec);
+    const signBlock = renderSignBlock(getAckState(rec));
     return `
       <div class="emp-salary-card">
         <div class="emp-salary-header" onclick="openEmpModal('${emp.name.replace(/'/g, "\\'")}')">
@@ -809,6 +869,7 @@ function renderEmpList() {
           <div class="emp-salary-total">$${total.toLocaleString()}</div>
           <div style="font-size:18px;color:var(--text-muted);">›</div>
         </div>
+        ${signBlock}
       </div>`;
   }).join('');
 }
@@ -834,6 +895,63 @@ function openEmpModal(empName) {
 function closeEmpModal() {
   closeModal('empEditModal');
   currentEmpModal = null;
+}
+
+// ===== 簽名板 =====
+let _sigCtx=null, _sigDrawing=false, _sigHasInk=false;
+function openSignatureModal(){ openModal('signatureModal'); setTimeout(initSigCanvas, 60); }
+function closeSignatureModal(){ closeModal('signatureModal'); }
+function initSigCanvas(){
+  const c=document.getElementById('sigCanvas');
+  const rect=c.getBoundingClientRect();
+  const dpr=window.devicePixelRatio||1;
+  c.width=rect.width*dpr; c.height=rect.height*dpr;
+  _sigCtx=c.getContext('2d');
+  _sigCtx.scale(dpr,dpr);
+  _sigCtx.lineWidth=2.5; _sigCtx.lineCap='round'; _sigCtx.lineJoin='round'; _sigCtx.strokeStyle='#1a1a1a';
+  _sigHasInk=false;
+  const pos=e=>{ const r=c.getBoundingClientRect(); const t=e.touches?e.touches[0]:e; return { x:t.clientX-r.left, y:t.clientY-r.top }; };
+  const start=e=>{ e.preventDefault(); _sigDrawing=true; const p=pos(e); _sigCtx.beginPath(); _sigCtx.moveTo(p.x,p.y); };
+  const move=e=>{ if(!_sigDrawing) return; e.preventDefault(); const p=pos(e); _sigCtx.lineTo(p.x,p.y); _sigCtx.stroke(); _sigHasInk=true; };
+  const end=()=>{ _sigDrawing=false; };
+  c.onmousedown=start; c.onmousemove=move; c.onmouseup=end; c.onmouseleave=end;
+  c.ontouchstart=start; c.ontouchmove=move; c.ontouchend=end;
+}
+function clearSignature(){
+  if(!_sigCtx) return; const c=document.getElementById('sigCanvas');
+  _sigCtx.clearRect(0,0,c.width,c.height); _sigHasInk=false;
+}
+async function confirmSignature(){
+  if(!_sigHasInk){ alert('請先簽名'); return; }
+  const emp=empList.find(e=>e.name===currentUser.empName);
+  const rec=emp?getSalaryRecord(emp.name):null;
+  if(!rec){ alert('找不到您的薪資紀錄'); return; }
+  const dataUrl=document.getElementById('sigCanvas').toDataURL('image/png');
+  showLoading('簽收中...');
+  try{
+    const id=`${currentUser.uid}_${currentMonth}`;
+    await window.db.collection('salaryAck').doc(id).set({
+      uid:currentUser.uid, empName:currentUser.empName, store:currentStore, month:currentMonth,
+      signedPayHash: rec.payHash||'', signedAt: new Date().toISOString()
+    });
+    await window.db.collection('salaryAckSig').doc(id).set({ signatureDataUrl:dataUrl });
+    closeSignatureModal();
+    await loadMyAck();
+    renderEmpList();
+    showToast('✅ 已完成簽收');
+  }catch(e){ showToast('❌ 簽收失敗：'+e.message); }
+  hideLoading();
+}
+async function viewMySignature(){
+  showLoading('載入簽名...');
+  try{
+    const doc=await window.db.collection('salaryAckSig').doc(`${currentUser.uid}_${currentMonth}`).get();
+    hideLoading();
+    if(doc.exists && doc.data().signatureDataUrl){
+      document.getElementById('viewSigImg').src=doc.data().signatureDataUrl;
+      openModal('viewSigModal');
+    } else { showToast('找不到簽名圖'); }
+  }catch(e){ hideLoading(); showToast('❌ 載入失敗'); }
 }
 
 // 核心：一頁三欄橫向滑動佈局

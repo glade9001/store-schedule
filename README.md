@@ -8,6 +8,14 @@
 
 ### 2026-07-26（日）
 
+#### ✨ 員工薪資簽收 步驟3：my-salary 簽名板（`my-salary.html`）
+
+- 已發布月份（且 ≥ 啟動月 `SALARY_ACK_START='2026-06'`）顯示簽收狀態：**未簽 / 已簽（時間＋看簽名）/ 需重簽（薪資已更新）**。
+- 手寫**簽名板**（canvas，依 devicePixelRatio 清晰、`touch-action:none` 防滾動）→ `toDataURL` PNG。
+- 簽收寫兩層：`salaryAck/{uid}_{月}`（uid/empName/store/month/signedPayHash/signedAt）＋ `salaryAckSig/{uid}_{月}`（簽名圖）。
+- 狀態判定：`ack.signedPayHash === record.payHash` = 已簽；不等 = 需重簽（步驟1 的 payHash 比對）。
+- **啟動月定為 2026-06**（6 月薪資起需簽）。步驟 2 安全規則：因現有規則為「登入即可讀寫」的萬用規則，salaryAck 沿用即可運作，暫不改（見討論）。
+
 #### ✨ 員工薪資簽收 步驟1：salary 記錄存 `payHash`（`salary.html`）
 
 - 新增 `cyrb53` 雜湊 + `computePayHash`（涵蓋應發/代扣/實發及主要金額欄位）+ `stampPayHashes`。
