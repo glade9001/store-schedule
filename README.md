@@ -8,6 +8,13 @@
 
 ### 2026-07-26（日）
 
+#### ✨ 發布時存實發金額，my-salary／analytics 直接讀（根治顯示分歧）
+
+- **salary.html 存檔/發布時**：`stampPayHashes` 一併把 `grossAmt`／`deductAmt`／`netAmt`（用 `salary-calc.js` 算的實發金額）寫進每筆記錄（四個存檔點皆涵蓋）。
+- **my-salary、analytics**：`calcGross`／`calcDeduct`／`calcTotal` 改為**優先讀存好的實發金額**（讀不到才 fallback 即時算）→ 顯示的就是「發給員工多少」，**零分歧、無四捨五入 ±1 問題**。
+- 舊月份（6/7 月已發布）無快照 → fallback 即時算（已是正確模組值）；**重新發布一次**即補上凍結快照。
+- salary.html 維持即時算（產生端/可編輯）；my-salary、analytics 為讀取端。
+
 #### ✨ 薪資計算抽共用模組 `salary-calc.js`（根治三檔飄移，B）
 
 - 新增 `salary-calc.js`（`window.SalaryCalc`）：`recBelongsTo`/`hourlyRate`/`calcDeduct`/`calcEmpHours`/`calcHourlySupportHours`/`getWeekDatesFromStr`＋純算術 `grossFromParts`，以 salary.html 現行版為唯一基準。

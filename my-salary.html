@@ -467,6 +467,8 @@ function recBelongsTo(r, empName) { return SalaryCalc.recBelongsTo(r, empName); 
 function calcHourlySupportHours(empName) { return SalaryCalc.calcHourlySupportHours(empName, { scheduleData, currentMonth }); }
 
 function calcGross(rec) {
+  if(rec.grossAmt != null) return rec.grossAmt; // ✅ 讀 salary.html 存的實發快照（發給員工多少就顯示多少）
+  // fallback：舊月份無快照 → 即時算
   const empObj = empList.find(e => e.name === (rec.empName || rec.name || ''));
   const role = (empObj?.role) || rec.role;
   const isPart = role === ROLE_PART;
@@ -475,9 +477,10 @@ function calcGross(rec) {
   const hourlySupportAmt = isPart ? 0 : Math.round(calcHourlySupportHours(rec.empName || '') * parseFloat(rec.hourlySupportRate || 0));
   return SalaryCalc.grossFromParts(rec, { role, totalH, hourlySupportAmt, rph });
 }
-function calcDeduct(rec) { return SalaryCalc.calcDeduct(rec); }
+function calcDeduct(rec) { return rec.deductAmt != null ? rec.deductAmt : SalaryCalc.calcDeduct(rec); }
 
 function calcTotal(rec) {
+  if(rec.netAmt != null) return rec.netAmt; // ✅ 讀實發快照
   return calcGross(rec) - calcDeduct(rec);
 }
 

@@ -3758,7 +3758,13 @@ function computePayHash(rec){
   return cyrb53(parts.join('|'));
 }
 function stampPayHashes(){
-  (salaryData.records||[]).forEach(rec => { rec.payHash = computePayHash(rec); });
+  (salaryData.records||[]).forEach(rec => {
+    rec.payHash = computePayHash(rec);
+    // 存實發金額快照：my-salary／analytics 直接讀「發給員工多少」，不再各自重算（免飄移/四捨五入分歧）
+    rec.grossAmt  = calcGross(rec);
+    rec.deductAmt = calcDeduct(rec);
+    rec.netAmt    = rec.grossAmt - rec.deductAmt;
+  });
 }
 
 async function saveDraft() {
