@@ -980,15 +980,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
     <div class="bs-item-icon" style="background:#e8f5e9;">🔧</div>
     <div class="bs-item-text">
       <div class="bs-item-label">門市設定</div>
-      <div class="bs-item-sub">班別、工時設定</div>
-    </div>
-    <div class="bs-item-arrow">›</div>
-  </div>
-  <div class="bs-item" id="bsSysConfig" style="display:none;" onclick="closeSettingsSheet(); window.location.href='settings.html';">
-    <div class="bs-item-icon" style="background:#f3e8ff;">⚙️</div>
-    <div class="bs-item-text">
-      <div class="bs-item-label">系統設定</div>
-      <div class="bs-item-sub">門市管理、角色預覽</div>
+      <div class="bs-item-sub">班別、工時、投保級距與系統設定</div>
     </div>
     <div class="bs-item-arrow">›</div>
   </div>
@@ -2841,12 +2833,9 @@ function openSettingsSheet() {
   document.getElementById('settingsRole').textContent =
     ({ employee:'員工', manager:'店長', owner:'加盟主', admin:'系統管理者' }[currentUser.permission] || '') +
     (currentUser.store ? ` · ${currentUser.store}` : '');
-  // 門市設定：店長以上
+  // 門市設定（已整合系統設定）：店長以上顯示，settings.html 內再依權限顯示各區塊
   const bsStore = document.getElementById('bsStoreConfig');
   if(bsStore) bsStore.style.display = canSchedule() ? 'flex' : 'none';
-  // 系統設定：admin
-  const bsSys = document.getElementById('bsSysConfig');
-  if(bsSys) bsSys.style.display = canSysConfig() ? 'flex' : 'none';
 
   document.getElementById('settingsOverlay').classList.add('active');
   document.getElementById('settingsSheet').classList.add('active');
