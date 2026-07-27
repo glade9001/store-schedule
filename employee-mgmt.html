@@ -128,6 +128,10 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
     <div style="font-size:14px;"><span style="color:var(--text-muted);">密碼：</span><strong>••••••</strong></div>
     <button onclick="openChangePwd()" style="width:100%; margin-top:14px; padding:12px; background:none; border:1.5px solid var(--primary); color:var(--primary); border-radius:10px; font-size:14px; font-weight:700; cursor:pointer;">🔑 修改密碼</button>
   </div>
+  <div class="card">
+    <div class="card-title">🔔 LINE 通知</div>
+    <div id="lineCardBody" style="font-size:14px; color:var(--text-muted);">讀取中…</div>
+  </div>
   <div class="card" style="display:none;"><!-- [Google 綁定凍結] 暫停 Google 綁定 -->
     <div class="card-title">🔗 Google 帳號</div>
     <div id="googleBindStatus" style="font-size:14px; color:var(--text-muted); margin-bottom:12px;">讀取中...</div>
@@ -460,6 +464,67 @@ function loadSelfView() {
   } else {
     statusEl.innerHTML = `<span style="color:var(--warn); font-weight:700;">未綁定</span><br><span style="font-size:12px; color:var(--text-muted);">綁定後可使用 Google 快速登入</span>`;
     bindBtn.style.display = 'block';
+  }
+
+  renderLineCard();
+}
+
+// ===== LINE 通知（帳號管理自己頁）=====
+async function renderLineCard() {
+  const body = document.getElementById('lineCardBody');
+  if(!body) return;
+  body.innerHTML = '讀取中…';
+  try {
+    const bs = await window.db.collection('lineBindings').doc(currentUser.uid).get().catch(()=>null);
+    const canTest = ['manager','owner','admin'].includes(currentUser.permission);
+    if(bs && bs.exists) {
+      body.innerHTML = `<div style="color:#2e7d32; font-weight:800;">✅ 已綁定 LINE 通知</div>
+        <div style="margin-top:6px; font-size:13px;">綁定時間：${String(bs.data().boundAt||'').slice(0,16).replace('T',' ')}</div>
+        ${canTest ? `<button id="lineTestBtn" onclick="lineSendTest(this)" style="width:100%; padding:11px; background:#e7f7ed; color:#06c755; border:none; border-radius:10px; font-weight:800; cursor:pointer; margin-top:14px;">🔔 發送測試通知（僅管理者）</button>` : ''}
+        <button onclick="lineUnbind()" style="width:100%; padding:11px; background:#fce8e6; color:var(--danger); border:none; border-radius:10px; font-weight:700; cursor:pointer; margin-top:8px;">解除綁定</button>`;
+      return;
+    }
+    body.innerHTML = `<div>綁定後，薪資發布、班表發布、劃休截止提醒等會主動用 LINE 通知你。</div>
+      <button onclick="lineGenCode()" style="width:100%; padding:11px; background:#06c755; color:#fff; border:none; border-radius:10px; font-weight:800; cursor:pointer; margin-top:14px;">🔔 綁定 LINE 通知</button>`;
+  } catch(e) { body.innerHTML = '載入失敗：' + e.message; }
+}
+async function lineGenCode() {
+  const body = document.getElementById('lineCardBody');
+  body.innerHTML = '產生綁定碼中…';
+  try {
+    const code = String(Math.floor(100000 + Math.random()*900000));
+    await window.db.collection('lineBindCodes').doc(code).set({
+      uid: currentUser.uid, empName: currentUser.empName||'', displayName: currentUser.displayName||currentUser.empName||'', store: currentUser.store||'',
+      createdAt: new Date().toISOString(), expiresAt: Date.now() + 10*60*1000
+    });
+    const oa = (appConfig && appConfig.lineOaUrl) || '';
+    const oaBtn = oa
+      ? `<a href="${oa}" target="_blank" style="display:block; text-align:center; background:#06c755; color:#fff; padding:11px; border-radius:10px; font-weight:800; text-decoration:none; margin:10px 0;">➕ 加入官方帳號</a>`
+      : `<div style="color:var(--danger); margin:10px 0; font-weight:700;">⚠️ 官方帳號連結尚未設定，請聯絡管理員設定 lineOaUrl。</div>`;
+    body.innerHTML = `
+      <div style="font-weight:800;">① 加入官方帳號好友</div>
+      ${oaBtn}
+      <div style="font-weight:800;">② 在該官方帳號聊天室傳送這組綁定碼：</div>
+      <div style="text-align:center; font-size:30px; font-weight:900; letter-spacing:6px; color:var(--primary); background:#eef4ff; border-radius:10px; padding:12px; margin:8px 0;">${code}</div>
+      <div style="font-size:12px; color:var(--text-muted);">（10 分鐘內有效；傳送後會收到「綁定成功」，回此頁重新整理即顯示已綁定）</div>`;
+  } catch(e) { body.innerHTML = '產生失敗：' + e.message; }
+}
+async function lineUnbind() {
+  if(!confirm('確定解除 LINE 通知綁定？')) return;
+  await window.db.collection('lineBindings').doc(currentUser.uid).delete().catch(()=>{});
+  showToast('已解除綁定');
+  renderLineCard();
+}
+async function lineSendTest(btn) {
+  if(btn){ btn.disabled = true; btn.textContent = '傳送中…'; }
+  try {
+    const fn = firebase.app().functions('asia-east1').httpsCallable('sendTestNotify');
+    await fn({});
+    showToast('✅ 已送出，請到 LINE 查看');
+    if(btn){ btn.textContent = '🔔 已送出，請看 LINE'; }
+  } catch(e) {
+    showToast('❌ ' + (e.message||'發送失敗'));
+    if(btn){ btn.disabled = false; btn.textContent = '🔔 發送測試通知（僅管理者）'; }
   }
 }
 

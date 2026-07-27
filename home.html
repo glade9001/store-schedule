@@ -960,7 +960,8 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
     </div>
     <div class="bs-item-arrow">›</div>
   </div>
-  <div class="bs-item" onclick="closeSettingsSheet(); window.location.href='settings.html';">
+  <!-- 更新日誌：員工看得到獨立入口；店長以上整合進「系統設定」 -->
+  <div class="bs-item" id="bsChangelog" style="display:none;" onclick="closeSettingsSheet(); window.location.href='settings.html';">
     <div class="bs-item-icon" style="background:#f3e8ff;">📋</div>
     <div class="bs-item-text">
       <div class="bs-item-label">更新日誌</div>
@@ -968,19 +969,11 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
     </div>
     <div class="bs-item-arrow">›</div>
   </div>
-  <div class="bs-item" onclick="closeSettingsSheet(); openLineBindModal();">
-    <div class="bs-item-icon" style="background:#e6f7ea;">🔔</div>
-    <div class="bs-item-text">
-      <div class="bs-item-label">LINE 通知</div>
-      <div class="bs-item-sub" id="bsLineSub">綁定狀態、測試通知</div>
-    </div>
-    <div class="bs-item-arrow">›</div>
-  </div>
   <div class="bs-item" id="bsStoreConfig" style="display:none;" onclick="closeSettingsSheet(); window.location.href='settings.html';">
     <div class="bs-item-icon" style="background:#e8f5e9;">🔧</div>
     <div class="bs-item-text">
-      <div class="bs-item-label">門市設定</div>
-      <div class="bs-item-sub">班別、工時、投保級距與系統設定</div>
+      <div class="bs-item-label">系統設定</div>
+      <div class="bs-item-sub">班別、工時、投保級距、更新日誌等</div>
     </div>
     <div class="bs-item-arrow">›</div>
   </div>
@@ -2833,9 +2826,13 @@ function openSettingsSheet() {
   document.getElementById('settingsRole').textContent =
     ({ employee:'員工', manager:'店長', owner:'加盟主', admin:'系統管理者' }[currentUser.permission] || '') +
     (currentUser.store ? ` · ${currentUser.store}` : '');
-  // 門市設定（已整合系統設定）：店長以上顯示，settings.html 內再依權限顯示各區塊
+  // 系統設定（整合門市設定＋更新日誌）：店長以上顯示，settings.html 內再依權限顯示各區塊
+  const canCfg = canSchedule();
   const bsStore = document.getElementById('bsStoreConfig');
-  if(bsStore) bsStore.style.display = canSchedule() ? 'flex' : 'none';
+  if(bsStore) bsStore.style.display = canCfg ? 'flex' : 'none';
+  // 更新日誌：員工才顯示獨立入口（店長以上已整合在系統設定內）
+  const bsChangelog = document.getElementById('bsChangelog');
+  if(bsChangelog) bsChangelog.style.display = canCfg ? 'none' : 'flex';
 
   document.getElementById('settingsOverlay').classList.add('active');
   document.getElementById('settingsSheet').classList.add('active');
