@@ -1120,6 +1120,13 @@ const ROLE_PART = '工讀';
 const ROLE_FULL = '正職';
 const ROLE_MANAGER = '店長';
 
+// 計薪模式覆蓋：員工主檔 payAsPartTime=true 者，計薪一律走「工讀時薪」模式，
+// 職務角色（排班/權限/一般顯示）不受影響。所有計薪 role 判定改用此函式。
+function effSalaryRole(emp, rec) {
+  const flag = (emp && emp.payAsPartTime) || (rec && rec.payAsPartTime);
+  return flag ? ROLE_PART : ((emp && emp.role) || (rec && rec.role) || '');
+}
+
 // ===== 工具 =====
 function openModal(id) {
   const el = document.getElementById(id);
@@ -1230,7 +1237,7 @@ function renderPayslip() {
   const rec = getSalaryRecord(empName) || buildDefaultRecord(emp);
   const el = document.getElementById('payslipContent');
   const [y, m] = currentMonth.split('-').map(Number);
-  const role = emp.role || rec.role || '';
+  const role = effSalaryRole(emp, rec);
   const isPartTime = role === ROLE_PART;
   const gross = calcGross(rec);
   const deduct = calcDeduct(rec);
@@ -1445,7 +1452,7 @@ function buildAttendanceInfo(rec, emp, isPartTime) {
 function calcGross(rec) {
   // 職稱以 empList 最新為準（rec.role 可能舊）；工時/支援費即時算後交給共用純公式
   const empObj = empList.find(e => e.name === (rec.empName || rec.name || ''));
-  const role = (empObj?.role) || rec.role;
+  const role = effSalaryRole(empObj, rec);
   const isPart = role === ROLE_PART;
   const rph = isPart ? 0 : hourlyRate(rec);
   const totalH = isPart ? calcEmpHours(rec.empName || rec.name || '').totalH : 0;
@@ -1918,7 +1925,7 @@ function buildAllPayslipsHtml() {
 function buildSinglePayslipHtml(emp, y, m) {
   const rec = getSalaryRecord(emp.name);
   if(!rec) return '';
-  const role = emp.role || rec.role || '';
+  const role = effSalaryRole(emp, rec);
   const isPartTime = role === ROLE_PART;
   const gross = calcGross(rec);
   const deduct = calcDeduct(rec);
@@ -2242,7 +2249,7 @@ function autoSyncAllOtHours() {
   if(isReadonly()) return; // 唯讀模式不自動改
   let changed = false;
   empList.forEach(emp => {
-    if(emp.role === ROLE_PART) return; // 工讀生不計加班
+    if(effSalaryRole(emp) === ROLE_PART) return; // 工讀(含以工讀計薪)不計加班
     const { otH: schedOtH } = calcEmpHours(emp.name);
     let rec = getSalaryRecord(emp.name);
     if(!rec) {
@@ -2728,9 +2735,10 @@ function buildDefaultRecord(emp) {
   const base = {
     empName: emp.name,
     role: emp.role || ROLE_PART, // ✅ Bug1修正：永遠用員工主檔最新職稱
+    payAsPartTime: !!emp.payAsPartTime, // 計薪模式旗標
   };
-  
-  if(emp.role === ROLE_PART) {
+
+  if(effSalaryRole(emp) === ROLE_PART) {
     // 工讀生預設
     return {
       ...base,
@@ -2779,9 +2787,10 @@ function renderSalaryForm(emp, rec, idx, readonly) {
   // ✅ Bug1修正：職稱以員工主檔（emp.role）為準，rec.role 僅為 fallback
   // 避免員工升遷後薪資結構仍顯示舊職稱
   const currentRole = emp.role || rec.role || ROLE_PART;
-  if(rec.role !== currentRole) rec.role = currentRole; // 同步修正記錄內的職稱
-  const isPart = currentRole === ROLE_PART;
-  const isMgr = currentRole === ROLE_MANAGER;
+  if(rec.role !== currentRole) rec.role = currentRole; // 同步修正記錄內的職稱（存實際職務）
+  rec.payAsPartTime = !!emp.payAsPartTime; // 存計薪模式旗標，供查看薪水/分析讀取
+  const isPart = effSalaryRole(emp, rec) === ROLE_PART; // 計薪模式：payAsPartTime 亦視為工讀
+  const isMgr = currentRole === ROLE_MANAGER && !isPart; // 以工讀計薪者不套用店長薪資欄位
   const ro = readonly;
   const { totalH } = calcEmpHours(emp.name);
 
@@ -3790,7 +3799,7 @@ async function submitSalary() {
   // ✅ 送審前：檢查應休未休補休是否全員處理完畢
   const unhandled = [];
   empList.forEach(emp => {
-    if(emp.role === ROLE_PART) return; // 工讀無六日應休，跳過
+    if(effSalaryRole(emp) === ROLE_PART) return; // 工讀(含以工讀計薪)無六日應休，跳過
     const rec = getSalaryRecord(emp.name);
     if(!rec) return;
     const shortRest = Math.max(0, getMonthWeekendDays(currentMonth).total - calcMonthOffDays(emp.name, currentMonth));
@@ -3810,7 +3819,7 @@ async function submitSalary() {
   // ✅ 送審前：掃描加班時數差異
   const mismatches = [];
   empList.forEach(emp => {
-    if(emp.role === '工讀') return; // 工讀無加班，跳過
+    if(effSalaryRole(emp) === ROLE_PART) return; // 工讀(含以工讀計薪)無加班，跳過
     if(emp.role === '店長') return; // 店長加班為選填，跳過自動檢查
     const rec = getSalaryRecord(emp.name);
     if(!rec) return;
@@ -4103,7 +4112,7 @@ function _renderSalaryBreakdown(empName) {
   const fmt = v => v ? `$${Math.round(v).toLocaleString()}` : '—';
   const emp = empList.find(e => e.name === empName) || {};
   const rec = getSalaryRecord(empName) || {};
-  const role = emp.role || rec.role || '';
+  const role = effSalaryRole(emp, rec);
   const isPart = role === ROLE_PART;
   const rph = isPart ? 0 : hourlyRate(rec);
   const rows = [];

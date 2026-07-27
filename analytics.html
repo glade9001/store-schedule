@@ -614,6 +614,8 @@ const calcOtPay = rec => {
   const mult=hasCustom?(rec.customOtX134!==false?1.34:1):1.34;
   return Math.ceil(rate*mult*n(rec.otHours));
 };
+// 計薪模式：payAsPartTime 者以工讀時薪計（職務角色不變）；主要金額仍優先讀存檔快照
+const effR = (emp, rec) => (((emp && emp.payAsPartTime) || (rec && rec.payAsPartTime)) ? '工讀' : ((emp && emp.role) || (rec && rec.role) || ''));
 const calcGross = (rec, role) => {
   if(rec.grossAmt != null) return n(rec.grossAmt); // ✅ 讀 salary.html 存的實發快照
   if(role==='工讀'){
@@ -661,7 +663,7 @@ function calcSupportAdj(empName, ym, salaryMap, supportMap, allEmps){
   const supports = supportMap[ym]?.[empName]||[];
   if(!supports.length) return { adj:0, details:[] };
 
-  const role = emp?.role||rec?._role||'';
+  const role = effR(emp, rec) || rec?._role || '';
   const isPart = role==='工讀';
   let adj = 0;
   const details = [];
@@ -789,7 +791,7 @@ function renderCostTab(){
   fStores.forEach(store=>{
     ymList.forEach(ym=>{
       Object.values(salaryMap[ym]||{}).filter(r=>r._store===store).forEach(rec=>{
-        const role = rec.role||'';
+        const role = effR(null, rec);
         costMatrix[store][ym] = (costMatrix[store][ym]||0) + calcRealCost(rec,role);
       });
     });
@@ -878,7 +880,7 @@ function renderCostTab(){
       let grossSum=0, erSum=0;
       const grossDetails=[], erDetails=[], recNames = new Set();
       Object.values(salaryMap[ym]||{}).filter(r=>r._store===store).forEach(rec=>{
-        const role = rec.role||'', name = rec.empName||'';
+        const role = effR(null, rec), name = rec.empName||'';
         const g = calcGross(rec, role), e = calcErBurden(rec, role);
         grossSum += g; erSum += e;
         grossDetails.push({ name, role, gross:g });

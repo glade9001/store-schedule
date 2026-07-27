@@ -319,6 +319,11 @@ let currentEmpModal = null;
 
 const ROLE_PART = '工讀';
 const ROLE_FULL = '正職';
+// 計薪模式覆蓋：payAsPartTime 者計薪走工讀時薪（與 salary.html effSalaryRole 一致）
+function effSalaryRole(emp, rec) {
+  const flag = (emp && emp.payAsPartTime) || (rec && rec.payAsPartTime);
+  return flag ? ROLE_PART : ((emp && emp.role) || (rec && rec.role) || '');
+}
 const ROLE_MANAGER = '店長';
 
 // ===== 輔助工具 =====
@@ -470,7 +475,7 @@ function calcGross(rec) {
   if(rec.grossAmt != null) return rec.grossAmt; // ✅ 讀 salary.html 存的實發快照（發給員工多少就顯示多少）
   // fallback：舊月份無快照 → 即時算
   const empObj = empList.find(e => e.name === (rec.empName || rec.name || ''));
-  const role = (empObj?.role) || rec.role;
+  const role = effSalaryRole(empObj, rec);
   const isPart = role === ROLE_PART;
   const rph = isPart ? 0 : hourlyRate(rec);
   const totalH = isPart ? calcEmpHours(rec.empName || rec.name || '').totalH : 0;
@@ -491,9 +496,9 @@ function getSalaryRecord(empName) {
 function buildDefaultRecord(emp) {
   const prev = prevSalaryData.find(r => r.empName === emp.name) || {};
   const { totalH, otH } = calcEmpHours(emp.name);
-  const base = { empName: emp.name, role: emp.role || ROLE_PART };
-  
-  if(emp.role === ROLE_PART) {
+  const base = { empName: emp.name, role: emp.role || ROLE_PART, payAsPartTime: !!emp.payAsPartTime };
+
+  if(effSalaryRole(emp) === ROLE_PART) {
     return {
       ...base,
       wage: prev.wage !== undefined ? prev.wage : (emp.wage || 0),
@@ -863,7 +868,7 @@ async function viewMySignature(){
 
 // 核心：一頁三欄橫向滑動佈局
 function renderSalaryForm(emp, rec, idx, readonly) {
-  const isPart = (((empList.find(e=>e.name===(rec.empName||rec.name||''))||{}).role) || rec.role) === ROLE_PART; // ✅ 與 salary.html 對齊：用 empList 最新職稱
+  const isPart = effSalaryRole(empList.find(e=>e.name===(rec.empName||rec.name||'')), rec) === ROLE_PART; // ✅ 與 salary.html 對齊：payAsPartTime 亦視為工讀
   const { totalH } = calcEmpHours(emp.name);
   const rph = isPart ? 0 : hourlyRate(rec);
   const gross = calcGross(rec);

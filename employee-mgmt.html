@@ -279,6 +279,13 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
       <label>權限等級</label>
       <select id="accountPermission"></select>
     </div>
+    <div class="form-field" id="payModeField" style="display:none;">
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:700;">
+        <input type="checkbox" id="accountPayAsPart" style="width:18px; height:18px;">
+        薪資以工讀時薪計算
+      </label>
+      <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">職務角色/排班/權限不變，僅薪資頁改用工讀時薪模式輸入與計算（例：店長但以時薪計薪）。</div>
+    </div>
     <button class="save-btn" onclick="saveAccountSetting()">💾 儲存帳號設定</button>
     <button class="cancel-btn" onclick="closeModal('accountModal')">取消</button>
   </div>
@@ -745,6 +752,11 @@ async function openAccountModal(empName, store) {
     document.getElementById('roleEffectiveDate').value = '';
     document.getElementById('roleEffectiveDateField').style.display = 'none';
 
+    // 計薪模式開關（僅加盟主/admin 可見可設）
+    const canSetPay = ['owner','admin'].includes(currentUser.permission);
+    document.getElementById('payModeField').style.display = canSetPay ? 'block' : 'none';
+    document.getElementById('accountPayAsPart').checked = !!empData.payAsPartTime;
+
     // 顯示待生效職稱資訊
     const pendingRoleEl = document.getElementById('pendingRoleInfo');
     if(existingDoc?.pendingRole && existingDoc?.roleChangeDate) {
@@ -901,13 +913,19 @@ async function saveAccountSetting() {
     // ✅ 同步員工記錄：全新員工自動建立，已存在則更新 role
     const empRef = window.db.collection('stores').doc(store).collection('employees').doc(empName);
     const empSnap = await empRef.get().catch(() => null);
+    // 計薪模式旗標：只有開關可見（加盟主/admin）時才寫入，避免其他人誤清
+    const payFieldVisible = document.getElementById('payModeField').style.display !== 'none';
+    const payAsPart = !!document.getElementById('accountPayAsPart').checked;
     if (!empSnap || !empSnap.exists) {
       // 員工記錄不存在 → 自動建立（時薪預設 0，之後可在員工列表補填）
       const empCount = await window.db.collection('stores').doc(store).collection('employees')
         .get().catch(() => ({ size: 0 }));
-      await empRef.set({ role: effectiveRole, wage: 0, sortKey: empCount.size, status: '在職' });
-    } else if (!hasFutureRoleDate) {
-      await empRef.update({ role });
+      await empRef.set({ role: effectiveRole, wage: 0, sortKey: empCount.size, status: '在職', ...(payFieldVisible ? { payAsPartTime: payAsPart } : {}) });
+    } else {
+      const upd = {};
+      if (!hasFutureRoleDate) upd.role = role;
+      if (payFieldVisible) upd.payAsPartTime = payAsPart;
+      if (Object.keys(upd).length) await empRef.update(upd);
     }
 
     closeModal('accountModal');
