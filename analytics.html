@@ -263,6 +263,7 @@ select.range-sel:focus{border-color:var(--primary);}
       <div class="tab-item" id="tab-hourly" onclick="switchTab('hourly')">⏱️ 員工時薪</div>
       <div class="tab-item" id="tab-compliance" onclick="switchTab('compliance')">🛡️ 合規稽核</div>
       <div class="tab-item" id="tab-weekly" onclick="switchTab('weekly')">📅 每週工時</div>
+      <div class="tab-item" id="tab-dashboard" onclick="switchTab('dashboard')">📊 經營儀表板</div>
     </div>
 
     <!-- Tab: 人事成本 -->
@@ -412,6 +413,18 @@ select.range-sel:focus{border-color:var(--primary);}
         <button onclick="exportWeeklyTable()" style="padding:7px 14px;background:white;border:1.5px solid var(--border);border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0;">⬇️ 匯出</button>
       </div>
       <div id="weeklyContent"></div>
+    </div>
+
+    <!-- Tab: 經營儀表板 -->
+    <div class="tab-content" id="panel-dashboard">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+        <span style="font-size:12px;font-weight:700;color:var(--text-muted);">加班佔比目標</span>
+        <input type="number" id="dashOtTarget" value="8" min="1" max="50" step="1" onchange="renderDashboardTab()" style="width:56px;padding:5px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-weight:700;text-align:center;">
+        <span style="font-size:12px;color:var(--text-muted);">%　合理範圍帶 ±</span>
+        <input type="number" id="dashBandPct" value="10" min="1" max="50" step="1" onchange="renderDashboardTab()" style="width:56px;padding:5px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-weight:700;text-align:center;">
+        <span style="font-size:12px;color:var(--text-muted);">%（滾動均）</span>
+      </div>
+      <div id="dashboardContent"></div>
     </div>
 
   </div>
@@ -643,6 +656,7 @@ async function runAnalysis(){
     const periodEnd = `${ymList[ymList.length-1]}-${String(new Date(_ly,_lm,0).getDate()).padStart(2,'0')}`;
     const fmtD = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     const weeklyMap = {}; // `${store}|${wk}` -> {store,wk,mon,emps:{emp:{hours,ot,days:Set}}}
+    const monthlyHoursMap = {}; // ym -> { hours, ot, byStore:{store:{hours,ot}} }（依班次日期歸月，供每工時成本用）
     for(const store of stores){
       try{
         const wSnap = await window.db.collection('stores').doc(store).collection('weeks').get();
@@ -665,6 +679,15 @@ async function runAnalysis(){
             const ot = (r.isOT || h>8) ? Math.max(0,h-8) : 0;
             const e = bucket.emps[r.name] || (bucket.emps[r.name] = { hours:0, ot:0, days:new Set() });
             e.hours += h; e.ot += ot; e.days.add(dIdx);
+            // 依班次日期歸月，累計每月總工時（每工時成本用）
+            const cd = new Date(mon); cd.setDate(mon.getDate()+dIdx);
+            const ym2 = `${cd.getFullYear()}-${String(cd.getMonth()+1).padStart(2,'0')}`;
+            if(ymList.includes(ym2)){
+              const mh = monthlyHoursMap[ym2] || (monthlyHoursMap[ym2] = { hours:0, ot:0, byStore:{} });
+              mh.hours += h; mh.ot += ot;
+              const bs = mh.byStore[store] || (mh.byStore[store] = { hours:0, ot:0 });
+              bs.hours += h; bs.ot += ot;
+            }
           });
         });
       }catch{}
@@ -687,7 +710,7 @@ async function runAnalysis(){
     // 4. 組裝分析資料
     setProgress(80,'計算分析數據...');
     complianceRows.sort((a,b)=> b.date.localeCompare(a.date) || String(a.empName).localeCompare(String(b.empName)));
-    analysisData = { ymList, stores, allEmps, salaryMap, supportMap, complianceRows, weeklyRows, weeklyTrend };
+    analysisData = { ymList, stores, allEmps, salaryMap, supportMap, complianceRows, weeklyRows, weeklyTrend, monthlyHoursMap };
     renderAll();
     setProgress(100,'✅ 完成');
     document.getElementById('mainAnalysis').style.display = 'block';
@@ -801,6 +824,69 @@ function switchTab(tab){
   if(tab==='anomaly') renderAnomalyTab();
   if(tab==='compliance') renderComplianceTab();
   if(tab==='weekly') renderWeeklyTab();
+  if(tab==='dashboard') renderDashboardTab();
+}
+
+// ===== 經營儀表板（優先4：每工時成本／加班佔比／趨勢／合理範圍帶／決策提示）=====
+function buildMonthlySeries(){
+  const { ymList, salaryMap, monthlyHoursMap } = analysisData;
+  return ymList.map(ym=>{
+    let gross=0, er=0; const head={full:0,part:0,manager:0};
+    Object.values(salaryMap[ym]||{}).forEach(rec=>{
+      const role = effR(null, rec);
+      gross += calcGross(rec, role);
+      er += calcErBurden(rec, role);
+      if(role==='工讀') head.part++; else if(role==='店長') head.manager++; else head.full++;
+    });
+    const mh = monthlyHoursMap?.[ym] || { hours:0, ot:0 };
+    const cost = gross + er;
+    return { ym, gross:Math.round(gross), er:Math.round(er), cost:Math.round(cost),
+      hours:Math.round(mh.hours*10)/10, ot:Math.round(mh.ot*10)/10,
+      cph: mh.hours>0 ? Math.round(cost/mh.hours) : 0,
+      otRatio: mh.hours>0 ? Math.round(mh.ot/mh.hours*1000)/10 : 0, head };
+  });
+}
+function renderDashboardTab(){
+  const el = document.getElementById('dashboardContent'); if(!el) return;
+  if(!analysisData){ el.innerHTML='<div style="text-align:center;color:var(--text-muted);padding:40px 0;">請先執行分析</div>'; return; }
+  const otTarget = parseFloat(document.getElementById('dashOtTarget').value)||8;
+  const bandPct = (parseFloat(document.getElementById('dashBandPct').value)||10)/100;
+  const series = buildMonthlySeries().filter(s=>s.hours>0 || s.cost>0);
+  if(!series.length){ el.innerHTML='<div style="text-align:center;color:var(--text-muted);padding:40px 0;">本期無資料</div>'; return; }
+  const last = series[series.length-1], prev = series[series.length-2];
+  const comma = x => (x||0).toLocaleString();
+  // 合理範圍帶：以「本月之前」的每工時成本滾動平均 ±bandPct
+  const cphHist = series.slice(0,-1).map(s=>s.cph).filter(v=>v>0);
+  const cphAvg = cphHist.length ? Math.round(cphHist.reduce((a,b)=>a+b,0)/cphHist.length) : last.cph;
+  const bandLo = Math.round(cphAvg*(1-bandPct)), bandHi = Math.round(cphAvg*(1+bandPct));
+  const cphStatus = last.cph>bandHi ? {c:'#d93025',t:'偏高'} : last.cph<bandLo ? {c:'#188038',t:'偏低(佳)'} : {c:'#188038',t:'合理'};
+  const otStatus = last.otRatio>otTarget ? {c:'#d93025',t:'超標'} : {c:'#188038',t:'達標'};
+  const mom = (cur,pv)=> pv? `<span style="font-size:11px;font-weight:800;color:${cur>pv?'#d93025':'#188038'};">${cur>pv?'▲':'▼'}${Math.abs(Math.round((cur-pv)/pv*1000)/10)}%</span>` : '';
+  // KPI
+  const kpi = `<div class="kpi-grid">
+    <div class="kpi-card"><div class="kpi-label">⏱️ 每工時人事成本</div><div class="kpi-val" style="color:${cphStatus.c};">$${comma(last.cph)}</div><div class="kpi-sub">含公司負擔　${prev?mom(last.cph,prev.cph):''}</div><div class="kpi-trend" style="color:${cphStatus.c};">${cphStatus.t}（合理帶 $${comma(bandLo)}–$${comma(bandHi)}）</div></div>
+    <div class="kpi-card"><div class="kpi-label">⚡ 加班佔比</div><div class="kpi-val" style="color:${otStatus.c};">${last.otRatio}%</div><div class="kpi-sub">加班${last.ot}h / 總${last.hours}h　${prev?mom(last.otRatio,prev.otRatio):''}</div><div class="kpi-trend" style="color:${otStatus.c};">${otStatus.t}（目標 ≤${otTarget}%）</div></div>
+    <div class="kpi-card"><div class="kpi-label">💰 月總成本(含公司負擔)</div><div class="kpi-val">$${comma(last.cost)}</div><div class="kpi-sub">實發$${comma(last.gross)}＋負擔$${comma(last.er)}　${prev?mom(last.cost,prev.cost):''}</div></div>
+    <div class="kpi-card"><div class="kpi-label">👥 人數(正/工/店長)</div><div class="kpi-val" style="font-size:20px;">${last.head.full}/${last.head.part}/${last.head.manager}</div><div class="kpi-sub">總工時 ${last.hours}h</div></div>
+  </div>`;
+  // 決策提示
+  const tips = [];
+  if(last.otRatio>otTarget){
+    const targetOtH = Math.round(last.hours*otTarget/100*10)/10;
+    const saveH = Math.round((last.ot-targetOtH)*10)/10;
+    tips.push(`⚡ 加班佔比 ${last.otRatio}% 超過目標 ${otTarget}%：若降到目標，約可減少 <b>${saveH}h</b> 加班（檢視排班密度／增補人力）。`);
+  }
+  if(last.cph>bandHi) tips.push(`⏱️ 每工時成本 $${comma(last.cph)} 高於近期均 $${comma(cphAvg)}（+${Math.round((last.cph-cphAvg)/cphAvg*1000)/10}%），留意人力配置／薪資結構。`);
+  if(!tips.length) tips.push('✅ 本月每工時成本與加班佔比皆在合理範圍。');
+  const tipsHtml = `<div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:12px;padding:12px 14px;margin:12px 0;font-size:13px;line-height:1.8;">${tips.map(t=>`<div>${t}</div>`).join('')}</div>`;
+  // 趨勢表
+  const rows = series.map(s=>{
+    const st = s.cph>bandHi?'🔴':s.cph<bandLo?'🟢':'🟡';
+    return `<tr><td><b>${s.ym}</b></td><td class="num">$${comma(s.cost)}</td><td class="num">${s.hours}</td><td class="num"><b>$${comma(s.cph)}</b> ${st}</td><td class="num" style="${s.otRatio>otTarget?'color:#d93025;font-weight:800;':''}">${s.otRatio}%</td></tr>`;
+  }).join('');
+  const trend = `<div class="section-title">📈 月度趨勢（🟢低/🟡合理/🔴偏高，合理帶 $${comma(bandLo)}–$${comma(bandHi)}）</div>
+    <div style="overflow-x:auto;"><table class="data-table"><thead><tr><th>月份</th><th class="num">總成本</th><th class="num">總工時</th><th class="num">每工時成本</th><th class="num">加班佔比</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  el.innerHTML = kpi + tipsHtml + trend;
 }
 
 // ===== 每週工時（勞基法單週把關 + 週趨勢）=====
@@ -920,6 +1006,7 @@ function renderAll(){
   renderHourlyTab();
   renderComplianceTab();
   renderWeeklyTab();
+  renderDashboardTab();
   updateAnomalyBadge(anomalyCount);
   // 合規稽核筆數標記
   const compCount = (analysisData.complianceRows||[]).length;
