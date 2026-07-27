@@ -655,8 +655,9 @@ async function runAnalysis(){
     const [_ly,_lm] = ymList[ymList.length-1].split('-').map(Number);
     const periodEnd = `${ymList[ymList.length-1]}-${String(new Date(_ly,_lm,0).getDate()).padStart(2,'0')}`;
     const fmtD = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    const weeklyMap = {}; // `${store}|${wk}` -> {store,wk,mon,emps:{emp:{hours,ot,days:Set}}}
-    const monthlyHoursMap = {}; // ym -> { hours, ot, byStore:{store:{hours,ot}} }（依班次日期歸月，供每工時成本用）
+    const weeklyMap = {}; // `${store}|${wk}` -> {store,wk,mon,emps:{...}}（每人明細，發薪歸屬店）
+    const physMap = {};   // `${store}|${wk}` -> {store,wk,mon,hours}（店別實體工時：自有+受支援-外派）
+    const monthlyHoursMap = {}; // ym -> { hours, ot, byStore }（依班次日期歸月，供每工時成本用；發薪歸屬）
     for(const store of stores){
       try{
         const wSnap = await window.db.collection('stores').doc(store).collection('weeks').get();
@@ -668,18 +669,24 @@ async function runAnalysis(){
           if(fmtD(sun) < periodStart || fmtD(mon) > periodEnd) return; // 週完全在期間外
           const key = `${store}|${wk}`;
           const bucket = weeklyMap[key] || (weeklyMap[key] = { store, wk, mon, emps:{} });
+          const phys = physMap[key] || (physMap[key] = { store, wk, mon, hours:0 });
           (wd.data().records||[]).forEach(r=>{
-            if(!r || !r.name || String(r.name).startsWith('🆘') || r.name==='門市備註') return;
-            if(r.isHourly) return;
+            if(!r || !r.name || r.name==='門市備註') return;
             const sh = r.shift;
             if(!sh || ['排休','指休','特休','補休','清空'].includes(sh)) return;
             const dIdx = ['週一','週二','週三','週四','週五','週六','週日'].indexOf(r.day);
             if(dIdx<0) return;
             const h = n(r.actualHours);
             const ot = (r.isOT || h>8) ? Math.max(0,h-8) : 0;
+            const isPlaceholder = String(r.name).startsWith('🆘');
+            const loc = r.location || '本店';
+            // 店別實體工時：本店自有(非🆘、location=本店、非時薪) + 受支援(🆘 approved)；外派(location≠本店)不計本店(計在對方)
+            if(!isPlaceholder && !r.isHourly && (loc==='本店'||loc==='')) phys.hours += h;
+            else if(isPlaceholder && r.supportEmp && r.approvalStatus==='approved') phys.hours += h;
+            // 以下為每人明細＋每月工時(發薪歸屬)：只算真實員工、非時薪（含其外派時數，屬本人工時）
+            if(isPlaceholder || r.isHourly) return;
             const e = bucket.emps[r.name] || (bucket.emps[r.name] = { hours:0, ot:0, days:new Set() });
             e.hours += h; e.ot += ot; e.days.add(dIdx);
-            // 依班次日期歸月，累計每月總工時（每工時成本用）
             const cd = new Date(mon); cd.setDate(mon.getDate()+dIdx);
             const ym2 = `${cd.getFullYear()}-${String(cd.getMonth()+1).padStart(2,'0')}`;
             if(ymList.includes(ym2)){
@@ -692,20 +699,22 @@ async function runAnalysis(){
         });
       }catch{}
     }
+    const mkLabel = m => { const s=new Date(m); s.setDate(m.getDate()+6); return `${m.getMonth()+1}/${m.getDate()}~${s.getMonth()+1}/${s.getDate()}`; };
     const weeklyRows = [], weeklyTrend = {};
+    // 每人明細（發薪歸屬店，含本人外派時數 → 勞基法把關看本人）
     Object.values(weeklyMap).forEach(b=>{
-      const sun = new Date(b.mon); sun.setDate(b.mon.getDate()+6);
-      const label = `${b.mon.getMonth()+1}/${b.mon.getDate()}~${sun.getMonth()+1}/${sun.getDate()}`;
-      let total = 0;
+      const label = mkLabel(b.mon);
       Object.entries(b.emps).forEach(([emp,e])=>{
-        total += e.hours;
         weeklyRows.push({ wk:b.wk, weekLabel:label, store:b.store, empName:emp,
           hours:Math.round(e.hours*10)/10, ot:Math.round(e.ot*10)/10, days:e.days.size });
       });
-      const t = weeklyTrend[b.wk] || (weeklyTrend[b.wk] = { wk:b.wk, label, sortKey:b.mon.getTime(), byStore:{} });
-      t.byStore[b.store] = Math.round(total*10)/10;
     });
     weeklyRows.sort((a,b)=> a.wk.localeCompare(b.wk) || b.hours-a.hours);
+    // 店別每週趨勢（實體工時：自有+受支援-外派）
+    Object.values(physMap).forEach(p=>{
+      const t = weeklyTrend[p.wk] || (weeklyTrend[p.wk] = { wk:p.wk, label:mkLabel(p.mon), sortKey:p.mon.getTime(), byStore:{} });
+      t.byStore[p.store] = Math.round(p.hours*10)/10;
+    });
 
     // 4. 組裝分析資料
     setProgress(80,'計算分析數據...');
@@ -913,7 +922,7 @@ function renderWeeklyTab(){
       const tot = stores.reduce((a,s)=>a+(w.byStore[s]||0),0);
       return `<tr><td><b>${w.label}</b></td>${cells}<td class="num"><b>${Math.round(tot*10)/10}</b></td></tr>`;
     }).join('');
-    trendHtml = `<div class="section-title">📈 各店每週總工時 (h)</div><div style="overflow-x:auto;"><table class="data-table"><thead><tr><th>週</th>${head}<th class="num">合計</th></tr></thead><tbody>${body}</tbody></table></div>`;
+    trendHtml = `<div class="section-title">📈 各店每週實體工時 (h)（含受支援、扣外派）</div><div style="overflow-x:auto;"><table class="data-table"><thead><tr><th>週</th>${head}<th class="num">合計</th></tr></thead><tbody>${body}</tbody></table></div>`;
   }
   // 單週把關明細
   let list = weeklyRows.map(r=>({ r, f:weeklyFlag(r,yellow,red) }));
