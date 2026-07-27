@@ -981,7 +981,10 @@ function renderEmpDetail(empName, showBack=true) {
             status = existing.settled ? '已結算' : existing.carried ? '遞延中' : rem<=0 ? '已用完' : '進行中';
           }
           const rowClass = existing ? (existing.settled||((existing.days||0)-(existing.used||0)<=0) ? '' : 'highlight') : '';
-          return `<tr class="${rowClass}"><td>${b.label}</td><td>${fmtDate(b.grantDate)}</td><td>${fmtDate(b.expireDate)}</td><td>${b.days} 天</td><td style="color:${status==='已用完'?'var(--text-muted)':status==='進行中'?'var(--accent)':status==='遞延中'?'var(--warn)':'inherit'};">${status}</td></tr>`;
+          const grantBtn = (!existing && canEdit)
+            ? `<button onclick="grantBatch('${empName}','${b.grantDate}','${b.expireDate}',${b.days},'${String(b.label).replace(/'/g,'')}')" style="margin-left:6px;background:var(--primary);color:white;border:none;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:800;cursor:pointer;">🎁 發放</button>`
+            : '';
+          return `<tr class="${rowClass}"><td>${b.label}</td><td>${fmtDate(b.grantDate)}</td><td>${fmtDate(b.expireDate)}</td><td>${b.days} 天</td><td style="color:${status==='已用完'?'var(--text-muted)':status==='進行中'?'var(--accent)':status==='遞延中'?'var(--warn)':'inherit'};">${status}${grantBtn}</td></tr>`;
         }).join('')}
       </table>
     </div>`;
@@ -1412,6 +1415,15 @@ function openAddBatchModal(empName) {
   document.getElementById('addBatchExpireDate').value = dateAddExpire(today(),12);
   document.getElementById('addBatchDays').value = '';
   document.getElementById('addBatchNote').value = '';
+  openModal('addBatchModal');
+}
+// 一鍵發放：帶入該週年批次的發放日/到期日/天數
+function grantBatch(empName, grantDate, expireDate, days, label){
+  document.getElementById('addBatchEmp').value = empName;
+  document.getElementById('addBatchGrantDate').value = grantDate;
+  document.getElementById('addBatchExpireDate').value = expireDate;
+  document.getElementById('addBatchDays').value = days;
+  document.getElementById('addBatchNote').value = label || '';
   openModal('addBatchModal');
 }
 async function saveAddBatch() {
