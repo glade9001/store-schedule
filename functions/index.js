@@ -517,13 +517,13 @@ exports.onScheduleChanged = onDocumentWritten(
 );
 
 // ===== 月加班累計預警（優先2）=====
-// 某店某月每位員工的加班時數（公式同 salary-calc calcEmpHours：每日 max(0,h-8)，isOT 或日>8h；跳過休假/時薪；去重同員工同日）
-async function monthOtByEmp(db, store, ym) {
+// 某店某月每位員工的工時與加班（公式同 salary-calc calcEmpHours：每日 max(0,h-8)，isOT 或日>8h；跳過休假/時薪；去重同員工同日）
+async function monthWorkedByEmp(db, store, ym) {
   const [y, m] = ym.split("-").map(Number);
   const lastDay = new Date(y, m, 0).getDate();
   const weekSet = new Set();
   for (let d = 1; d <= lastDay; d++) weekSet.add(simpleWeekStr(new Date(y, m - 1, d)));
-  const byEmpDay = {}; // emp -> { dateKey: ot }
+  const byEmpDay = {}; // emp -> { dateKey: {h,ot} }
   for (const wk of weekSet) {
     const snap = await db.collection("stores").doc(store).collection("weeks").doc(wk).get().catch(() => null);
     if (!snap || !snap.exists) continue;
@@ -539,13 +539,62 @@ async function monthOtByEmp(db, store, ym) {
       if (cd.getFullYear() !== y || cd.getMonth() + 1 !== m) continue;
       const h = parseFloat(r.actualHours || 0);
       const ot = (r.isOT || h > 8) ? Math.max(0, h - 8) : 0;
-      (byEmpDay[r.name] = byEmpDay[r.name] || {})[`${cd.getDate()}`] = ot; // 同員工同日去重（跨店雙記錄）
+      (byEmpDay[r.name] = byEmpDay[r.name] || {})[`${cd.getDate()}`] = { h, ot }; // 同員工同日去重（跨店雙記錄）
     }
   }
   const out = {};
-  for (const emp in byEmpDay) out[emp] = Object.values(byEmpDay[emp]).reduce((a, b) => a + b, 0);
+  for (const emp in byEmpDay) {
+    let hours = 0, ot = 0;
+    for (const k in byEmpDay[emp]) { hours += byEmpDay[emp][k].h; ot += byEmpDay[emp][k].ot; }
+    out[emp] = { hours, ot };
+  }
   return out;
 }
+async function monthOtByEmp(db, store, ym) {
+  const w = await monthWorkedByEmp(db, store, ym);
+  const out = {};
+  for (const e in w) out[e] = w[e].ot;
+  return out;
+}
+
+// ===== 月度聚合 doc（優先3/模組F）=====
+// 薪資發布時寫入 stores/{store}/monthly/{ym} 快照，供加盟主儀表板快速讀取（免每次掃全 weeks+salary）。
+// 守鐵則：以「已發布薪資快照」聚合；已發布月份鎖定不再變動。
+exports.onSalaryAggregate = onDocumentWritten(
+  { document: "stores/{store}/salary/{month}", region: "asia-east1" },
+  async (event) => {
+    const before = event.data.before.exists ? event.data.before.data() : {};
+    const after = event.data.after.exists ? event.data.after.data() : {};
+    if (before.status === "published" || after.status !== "published") return; // 只在「剛發布」
+    const store = fixStoreName(event.params.store);
+    const ym = event.params.month;
+    const db = admin.firestore();
+    const num = (v) => { const x = parseFloat(v); return isNaN(x) ? 0 : x; };
+    let totalGross = 0, totalDeduct = 0, totalEr = 0;
+    const head = { full: 0, part: 0, manager: 0 };
+    for (const r of (after.records || [])) {
+      totalGross += num(r.grossAmt);
+      totalDeduct += num(r.deductAmt);
+      totalEr += num(r.laborEr) + num(r.healthEr) + num(r.pensionEr);
+      const role = r.payAsPartTime ? "工讀" : (r.role || "");
+      if (role === "工讀") head.part++;
+      else if (role === "店長") head.manager++;
+      else head.full++;
+    }
+    const worked = await monthWorkedByEmp(db, store, ym);
+    let totalHours = 0, otHours = 0;
+    for (const e in worked) { totalHours += worked[e].hours; otHours += worked[e].ot; }
+    await db.collection("stores").doc(store).collection("monthly").doc(ym).set({
+      store, month: ym,
+      totalGross: Math.round(totalGross), totalDeduct: Math.round(totalDeduct),
+      totalEr: Math.round(totalEr), totalCost: Math.round(totalGross + totalEr),
+      totalHours: Math.round(totalHours * 10) / 10, otHours: Math.round(otHours * 10) / 10,
+      costPerHour: totalHours > 0 ? Math.round((totalGross + totalEr) / totalHours) : 0,
+      otRatio: totalHours > 0 ? Math.round(otHours / totalHours * 1000) / 10 : 0, // %
+      headcount: head, source: "published", updatedAt: new Date().toISOString(),
+    });
+  }
+);
 
 // 班表變動 → 計算當月加班累計，跨越門檻(黃/紅/嚴重)且「等級升高」時，LINE 通知該店店長
 exports.onScheduleOtWarning = onDocumentWritten(
