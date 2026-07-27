@@ -1715,22 +1715,15 @@ async function openLineBindModal(){
     });
     const oa=(appConfig&&appConfig.lineOaUrl)||'';
     const basicId=(oa.match(/@[\w.\-]+/)||[''])[0];
-    const msgUrl=basicId?`https://line.me/R/oaMessage/${basicId}/?${encodeURIComponent(code)}`:'';
-    const oaBtn = oa
-      ? `<a href="${oa}" target="_blank" style="display:block;text-align:center;background:#06c755;color:#fff;padding:11px;border-radius:10px;font-weight:800;text-decoration:none;margin:10px 0;">➕ 加入官方帳號</a>`
-      : `<div style="color:var(--danger);margin:10px 0;font-weight:700;">⚠️ 官方帳號連結尚未設定，請聯絡管理員設定 lineOaUrl。</div>`;
-    const sendBtn = msgUrl
-      ? `<a href="${msgUrl}" target="_blank" style="display:block;text-align:center;background:#eef4ff;color:var(--primary);padding:11px;border-radius:10px;font-weight:800;text-decoration:none;margin:8px 0;">📨 一鍵帶入綁定碼並開啟聊天</a>`
-      : '';
+    const url=basicId?`https://line.me/R/oaMessage/${basicId}/?${encodeURIComponent(code)}`:oa;
+    const btn = url
+      ? `<a href="${url}" target="_blank" style="display:block;text-align:center;background:#06c755;color:#fff;padding:13px;border-radius:10px;font-weight:800;text-decoration:none;margin:12px 0;">➕ 開啟 LINE 加入並帶入綁定碼</a>`
+      : `<div style="color:var(--danger);margin:12px 0;font-weight:700;">⚠️ 官方帳號連結尚未設定，請聯絡管理員設定 lineOaUrl。</div>`;
     body.innerHTML=`
-      <div style="color:var(--text-muted);">綁定後，薪資發布、班表發布、劃休截止提醒等會主動用 LINE 通知你：</div>
-      <div style="margin-top:12px;font-weight:800;">① 加入官方帳號好友</div>
-      ${oaBtn}
-      <div style="font-weight:800;">② 傳送綁定碼（點下方按鈕會自動帶入，按送出即可）</div>
-      ${sendBtn}
-      <div style="font-size:12px;color:var(--text-muted);text-align:center;">或手動在聊天室輸入：</div>
-      <div style="text-align:center;font-size:30px;font-weight:900;letter-spacing:6px;color:var(--primary);background:#eef4ff;border-radius:10px;padding:12px;margin:8px 0;">${code}</div>
-      <div style="font-size:12px;color:var(--text-muted);">（10 分鐘內有效；傳送後會收到「綁定成功」）</div>`;
+      <div style="color:var(--text-muted);">綁定後，薪資發布、班表發布、劃休截止提醒等會主動用 LINE 通知你。</div>
+      <div style="margin-top:10px;">點下方按鈕 → 開啟官方帳號 → 若尚未加入請先按「加入」→ 綁定碼已自動帶入，按<strong>送出</strong>即完成。</div>
+      ${btn}
+      <div style="font-size:12px;color:var(--text-muted);text-align:center;">（萬一沒帶入，手動輸入綁定碼：<strong style="color:var(--primary);letter-spacing:2px;">${code}</strong>，10 分鐘內有效）</div>`;
   }catch(e){ body.innerHTML='載入失敗：'+e.message; }
 }
 async function sendTestNotify(){
