@@ -779,9 +779,11 @@ function isEmpActiveInMonth(emp, ym) {
   // 到職日晚於該月：尚未到職
   if(emp.startDate && emp.startDate > ym + '-31') return false;
   // 離職/調走日期：若在該月底之前則已離開（與 salary.html 一致）
-  const departDate = emp.retireDate || emp.transferDate;
-  // 守歷史鐵則：離職/調走日「早於當月1號」才排除；月中離職者當月仍計入
-  if(departDate && departDate < ym + '-01') return false;
+  // 離職：當月仍計(生效日<當月1號才排除)；調走：生效當月即歸新店(<=當月1號排除)
+  if(emp.retireDate && emp.retireDate < ym + '-01') return false;
+  const tDate = emp.transferDate;
+  if(emp.status === '調走' && tDate && tDate <= ym + '-01') return false;
+  if(emp.status !== '調走' && tDate && !emp.retireDate && tDate < ym + '-01') return false;
   return true;
 }
 
@@ -794,8 +796,9 @@ function isPaidByStoreInMonth(empName, store, ym, allEmps) {
   return allEmps.some(e => {
     if(e.name !== empName || e.store !== store) return false;
     const eff = e.retireDate || e.transferDate;            // 僅在「離職/調走」狀態下才視為離開
-    // 守歷史鐵則：離職/調走日「早於當月1號」才視為離開；月中離職者當月仍由本店發薪、支援仍計入
-    if(['離職','調走'].includes(e.status) && (!eff || eff < `${ym}-01`)) return false;
+    // 離職：當月仍由本店發薪(<當月1號才排除)；調走：生效當月即歸新店(<=當月1號排除)
+    if(e.status === '離職' && (!eff || eff < `${ym}-01`)) return false;
+    if(e.status === '調走' && (!eff || eff <= `${ym}-01`)) return false;
     if(e.startDate){ const [sy, sm] = e.startDate.split('-').map(Number); if(sy > cy || (sy === cy && sm > cm)) return false; }
     return true;
   });

@@ -2311,9 +2311,13 @@ async function loadSalaryData() {
       const data = d.data();
       const status = data.status;
       const effectDate = data.retireDate || data.transferDate;
-      // 守歷史鐵則：離職/調走日「早於當月1號」才排除；月中離職者當月仍領薪、仍計入
-      const isEffective = ['離職','調走'].includes(status) && (!effectDate || effectDate < salMonthStart);
-      if(isEffective) return; // 該月開始前已離職/調走，跳過
+      // 守歷史鐵則，且區分語意：
+      //  離職→當月仍領薪(生效日<當月1號才排除，月中離職者留在最後一月)；
+      //  調走→生效當月即整月歸新店(生效日<=當月1號就排除，如 7/1 調走則 7 月不列原店)。
+      let isEffective = false;
+      if(status === '離職') isEffective = !effectDate || effectDate < salMonthStart;
+      else if(status === '調走') isEffective = !effectDate || effectDate <= salMonthStart;
+      if(isEffective) return; // 該月已不屬本店，跳過
 
       // ✅ 到職日篩選：到職年月 > 當月年月 → 不顯示
       if(data.startDate) {
@@ -3752,6 +3756,14 @@ function collectRecords() {
       salaryData.records.push(buildDefaultRecord(emp));
     }
   });
+  // 移除「已不屬本月本店」的殘留記錄（如調走生效者：7/1 調走者其原店 7 月不應再有其記錄）
+  // 僅在未發布時清理，發布月為鎖定快照不動。empList 已依離職/調走正確過濾。
+  if((salaryData.status || 'draft') !== 'published') {
+    const validNames = new Set(empList.map(e => e.name));
+    const before = salaryData.records.length;
+    salaryData.records = salaryData.records.filter(r => validNames.has(r.empName));
+    if(salaryData.records.length !== before) console.log(`collectRecords 清除 ${before - salaryData.records.length} 筆不屬本月本店的記錄`);
+  }
 }
 
 // ===== 薪資簽收：內容指紋 payHash（步驟1）=====
