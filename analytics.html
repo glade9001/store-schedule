@@ -718,8 +718,14 @@ async function runAnalysis(){
 
     // 4. 組裝分析資料
     setProgress(80,'計算分析數據...');
-    complianceRows.sort((a,b)=> b.date.localeCompare(a.date) || String(a.empName).localeCompare(String(b.empName)));
-    analysisData = { ymList, stores, allEmps, salaryMap, supportMap, complianceRows, weeklyRows, weeklyTrend, monthlyHoursMap };
+    // 合規去重（同日/同人/同規則/同數值/同理由/同時間視為同一筆，避免重複列出）
+    const _seenC = new Set();
+    const complianceUniq = complianceRows.filter(r=>{
+      const k = [r.date,r.empName,r.rule,r.measured,r.reason,r.note,r.at].join('|');
+      if(_seenC.has(k)) return false; _seenC.add(k); return true;
+    });
+    complianceUniq.sort((a,b)=> b.date.localeCompare(a.date) || String(a.empName).localeCompare(String(b.empName)));
+    analysisData = { ymList, stores, allEmps, salaryMap, supportMap, complianceRows:complianceUniq, weeklyRows, weeklyTrend, monthlyHoursMap };
     renderAll();
     setProgress(100,'✅ 完成');
     document.getElementById('mainAnalysis').style.display = 'block';
@@ -858,6 +864,7 @@ function buildMonthlySeries(){
 function renderDashboardTab(){
   const el = document.getElementById('dashboardContent'); if(!el) return;
   if(!analysisData){ el.innerHTML='<div style="text-align:center;color:var(--text-muted);padding:40px 0;">請先執行分析</div>'; return; }
+  try {
   const otTarget = parseFloat(document.getElementById('dashOtTarget').value)||8;
   const bandPct = (parseFloat(document.getElementById('dashBandPct').value)||10)/100;
   const series = buildMonthlySeries().filter(s=>s.hours>0 || s.cost>0);
@@ -896,6 +903,10 @@ function renderDashboardTab(){
   const trend = `<div class="section-title">📈 月度趨勢（🟢低/🟡合理/🔴偏高，合理帶 $${comma(bandLo)}–$${comma(bandHi)}）</div>
     <div style="overflow-x:auto;"><table class="data-table"><thead><tr><th>月份</th><th class="num">總成本</th><th class="num">總工時</th><th class="num">每工時成本</th><th class="num">加班佔比</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   el.innerHTML = kpi + tipsHtml + trend;
+  } catch(err){
+    el.innerHTML = `<div style="color:var(--danger);padding:20px;font-size:13px;">儀表板計算錯誤：${err.message}<br><span style="color:var(--text-muted);">請點上方「執行分析」重新載入。</span></div>`;
+    console.error('renderDashboardTab', err);
+  }
 }
 
 // ===== 每週工時（勞基法單週把關 + 週趨勢）=====
