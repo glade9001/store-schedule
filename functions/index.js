@@ -196,8 +196,18 @@ exports.lineWebhook = onRequest(
     const db = admin.firestore();
     const events = (req.body && req.body.events) || [];
 
+    // 關鍵字清單（群組完全相符自動回覆）— 一次讀取快取
+    let _kwCache = null;
+    const getKeywords = async () => {
+      if (_kwCache) return _kwCache;
+      const s = await db.collection("settings").doc("lineKeywords").get().catch(() => null);
+      _kwCache = (s && s.exists && Array.isArray(s.data().list)) ? s.data().list : [];
+      return _kwCache;
+    };
+
     for (const ev of events) {
       const lineUserId = ev.source && ev.source.userId;
+      const srcType = (ev.source && ev.source.type) || "user"; // user | group | room
       try {
         if (ev.type === "follow") {
           await lineReply(
@@ -205,6 +215,14 @@ exports.lineWebhook = onRequest(
             "歡迎加入莉學商行通知！\n請回到 App 點「綁定 LINE」，把畫面上的 6 位數綁定碼傳到這裡即可完成綁定。",
             token
           );
+          continue;
+        }
+        // 群組/多人聊天室：只做關鍵字「完全相符」自動回覆，沒命中就完全不出聲（避免洗版）
+        if (ev.type === "message" && ev.message && ev.message.type === "text" && srcType !== "user") {
+          const text = (ev.message.text || "").trim();
+          const kws = await getKeywords();
+          const hit = kws.find((p) => p && String(p.k || "").trim() === text);
+          if (hit && hit.r) await lineReply(ev.replyToken, String(hit.r), token);
           continue;
         }
         if (ev.type === "message" && ev.message && ev.message.type === "text") {
