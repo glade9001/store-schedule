@@ -6,6 +6,36 @@
 
 ## 更新紀錄
 
+### 2026-07-27（一）
+
+#### 🐛 修正門市名稱亂碼（Firestore v2 觸發器參數，`functions/index.js`）
+
+- `event.params.store` 的中文（如「聯鑫」）被當 latin1 解碼成亂碼（`è¯é«`）。新增 `fixStoreName`（latin1→UTF-8 還原，已是正確 CJK 則原樣保留）套到 4 個 trigger。
+- 不只顯示：`store` 亦用於 doc 路徑（找員工）與比對（找店長），亂碼會使 `onSchedulePublished`／`onSalaryRejected` 靜默失效，一併修正。
+
+#### ✨ 綁定改單一按鈕、自動帶入綁定碼（`home.html`、`employee-mgmt.html`）
+
+- 用 LINE `oaMessage` scheme（`.../oaMessage/@官方帳號ID/?綁定碼`）一鍵開啟官方帳號並預填綁定碼，按送出即完成；`@ID` 由 `lineOaUrl` 自動擷取，另留手動輸入備援。
+
+#### ✨ 選單重整：LINE 通知移入帳號管理、更新日誌整合進系統設定（`home.html`、`employee-mgmt.html`）
+
+- 帳號管理（個人頁）新增「🔔 LINE 通知」卡片：綁定／解除／管理者測試通知，全部頁內完成。
+- ⚙️ 選單移除獨立「LINE 通知」項；「門市設定」改名「系統設定」（含更新日誌）；「更新日誌」改為員工專屬入口（店長以上整合進系統設定）。
+- 帳號管理列表每位員工顯示 🟢 LINE／⚪ 未綁 綁定徽章。
+
+#### ✨ 薪資審核鏈 LINE 通知（`functions/index.js`）
+
+- `onSalarySubmitted`：店長送出薪資 → 通知加盟主／admin 審核。
+- `onSalaryRejected`：加盟主退回 → 通知該店店長重新送審（與店長自己「收回」區分：收回不動 `rejectedAt`）。
+
+#### ✨ 事件通知上線：薪資發布／班表發布／劃休提醒／自動發布補通知（`functions/index.js`、`home.html`）
+
+- `onSalaryPublished`：薪資發布通知員工（記錄欄位為 `empName`）。依「M 月薪資 M+1 月才可查看」規則，未到可查看月份不即時通知，改由 `scheduledMonthlySalaryNotify`（每月 1 號 09:00）補發；首頁簽收提醒亦同步排除當月。
+- `onSchedulePublished`：手動發布班表 → 通知全店；`scheduledAutoPublishNotify`（週五 18:00）對「下週未手動發布」的門市補發班表通知（不與手動重複）。
+- `scheduledLeaveReminder`（每日 10:00）：劃休 `closeDate` 前 2 天，提醒「該週未劃休且未打 X」的員工（打 X＝首頁劃休提醒的 ✕，`dismissLeaveHint` 同步寫 `stores/{store}/leaveDismiss`）。
+- `sendTestNotify`（僅店長以上）：帳號管理 LINE 卡片可發送測試通知給自己，驗證通知是否正常。
+- 修正：`home.html` 補載 `firebase-functions` SDK（測試通知 callable 需要）。
+
 #### 📋 規劃
 
 - **LINE 通知系統規格（`docs/line-notification-spec.md`）**
