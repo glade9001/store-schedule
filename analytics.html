@@ -261,6 +261,7 @@ select.range-sel:focus{border-color:var(--primary);}
       <div class="tab-item" id="tab-ot" onclick="switchTab('ot')">⚡ 加班/國假</div>
       <div class="tab-item" id="tab-anomaly" onclick="switchTab('anomaly')">⚠️ 薪資異常</div>
       <div class="tab-item" id="tab-hourly" onclick="switchTab('hourly')">⏱️ 員工時薪</div>
+      <div class="tab-item" id="tab-compliance" onclick="switchTab('compliance')">🛡️ 合規稽核</div>
     </div>
 
     <!-- Tab: 人事成本 -->
@@ -384,6 +385,17 @@ select.range-sel:focus{border-color:var(--primary);}
       <div id="anomalyContent"></div>
     </div>
 
+    <!-- Tab: 合規稽核 -->
+    <div class="tab-content" id="panel-compliance">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
+        <div style="font-size:12px;color:var(--text-muted);line-height:1.6;">
+          勞基法軟擋「知情放行」紀錄（排班當下即記錄的歷史快照）。每筆＝一次違規被知情放行。
+        </div>
+        <button onclick="exportComplianceTable()" style="padding:7px 14px;background:white;border:1.5px solid var(--border);border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0;">⬇️ 匯出稽核表</button>
+      </div>
+      <div id="complianceContent"></div>
+    </div>
+
   </div>
 </div>
 
@@ -505,6 +517,7 @@ async function runAnalysis(){
 
   const ymList = getYMRange();
   const stores = appConfig.stores||[];
+  const complianceRows = []; // 勞基法合規稽核：知情放行 lawOverrides（歷史快照）
   if(!stores.length){ showToast('⚠️ 無門市資料'); document.getElementById('runBtn').disabled=false; return; }
 
   try{
@@ -554,6 +567,22 @@ async function runAnalysis(){
             const wk = wd.id; // 'YYYY-Www'
             if(!wk.startsWith(String(y))) return;
             (wd.data().records||[]).forEach(r => {
+              // 合規稽核：蒐集知情放行的勞基法軟擋（只存在真實員工列；歷史快照，不重算）
+              if(Array.isArray(r.lawOverrides) && r.lawOverrides.length && r.name && !String(r.name).startsWith('🆘')){
+                const wMon2 = weekStringToDate(wk);
+                const dIdx2 = ['週一','週二','週三','週四','週五','週六','週日'].indexOf(r.day);
+                if(dIdx2>=0){
+                  const cDate = new Date(wMon2); cDate.setDate(wMon2.getDate()+dIdx2);
+                  if(cDate.getFullYear()===y && cDate.getMonth()+1===m){
+                    const ds = `${cDate.getFullYear()}-${String(cDate.getMonth()+1).padStart(2,'0')}-${String(cDate.getDate()).padStart(2,'0')}`;
+                    r.lawOverrides.forEach(ov => complianceRows.push({
+                      ym, date: ds, store, empName: r.name,
+                      rule: ov.rule||'', measured: ov.measured, reason: ov.reason||'',
+                      note: ov.note||'', approvedBy: ov.approvedBy||'', at: ov.at||''
+                    }));
+                  }
+                }
+              }
               if(!r.supportEmp || r.approvalStatus !== 'approved') return;
               // supportEmp 格式：'{homeStore}-{empName}'，儲存在接收門市（store）的 weeks collection
               const dashIdx = r.supportEmp.indexOf('-');
@@ -582,7 +611,8 @@ async function runAnalysis(){
 
     // 4. 組裝分析資料
     setProgress(75,'計算分析數據...');
-    analysisData = { ymList, stores, allEmps, salaryMap, supportMap };
+    complianceRows.sort((a,b)=> b.date.localeCompare(a.date) || String(a.empName).localeCompare(String(b.empName)));
+    analysisData = { ymList, stores, allEmps, salaryMap, supportMap, complianceRows };
     renderAll();
     setProgress(100,'✅ 完成');
     document.getElementById('mainAnalysis').style.display = 'block';
@@ -687,11 +717,70 @@ function calcSupportAdj(empName, ym, salaryMap, supportMap, allEmps){
 
 // ===== Tab 切換 =====
 function switchTab(tab){
-  ['cost','ot','anomaly','hourly'].forEach(t=>{
+  ['cost','ot','anomaly','hourly','compliance'].forEach(t=>{
     document.getElementById('tab-'+t).classList.toggle('active', t===tab);
     document.getElementById('panel-'+t).classList.toggle('active', t===tab);
   });
   if(tab==='anomaly') renderAnomalyTab();
+  if(tab==='compliance') renderComplianceTab();
+}
+
+// ===== 合規稽核（勞基法軟擋知情放行）=====
+const COMPLIANCE_RULE_LABEL = {
+  rest11h:'輪班間隔<11h', daily12h:'當日工時>12h', continuous12h:'連續工時>12h', weekly1off:'七休一(連續≥7天)'
+};
+const COMPLIANCE_RULE_LAW = {
+  rest11h:'§34', daily12h:'§32', continuous12h:'§32', weekly1off:'§36'
+};
+const COMPLIANCE_REASON_LABEL = {
+  voluntary:'員工自願', urgent:'營運急需', coverage:'排不出人／臨時代班', other:'其他'
+};
+function renderComplianceTab(){
+  const el = document.getElementById('complianceContent');
+  if(!el) return;
+  if(!analysisData){ el.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px 0;">請先執行分析</div>'; return; }
+  const rows = analysisData.complianceRows || [];
+  if(!rows.length){
+    el.innerHTML = '<div style="text-align:center;color:var(--accent);padding:40px 0;font-weight:700;">✅ 本期無勞基法軟擋放行紀錄</div>';
+    return;
+  }
+  const byRule = {}, byEmp = {};
+  rows.forEach(r=>{ byRule[r.rule]=(byRule[r.rule]||0)+1; byEmp[r.empName]=(byEmp[r.empName]||0)+1; });
+  const chip = (txt,color)=>`<span style="display:inline-block;padding:3px 9px;border-radius:20px;font-size:12px;font-weight:700;background:${color||'#fff3e0'};color:#b45309;margin:2px 4px 2px 0;">${txt}</span>`;
+  const ruleChips = Object.entries(byRule).sort((a,b)=>b[1]-a[1])
+    .map(([k,v])=>chip(`${COMPLIANCE_RULE_LABEL[k]||k}：${v}`)).join('');
+  const empChips = Object.entries(byEmp).sort((a,b)=>b[1]-a[1])
+    .map(([k,v])=>chip(`${k}：${v}`, '#eef4ff')).join('');
+  const trs = rows.map(r=>`<tr>
+    <td>${r.date}</td>
+    <td><b>${r.empName}</b></td>
+    <td>${r.store}</td>
+    <td>${COMPLIANCE_RULE_LABEL[r.rule]||r.rule} <span style="color:var(--text-muted);font-size:11px;">${COMPLIANCE_RULE_LAW[r.rule]||''}</span>${r.measured!=null&&r.measured!==''?`　<b>${r.measured}</b>`:''}</td>
+    <td>${COMPLIANCE_REASON_LABEL[r.reason]||r.reason||''}</td>
+    <td>${r.note||''}</td>
+    <td>${r.approvedBy||''}</td>
+  </tr>`).join('');
+  el.innerHTML = `
+    <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:12px;padding:12px 14px;margin-bottom:12px;">
+      <div style="font-weight:800;color:#b45309;margin-bottom:6px;">共 ${rows.length} 筆知情放行</div>
+      <div>${ruleChips}</div>
+      <div style="margin-top:6px;">${empChips}</div>
+    </div>
+    <div style="overflow-x:auto;">
+      <table class="data-table" id="tableCompliance">
+        <thead><tr><th>日期</th><th>員工</th><th>門市</th><th>違規類型(勞基法)</th><th>放行理由</th><th>備註</th><th>放行者</th></tr></thead>
+        <tbody>${trs}</tbody>
+      </table>
+    </div>`;
+}
+function exportComplianceTable(){
+  if(!analysisData){ showToast('⚠️ 請先執行分析'); return; }
+  const table = document.getElementById('tableCompliance');
+  if(!table){ showToast('⚠️ 本期無稽核資料'); return; }
+  const ws = XLSX.utils.table_to_sheet(table);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '勞基法合規稽核');
+  XLSX.writeFile(wb, `勞基法合規稽核_${document.getElementById('selStartYear').value}${document.getElementById('selStartMonth').value}-${document.getElementById('selEndYear').value}${document.getElementById('selEndMonth').value}.xlsx`);
 }
 
 // ===== 渲染所有分析 =====
@@ -703,7 +792,12 @@ function renderAll(){
   renderOtTab();
   const anomalyCount = renderAnomalyTab();
   renderHourlyTab();
+  renderComplianceTab();
   updateAnomalyBadge(anomalyCount);
+  // 合規稽核筆數標記
+  const compCount = (analysisData.complianceRows||[]).length;
+  const compTab = document.getElementById('tab-compliance');
+  if(compTab) compTab.textContent = compCount>0 ? `🛡️ 合規稽核 (${compCount})` : '🛡️ 合規稽核';
   const alertBar = document.getElementById('anomalyAlertBar');
   if(anomalyCount > 0){
     document.getElementById('anomalyAlertText').textContent = `本期有 ${anomalyCount} 筆薪資異常，已自動切換至異常頁`;
