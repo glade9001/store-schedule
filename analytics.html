@@ -262,6 +262,7 @@ select.range-sel:focus{border-color:var(--primary);}
       <div class="tab-item" id="tab-anomaly" onclick="switchTab('anomaly')">⚠️ 薪資異常</div>
       <div class="tab-item" id="tab-hourly" onclick="switchTab('hourly')">⏱️ 員工時薪</div>
       <div class="tab-item" id="tab-compliance" onclick="switchTab('compliance')">🛡️ 合規稽核</div>
+      <div class="tab-item" id="tab-weekly" onclick="switchTab('weekly')">📅 每週工時</div>
     </div>
 
     <!-- Tab: 人事成本 -->
@@ -394,6 +395,23 @@ select.range-sel:focus{border-color:var(--primary);}
         <button onclick="exportComplianceTable()" style="padding:7px 14px;background:white;border:1.5px solid var(--border);border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0;">⬇️ 匯出稽核表</button>
       </div>
       <div id="complianceContent"></div>
+    </div>
+
+    <!-- Tab: 每週工時 -->
+    <div class="tab-content" id="panel-weekly">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--text-muted);cursor:pointer;">
+            <input type="checkbox" id="weeklyOnlyFlag" onchange="renderWeeklyTab()" style="width:16px;height:16px;">只看異常
+          </label>
+          <span style="font-size:12px;color:var(--text-muted);">單週工時 黃線</span>
+          <input type="number" id="weeklyYellow" value="48" min="1" max="120" onchange="renderWeeklyTab()" style="width:60px;padding:5px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-weight:700;text-align:center;">
+          <span style="font-size:12px;color:var(--text-muted);">紅線</span>
+          <input type="number" id="weeklyRed" value="60" min="1" max="140" onchange="renderWeeklyTab()" style="width:60px;padding:5px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-weight:700;text-align:center;">
+        </div>
+        <button onclick="exportWeeklyTable()" style="padding:7px 14px;background:white;border:1.5px solid var(--border);border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0;">⬇️ 匯出</button>
+      </div>
+      <div id="weeklyContent"></div>
     </div>
 
   </div>
@@ -618,10 +636,58 @@ async function runAnalysis(){
       }
     }
 
+    // 3.5 每週工時（優先C）：每店每週彙總（weeks doc 一週一份，直接加總）
+    setProgress(70,'計算每週工時...');
+    const periodStart = `${ymList[0]}-01`;
+    const [_ly,_lm] = ymList[ymList.length-1].split('-').map(Number);
+    const periodEnd = `${ymList[ymList.length-1]}-${String(new Date(_ly,_lm,0).getDate()).padStart(2,'0')}`;
+    const fmtD = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const weeklyMap = {}; // `${store}|${wk}` -> {store,wk,mon,emps:{emp:{hours,ot,days:Set}}}
+    for(const store of stores){
+      try{
+        const wSnap = await window.db.collection('stores').doc(store).collection('weeks').get();
+        wSnap.forEach(wd=>{
+          const wk = wd.id;
+          if(!/^\d{4}-W\d{1,2}$/.test(wk)) return;
+          const mon = weekStringToDate(wk);
+          const sun = new Date(mon); sun.setDate(mon.getDate()+6);
+          if(fmtD(sun) < periodStart || fmtD(mon) > periodEnd) return; // 週完全在期間外
+          const key = `${store}|${wk}`;
+          const bucket = weeklyMap[key] || (weeklyMap[key] = { store, wk, mon, emps:{} });
+          (wd.data().records||[]).forEach(r=>{
+            if(!r || !r.name || String(r.name).startsWith('🆘') || r.name==='門市備註') return;
+            if(r.isHourly) return;
+            const sh = r.shift;
+            if(!sh || ['排休','指休','特休','補休','清空'].includes(sh)) return;
+            const dIdx = ['週一','週二','週三','週四','週五','週六','週日'].indexOf(r.day);
+            if(dIdx<0) return;
+            const h = n(r.actualHours);
+            const ot = (r.isOT || h>8) ? Math.max(0,h-8) : 0;
+            const e = bucket.emps[r.name] || (bucket.emps[r.name] = { hours:0, ot:0, days:new Set() });
+            e.hours += h; e.ot += ot; e.days.add(dIdx);
+          });
+        });
+      }catch{}
+    }
+    const weeklyRows = [], weeklyTrend = {};
+    Object.values(weeklyMap).forEach(b=>{
+      const sun = new Date(b.mon); sun.setDate(b.mon.getDate()+6);
+      const label = `${b.mon.getMonth()+1}/${b.mon.getDate()}~${sun.getMonth()+1}/${sun.getDate()}`;
+      let total = 0;
+      Object.entries(b.emps).forEach(([emp,e])=>{
+        total += e.hours;
+        weeklyRows.push({ wk:b.wk, weekLabel:label, store:b.store, empName:emp,
+          hours:Math.round(e.hours*10)/10, ot:Math.round(e.ot*10)/10, days:e.days.size });
+      });
+      const t = weeklyTrend[b.wk] || (weeklyTrend[b.wk] = { wk:b.wk, label, sortKey:b.mon.getTime(), byStore:{} });
+      t.byStore[b.store] = Math.round(total*10)/10;
+    });
+    weeklyRows.sort((a,b)=> a.wk.localeCompare(b.wk) || b.hours-a.hours);
+
     // 4. 組裝分析資料
-    setProgress(75,'計算分析數據...');
+    setProgress(80,'計算分析數據...');
     complianceRows.sort((a,b)=> b.date.localeCompare(a.date) || String(a.empName).localeCompare(String(b.empName)));
-    analysisData = { ymList, stores, allEmps, salaryMap, supportMap, complianceRows };
+    analysisData = { ymList, stores, allEmps, salaryMap, supportMap, complianceRows, weeklyRows, weeklyTrend };
     renderAll();
     setProgress(100,'✅ 完成');
     document.getElementById('mainAnalysis').style.display = 'block';
@@ -728,12 +794,61 @@ function calcSupportAdj(empName, ym, salaryMap, supportMap, allEmps){
 
 // ===== Tab 切換 =====
 function switchTab(tab){
-  ['cost','ot','anomaly','hourly','compliance'].forEach(t=>{
+  ['cost','ot','anomaly','hourly','compliance','weekly'].forEach(t=>{
     document.getElementById('tab-'+t).classList.toggle('active', t===tab);
     document.getElementById('panel-'+t).classList.toggle('active', t===tab);
   });
   if(tab==='anomaly') renderAnomalyTab();
   if(tab==='compliance') renderComplianceTab();
+  if(tab==='weekly') renderWeeklyTab();
+}
+
+// ===== 每週工時（勞基法單週把關 + 週趨勢）=====
+function weeklyFlag(row, yellow, red){
+  if(row.days>=7) return { lv:'red', txt:'🔴 無例假(連7天)' };
+  if(row.hours>=red) return { lv:'red', txt:`🔴 單週 ${row.hours}h` };
+  if(row.hours>=yellow) return { lv:'yellow', txt:`⚠️ 單週 ${row.hours}h` };
+  return null;
+}
+function renderWeeklyTab(){
+  const el = document.getElementById('weeklyContent'); if(!el) return;
+  if(!analysisData){ el.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px 0;">請先執行分析</div>'; return; }
+  const yellow = parseFloat(document.getElementById('weeklyYellow').value)||48;
+  const red = parseFloat(document.getElementById('weeklyRed').value)||60;
+  const onlyFlag = document.getElementById('weeklyOnlyFlag').checked;
+  const weeklyRows = analysisData.weeklyRows||[], weeklyTrend = analysisData.weeklyTrend||{}, stores = analysisData.stores||[];
+  // 週趨勢表
+  const weeks = Object.values(weeklyTrend).sort((a,b)=>a.sortKey-b.sortKey);
+  let trendHtml = '';
+  if(weeks.length){
+    const head = stores.map(s=>`<th class="num">${s}</th>`).join('');
+    const body = weeks.map(w=>{
+      const cells = stores.map(s=>`<td class="num">${w.byStore[s]!=null?w.byStore[s]:'—'}</td>`).join('');
+      const tot = stores.reduce((a,s)=>a+(w.byStore[s]||0),0);
+      return `<tr><td><b>${w.label}</b></td>${cells}<td class="num"><b>${Math.round(tot*10)/10}</b></td></tr>`;
+    }).join('');
+    trendHtml = `<div class="section-title">📈 各店每週總工時 (h)</div><div style="overflow-x:auto;"><table class="data-table"><thead><tr><th>週</th>${head}<th class="num">合計</th></tr></thead><tbody>${body}</tbody></table></div>`;
+  }
+  // 單週把關明細
+  let list = weeklyRows.map(r=>({ r, f:weeklyFlag(r,yellow,red) }));
+  const flaggedCount = list.filter(x=>x.f).length;
+  if(onlyFlag) list = list.filter(x=>x.f);
+  const trs = list.map(({r,f})=>`<tr style="${f?(f.lv==='red'?'background:#fef2f2;':'background:#fffbeb;'):''}">
+    <td>${r.weekLabel}</td><td><b>${dispName(r.empName)}</b></td><td>${r.store}</td>
+    <td class="num">${r.hours}</td><td class="num">${r.ot||''}</td>
+    <td class="num">${r.days}${r.days>=7?' 🔴':''}</td>
+    <td>${f?f.txt:''}</td></tr>`).join('');
+  const detail = `<div class="section-title" style="margin-top:16px;">📋 單週把關（黃≥${yellow}h／紅≥${red}h／連7天無例假 §36；共 ${flaggedCount} 筆異常）</div>
+    <div style="overflow-x:auto;"><table class="data-table" id="tableWeekly"><thead><tr><th>週</th><th>員工</th><th>門市</th><th class="num">工時</th><th class="num">加班</th><th class="num">出勤天</th><th>把關</th></tr></thead><tbody>${trs||'<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:20px;">無資料</td></tr>'}</tbody></table></div>`;
+  el.innerHTML = trendHtml + detail;
+}
+function exportWeeklyTable(){
+  if(!analysisData){ showToast('⚠️ 請先執行分析'); return; }
+  const table = document.getElementById('tableWeekly'); if(!table){ showToast('⚠️ 無資料'); return; }
+  const ws = XLSX.utils.table_to_sheet(table);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '每週工時');
+  XLSX.writeFile(wb, `每週工時_${document.getElementById('selStartYear').value}${document.getElementById('selStartMonth').value}-${document.getElementById('selEndYear').value}${document.getElementById('selEndMonth').value}.xlsx`);
 }
 
 // ===== 合規稽核（勞基法軟擋知情放行）=====
@@ -804,6 +919,7 @@ function renderAll(){
   const anomalyCount = renderAnomalyTab();
   renderHourlyTab();
   renderComplianceTab();
+  renderWeeklyTab();
   updateAnomalyBadge(anomalyCount);
   // 合規稽核筆數標記
   const compCount = (analysisData.complianceRows||[]).length;
