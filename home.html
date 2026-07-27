@@ -967,6 +967,14 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
     </div>
     <div class="bs-item-arrow">›</div>
   </div>
+  <div class="bs-item" onclick="closeSettingsSheet(); openLineBindModal();">
+    <div class="bs-item-icon" style="background:#e6f7ea;">🔔</div>
+    <div class="bs-item-text">
+      <div class="bs-item-label">LINE 通知</div>
+      <div class="bs-item-sub" id="bsLineSub">綁定狀態、測試通知</div>
+    </div>
+    <div class="bs-item-arrow">›</div>
+  </div>
   <div class="bs-item" id="bsStoreConfig" style="display:none;" onclick="closeSettingsSheet(); window.location.href='settings.html';">
     <div class="bs-item-icon" style="background:#e8f5e9;">🔧</div>
     <div class="bs-item-text">
