@@ -271,6 +271,21 @@ async function notifyEmployees(db, empNames, store, buildText, token) {
   }
 }
 
+// 修復 Firestore v2 觸發器參數的中文亂碼（UTF-8 被當 latin1 解碼）
+// 例：「聯鑫」→「è¯é«」。已是正確 CJK 則原樣返回（安全雙向）。
+function fixStoreName(s) {
+  if (typeof s !== "string" || !s) return s;
+  // 已含 CJK 且無 latin1 高位字元 → 視為正確，不動
+  if (/[\u0100-\uFFFF]/.test(s) && !/[\u0080-\u00FF]/.test(s)) return s;
+  if (/[\u0080-\u00FF]/.test(s)) {
+    try {
+      const fixed = Buffer.from(s, "latin1").toString("utf8");
+      if (!fixed.includes("\uFFFD")) return fixed;
+    } catch (e) { /* keep original */ }
+  }
+  return s;
+}
+
 // 台北時區今日年月 YYYY-MM
 function taipeiYM() {
   return new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 7);
@@ -300,7 +315,7 @@ exports.onSalaryPublished = onDocumentWritten(
     const month = event.params.month;
     if (!salaryViewable(month)) return; // 尚未到可查看月份 → 不即時通知（次月排程補發）
     const db = admin.firestore();
-    await notifySalary(db, event.params.store, after, month, LINE_TOKEN.value());
+    await notifySalary(db, fixStoreName(event.params.store), after, month, LINE_TOKEN.value());
   }
 );
 
@@ -324,7 +339,7 @@ exports.onSalarySubmitted = onDocumentWritten(
     const before = event.data.before.exists ? event.data.before.data() : {};
     const after = event.data.after.exists ? event.data.after.data() : {};
     if (before.status === "submitted" || after.status !== "submitted") return; // 只在「剛送審」
-    const store = event.params.store;
+    const store = fixStoreName(event.params.store);
     const month = event.params.month;
     const by = after.submittedBy || "店長";
     const db = admin.firestore();
@@ -356,7 +371,7 @@ exports.onSalaryRejected = onDocumentWritten(
     const after = event.data.after.exists ? event.data.after.data() : {};
     if (!(before.status === "submitted" && after.status === "draft")) return;
     if (!after.rejectedAt || after.rejectedAt === before.rejectedAt) return; // 排除店長自己收回
-    const store = event.params.store;
+    const store = fixStoreName(event.params.store);
     const month = event.params.month;
     const by = after.rejectedBy || "加盟主";
     const db = admin.firestore();
@@ -402,7 +417,7 @@ exports.onSchedulePublished = onDocumentWritten(
     const before = event.data.before.exists ? event.data.before.data() : {};
     const after = event.data.after.exists ? event.data.after.data() : {};
     if (before.published === true || after.published !== true) return; // 只在「剛發布」
-    const store = event.params.store;
+    const store = fixStoreName(event.params.store);
     const label = weekRangeLabel(event.params.weekStr);
     const db = admin.firestore();
     const empNames = await getActiveEmpNames(db, store);
