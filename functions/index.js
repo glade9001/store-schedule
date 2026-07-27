@@ -221,7 +221,12 @@ exports.lineWebhook = onRequest(
         if (ev.type === "message" && ev.message && ev.message.type === "text" && srcType !== "user") {
           const text = (ev.message.text || "").trim();
           const kws = await getKeywords();
-          const hit = kws.find((p) => p && String(p.k || "").trim() === text);
+          // 一則回覆可對應多個關鍵字（keys 陣列）；相容舊格式 {k}
+          const hit = kws.find((p) => {
+            if (!p) return false;
+            const keys = Array.isArray(p.keys) ? p.keys : (p.k != null ? [p.k] : []);
+            return keys.some((k) => String(k || "").trim() === text);
+          });
           if (hit && hit.r) await lineReply(ev.replyToken, String(hit.r), token);
           continue;
         }

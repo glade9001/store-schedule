@@ -115,11 +115,17 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
     <div class="card-title" style="padding:0 0 8px;">💬 LINE 群組關鍵字自動回覆
       <span class="perm-badge perm-admin">管理者</span>
     </div>
-    <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px; line-height:1.6;">
-      官方帳號加入門市群組後，群組訊息「<b>完全相符</b>」關鍵字時自動回覆（沒命中不出聲）。<br>
-      每行一組，格式：<b>關鍵字=回覆內容</b>（回覆為單行）。
+    <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px; line-height:1.6;">
+      官方帳號加入門市群組後，群組訊息「<b>完全相符</b>」任一關鍵字時，自動回覆右邊內容（沒命中不出聲）。<br>
+      一列 = <b>左邊多個關鍵字</b>（每行一個，多種說法都會觸發）→ <b>右邊一則回覆</b>。
     </div>
-    <textarea id="lineKeywordsBox" style="width:100%; min-height:140px; padding:10px; border:1.5px solid var(--border); border-radius:10px; font-size:13px; font-family:inherit; box-sizing:border-box;" placeholder="例如：&#10;班表=請到 App 首頁查看本週班表&#10;請假=請到 App 的劃休功能提出申請"></textarea>
+    <div style="display:flex; gap:8px; font-size:11px; font-weight:800; color:var(--text-muted); padding:0 4px 4px;">
+      <div style="flex:1;">關鍵字（每行一個）</div>
+      <div style="flex:1.5;">回覆內容</div>
+      <div style="width:32px;"></div>
+    </div>
+    <div id="kwGrid"></div>
+    <button onclick="addKwRow()" style="width:100%; margin-top:4px; padding:10px; background:#eef4ff; color:var(--primary); border:1.5px dashed var(--primary); border-radius:10px; font-size:13px; font-weight:700; cursor:pointer;">＋ 新增一列</button>
     <button class="save-btn" style="margin-top:10px;" onclick="saveLineKeywords()">💾 儲存關鍵字</button>
   </div>
 
@@ -446,32 +452,47 @@ function removeSysStore(name) {
   openSysConfigModal();
 }
 
-// ===== LINE 群組關鍵字 =====
+// ===== LINE 群組關鍵字（格子編輯：左多關鍵字 → 右回覆）=====
+function _esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function kwRowHtml(keys, reply){
+  const ta = 'padding:8px; border:1.5px solid var(--border); border-radius:8px; font-size:13px; font-family:inherit; box-sizing:border-box; resize:vertical;';
+  return `<div class="kw-row" style="display:flex; gap:8px; margin-bottom:8px; align-items:stretch;">
+    <textarea class="kw-keys" placeholder="班表&#10;排班&#10;班" style="flex:1; min-height:64px; ${ta}">${_esc((keys||[]).join('\n'))}</textarea>
+    <textarea class="kw-reply" placeholder="回覆內容" style="flex:1.5; min-height:64px; ${ta}">${_esc(reply||'')}</textarea>
+    <button onclick="this.closest('.kw-row').remove()" title="刪除此列" style="width:32px; flex-shrink:0; background:#fce8e6; color:var(--danger); border:none; border-radius:8px; font-size:16px; cursor:pointer;">🗑</button>
+  </div>`;
+}
+function addKwRow(keys, reply){
+  document.getElementById('kwGrid').insertAdjacentHTML('beforeend', kwRowHtml(keys, reply));
+}
 async function loadLineKeywords() {
   try {
     const snap = await window.db.collection('settings').doc('lineKeywords').get();
     const list = (snap.exists && Array.isArray(snap.data().list)) ? snap.data().list : [];
-    document.getElementById('lineKeywordsBox').value =
-      list.map(p => `${p.k||''}=${p.r||''}`).join('\n');
+    const grid = document.getElementById('kwGrid');
+    grid.innerHTML = '';
+    list.forEach(p => {
+      const keys = Array.isArray(p.keys) ? p.keys : (p.k != null ? [p.k] : []);
+      addKwRow(keys, p.r || '');
+    });
+    if(!list.length) addKwRow([], ''); // 至少一列空白供輸入
   } catch(e) {}
 }
 async function saveLineKeywords() {
-  const raw = document.getElementById('lineKeywordsBox').value || '';
   const list = [];
-  raw.split('\n').forEach(line => {
-    const t = line.trim();
-    if(!t) return;
-    const i = t.indexOf('=');
-    if(i <= 0) return; // 無 '=' 或關鍵字為空 → 略過
-    const k = t.slice(0, i).trim();
-    const r = t.slice(i + 1).trim();
-    if(k && r) list.push({ k, r });
+  document.querySelectorAll('#kwGrid .kw-row').forEach(row => {
+    const keys = (row.querySelector('.kw-keys').value || '')
+      .split(/[\n,、，]/).map(s => s.trim()).filter(Boolean);
+    const r = (row.querySelector('.kw-reply').value || '').trim();
+    const uniqKeys = [...new Set(keys)];
+    if(uniqKeys.length && r) list.push({ keys: uniqKeys, r });
   });
   showLoading('儲存關鍵字中...');
   try {
     await window.db.collection('settings').doc('lineKeywords').set({ list, updatedAt: new Date().toISOString() });
     hideLoading();
-    showToast(`✅ 已儲存 ${list.length} 組關鍵字`);
+    const kwCount = list.reduce((n,p)=>n+p.keys.length,0);
+    showToast(`✅ 已儲存 ${list.length} 列 / ${kwCount} 個關鍵字`);
   } catch(e) { hideLoading(); showToast('❌ 儲存失敗：' + e.message); }
 }
 
