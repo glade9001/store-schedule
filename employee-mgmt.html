@@ -498,13 +498,20 @@ async function lineGenCode() {
       createdAt: new Date().toISOString(), expiresAt: Date.now() + 10*60*1000
     });
     const oa = (appConfig && appConfig.lineOaUrl) || '';
+    const basicId = (oa.match(/@[\w.\-]+/) || [''])[0]; // 從加好友連結取 @官方帳號ID
+    const msgUrl = basicId ? `https://line.me/R/oaMessage/${basicId}/?${encodeURIComponent(code)}` : '';
     const oaBtn = oa
       ? `<a href="${oa}" target="_blank" style="display:block; text-align:center; background:#06c755; color:#fff; padding:11px; border-radius:10px; font-weight:800; text-decoration:none; margin:10px 0;">➕ 加入官方帳號</a>`
       : `<div style="color:var(--danger); margin:10px 0; font-weight:700;">⚠️ 官方帳號連結尚未設定，請聯絡管理員設定 lineOaUrl。</div>`;
+    const sendBtn = msgUrl
+      ? `<a href="${msgUrl}" target="_blank" style="display:block; text-align:center; background:#eef4ff; color:var(--primary); padding:11px; border-radius:10px; font-weight:800; text-decoration:none; margin:8px 0;">📨 一鍵帶入綁定碼並開啟聊天</a>`
+      : '';
     body.innerHTML = `
       <div style="font-weight:800;">① 加入官方帳號好友</div>
       ${oaBtn}
-      <div style="font-weight:800;">② 在該官方帳號聊天室傳送這組綁定碼：</div>
+      <div style="font-weight:800;">② 傳送綁定碼（點下方按鈕會自動帶入，按送出即可）</div>
+      ${sendBtn}
+      <div style="font-size:12px; color:var(--text-muted); text-align:center;">或手動在聊天室輸入：</div>
       <div style="text-align:center; font-size:30px; font-weight:900; letter-spacing:6px; color:var(--primary); background:#eef4ff; border-radius:10px; padding:12px; margin:8px 0;">${code}</div>
       <div style="font-size:12px; color:var(--text-muted);">（10 分鐘內有效；傳送後會收到「綁定成功」，回此頁重新整理即顯示已綁定）</div>`;
   } catch(e) { body.innerHTML = '產生失敗：' + e.message; }
