@@ -566,6 +566,11 @@ exports.onScheduleOtWarning = onDocumentWritten(
     const rank = { none: 0, yellow: 1, red: 2, severe: 3 };
     const levelOf = (h) => h >= SEVERE ? "severe" : h >= RED ? "red" : h >= YELLOW ? "yellow" : "none";
     const label = { yellow: `接近上限(黃，≥${YELLOW}h)`, red: `超過月上限(紅，≥${RED}h)`, severe: `嚴重(≥${SEVERE}h)` };
+    // app 顯示名對照（account.empName → displayName）
+    const accSnap = await db.collection("account").where("store", "==", store).get().catch(() => null);
+    const dispMap = {};
+    if (accSnap) accSnap.forEach((d) => { const a = d.data(); if (a.empName && a.displayName) dispMap[a.empName] = a.displayName; });
+    const disp = (nm) => dispMap[nm] || nm;
     // 這週觸及的月份
     const mon = weekMondayDate(weekStr);
     const months = new Set();
@@ -585,7 +590,7 @@ exports.onScheduleOtWarning = onDocumentWritten(
         }
       }
       for (const t of notify) {
-        await notifyStoreManagers(db, store, `⚠️ ${store} ${parseInt(ym.split("-")[1])}月加班預警：${t.emp} 本月加班已達 ${t.h}h（${label[t.lv]}，勞基法 §32 每月上限 46h），請留意排班。`, token);
+        await notifyStoreManagers(db, store, `⚠️ ${store} ${parseInt(ym.split("-")[1])}月加班預警：${disp(t.emp)} 本月加班已達 ${t.h}h（${label[t.lv]}，勞基法 §32 每月上限 46h），請留意排班。`, token);
       }
       await alertRef.set({ levels: newLevels, updatedAt: new Date().toISOString() });
     }

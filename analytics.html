@@ -405,6 +405,8 @@ select.range-sel:focus{border-color:var(--primary);}
 // ===== 全域 =====
 let currentUser = null, appConfig = { stores:[] };
 let analysisData = null; // 快取
+let displayNameMap = {}; // 短名 → app 顯示名(全名)
+function dispName(n){ return displayNameMap[n] || n; }
 const STORE_COLORS = ['#1a73e8','#34a853','#f9ab00','#9334e6','#d93025','#0891b2'];
 let chartCostTrend = null, chartOtHoliday = null;
 
@@ -533,6 +535,13 @@ async function runAnalysis(){
       });
     }
     allEmps.sort((a,b)=>(stores.indexOf(a.store)-stores.indexOf(b.store))||(a.sortKey||0)-(b.sortKey||0));
+
+    // app 顯示名對照（account.empName → displayName）
+    displayNameMap = {};
+    try {
+      const accSnap = await window.db.collection('account').get();
+      accSnap.forEach(d=>{ const a=d.data(); if(a.empName && a.displayName) displayNameMap[a.empName]=a.displayName; });
+    } catch(e){}
 
     // 2. 薪資記錄（每月每店）
     setProgress(15,'讀取薪資記錄...');
@@ -667,7 +676,8 @@ function isEmpActiveInMonth(emp, ym) {
   if(emp.startDate && emp.startDate > ym + '-31') return false;
   // 離職/調走日期：若在該月底之前則已離開（與 salary.html 一致）
   const departDate = emp.retireDate || emp.transferDate;
-  if(departDate && departDate <= ym + '-31') return false;
+  // 守歷史鐵則：離職/調走日「早於當月1號」才排除；月中離職者當月仍計入
+  if(departDate && departDate < ym + '-01') return false;
   return true;
 }
 
@@ -680,7 +690,8 @@ function isPaidByStoreInMonth(empName, store, ym, allEmps) {
   return allEmps.some(e => {
     if(e.name !== empName || e.store !== store) return false;
     const eff = e.retireDate || e.transferDate;            // 僅在「離職/調走」狀態下才視為離開
-    if(['離職','調走'].includes(e.status) && (!eff || eff <= monthEnd)) return false;
+    // 守歷史鐵則：離職/調走日「早於當月1號」才視為離開；月中離職者當月仍由本店發薪、支援仍計入
+    if(['離職','調走'].includes(e.status) && (!eff || eff < `${ym}-01`)) return false;
     if(e.startDate){ const [sy, sm] = e.startDate.split('-').map(Number); if(sy > cy || (sy === cy && sm > cm)) return false; }
     return true;
   });
@@ -750,10 +761,10 @@ function renderComplianceTab(){
   const ruleChips = Object.entries(byRule).sort((a,b)=>b[1]-a[1])
     .map(([k,v])=>chip(`${COMPLIANCE_RULE_LABEL[k]||k}：${v}`)).join('');
   const empChips = Object.entries(byEmp).sort((a,b)=>b[1]-a[1])
-    .map(([k,v])=>chip(`${k}：${v}`, '#eef4ff')).join('');
+    .map(([k,v])=>chip(`${dispName(k)}：${v}`, '#eef4ff')).join('');
   const trs = rows.map(r=>`<tr>
     <td>${r.date}</td>
-    <td><b>${r.empName}</b></td>
+    <td><b>${dispName(r.empName)}</b></td>
     <td>${r.store}</td>
     <td>${COMPLIANCE_RULE_LABEL[r.rule]||r.rule} <span style="color:var(--text-muted);font-size:11px;">${COMPLIANCE_RULE_LAW[r.rule]||''}</span>${r.measured!=null&&r.measured!==''?`　<b>${r.measured}</b>`:''}</td>
     <td>${COMPLIANCE_REASON_LABEL[r.reason]||r.reason||''}</td>
@@ -1252,7 +1263,7 @@ function renderAnomalyTab(){
         : `<td class="num">${a.amount>0?'$'+comma(a.amount):'—'}</td>`;
       html += `<tr>
         <td><span class="store-badge" style="background:${color};">${a.emp.store}</span></td>
-        <td><strong>${a.emp.name}</strong></td>
+        <td><strong>${dispName(a.emp.name)}</strong></td>
         <td style="white-space:nowrap;">${a.prevYm??''}<br><span style="font-weight:900;">${a.ym}</span></td>
         <td><span class="warn-badge ${a.badge}">${a.badgeText}</span> ${a.msg}</td>
         ${amtCell}
