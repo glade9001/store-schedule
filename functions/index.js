@@ -304,6 +304,70 @@ exports.onSalaryPublished = onDocumentWritten(
   }
 );
 
+// 找可審核者（加盟主/admin）的 LINE 綁定並推播
+async function notifyApprovers(db, text, token) {
+  const uids = new Set();
+  for (const p of ["owner", "admin"]) {
+    const us = await db.collection("users").where("permission", "==", p).get().catch(() => null);
+    if (us) us.forEach((d) => uids.add(d.id));
+  }
+  for (const uid of uids) {
+    const b = await db.collection("lineBindings").doc(uid).get().catch(() => null);
+    if (b && b.exists && b.data().lineUserId) await linePush(b.data().lineUserId, text, token);
+  }
+}
+
+// 店長送出薪資（status→submitted）→ 通知加盟主審核
+exports.onSalarySubmitted = onDocumentWritten(
+  { document: "stores/{store}/salary/{month}", region: "asia-east1", secrets: [LINE_TOKEN] },
+  async (event) => {
+    const before = event.data.before.exists ? event.data.before.data() : {};
+    const after = event.data.after.exists ? event.data.after.data() : {};
+    if (before.status === "submitted" || after.status !== "submitted") return; // 只在「剛送審」
+    const store = event.params.store;
+    const month = event.params.month;
+    const by = after.submittedBy || "店長";
+    const db = admin.firestore();
+    await notifyApprovers(
+      db,
+      `📤 ${store} ${month} 薪資已由 ${by} 送出，請至 App 審核後發布。`,
+      LINE_TOKEN.value()
+    );
+  }
+);
+
+// 通知某店店長（permission=manager 且 store 相符）的 LINE 綁定
+async function notifyStoreManagers(db, store, text, token) {
+  const us = await db.collection("users").where("permission", "==", "manager").get().catch(() => null);
+  if (!us) return;
+  for (const d of us.docs) {
+    if ((d.data().store || "") !== store) continue;
+    const b = await db.collection("lineBindings").doc(d.id).get().catch(() => null);
+    if (b && b.exists && b.data().lineUserId) await linePush(b.data().lineUserId, text, token);
+  }
+}
+
+// 加盟主退回薪資（submitted→draft 且 rejectedAt 為本次新設）→ 通知該店店長重新送審
+// （與店長自己「收回」區分：收回不會動 rejectedAt）
+exports.onSalaryRejected = onDocumentWritten(
+  { document: "stores/{store}/salary/{month}", region: "asia-east1", secrets: [LINE_TOKEN] },
+  async (event) => {
+    const before = event.data.before.exists ? event.data.before.data() : {};
+    const after = event.data.after.exists ? event.data.after.data() : {};
+    if (!(before.status === "submitted" && after.status === "draft")) return;
+    if (!after.rejectedAt || after.rejectedAt === before.rejectedAt) return; // 排除店長自己收回
+    const store = event.params.store;
+    const month = event.params.month;
+    const by = after.rejectedBy || "加盟主";
+    const db = admin.firestore();
+    await notifyStoreManagers(
+      db, store,
+      `↩️ ${store} ${month} 薪資已被 ${by} 退回，請至 App 修改後重新送審。`,
+      LINE_TOKEN.value()
+    );
+  }
+);
+
 // 取某店在職員工短名（employees doc id）
 async function getActiveEmpNames(db, store) {
   const empsSnap = await db.collection("stores").doc(store).collection("employees").get();
