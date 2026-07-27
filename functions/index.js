@@ -516,6 +516,82 @@ exports.onScheduleChanged = onDocumentWritten(
   }
 );
 
+// ===== 月加班累計預警（優先2）=====
+// 某店某月每位員工的加班時數（公式同 salary-calc calcEmpHours：每日 max(0,h-8)，isOT 或日>8h；跳過休假/時薪；去重同員工同日）
+async function monthOtByEmp(db, store, ym) {
+  const [y, m] = ym.split("-").map(Number);
+  const lastDay = new Date(y, m, 0).getDate();
+  const weekSet = new Set();
+  for (let d = 1; d <= lastDay; d++) weekSet.add(simpleWeekStr(new Date(y, m - 1, d)));
+  const byEmpDay = {}; // emp -> { dateKey: ot }
+  for (const wk of weekSet) {
+    const snap = await db.collection("stores").doc(store).collection("weeks").doc(wk).get().catch(() => null);
+    if (!snap || !snap.exists) continue;
+    const mon = weekMondayDate(wk);
+    for (const r of (snap.data().records || [])) {
+      if (!r || !r.name || String(r.name).startsWith("🆘") || r.name === "門市備註") continue;
+      if (r.isHourly) continue;
+      const sh = r.shift;
+      if (!sh || ["排休", "指休", "特休", "補休", "清空"].includes(sh)) continue;
+      const dIdx = WEEK_DAYS.indexOf(r.day);
+      if (dIdx < 0) continue;
+      const cd = new Date(mon); cd.setDate(mon.getDate() + dIdx);
+      if (cd.getFullYear() !== y || cd.getMonth() + 1 !== m) continue;
+      const h = parseFloat(r.actualHours || 0);
+      const ot = (r.isOT || h > 8) ? Math.max(0, h - 8) : 0;
+      (byEmpDay[r.name] = byEmpDay[r.name] || {})[`${cd.getDate()}`] = ot; // 同員工同日去重（跨店雙記錄）
+    }
+  }
+  const out = {};
+  for (const emp in byEmpDay) out[emp] = Object.values(byEmpDay[emp]).reduce((a, b) => a + b, 0);
+  return out;
+}
+
+// 班表變動 → 計算當月加班累計，跨越門檻(黃/紅/嚴重)且「等級升高」時，LINE 通知該店店長
+exports.onScheduleOtWarning = onDocumentWritten(
+  { document: "stores/{store}/weeks/{weekStr}", region: "asia-east1", secrets: [LINE_TOKEN] },
+  async (event) => {
+    const after = event.data.after.exists ? event.data.after.data() : null;
+    if (!after) return; // 刪除不處理
+    const before = event.data.before.exists ? event.data.before.data() : {};
+    if (JSON.stringify(before.records || []) === JSON.stringify(after.records || [])) return; // records 沒變
+    const store = fixStoreName(event.params.store);
+    const weekStr = event.params.weekStr;
+    const db = admin.firestore();
+    const token = LINE_TOKEN.value();
+    // 門檻（可在 settings/globalConfig.otThresholds 調整）
+    const cfg = await db.collection("settings").doc("globalConfig").get().catch(() => null);
+    const th = (cfg && cfg.exists && cfg.data().otThresholds) || {};
+    const YELLOW = th.yellow || 40, RED = th.red || 46, SEVERE = th.severe || 54;
+    const rank = { none: 0, yellow: 1, red: 2, severe: 3 };
+    const levelOf = (h) => h >= SEVERE ? "severe" : h >= RED ? "red" : h >= YELLOW ? "yellow" : "none";
+    const label = { yellow: `接近上限(黃，≥${YELLOW}h)`, red: `超過月上限(紅，≥${RED}h)`, severe: `嚴重(≥${SEVERE}h)` };
+    // 這週觸及的月份
+    const mon = weekMondayDate(weekStr);
+    const months = new Set();
+    for (let i = 0; i < 7; i++) { const d = new Date(mon); d.setDate(mon.getDate() + i); months.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`); }
+    for (const ym of months) {
+      const otMap = await monthOtByEmp(db, store, ym);
+      const alertRef = db.collection("stores").doc(store).collection("otAlerts").doc(ym);
+      const prevSnap = await alertRef.get().catch(() => null);
+      const prevLevels = (prevSnap && prevSnap.exists) ? (prevSnap.data().levels || {}) : {};
+      const newLevels = {};
+      const notify = [];
+      for (const emp in otMap) {
+        const lv = levelOf(otMap[emp]);
+        newLevels[emp] = lv;
+        if (lv !== "none" && rank[lv] > rank[prevLevels[emp] || "none"]) {
+          notify.push({ emp, lv, h: Math.round(otMap[emp] * 10) / 10 });
+        }
+      }
+      for (const t of notify) {
+        await notifyStoreManagers(db, store, `⚠️ ${store} ${parseInt(ym.split("-")[1])}月加班預警：${t.emp} 本月加班已達 ${t.h}h（${label[t.lv]}，勞基法 §32 每月上限 46h），請留意排班。`, token);
+      }
+      await alertRef.set({ levels: newLevels, updatedAt: new Date().toISOString() });
+    }
+  }
+);
+
 // ===== 週字串工具（雲端複刻前端）=====
 // ISO-8601（對應 leave-request.html dateToWeekStr，＝ leaveRequests.week）
 function isoWeekStr(dateObj) {
