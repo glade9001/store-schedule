@@ -253,7 +253,7 @@ exports.lineWebhook = onRequest(
 // ===== LINE 通知：事件推播（步驟3、4）=====
 const { onDocumentWritten } = require("firebase-functions/v2/firestore");
 
-// 依 empName 找 LINE 綁定（優先同 store）並推播；buildText(displayName)→訊息
+// 依 empName 找 LINE 綁定（優先同 store）並推播；buildText(displayName, empName)→訊息
 async function notifyEmployees(db, empNames, store, buildText, token) {
   const names = [...new Set((empNames || []).filter(Boolean))];
   if (!names.length) return;
@@ -267,8 +267,39 @@ async function notifyEmployees(db, empNames, store, buildText, token) {
   for (const emp of names) {
     const list = byEmp[emp] || [];
     const b = list.find((x) => x.store === store) || list[0];
-    if (b) await linePush(b.lineUserId, buildText(b.displayName || emp), token);
+    if (b) await linePush(b.lineUserId, buildText(b.displayName || emp, emp), token);
   }
+}
+
+// ===== 個人週班表文字（條列每日一行）=====
+const WEEK_DAYS = ["週一", "週二", "週三", "週四", "週五", "週六", "週日"];
+const WEEK_LABELS = ["一", "二", "三", "四", "五", "六", "日"];
+// 週一日期（簡單週字串，對應 schedule-V2 weeks doc）
+function weekMondayDate(wStr) {
+  const [y, w] = String(wStr).split("-W");
+  const yr = parseInt(y), wk = parseInt(w);
+  const d = new Date(yr, 0, 1);
+  const day = d.getDay();
+  d.setDate(d.getDate() + (wk - 1) * 7);
+  d.setDate(d.getDate() + (day <= 4 ? 1 - day : 8 - day));
+  return d;
+}
+// 某人某週的班表 map：day → 顯示字串（休 或 時段）
+function weekShiftMap(records, empName) {
+  const map = {};
+  for (const dn of WEEK_DAYS) {
+    const r = (records || []).find((x) => x && x.name === empName && x.day === dn && x.shift && String(x.shift).trim() && !x.requestOff);
+    map[dn] = r ? String(r.shift).replace(/,/g, "、") + (r.location && r.location !== "本店" ? `（${r.location}）` : "") : "休";
+  }
+  return map;
+}
+function weekScheduleText(records, empName, wStr) {
+  const mon = weekMondayDate(wStr);
+  const map = weekShiftMap(records, empName);
+  return WEEK_DAYS.map((dn, i) => {
+    const x = new Date(mon); x.setDate(mon.getDate() + i);
+    return `${WEEK_LABELS[i]} ${x.getMonth() + 1}/${x.getDate()}　${map[dn]}`;
+  }).join("\n");
 }
 
 // 修復 Firestore v2 觸發器參數的中文亂碼（UTF-8 被當 latin1 解碼）
@@ -418,12 +449,45 @@ exports.onSchedulePublished = onDocumentWritten(
     const after = event.data.after.exists ? event.data.after.data() : {};
     if (before.published === true || after.published !== true) return; // 只在「剛發布」
     const store = fixStoreName(event.params.store);
-    const label = weekRangeLabel(event.params.weekStr);
+    const weekStr = event.params.weekStr;
+    const label = weekRangeLabel(weekStr);
+    const records = after.records || [];
     const db = admin.firestore();
     const empNames = await getActiveEmpNames(db, store);
     await notifyEmployees(
       db, empNames, store,
-      (name) => `🗓️ ${name}，${store} ${label} 班表已發布，快到 App 查看你的班～`,
+      (name, emp) => `🗓️ ${name}，${store} ${label} 班表已發布\n\n${weekScheduleText(records, emp, weekStr)}\n\n詳情請至 App 查看`,
+      LINE_TOKEN.value()
+    );
+  }
+);
+
+// 已發布班表被異動（published→published 且 records 變動）→ 只通知「班次有變」的員工
+exports.onScheduleChanged = onDocumentWritten(
+  { document: "stores/{store}/weeks/{weekStr}", region: "asia-east1", secrets: [LINE_TOKEN] },
+  async (event) => {
+    const before = event.data.before.exists ? event.data.before.data() : {};
+    const after = event.data.after.exists ? event.data.after.data() : {};
+    if (!(before.published === true && after.published === true)) return; // 僅已發布週的後續異動
+    const beforeRecs = before.records || [];
+    const afterRecs = after.records || [];
+    if (JSON.stringify(beforeRecs) === JSON.stringify(afterRecs)) return; // records 沒變（純 metadata 寫入）→ 略過
+    const store = fixStoreName(event.params.store);
+    const weekStr = event.params.weekStr;
+    const label = weekRangeLabel(weekStr);
+    const db = admin.firestore();
+    const active = new Set(await getActiveEmpNames(db, store));
+    // 找出班次有變動的在職員工（比對每日時段 map）
+    const changed = [];
+    for (const emp of active) {
+      const bMap = weekShiftMap(beforeRecs, emp);
+      const aMap = weekShiftMap(afterRecs, emp);
+      if (JSON.stringify(bMap) !== JSON.stringify(aMap)) changed.push(emp);
+    }
+    if (!changed.length) return;
+    await notifyEmployees(
+      db, changed, store,
+      (name, emp) => `🔔 ${name}，${store} ${label} 班表有異動\n\n${weekScheduleText(afterRecs, emp, weekStr)}\n\n請至 App 確認最新班表`,
       LINE_TOKEN.value()
     );
   }
@@ -518,10 +582,11 @@ exports.scheduledAutoPublishNotify = onSchedule(
     for (const store of stores) {
       const wSnap = await db.collection("stores").doc(store).collection("weeks").doc(nextWeek).get();
       if (wSnap.exists && wSnap.data().published === true) continue; // 已手動發布 → onSchedulePublished 已通知
+      const records = wSnap.exists ? (wSnap.data().records || []) : [];
       const empNames = await getActiveEmpNames(db, store);
       await notifyEmployees(
         db, empNames, store,
-        (name) => `🗓️ ${name}，${store} ${label} 班表已發布，快到 App 查看你的班～`,
+        (name, emp) => `🗓️ ${name}，${store} ${label} 班表已發布\n\n${weekScheduleText(records, emp, nextWeek)}\n\n詳情請至 App 查看`,
         token
       );
     }
