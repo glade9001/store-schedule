@@ -907,17 +907,19 @@ async function togglePublish() {
 }
 
 // ===== 週次切換 =====
-function goToThisWeek() {
+async function goToThisWeek() {
+  await flushCurrentWeek(); // 先存目前週再跳到下週
   document.getElementById('weekSelector').value = getNextWeekString();
   historyEditUnlocked = false;
   fetchAllStoreData();
 }
 
-function onStoreChange() {
+async function onStoreChange() {
   // 依目前模式決定行為
   const urlParams = new URLSearchParams(window.location.search);
   const isAdminMode = (urlParams.get('mode') === 'admin') && canSchedule();
   if(isAdminMode) {
+    await flushCurrentWeek(loadedStore); // 先存「舊門市」目前週，避免換店時 autosave 跨店覆蓋
     fetchAllStoreData();
   } else {
     // 查閱模式：重新載入員工視角
@@ -928,8 +930,9 @@ function onStoreChange() {
 
 // 歷史班表解鎖狀態（每次切換週次後重置）
 let historyEditUnlocked = false;
+let loadedStore = null; // 目前已載入的門市（換店前 flush 舊門市用）
 
-function changeWeek(offset) {
+async function changeWeek(offset) {
   const input = document.getElementById('weekSelector');
   if(!input.value) return;
 
@@ -951,12 +954,14 @@ function changeWeek(offset) {
   }
 
   historyEditUnlocked = false; // 切換週次後重置解鎖狀態
+  await flushCurrentWeek(); // 先存目前週，避免未存編輯遺失 / 跨週覆蓋
   input.stepUp(offset);
   fetchAllStoreData();
 }
 
 // weekSelector 直接輸入時也套用 2 個月往前限制
-function onWeekSelectorChange() {
+async function onWeekSelectorChange() {
+  await flushCurrentWeek(); // 先存目前畫面的週（依格子自己的週），再載入新選的週
   const val = document.getElementById('weekSelector').value;
   if(!val) return;
   const newMon = weekStringToDate(val);
@@ -1433,6 +1438,23 @@ async function saveScheduleData(isManual) {
   }
 }
 
+// 換週/換店前：取消待觸發的自動存檔，並把「目前畫面所屬的週」先存好（依格子自己的週，避免跨週覆蓋）
+async function flushCurrentWeek(storeOverride) {
+  clearTimeout(autoSaveTimer); // 關鍵：取消 debounce 中的 autosave，否則它會在換週/換店後以新目標存到舊畫面
+  const cell = document.querySelector('.cell-btn');
+  const domWeek = cell ? cell.dataset.week : null;
+  if(!domWeek) return;
+  syncUIToMemory(); // 以每格自己的 week 正確寫回記憶
+  const store = storeOverride || loadedStore || document.getElementById('storeSelector').value;
+  if(!store) return;
+  if(typeof canScheduleStore === 'function' && !canScheduleStore(store)) return; // 只寫使用者可排班的門市，唯讀他店不寫
+  try {
+    const schedule = appData.records.filter(r => r.week === domWeek);
+    await window.db.collection('stores').doc(store).collection('weeks').doc(domWeek).set({ records: schedule }, { merge: true });
+    setSyncStatus('ok', '已儲存');
+  } catch(e) { console.error('換週前存檔失敗', e); }
+}
+
 // ===== 班別 Modal =====
 function openShiftModal(btn) {
   // 調走員工不能編輯
@@ -1601,6 +1623,7 @@ async function fetchAllStoreData() {
   const store = document.getElementById('storeSelector').value;
   const weekStr = document.getElementById('weekSelector').value;
   if(!store || !weekStr) return;
+  loadedStore = store; // 記住目前載入的門市，供換店前 flush 舊門市用
 
   localStorage.setItem('lastStore', store);
   document.getElementById('headerStoreBadge').textContent = store;
@@ -2384,6 +2407,7 @@ function buildCellButton(emp, eIdx, day, store, weekStr, isReadonly) {
   btn.className = 'cell-btn' + (isReadonly ? ' readonly' : '');
   btn.dataset.emp = emp.name;
   btn.dataset.day = day;
+  btn.dataset.week = weekStr; // 格子記住自己所屬週，避免換週時 syncUIToMemory 標錯週（跨週覆蓋 bug）
   btn.dataset.shift = rec.shift || '';
   btn.dataset.hours = rec.actualHours || 0;
   btn.dataset.loc = rec.location || '本店';
@@ -2483,7 +2507,7 @@ function renderTable() {
   dayNames.forEach(day => {
     const rec = appData.records.find(r => r.name==='門市備註' && r.day===day && r.week===weekStr);
     const noteVal = (rec?.note||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    nTr.innerHTML += `<td style="padding:0; background:#fffde7;"><textarea class="note-input" data-day="${day}" oninput="autoResizeNote(this);triggerAutoSave()" rows="2">${noteVal}</textarea></td>`;
+    nTr.innerHTML += `<td style="padding:0; background:#fffde7;"><textarea class="note-input" data-day="${day}" data-week="${weekStr}" oninput="autoResizeNote(this);triggerAutoSave()" rows="2">${noteVal}</textarea></td>`;
   });
   nTr.innerHTML += '<td></td>';
   tbody.appendChild(nTr);
@@ -3359,8 +3383,10 @@ async function updateSummary(idx, emp) {
 
 // ===== 記憶體同步 =====
 function syncUIToMemory() {
-  const week=document.getElementById('weekSelector').value;
+  const selWeek=document.getElementById('weekSelector').value;
   document.querySelectorAll('.cell-btn').forEach(btn=>{
+    // ✅ 以「格子自己的週」為準（非全域 selector），避免換週瞬間把畫面資料標成新週而覆蓋他週
+    const week=btn.dataset.week||selWeek;
     const idx=appData.records.findIndex(r=>r.name===btn.dataset.emp&&r.day===btn.dataset.day&&r.week===week);
     const data={ week, day:btn.dataset.day, name:btn.dataset.emp, shift:btn.dataset.shift||'', location:btn.dataset.loc||'本店', note:btn.dataset.note||'', actualHours:parseFloat(btn.dataset.hours||0), isOT:btn.dataset.ot==='true', isHourly:btn.dataset.hourly==='true', supportEmp:btn.dataset.support||'', approvalStatus:btn.dataset.approval||'', requestOff:btn.dataset.reqoff==='true', lawOverrides: btn.dataset.lawoverrides ? JSON.parse(btn.dataset.lawoverrides) : [] };
     const hasData=btn.dataset.shift||btn.dataset.note||btn.dataset.ot==='true'||btn.dataset.support||btn.dataset.reqoff==='true';
@@ -3369,6 +3395,7 @@ function syncUIToMemory() {
   });
   document.querySelectorAll('.note-input').forEach(inp=>{
     const day=inp.dataset.day, val=inp.value;
+    const week=inp.dataset.week||selWeek; // 同上：以備註格自己的週為準
     const idx=appData.records.findIndex(r=>r.name==='門市備註'&&r.day===day&&r.week===week);
     if(val) { if(idx!==-1) appData.records[idx].note=val; else appData.records.push({week,day,name:'門市備註',shift:'',location:'',note:val,actualHours:0,isOT:false}); }
     else { if(idx!==-1) appData.records.splice(idx,1); }
