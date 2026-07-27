@@ -1672,9 +1672,20 @@ async function checkLeaveHint(){
     bar.style.display='flex';
   }catch(e){ console.error('checkLeaveHint 失敗', e); }
 }
-function dismissLeaveHint(){
+async function dismissLeaveHint(){
   const bar=document.getElementById('leaveHintBanner');
-  if(bar){ localStorage.setItem('leaveHintDismissed_'+(bar.dataset.week||''),'1'); bar.style.display='none'; }
+  if(!bar) return;
+  const wk=bar.dataset.week||'';
+  localStorage.setItem('leaveHintDismissed_'+wk,'1');
+  bar.style.display='none';
+  // 同步寫 Firestore，讓「截止前提醒」的排程知道此人已打X（打X＝不再 LINE 提醒該週）
+  try{
+    if(currentUser?.store && currentUser?.empName && wk){
+      await window.db.collection('stores').doc(currentUser.store)
+        .collection('leaveDismiss').doc(`${wk}__${currentUser.empName}`)
+        .set({ empName: currentUser.empName, week: wk, dismissedAt: new Date().toISOString() });
+    }
+  }catch(e){ console.error('leaveDismiss 寫入失敗', e); }
 }
 
 // ===== LINE 通知綁定（綁定碼版）=====
@@ -1695,9 +1706,11 @@ async function openLineBindModal(){
   try{
     const bs=await window.db.collection('lineBindings').doc(currentUser.uid).get().catch(()=>null);
     if(bs && bs.exists){
+      const canTest = ['manager','owner','admin'].includes(currentUser.permission);
       body.innerHTML=`<div style="color:#2e7d32;font-weight:800;">✅ 已綁定 LINE 通知</div>
         <div style="margin-top:8px;color:var(--text-muted);">綁定時間：${String(bs.data().boundAt||'').slice(0,16).replace('T',' ')}</div>
-        <button onclick="unbindLine()" style="width:100%;padding:10px;background:#fce8e6;color:var(--danger);border:none;border-radius:10px;font-weight:700;cursor:pointer;margin-top:14px;">解除綁定</button>`;
+        ${canTest ? `<button id="lineTestBtn" onclick="sendTestNotify()" style="width:100%;padding:10px;background:#e7f7ed;color:#06c755;border:none;border-radius:10px;font-weight:800;cursor:pointer;margin-top:14px;">🔔 發送測試通知（僅管理者）</button>` : ''}
+        <button onclick="unbindLine()" style="width:100%;padding:10px;background:#fce8e6;color:var(--danger);border:none;border-radius:10px;font-weight:700;cursor:pointer;margin-top:8px;">解除綁定</button>`;
       return;
     }
     const code=String(Math.floor(100000+Math.random()*900000));
@@ -1710,13 +1723,26 @@ async function openLineBindModal(){
       ? `<a href="${oa}" target="_blank" style="display:block;text-align:center;background:#06c755;color:#fff;padding:11px;border-radius:10px;font-weight:800;text-decoration:none;margin:10px 0;">➕ 加入官方帳號</a>`
       : `<div style="color:var(--danger);margin:10px 0;font-weight:700;">⚠️ 官方帳號連結尚未設定，請聯絡管理員設定 lineOaUrl。</div>`;
     body.innerHTML=`
-      <div style="color:var(--text-muted);">綁定後，薪資發布、劃休開放等會主動用 LINE 通知你：</div>
+      <div style="color:var(--text-muted);">綁定後，薪資發布、班表發布、劃休截止提醒等會主動用 LINE 通知你：</div>
       <div style="margin-top:12px;font-weight:800;">① 加入官方帳號好友</div>
       ${oaBtn}
       <div style="font-weight:800;">② 在該官方帳號聊天室傳送這組綁定碼：</div>
       <div style="text-align:center;font-size:30px;font-weight:900;letter-spacing:6px;color:var(--primary);background:#eef4ff;border-radius:10px;padding:12px;margin:8px 0;">${code}</div>
       <div style="font-size:12px;color:var(--text-muted);">（10 分鐘內有效；傳送後會收到「綁定成功」）</div>`;
   }catch(e){ body.innerHTML='載入失敗：'+e.message; }
+}
+async function sendTestNotify(){
+  const btn=document.getElementById('lineTestBtn');
+  if(btn){ btn.disabled=true; btn.textContent='傳送中…'; }
+  try{
+    const fn=firebase.app().functions('asia-east1').httpsCallable('sendTestNotify');
+    await fn({});
+    if(typeof showToast==='function') showToast('✅ 已送出，請到 LINE 查看');
+    if(btn){ btn.textContent='🔔 已送出，請看 LINE'; }
+  }catch(e){
+    if(typeof showToast==='function') showToast('❌ '+(e.message||'發送失敗'));
+    if(btn){ btn.disabled=false; btn.textContent='🔔 發送測試通知（僅管理者）'; }
+  }
 }
 async function unbindLine(){
   if(!confirm('確定解除 LINE 通知綁定？')) return;
