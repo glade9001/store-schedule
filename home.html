@@ -1585,7 +1585,8 @@ function _ackMonthsFromStart(){
   const now=new Date();
   const cur=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
   const out=[]; let [y,m]=SALARY_ACK_START.split('-').map(Number);
-  for(let i=0;i<60;i++){ const ym=`${y}-${String(m).padStart(2,'0')}`; out.push(ym); if(ym===cur) break; m++; if(m>12){m=1;y++;} }
+  // 只納入「已可查看」月份：M 月薪資要 M+1 月才可看，故排除當月(cur)
+  for(let i=0;i<60;i++){ const ym=`${y}-${String(m).padStart(2,'0')}`; if(ym>=cur) break; out.push(ym); m++; if(m>12){m=1;y++;} }
   return out;
 }
 async function checkSalaryAck(){

@@ -271,23 +271,36 @@ async function notifyEmployees(db, empNames, store, buildText, token) {
   }
 }
 
-// 薪資發布 → 通知該月有記錄的員工
+// 台北時區今日年月 YYYY-MM
+function taipeiYM() {
+  return new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 7);
+}
+// 薪資可見性規則（同 my-salary.html）：M 月薪資要 M+1 月才可查看 → 即 month < 當前月
+function salaryViewable(month) {
+  return String(month) < taipeiYM(); // "YYYY-MM" 字串可直接比較
+}
+// 推薪資發布通知：薪資記錄員工欄位是 empName（buildDefaultRecord），對應 lineBindings.empName
+async function notifySalary(db, store, data, month, token) {
+  const empNames = (data.records || []).map((r) => r.empName);
+  await notifyEmployees(
+    db, empNames, store,
+    (name) => `💰 ${name}，你的 ${month} 薪資已發布，可到 App 查看並簽收囉。`,
+    token
+  );
+}
+
+// 薪資發布 → 通知該月有記錄的員工（但需已到「可查看月份」才即時通知；
+// 若在可查看月份前就發布，改由 scheduledMonthlySalaryNotify 於次月1號補發）
 exports.onSalaryPublished = onDocumentWritten(
   { document: "stores/{store}/salary/{month}", region: "asia-east1", secrets: [LINE_TOKEN] },
   async (event) => {
     const before = event.data.before.exists ? event.data.before.data() : {};
     const after = event.data.after.exists ? event.data.after.data() : {};
     if (before.status === "published" || after.status !== "published") return; // 只在「變成 published」
-    const store = event.params.store;
     const month = event.params.month;
-    // 薪資記錄的員工欄位是 name（非 empName）；lineBindings.empName 存的是同一組短名
-    const empNames = (after.records || []).map((r) => r.name);
+    if (!salaryViewable(month)) return; // 尚未到可查看月份 → 不即時通知（次月排程補發）
     const db = admin.firestore();
-    await notifyEmployees(
-      db, empNames, store,
-      (name) => `💰 ${name}，你的 ${month} 薪資已發布，請至 App 查看並簽收。`,
-      LINE_TOKEN.value()
-    );
+    await notifySalary(db, event.params.store, after, month, LINE_TOKEN.value());
   }
 );
 
@@ -432,6 +445,27 @@ exports.scheduledAutoPublishNotify = onSchedule(
         (name) => `🗓️ ${name}，${store} ${label} 班表已發布，快到 App 查看你的班～`,
         token
       );
+    }
+  }
+);
+
+// ===== 每月1號：補發「上個月薪資」通知（該月薪資此時起才可查看）=====
+// 例：8/1 通知 7 月薪資（7 月發布但依規則 8 月才可看）。
+exports.scheduledMonthlySalaryNotify = onSchedule(
+  { schedule: "0 9 1 * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN] },
+  async () => {
+    const db = admin.firestore();
+    const token = LINE_TOKEN.value();
+    // 剛變成可查看的月份＝上個曆月（台北）
+    const now = new Date(Date.now() + 8 * 3600000);
+    const py = now.getUTCMonth() === 0 ? now.getUTCFullYear() - 1 : now.getUTCFullYear();
+    const pm = now.getUTCMonth() === 0 ? 12 : now.getUTCMonth();
+    const prevMonth = `${py}-${String(pm).padStart(2, "0")}`;
+    const stores = await getAllStores(db);
+    for (const store of stores) {
+      const snap = await db.collection("stores").doc(store).collection("salary").doc(prevMonth).get();
+      if (!snap.exists || (snap.data().status || "draft") !== "published") continue;
+      await notifySalary(db, store, snap.data(), prevMonth, token);
     }
   }
 );
