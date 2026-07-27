@@ -3150,7 +3150,7 @@ function renderSalaryForm(emp, rec, idx, readonly) {
   // Tab 內容（考勤先、薪資項目次、代扣最後）
   const tabContents = [
     // Tab 0：考勤紀錄
-    `<div id="modal-tab-0">${col3}${renderCalendar(emp.name, emp.role)}</div>`,
+    `<div id="modal-tab-0">${col3}${renderCalendar(emp.name, effSalaryRole(emp, rec))}</div>`,
     // Tab 1：薪資項目
     `<div id="modal-tab-1" style="display:none;">${col1}</div>`,
     // Tab 2：代扣項目
@@ -3183,7 +3183,7 @@ function renderSalaryForm(emp, rec, idx, readonly) {
     }
   }
 
-  const _calHtml = renderCalendar(emp.name, emp.role);
+  const _calHtml = renderCalendar(emp.name, effSalaryRole(emp, rec));
   const _tabContentsNew = [
     `<div id="modal-tab-0">${col3}${_calHtml}</div>`,
     `<div id="modal-tab-1" style="display:none;">${col1}${_calHtml}</div>`,

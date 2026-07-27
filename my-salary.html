@@ -896,7 +896,7 @@ function renderSalaryForm(emp, rec, idx, readonly) {
     </div>
     <div class="salary-row"><span class="salary-row-label">特休(發/用/剩)</span><span class="salary-row-val">${annualDays}/${usedAnnual}/${remainAnnual}</span></div>
     <div style="border-top:1px solid #eee; margin:12px 0;"></div>
-    ${renderCalendar(emp.name, emp.role)} 
+    ${renderCalendar(emp.name, effSalaryRole(emp, rec))}
   </div>`;
 
   // --- 欄位 2：薪資 ---
