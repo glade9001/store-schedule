@@ -516,6 +516,65 @@ exports.onScheduleChanged = onDocumentWritten(
   }
 );
 
+// ===== 跨店支援請求通知 =====
+// 支援記錄(有 supportEmp)存在「請求店(受支援)」的 weeks；supportEmp='{被請求店}-{員工}'。
+// 新請求(pending)→通知被請求店審核；核准→通知請求店；取消/拒絕(supportEmp 被清或記錄移除)→兩邊都通知。
+exports.onSupportRequest = onDocumentWritten(
+  { document: "stores/{store}/weeks/{weekStr}", region: "asia-east1", secrets: [LINE_TOKEN] },
+  async (event) => {
+    const before = event.data.before.exists ? event.data.before.data() : {};
+    const after = event.data.after.exists ? event.data.after.data() : {};
+    const supKey = (r) => `${r.supportEmp}|${r.day}|${r.shift}`;
+    const mapOf = (recs) => {
+      const m = {};
+      (recs || []).forEach((r) => { if (r && r.supportEmp) m[supKey(r)] = { status: r.approvalStatus || "", r }; });
+      return m;
+    };
+    const b = mapOf(before.records), a = mapOf(after.records);
+    const evts = [];
+    for (const k in a) {
+      if (!b[k]) { if (a[k].status === "pending") evts.push({ type: "request", r: a[k].r }); }
+      else if (b[k].status === "pending" && a[k].status === "approved") evts.push({ type: "approved", r: a[k].r });
+    }
+    for (const k in b) { if (!a[k]) evts.push({ type: "cancelled", r: b[k].r }); } // supportEmp 被清(拒絕/取消)或記錄移除
+    if (!evts.length) return;
+
+    const requestingStore = fixStoreName(event.params.store); // 需要人力、發出請求的店
+    const weekStr = event.params.weekStr;
+    const db = admin.firestore();
+    const token = LINE_TOKEN.value();
+    const accSnap = await db.collection("account").get().catch(() => null);
+    const dispMap = {};
+    if (accSnap) accSnap.forEach((d) => { const x = d.data(); if (x.empName && x.displayName) dispMap[x.empName] = x.displayName; });
+
+    const dateLabel = (day) => {
+      const di = WEEK_DAYS.indexOf(day);
+      if (di < 0) return day || "";
+      const mon = weekMondayDate(weekStr); const d = new Date(mon); d.setDate(mon.getDate() + di);
+      return `${d.getMonth() + 1}/${d.getDate()}（${day}）`;
+    };
+    for (const e of evts) {
+      const dash = String(e.r.supportEmp).indexOf("-");
+      if (dash < 0) continue;
+      const homeStore = e.r.supportEmp.slice(0, dash); // 被請求店(擁有該員工)
+      const emp = e.r.supportEmp.slice(dash + 1);
+      const disp = dispMap[emp] || emp;
+      const when = `${dateLabel(e.r.day)} ${e.r.shift || ""}`.trim();
+      if (e.type === "request") {
+        await notifyStoreManagers(db, homeStore,
+          `🔔 跨店支援請求\n${requestingStore} 需要人力，請求貴店「${disp}」於 ${when} 前往 ${requestingStore} 支援，請至 App 審核。`, token);
+      } else if (e.type === "approved") {
+        await notifyStoreManagers(db, requestingStore,
+          `✅ 跨店支援已核准\n${homeStore} 已核准「${disp}」於 ${when} 到 ${requestingStore} 支援。`, token);
+      } else if (e.type === "cancelled") {
+        const msg = `⚠️ 跨店支援已取消\n「${disp}」（${homeStore}）於 ${when} 支援 ${requestingStore} 的安排已取消／未成立。`;
+        await notifyStoreManagers(db, requestingStore, msg, token);
+        if (homeStore !== requestingStore) await notifyStoreManagers(db, homeStore, msg, token);
+      }
+    }
+  }
+);
+
 // ===== 月加班累計預警（優先2）=====
 // 某店某月每位員工的工時與加班（公式同 salary-calc calcEmpHours：每日 max(0,h-8)，isOT 或日>8h；跳過休假/時薪；去重同員工同日）
 async function monthWorkedByEmp(db, store, ym) {
