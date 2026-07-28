@@ -100,9 +100,9 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
   padding: 8px 12px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
   flex-shrink: 0;
 }
-.tool-btn { border: none; border-radius: 8px; padding: 8px 6px; font-size: 12px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; min-width: 0; width: 100%; }
-/* 工具列中非 .tool-btn 的按鈕（補休修復等）也對齊網格 */
-#adminToolBar > button { width: 100%; justify-content: center; }
+.tool-btn { border: none; border-radius: 8px; padding: 8px 6px; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; }
+/* 只有「工具列內」的按鈕撐滿網格欄位；其他地方的 .tool-btn(如看板認領鈕)維持自然寬度 */
+#adminToolBar > button { width: 100%; min-width: 0; justify-content: center; }
 .tool-btn.paint { background: #fce4ec; color: #c2185b; }
 .tool-btn.paint.active { background: #c2185b; color: white; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2); }
 .tool-btn.undo { background: #f1f3f4; color: var(--text); }
@@ -3719,12 +3719,12 @@ function renderSupportBoard() {
   gaps.sort((a,b)=> a.store.localeCompare(b.store) || dayNames.indexOf(a.day)-dayNames.indexOf(b.day));
   el.innerHTML = gaps.map(g => {
     const enc = encodeURIComponent(JSON.stringify(g));
-    return `<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;">
-      <div style="flex:1;min-width:0;">
-        <div style="font-weight:800;font-size:14px;">🏪 ${g.store}　${g.day}　<span style="color:var(--primary);">${g.shift}</span></div>
-        ${g.note?`<div style="font-size:12px;color:var(--text-muted);margin-top:2px;">📝 ${g.note}</div>`:''}
+    return `<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;">
+      <div style="flex:1 1 auto;min-width:0;">
+        <div style="font-weight:800;font-size:14px;line-height:1.4;">🏪 ${g.store}　${g.day}　<span style="color:var(--primary);">${g.shift}</span></div>
+        ${g.note?`<div style="font-size:12px;color:var(--text-muted);margin-top:2px;word-break:break-word;">📝 ${g.note}</div>`:''}
       </div>
-      <button class="tool-btn" style="background:#0369a1;color:#fff;white-space:nowrap;" onclick="openClaimGap('${enc}')">認領</button>
+      <button class="tool-btn" style="flex:0 0 auto;background:#0369a1;color:#fff;padding:8px 16px;" onclick="openClaimGap('${enc}')">認領</button>
     </div>`;
   }).join('');
 }
