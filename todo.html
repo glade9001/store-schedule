@@ -394,7 +394,22 @@ function nextStr(todo){
   const d=calcNext(todo);
   return d?`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`:null;
 }
-function recChkKey(id){const n=nextStr(allTodos.find(t=>t.id===id)||{});return n?`${id}__${n}`:id;}
+function recChkKey(id){
+  const t=allTodos.find(x=>x.id===id)||{};
+  // 每月型：當期＝「當月」(YYYY-MM)，完成後該月消失、下月自動重現
+  if(t.recurringType==='monthly'){const n=new Date();return `${id}__${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`;}
+  const n=nextStr(t);return n?`${id}__${n}`:id;
+}
+// 循環任務「當期截止日」：每月型＝當月的截止日(取 endDate 的日)；其他型＝下次發生日+offset
+function recDeadline(todo){
+  if(!todo.isRecurring||!todo.endDate)return todo.endDate||null;
+  const fmt=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const day=parseInt(todo.endDate.split('-')[2])||1;
+  if(todo.recurringType==='monthly'){const n=new Date();return fmt(new Date(n.getFullYear(),n.getMonth(),day));}
+  const nxt=calcNext(todo);if(!nxt)return todo.endDate;
+  let off=0;if(todo.startDate)off=Math.max(0,Math.round((new Date(todo.endDate+'T00:00')-new Date(todo.startDate+'T00:00'))/86400000));
+  return fmt(new Date(nxt.getFullYear(),nxt.getMonth(),nxt.getDate()+off));
+}
 function recLbl(t){
   if(t.recurringType==='weekly'){const d=['','週一','週二','週三','週四','週五','週六','週日'];return `每週${d[t.recurringDay]||''}`;}
   if(t.recurringType==='monthly')return `每月${t.recurringDay}號`;
@@ -534,7 +549,8 @@ function card(todo,isDone=false){
     :`<div class="chk-wrap" onclick="event.stopPropagation();doCheck('${todo.id}',${isRec})"><div class="chk ${chked?'done':''}">${chked?'✓':''}</div></div>`;
 
   let dlTag='';
-  if(todo.endDate){const d=daysUntil(todo.endDate);const lbl=d===null?'':d<0?'已截止':d===0?'今天截止':`${d}天後截止`;dlTag=`<span class="tag ${d!==null&&d<=2?'dl-soon':'dl'}">📅 ${dateLbl(todo.endDate)} ${lbl}</span>`;}
+  const _dl = isRec ? recDeadline(todo) : todo.endDate; // 循環任務用當期截止日，不再卡在舊固定日
+  if(_dl){const d=daysUntil(_dl);const lbl=d===null?'':d<0?'已截止':d===0?'今天截止':`${d}天後截止`;dlTag=`<span class="tag ${d!==null&&d<=2?'dl-soon':'dl'}">📅 ${dateLbl(_dl)} ${lbl}</span>`;}
   let recTag=isRec?`<span class="tag rec">🔄 ${recLbl(todo)}${calcNext(todo)?` · 下次${calcNext(todo).getMonth()+1}/${calcNext(todo).getDate()}`:''}</span>`:'';
   let scopeTag=''; const tt=todo.targetType;
   if(tt==='all')scopeTag=`<span class="tag scope">全體</span>`;
@@ -621,12 +637,13 @@ function openDet(id){
   else if(isRec){bc='rec-task';bt='🔄 週期代辦';}
   const nxt=isRec?calcNext(todo):null;
   document.getElementById('detTitle').textContent=todo.title;
-  const dl=todo.endDate?daysUntil(todo.endDate):null;
+  const _detDl=isRec?recDeadline(todo):todo.endDate;
+  const dl=_detDl?daysUntil(_detDl):null;
   document.getElementById('detContent').innerHTML=`
     <div class="det-badge ${bc}">${bt}</div>
     ${todo.note?`<div style="background:#f8fafc;border-radius:8px;padding:10px 12px;font-size:13px;line-height:1.7;margin-bottom:10px;">${todo.note}</div>`:''}
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">
-      ${todo.endDate?`<span class="tag ${dl!==null&&dl<=2?'dl-soon':'dl'}">📅 ${dateLbl(todo.endDate)} ${dl===null?'':dl<0?'已截止':dl===0?'今天截止':`${dl}天後截止`}</span>`:''}
+      ${_detDl?`<span class="tag ${dl!==null&&dl<=2?'dl-soon':'dl'}">📅 ${dateLbl(_detDl)} ${dl===null?'':dl<0?'已截止':dl===0?'今天截止':`${dl}天後截止`}</span>`:''}
       ${todo.startDate?`<span class="tag scope">顯示從 ${dateLbl(todo.startDate)}</span>`:''}
       ${isRec?`<span class="tag rec">${recLbl(todo)}</span>`:''}
       ${isRec&&nxt?`<span class="tag dl">下次：${nxt.getMonth()+1}/${nxt.getDate()}</span>`:''}
