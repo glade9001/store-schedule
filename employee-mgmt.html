@@ -1034,11 +1034,16 @@ async function saveNewEmployee() {
   if(!username || !/^[A-Z][0-9]{5}$/.test(username)) { showToast('⚠️ 帳號格式：1英文字母+5碼數字'); return; }
   if(!password || password.length < 6) { showToast('⚠️ 密碼至少6碼'); return; }
 
-  showLoading('新增員工中...');
+  showLoading('檢查工號...');
   try {
     const dup = await window.db.collection('account').where('ID','==',username).get();
-    if(!dup.empty) { hideLoading(); showToast('⚠️ 此帳號已被使用'); return; }
-
+    if(!dup.empty) {
+      hideLoading();
+      // 工號已存在(工號=身分證，同一人)→ 走「重新入職」判斷，不直接新增
+      await handleRehire(dup.docs[0], { store, role, wage, username, password, perm, dispName: sysName });
+      return;
+    }
+    showLoading('新增員工中...');
     const empCount = await window.db.collection('stores').doc(store).collection('employees').get();
     const sortKey = empCount.size;
 
@@ -1065,6 +1070,69 @@ async function saveNewEmployee() {
     await loadEmpAdminList(store);
     showToast(`✅ 已新增員工「${sysName}」`);
   } catch(e) { showToast('❌ 新增失敗：' + e.message); }
+  hideLoading();
+}
+
+// ===== 重新入職（rehire）：工號=身分證，同一人不可開新號 =====
+// 未離職→擋(請用調店)；離職→警示確認+入職日須晚於離職日(不重疊)+封存舊段+重用帳號+新到職日(年資重算)
+async function handleRehire(accDoc, form) {
+  const acc = accDoc.data();
+  const existName = acc.empName;
+  const existStore = acc.store;
+  // 查該人在其門市的員工狀態
+  let empStatus = '', retireDate = '';
+  if(existStore && existName){
+    const es = await window.db.collection('stores').doc(existStore).collection('employees').doc(existName).get().catch(()=>null);
+    if(es && es.exists){ const d = es.data(); empStatus = d.status || ''; retireDate = d.retireDate || d.transferDate || ''; }
+  }
+  // 未離職 → 擋
+  if(empStatus !== '離職'){
+    showToast(`⚠️ 工號 ${form.username}（${existName}）目前${empStatus||'在職'}於「${existStore||'?'}」，無法直接新增。如需移動請用「調店」。`);
+    return;
+  }
+  // 離職 → 警示確認
+  const ok = confirm(
+    `🔁 重新入職確認\n\n工號 ${form.username}（${existName}）\n已於 ${retireDate||'（未填離職日）'} 從「${existStore}」離職。\n\n確定重新入職到「${form.store}」？\n・沿用同一帳號（同工號登入）\n・年資／到職日重新計算\n・原門市歷史（薪資／已發特休）保留`
+  );
+  if(!ok) return;
+  // 新到職日 + 不重疊驗證
+  const newHire = prompt(`新到職日（YYYY-MM-DD，年資由此重算；需晚於離職日 ${retireDate||'?'}）：`, new Date().toISOString().split('T')[0]);
+  if(!newHire) return;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(newHire)){ showToast('⚠️ 日期格式需 YYYY-MM-DD'); return; }
+  if(retireDate && newHire <= retireDate){ showToast(`❌ 入職日（${newHire}）必須晚於離職日（${retireDate}），不可重疊`); return; }
+
+  showLoading('重新入職中...');
+  try {
+    const curYear = new Date().getFullYear().toString();
+    // 1) 封存舊僱傭段（原到職日/離職日/門市），過往年資有紀錄可查
+    const oldL = await window.db.collection('employees').doc(existName).collection('leaves').doc(curYear).get().catch(()=>null);
+    const oldHire = (oldL && oldL.exists) ? (oldL.data().hireDate || '') : '';
+    await window.db.collection('employees').doc(existName).collection('employmentLog').add({
+      store: existStore, hireDate: oldHire, retireDate: retireDate || '', role: acc.role || '',
+      archivedAt: new Date().toISOString(), archivedBy: currentUser.displayName || currentUser.empName || ''
+    });
+    // 2) 重用帳號 → 指到新門市
+    await accDoc.ref.update({ store: form.store, role: form.role, permission: form.perm });
+    // 3) 建新門市員工記錄（在職）；原門市離職記錄保留不動
+    const empCount = await window.db.collection('stores').doc(form.store).collection('employees').get().catch(()=>({size:0}));
+    await window.db.collection('stores').doc(form.store).collection('employees').doc(existName)
+      .set({ role: form.role, wage: form.wage, sortKey: empCount.size, status: '在職' });
+    // 4) users 更新門市
+    const us = await window.db.collection('users').where('ID','==',form.username).limit(1).get().catch(()=>null);
+    if(us && !us.empty) await us.docs[0].ref.update({ store: form.store, role: form.role, permission: form.perm, disabled:false });
+    // 5) 重設到職日（年資重算）
+    await window.db.collection('employees').doc(existName).collection('leaves').doc(curYear)
+      .set({ hireDate: newHire }, { merge:true });
+    // 6) 重設登入密碼為新輸入值（Admin SDK）
+    try {
+      const resetFn = firebase.app().functions('asia-east1').httpsCallable('adminResetPassword');
+      await resetFn({ empId: form.username, newPassword: form.password });
+    } catch(e){ console.warn('重設密碼失敗，可稍後於帳號管理重設', e); }
+
+    closeModal('addEmpModal');
+    await loadEmpAdminList(form.store);
+    showToast(`✅「${existName}」已重新入職到「${form.store}」（到職日 ${newHire}，年資重算，${existStore}歷史保留）`);
+  } catch(e){ showToast('❌ 重新入職失敗：' + e.message); console.error('rehire', e); }
   hideLoading();
 }
 
