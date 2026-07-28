@@ -348,9 +348,13 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
         <input id="quotaPartTime" type="number" min="0" max="20" value="1" style="width:100%; padding:9px; border:1.5px solid var(--border); border-radius:8px; font-size:14px; text-align:center;">
       </div>
     </div>
-    <label style="display:flex; align-items:center; gap:8px; margin-bottom:16px; cursor:pointer; font-size:13px; font-weight:700; color:var(--text);">
+    <label style="display:flex; align-items:center; gap:8px; margin-bottom:10px; cursor:pointer; font-size:13px; font-weight:700; color:var(--text);">
       <input type="checkbox" id="quotaPartUnlimited" style="width:16px; height:16px;" onchange="document.getElementById('quotaPartTime').disabled=this.checked;">
       工讀不受每日上限（想休就劃，僅顯示不擋）
+    </label>
+    <label style="display:flex; align-items:center; gap:8px; margin-bottom:16px; cursor:pointer; font-size:13px; font-weight:700; color:var(--danger);">
+      <input type="checkbox" id="quotaHardBlock" style="width:16px; height:16px;">
+      ⛔ 強制擋（達每日上限後，其他人「無法送出」排休；特休/補休不受此限）
     </label>
 
     <!-- 每週劃休上限 -->
@@ -675,6 +679,7 @@ async function openStoreConfigModal(targetStore) {
   document.getElementById('quotaPartUnlimited').checked = _q.partTimeUnlimited === true;
   document.getElementById('quotaPartTime').disabled = _q.partTimeUnlimited === true;
   document.getElementById('quotaWeeklyFull').value = _q.weeklyFull ?? 2;
+  document.getElementById('quotaHardBlock').checked = _q.hardBlock === true;
 
   if(!document.getElementById('storeConfigModal').classList.contains('active'))
     openModal('storeConfigModal');
@@ -740,7 +745,8 @@ async function saveStoreConfig() {
   const qPart = parseInt(document.getElementById('quotaPartTime').value) || 0;
   const qPartUnlimited = document.getElementById('quotaPartUnlimited').checked;
   const qWeekly = parseInt(document.getElementById('quotaWeeklyFull').value) || 0;
-  storeConfig.leaveQuota = { fullTime: qFull, partTime: qPart, partTimeUnlimited: qPartUnlimited, weeklyFull: qWeekly };
+  const qHardBlock = document.getElementById('quotaHardBlock').checked;
+  storeConfig.leaveQuota = { fullTime: qFull, partTime: qPart, partTimeUnlimited: qPartUnlimited, weeklyFull: qWeekly, hardBlock: qHardBlock };
   showLoading('儲存門市設定中...');
   try {
     await window.db.collection('stores').doc(store).collection('config').doc('shifts').set(storeConfig);
