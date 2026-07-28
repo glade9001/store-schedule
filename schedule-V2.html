@@ -2717,7 +2717,7 @@ function updateCellUI(btn, extraHtml='') {
     txt+=`<br><small>(${Math.round(parseFloat(h))}h)</small>`;
 
   if(isVirtual && supportEmp) {
-    const empOnly=supportEmp.split('-')[1]||supportEmp;
+    const empOnly=getDisplayName(supportEmp.split('-')[1]||supportEmp); // 顯示 app 顯示名稱（非短名）
     txt+=approvalStatus==='pending'
       ? `<br><small style="color:#e65100;font-weight:700;">${empOnly}<br>(待審)</small>`
       : `<br><small style="color:var(--primary);font-weight:900;">${empOnly}</small>`;
@@ -3972,7 +3972,7 @@ function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, al
       const note = rec.note || '';
       const loc = (rec.location && rec.location !== '本店') ? rec.location : '';
       const supportEmp = rec.supportEmp || '';
-      const supportName = supportEmp ? (supportEmp.split('-')[1] || supportEmp) : '';
+      const supportName = supportEmp ? getDisplayName(supportEmp.split('-')[1] || supportEmp) : '';
       const isApproved = (rec.approvalStatus || '') === 'approved';
       const h = parseFloat(rec.actualHours || 0);
       const recIsSupportOut = !!(loc && loc.startsWith('支援'));
