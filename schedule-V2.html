@@ -3653,19 +3653,27 @@ async function handleApproval(isApproved) {
   showLoading('處理中...');
   try {
     const docRef=window.db.collection('stores').doc(req._store).collection('weeks').doc(req.week);
-    const snap=await docRef.get();
-    if(snap.exists) {
+    let done=false, stale=false;
+    // 交易：交易內重讀，只在「這筆申請仍存在(supportEmp 未變)」時才寫，避免與他店/自動存檔互相覆蓋
+    await window.db.runTransaction(async (tx)=>{
+      done=false; stale=false; // 每次重試都重置
+      const snap=await tx.get(docRef);
+      if(!snap.exists){ stale=true; return; }
       const records=snap.data().records||[];
-      const idx=records.findIndex(r=>r.name===req.name&&r.day===req.day&&r.shift===req.shift);
-      if(idx!==-1) {
-        if(isApproved) records[idx].approvalStatus='approved';
-        else { records[idx].supportEmp=''; records[idx].approvalStatus=''; }
-        await docRef.update({ records });
-        showToast(isApproved?'✅ 已同意支援':'已拒絕支援');
-        closeModal('approvalModal');
-        await fetchAllStoreData();
-      }
+      const idx=records.findIndex(r=>r.name===req.name&&r.day===req.day&&r.shift===req.shift&&(r.supportEmp||'')===(req.supportEmp||''));
+      if(idx===-1){ stale=true; return; } // 已被取消/變更 → 不動作
+      if(isApproved) records[idx].approvalStatus='approved';
+      else { records[idx].supportEmp=''; records[idx].approvalStatus=''; } // 拒絕→清空→退回開放缺口
+      tx.update(docRef,{ records });
+      done=true;
+    });
+    if(!done){
+      showToast(stale ? '⚠️ 這筆申請已被取消或變更，請重新整理' : '⚠️ 處理未完成，請重試');
+      closeModal('approvalModal'); await fetchAllStoreData(); hideLoading(); return;
     }
+    showToast(isApproved?'✅ 已同意支援':'已拒絕支援');
+    closeModal('approvalModal');
+    await fetchAllStoreData();
   } catch(e) { showToast('❌ 失敗：'+e.message); }
   hideLoading();
 }
@@ -3780,15 +3788,25 @@ async function confirmClaimGap() {
   showLoading('安排支援中...');
   try {
     const docRef = window.db.collection('stores').doc(g.store).collection('weeks').doc(g.week);
-    const snap = await docRef.get();
-    if(!snap.exists){ showToast('❌ 該週班表不存在'); hideLoading(); return; }
-    const records = snap.data().records||[];
-    const idx = records.findIndex(r => r.name===g.name && r.day===g.day && r.shift===g.shift && !r.supportEmp);
-    if(idx===-1){ showToast('⚠️ 此缺口已有人支援或已異動，請重新開啟看板'); hideLoading(); return; }
-    records[idx].supportEmp = `${fromStore}-${emp}`;
-    records[idx].approvalStatus = 'approved';
-    records[idx].claimedBy = fromStore; // 供 onSupportRequest 發「已被認領」通知給缺工店
-    await docRef.update({ records });
+    let claimed=false;
+    // 交易：交易內重讀，只在「缺口仍開放(supportEmp 仍為空)」時才寫，避免與他店支援/A店取消或存檔互相覆蓋
+    await window.db.runTransaction(async (tx)=>{
+      claimed=false; // 每次重試都重置
+      const snap=await tx.get(docRef);
+      if(!snap.exists) return;
+      const records=snap.data().records||[];
+      const idx=records.findIndex(r => r.name===g.name && r.day===g.day && r.shift===g.shift && !r.supportEmp);
+      if(idx===-1) return; // 缺口已被搶先支援/被取消/已異動 → 不動作
+      records[idx].supportEmp = `${fromStore}-${emp}`;
+      records[idx].approvalStatus = 'approved';
+      records[idx].claimedBy = fromStore; // 供 onSupportRequest 發「已被支援」通知給缺工店
+      tx.update(docRef,{ records });
+      claimed=true;
+    });
+    if(!claimed){
+      showToast('⚠️ 此缺口已被搶先支援或已異動，請重新開啟看板');
+      closeModal('claimGapModal'); closeModal('supportBoardModal'); await fetchAllStoreData(); hideLoading(); return;
+    }
     showToast('✅ 已排定支援');
     closeModal('claimGapModal');
     closeModal('supportBoardModal');
