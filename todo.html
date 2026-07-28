@@ -377,10 +377,11 @@ function calcNext(todo,from){
     return(end&&next>end)?null:next;
   }
   if(todo.recurringType==='monthly'){
-    const td=parseInt(todo.recurringDay||1);
-    const next=new Date(base.getFullYear(),base.getMonth(),td);
-    if(next<base)next.setMonth(next.getMonth()+1);
-    if(next<start)next.setMonth(next.getMonth()+1);
+    const isLast=(todo.recurringDay==='last'||parseInt(todo.recurringDay)===0);
+    const dayOf=(yr,mo)=> isLast ? new Date(yr,mo+1,0).getDate() : Math.min(parseInt(todo.recurringDay||1), new Date(yr,mo+1,0).getDate());
+    let next=new Date(base.getFullYear(),base.getMonth(),dayOf(base.getFullYear(),base.getMonth()));
+    if(next<base){const y=base.getFullYear(),m=base.getMonth()+1;next=new Date(y,m,dayOf(y,m));}
+    if(next<start){const y=next.getFullYear(),m=next.getMonth()+1;next=new Date(y,m,dayOf(y,m));}
     return(end&&next>end)?null:next;
   }
   if(todo.recurringType==='custom'){
@@ -412,7 +413,7 @@ function recDeadline(todo){
 }
 function recLbl(t){
   if(t.recurringType==='weekly'){const d=['','週一','週二','週三','週四','週五','週六','週日'];return `每週${d[t.recurringDay]||''}`;}
-  if(t.recurringType==='monthly')return `每月${t.recurringDay}號`;
+  if(t.recurringType==='monthly')return (t.recurringDay==='last'||parseInt(t.recurringDay)===0)?'每月最後一天':`每月${t.recurringDay}號`;
   if(t.recurringType==='custom')return `每${t.recurringInterval}天`;
   return '週期';
 }
@@ -427,6 +428,8 @@ function visible(todo){
   if(!todo.isRecurring&&todo.type==='announcement'&&todo.endDate&&td>todo.endDate)return false;
   // 週期型：先判斷是否有下一次，再判斷 targetType
   if(todo.isRecurring&&calcNext(todo)===null)return false;
+  // 週期「公告」只在發生日「當天」顯示（如每月最後一天提醒）；週期「代辦」則持續顯示到完成
+  if(todo.isRecurring&&todo.type==='announcement'&&nextStr(todo)!==toDay())return false;
 
   // ✅ targetType 判斷（週期型也要走這裡）
   const tt=todo.targetType;
@@ -722,14 +725,16 @@ function onRecTypeChange(){
   document.getElementById('recDayGrp').style.display=t==='custom'?'none':'block';
   document.getElementById('recIntGrp').style.display=t==='custom'?'block':'none';
   document.getElementById('recDayLbl').textContent=t==='monthly'?'每月幾號':'星期幾';
-  const sel=document.getElementById('fRecDay');
-  if(t==='monthly'&&sel?.tagName==='SELECT'){
-    const inp=document.createElement('input');inp.type='number';inp.id='fRecDay';inp.min='1';inp.max='31';inp.value='1';inp.className=sel.className;sel.replaceWith(inp);
-  } else if(t==='weekly'&&document.getElementById('fRecDay')?.tagName==='INPUT'){
-    const inp=document.getElementById('fRecDay');
-    const ns=document.createElement('select');ns.id='fRecDay';ns.className=inp.className;
-    ['週一','週二','週三','週四','週五','週六','週日'].forEach((d,i)=>{const o=document.createElement('option');o.value=i+1;o.textContent=d;ns.appendChild(o);});
-    inp.replaceWith(ns);
+  const cur=document.getElementById('fRecDay');
+  if(t==='monthly'){
+    const ns=document.createElement('select');ns.id='fRecDay';ns.className=cur.className;
+    for(let d=1;d<=31;d++){const o=document.createElement('option');o.value=String(d);o.textContent=d+'號';ns.appendChild(o);}
+    const ol=document.createElement('option');ol.value='last';ol.textContent='最後一天（月底）';ns.appendChild(ol);
+    ns.value='1';cur.replaceWith(ns);
+  } else if(t==='weekly'){
+    const ns=document.createElement('select');ns.id='fRecDay';ns.className=cur.className;
+    ['週一','週二','週三','週四','週五','週六','週日'].forEach((d,i)=>{const o=document.createElement('option');o.value=String(i+1);o.textContent=d;ns.appendChild(o);});
+    ns.value='1';cur.replaceWith(ns);
   }
 }
 

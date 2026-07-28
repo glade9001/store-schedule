@@ -834,6 +834,52 @@ exports.scheduledMonthlySalaryNotify = onSchedule(
   }
 );
 
+// ===== 薪資簽收提醒：每日檢查，對「已發布可查看但未簽收」者每 2 天 LINE 提醒一次（2026-07 起，直到簽收）=====
+exports.scheduledSalaryAckReminder = onSchedule(
+  { schedule: "0 10 * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN] },
+  async () => {
+    const db = admin.firestore();
+    const token = LINE_TOKEN.value();
+    const ACK_START = "2026-07";
+    const nowYM = taipeiYM();
+    // 需簽收月份：ACK_START ~ (當月-1)，即已可查看的月份(M 月薪資 M+1 才可看)
+    const months = [];
+    { let [y, m] = ACK_START.split("-").map(Number);
+      for (let i = 0; i < 36; i++) {
+        const ym = `${y}-${String(m).padStart(2, "0")}`;
+        if (ym >= nowYM) break;
+        months.push(ym);
+        m++; if (m > 12) { m = 1; y++; }
+      } }
+    if (!months.length) return;
+    const NOW = Date.now();
+    const bindSnap = await db.collection("lineBindings").get();
+    for (const bd of bindSnap.docs) {
+      const b = bd.data();
+      if (!b.uid || !b.empName || !b.lineUserId || !b.store) continue;
+      const disp = b.displayName || b.empName;
+      for (const ym of months) {
+        const salSnap = await db.collection("stores").doc(b.store).collection("salary").doc(ym).get().catch(() => null);
+        if (!salSnap || !salSnap.exists) continue;
+        const sd = salSnap.data();
+        if ((sd.status || "draft") !== "published") continue;
+        const rec = (sd.records || []).find((r) => r.empName === b.empName);
+        if (!rec) continue;
+        const ackSnap = await db.collection("salaryAck").doc(`${b.uid}_${ym}`).get().catch(() => null);
+        const signed = ackSnap && ackSnap.exists && (ackSnap.data().signedPayHash || "") === (rec.payHash || "");
+        if (signed) continue;
+        // 2 天節流（留 1h 緩衝避免每日排程邊界誤判）
+        const remRef = db.collection("salaryAckReminder").doc(`${b.uid}_${ym}`);
+        const remSnap = await remRef.get().catch(() => null);
+        const lastAt = (remSnap && remSnap.exists) ? (remSnap.data().lastAt || 0) : 0;
+        if (NOW - lastAt < 2 * 86400000 - 3600000) continue;
+        await linePush(b.lineUserId, `💰 ${disp}，你的 ${ym} 薪資已發布但尚未「簽收」。\n請開啟 App →「查看薪水」完成簽名簽收（每 2 天提醒，簽收後即停止）。`, token);
+        await remRef.set({ uid: b.uid, ym, empName: b.empName, lastAt: NOW }, { merge: true });
+      }
+    }
+  }
+);
+
 // ===== 管理者測試通知：推一則測試訊息給呼叫者自己的 LINE（僅店長以上）=====
 exports.sendTestNotify = onCall(
   { region: "asia-east1", secrets: [LINE_TOKEN] },
