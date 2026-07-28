@@ -670,8 +670,11 @@ async function runAnalysis(){
           const key = `${store}|${wk}`;
           const bucket = weeklyMap[key] || (weeklyMap[key] = { store, wk, mon, emps:{} });
           const phys = physMap[key] || (physMap[key] = { store, wk, mon, hours:0 });
+          const _seenRec = new Set(); // 去重：同筆記錄重複(如 W28 被灌爆)不重複計工時
           (wd.data().records||[]).forEach(r=>{
             if(!r || !r.name || r.name==='門市備註') return;
+            const _rk = [r.name, r.day, r.shift, r.location, r.supportEmp].join('|');
+            if(_seenRec.has(_rk)) return; _seenRec.add(_rk);
             const sh = r.shift;
             if(!sh || ['排休','指休','特休','補休','清空'].includes(sh)) return;
             const dIdx = ['週一','週二','週三','週四','週五','週六','週日'].indexOf(r.day);

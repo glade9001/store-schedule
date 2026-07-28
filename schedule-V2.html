@@ -1882,6 +1882,14 @@ async function fetchAllStoreData() {
 
     appData.allStoresEmployees[store] = appData.employees.map(e=>e.name);
     appData.records = appData.allStoresRecords.filter(r => r._store === store);
+    // 去重：移除完全相同的重複記錄（同 name/day/week/shift/loc/support）→ 顯示正確，存檔即淨化 DB
+    {
+      const _seenRec = new Set();
+      appData.records = appData.records.filter(r => {
+        const k = [r.name, r.day, r.week, r.shift, r.location, r.supportEmp, r.note].join('|');
+        if(_seenRec.has(k)) return false; _seenRec.add(k); return true;
+      });
+    }
     virtualRowNames = [...new Set(mainWeekRecs.map(r=>r.name).filter(n=>n&&n.startsWith('🆘')))];
 
     // 發布狀態
