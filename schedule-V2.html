@@ -3007,7 +3007,7 @@ function detectScheduleConflicts(empName, day, weekStr, newShift, newHours) {
       const k = `${iv.start}|${iv.end}`;
       if(seen.has(k)) return; // 同一實體班次的雙記錄（派出/接收）去重
       seen.add(k);
-      empIntervals.push({ start: iv.start, end: iv.end, _store: storeLabel });
+      empIntervals.push({ start: iv.start, end: iv.end, _store: storeLabel, _week: r.week, _day: r.day, _name: r.name });
     });
   };
   (appData.records || []).forEach(r => {
@@ -3076,7 +3076,12 @@ function detectScheduleConflicts(empName, day, weekStr, newShift, newHours) {
     const next = neighbors.filter(iv => dayKey(iv.start) !== tDay && iv.start >= tLastEnd).sort((a,b)=>a.start-b.start)[0];
     if(next) {
       const g = (next.start - tLastEnd) / 3600e3;
-      if(g > 0 && g < MIN_REST_H) softBlocks.push({ rule:'rest11h', measured: fmtN(g), msg:`距下一班上班僅 ${fmtN(g)} 小時（未達 11 小時休息）` });
+      // 往後看到的違規：責任在「較晚開始的那班」(next)，放行改記在 next 那格，不記本格（避免同一違規重複記在兩天、且與編輯順序無關）
+      if(g > 0 && g < MIN_REST_H) softBlocks.push({
+        rule:'rest11h', measured: fmtN(g),
+        msg:`此班下班後，較晚那班僅隔 ${fmtN(g)} 小時（未達 11 小時休息）— 放行將記在較晚那班`,
+        stampLater: { store: next._store, week: next._week, day: next._day, name: next._name }
+      });
     }
   }
 
@@ -3155,11 +3160,30 @@ async function applyShift() {
         if(!ov) return; // 取消 → 不排這班
         const at = new Date().toISOString();
         const approvedBy = currentUser.displayName || currentUser.empName || '';
-        currentCell.dataset.lawoverrides = JSON.stringify(softBlocks.map(sb => ({
-          rule: sb.rule, measured: sb.measured,
-          reason: ov.reason, note: ov.note,
-          approvedBy, approverPerm: currentUser.permission || '', at
-        })));
+        const mkOv = sb => ({ rule: sb.rule, measured: sb.measured, reason: ov.reason, note: ov.note, approvedBy, approverPerm: currentUser.permission || '', at });
+        // 分兩類：本格自負(含 rest11h「往前」)；rest11h「往後」→ 放行歸較晚那班(stampLater)
+        const ownBlocks   = softBlocks.filter(sb => !sb.stampLater);
+        const laterBlocks = softBlocks.filter(sb => sb.stampLater);
+        currentCell.dataset.lawoverrides = ownBlocks.length ? JSON.stringify(ownBlocks.map(mkOv)) : '';
+        const _curWeek  = document.getElementById('weekSelector').value;
+        const _curStore = document.getElementById('storeSelector').value;
+        laterBlocks.forEach(sb => {
+          const t = sb.stampLater;
+          // 找較晚那班的畫面格（同店同週才在 DOM 上）→ 合併放行(同格同規則不重複)
+          let cell = null;
+          if(t.store === _curStore && t.week === _curWeek)
+            cell = [...document.querySelectorAll('.cell-btn')].find(c => c.dataset.emp === t.name && c.dataset.day === t.day);
+          if(cell) {
+            let arr = []; try { arr = cell.dataset.lawoverrides ? JSON.parse(cell.dataset.lawoverrides) : []; } catch(e){}
+            if(!arr.some(o => o.rule === 'rest11h')) arr.push(mkOv(sb));
+            cell.dataset.lawoverrides = arr.length ? JSON.stringify(arr) : '';
+          } else {
+            // 跨週/跨店晚班不在畫面 → 退而求其次記本格，至少留存(不會無紀錄)
+            let arr = []; try { arr = currentCell.dataset.lawoverrides ? JSON.parse(currentCell.dataset.lawoverrides) : []; } catch(e){}
+            arr.push(mkOv(sb));
+            currentCell.dataset.lawoverrides = JSON.stringify(arr);
+          }
+        });
       }
     }
   }
