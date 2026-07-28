@@ -466,7 +466,12 @@ function today(){ return new Date().toISOString().split('T')[0]; }
 function fmtDate(s){ if(!s)return '--'; const[y,m,d]=s.split('-'); return `${parseInt(m)}/${parseInt(d)}`; }
 function fmtDateFull(s){ if(!s)return '--'; const[y,m,d]=s.split('-'); return `${y}年${parseInt(m)}月${parseInt(d)}日`; }
 function getDN(n){ return displayNameMap[n]||n; }
-function isFullTime(){ return !((currentUser?.role||'').includes('工讀')); }
+// 以工讀採計的特例（店長但以工讀時薪計，劃休規則走工讀）— 規則寫死
+const PAY_AS_PART_NAMES = ['楷岳'];
+function isFullTime(){
+  if(PAY_AS_PART_NAMES.includes(currentUser?.empName)) return false;
+  return !((currentUser?.role||'').includes('工讀'));
+}
 function canSchedule(){ return ['manager','owner','admin'].includes(currentUser?.permission); }
 
 // 判斷是否為正職

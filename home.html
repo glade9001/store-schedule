@@ -2260,7 +2260,8 @@ function updateTodayShiftBadge(myRecs, dates, dNames, todayStr) {
 // ===== 統計 =====
 function renderStatsArea() {
   const role = currentUser.role || '';
-  const isPartTime = role === '工讀';
+  // 以工讀採計的特例（店長但以工讀時薪計）— 規則寫死
+  const isPartTime = role === '工讀' || ['楷岳'].includes(currentUser.empName);
   const el = document.getElementById('statsArea');
   if(!el) return;
 
