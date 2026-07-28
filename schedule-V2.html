@@ -54,16 +54,17 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 /* ===== TOP HEADER ===== */
 .top-header {
   height: var(--header-h); background: var(--primary); color: white;
-  display: flex; align-items: center; padding: 0 14px; gap: 10px;
+  display: flex; align-items: center; padding: 0 12px; gap: 8px;
   box-shadow: 0 2px 12px rgba(26,115,232,0.3); flex-shrink: 0; position: relative; z-index: 100;
 }
-.header-back { background:rgba(255,255,255,0.18); border:none; color:white; height:34px; border-radius:10px; font-size:13px; font-weight:700; cursor:pointer; padding:0 12px; display:flex; align-items:center; gap:4px; }
-.header-title { font-size: 16px; font-weight: 900; flex: 1; }
-.header-store-badge { background: rgba(255,255,255,0.2); border-radius: 8px; padding: 4px 10px; font-size: 12px; font-weight: 700; }
+.header-back { background:rgba(255,255,255,0.18); border:none; color:white; height:34px; border-radius:10px; font-size:13px; font-weight:700; cursor:pointer; padding:0 10px; display:flex; align-items:center; gap:4px; flex-shrink:0; white-space:nowrap; }
+/* 標題永遠單行，空間不足時省略號，避免擠成兩行導致 header 跑版 */
+.header-title { font-size: 16px; font-weight: 900; flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.header-store-badge { background: rgba(255,255,255,0.2); border-radius: 8px; padding: 4px 8px; font-size: 12px; font-weight: 700; flex-shrink:0; white-space:nowrap; }
 .publish-btn {
   background: var(--accent); color: white; border: none; border-radius: 8px;
-  padding: 6px 12px; font-size: 12px; font-weight: 800; cursor: pointer;
-  display: flex; align-items: center; gap: 4px;
+  padding: 6px 10px; font-size: 12px; font-weight: 800; cursor: pointer;
+  display: flex; align-items: center; gap: 4px; flex-shrink:0; white-space:nowrap;
 }
 .publish-btn.published { background: rgba(255,255,255,0.2); }
 
@@ -283,8 +284,8 @@ th:first-child { background: #1557b0; z-index: 12; }
       <span id="publishBtnText">發布</span>
     </button>
     <!-- 已發布週：手動「立即通知」班表異動（否則靜置 10 分鐘後自動發送）-->
-    <button class="publish-btn" id="notifyBtn" style="display:none; background:#0369a1;" onclick="manualNotifySchedule()" title="立即以 LINE 通知本週班表異動">
-      <span>🔔</span><span>通知</span>
+    <button class="publish-btn" id="notifyBtn" style="display:none; background:#0369a1;" onclick="manualNotifySchedule()" title="立即以 LINE 通知本週班表異動" aria-label="立即通知">
+      <span style="font-size:16px;">🔔</span>
     </button>
   </div>
 
@@ -333,10 +334,10 @@ th:first-child { background: #1557b0; z-index: 12; }
         <button class="tool-btn save" onclick="saveScheduleData(true)">💾 儲存</button>
         <button class="tool-btn img" onclick="exportImage()">📸 產圖</button>
         <button class="tool-btn add" onclick="addVirtualRow()">➕ 待補</button>
-        <button class="tool-btn" style="background:#e0f2fe;color:#0369a1;border:1.5px solid #7dd3fc;" onclick="openSupportBoard()">🌐 跨店待補</button>
+        <button class="tool-btn" id="crossGapBtn" style="display:none;background:#fee2e2;color:#b91c1c;border:1.5px solid #fca5a5;" onclick="openSupportBoard()">🆘 請求支援</button>
         <button class="tool-btn log" onclick="openLogModal()">📜 畫休紀錄</button>
         <button id="editHistoryBtn" class="tool-btn" style="display:none;background:#fef3c7;color:#92400e;border:1.5px solid #fcd34d;" onclick="unlockHistoryEdit()">✏️ 編輯歷史班表</button>
-        <button id="compFixBtn" style="display:none;background:#fff3e0;color:#e65100;border:1.5px solid #ffcc80;border-radius:8px;padding:7px 12px;font-size:13px;font-weight:700;cursor:pointer;" onclick="runHistoricalCompFix()">🔧 補休修復</button>
+        <!-- 🔧 補休修復：一次性朔及既往工具，已於 2026-05-06 執行完成，從工具列移除（函式 runHistoricalCompFix 保留備用） -->
       </div>
 
       <!-- 畫筆選色列 -->
@@ -517,7 +518,7 @@ th:first-child { background: #1557b0; z-index: 12; }
 <div class="modal-overlay" id="supportBoardModal">
   <div class="modal-box" style="max-width:520px;">
     <div class="modal-handle"></div>
-    <div class="modal-title">🌐 跨店待補看板</div>
+    <div class="modal-title">🆘 跨店支援請求</div>
     <p style="font-size:12px;color:var(--text-muted);line-height:1.6;margin-bottom:10px;">
       其他門市目前<strong>開放中的待補缺口</strong>（含被拒絕退回的申請）。你可以派自己門市的人去認領，記錄會存在對方門市、成本算對方、薪水由原店發。
     </p>
@@ -1856,6 +1857,7 @@ async function fetchAllStoreData() {
 
     // 讀取本店當月所有週次 + 其他店本週（跨店支援用）
     appData.allStoresRecords = [];
+    appData.crossStoreGaps = []; // 其他店「開放中的待補缺口」→ 決定「請求支援」按鈕是否顯示
     const otherStores = (appConfig.stores||[]).filter(s => s !== store);
 
     const allFetches = [];
@@ -1896,13 +1898,20 @@ async function fetchAllStoreData() {
           window.db.collection('stores').doc(s).collection('weeks').doc(wk).get()
             .then(snap => {
               if(snap.exists && snap.data().records) {
-                snap.data().records
+                const _recs = snap.data().records;
+                _recs
                   // ✅ 同時讀：supportEmp 指向本店(pending/approved) + 他店 location=支援本店(loc-based 來支援)
                   .filter(r =>
                     (r.supportEmp && r.supportEmp.startsWith(store + '-') && (r.approvalStatus === 'approved' || r.approvalStatus === 'pending'))
                     || (r.location === '支援' + store && r.shift && !['排休','指休','特休','補休','清空'].includes(r.shift))
                   )
                   .forEach(r => appData.allStoresRecords.push({...r, _store:s, week:wk}));
+                // 收集他店開放中的待補缺口（有班別、未指定/未認領）
+                _recs.forEach(r => {
+                  if(String(r.name||'').startsWith('🆘待補') && r.shift
+                     && !['排休','指休','特休','補休','清空',''].includes(String(r.shift).trim()) && !r.supportEmp)
+                    appData.crossStoreGaps.push({ store:s, week:wk, name:r.name, day:r.day, shift:r.shift, note:r.note||'' });
+                });
               }
             })
             .catch(()=>{})
@@ -1996,6 +2005,7 @@ async function fetchAllStoreData() {
 
     renderSupportDropdown();
     renderSchedule();
+    updateCrossGapBtn();
     setSyncStatus('ok', '已同步');
   } catch(e) {
     setSyncStatus('err', '同步失敗');
@@ -3639,6 +3649,16 @@ async function handleApproval(isApproved) {
 // ===== 跨店待補看板（開缺口 → 別店認領）=====
 let _supportGaps = [];
 const _OFF_SHIFTS = ['排休','指休','特休','補休','清空',''];
+
+// 「請求支援」按鈕：只有其他門市當週有開放缺口時才顯示（紅色系醒目）
+function updateCrossGapBtn() {
+  const btn = document.getElementById('crossGapBtn');
+  if(!btn) return;
+  const weekStr = document.getElementById('weekSelector')?.value;
+  const n = (appData.crossStoreGaps||[]).filter(g => g.week === weekStr).length;
+  if(n > 0) { btn.style.display = 'flex'; btn.textContent = `🆘 請求支援 ${n}`; }
+  else { btn.style.display = 'none'; }
+}
 
 async function openSupportBoard() {
   const weekStr = document.getElementById('weekSelector').value;
