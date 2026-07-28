@@ -557,7 +557,10 @@ exports.onSupportRequest = onDocumentWritten(
     const b = mapOf(before.records), a = mapOf(after.records);
     const evts = [];
     for (const k in a) {
-      if (!b[k]) { if (a[k].status === "pending") evts.push({ type: "request", r: a[k].r }); }
+      if (!b[k]) {
+        if (a[k].status === "pending") evts.push({ type: "request", r: a[k].r });               // 申請指定某人(待審核)
+        else if (a[k].status === "approved" && a[k].r.claimedBy) evts.push({ type: "filled", r: a[k].r }); // 別店直接認領開放缺口
+      }
       else if (b[k].status === "pending" && a[k].status === "approved") evts.push({ type: "approved", r: a[k].r });
     }
     for (const k in b) { if (!a[k]) evts.push({ type: "cancelled", r: b[k].r }); } // supportEmp 被清(拒絕/取消)或記錄移除
@@ -590,6 +593,10 @@ exports.onSupportRequest = onDocumentWritten(
       } else if (e.type === "approved") {
         await notifyStoreManagers(db, requestingStore,
           `✅ 跨店支援已核准\n${homeStore} 已核准「${disp}」於 ${when} 到 ${requestingStore} 支援。`, token);
+      } else if (e.type === "filled") {
+        // 別店店長從「跨店待補看板」認領本店的開放缺口 → 通知缺工店店長
+        await notifyStoreManagers(db, requestingStore,
+          `🤝 待補缺口已被認領\n${homeStore}「${disp}」已認領 ${requestingStore} 於 ${when} 的待補缺口，將前往支援。`, token);
       } else if (e.type === "cancelled") {
         const msg = `⚠️ 跨店支援已取消\n「${disp}」（${homeStore}）於 ${when} 支援 ${requestingStore} 的安排已取消／未成立。`;
         await notifyStoreManagers(db, requestingStore, msg, token);

@@ -331,6 +331,7 @@ th:first-child { background: #1557b0; z-index: 12; }
         <button class="tool-btn save" onclick="saveScheduleData(true)">💾 儲存</button>
         <button class="tool-btn img" onclick="exportImage()">📸 產圖</button>
         <button class="tool-btn add" onclick="addVirtualRow()">➕ 待補</button>
+        <button class="tool-btn" style="background:#e0f2fe;color:#0369a1;border:1.5px solid #7dd3fc;" onclick="openSupportBoard()">🌐 跨店待補</button>
         <button class="tool-btn log" onclick="openLogModal()">📜 畫休紀錄</button>
         <button id="editHistoryBtn" class="tool-btn" style="display:none;background:#fef3c7;color:#92400e;border:1.5px solid #fcd34d;" onclick="unlockHistoryEdit()">✏️ 編輯歷史班表</button>
         <button id="compFixBtn" style="display:none;background:#fff3e0;color:#e65100;border:1.5px solid #ffcc80;border-radius:8px;padding:7px 12px;font-size:13px;font-weight:700;cursor:pointer;" onclick="runHistoricalCompFix()">🔧 補休修復</button>
@@ -507,6 +508,41 @@ th:first-child { background: #1557b0; z-index: 12; }
       <button class="approve-no" onclick="handleApproval(false)">❌ 拒絕</button>
     </div>
     <button class="modal-cancel" onclick="closeModal('approvalModal')">取消</button>
+  </div>
+</div>
+
+<!-- ===== 跨店待補看板 MODAL ===== -->
+<div class="modal-overlay" id="supportBoardModal">
+  <div class="modal-box" style="max-width:520px;">
+    <div class="modal-handle"></div>
+    <div class="modal-title">🌐 跨店待補看板</div>
+    <p style="font-size:12px;color:var(--text-muted);line-height:1.6;margin-bottom:10px;">
+      其他門市目前<strong>開放中的待補缺口</strong>（含被拒絕退回的申請）。你可以派自己門市的人去認領，記錄會存在對方門市、成本算對方、薪水由原店發。
+    </p>
+    <div id="supportBoardWeekLbl" style="font-size:13px;font-weight:800;margin-bottom:8px;"></div>
+    <div id="supportBoardList" style="max-height:52vh;overflow-y:auto;"></div>
+    <button class="modal-cancel" onclick="closeModal('supportBoardModal')">關閉</button>
+  </div>
+</div>
+
+<!-- ===== 認領缺口：選人 MODAL ===== -->
+<div class="modal-overlay" id="claimGapModal">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-title">🤝 認領待補缺口</div>
+    <p id="claimGapDesc" style="font-size:14px;line-height:1.7;margin-bottom:10px;"></p>
+    <input type="hidden" id="claimGapData">
+    <div class="form-field" id="claimStoreGroup" style="display:none;">
+      <label>用哪一間門市的人？</label>
+      <select id="claimStoreSel" onchange="onClaimStoreChange()"></select>
+    </div>
+    <div class="form-field">
+      <label>選擇支援人員（僅列出該日在自己門市沒有排班者）</label>
+      <select id="claimEmpSel"></select>
+    </div>
+    <div id="claimGapHint" style="font-size:12px;color:var(--text-muted);margin-bottom:10px;"></div>
+    <button class="modal-action" onclick="confirmClaimGap()">確認派這位去支援</button>
+    <button class="modal-cancel" onclick="closeModal('claimGapModal')">取消</button>
   </div>
 </div>
 
@@ -2295,9 +2331,9 @@ function renderSupportDropdown() {
   const sel = document.getElementById('modalSupportEmp');
   if(sel) sel.innerHTML = html;
 
-  let locOpts = `<option value="本店">本店</option>`;
-  (appConfig.stores||[]).forEach(s => { if(s!==myStore) locOpts += `<option value="${s}">${s}</option>`; });
-  document.getElementById('modalLocation').innerHTML = locOpts;
+  // 只保留「本店」：不再提供把自己人主動排到別店（那會讓被支援店沒有紀錄）。
+  // 跨店支援一律走「待補格 + 指定支援人員(申請/審核)」或「開缺口→別店認領」，記錄都存在被支援店。
+  document.getElementById('modalLocation').innerHTML = `<option value="本店">本店</option>`;
 }
 
 function toggleApprovalVis() {
@@ -3589,6 +3625,123 @@ async function handleApproval(isApproved) {
       }
     }
   } catch(e) { showToast('❌ 失敗：'+e.message); }
+  hideLoading();
+}
+
+// ===== 跨店待補看板（開缺口 → 別店認領）=====
+let _supportGaps = [];
+const _OFF_SHIFTS = ['排休','指休','特休','補休','清空',''];
+
+async function openSupportBoard() {
+  const weekStr = document.getElementById('weekSelector').value;
+  if(!weekStr){ showToast('請先選擇週次'); return; }
+  showLoading('讀取各店待補缺口...');
+  try {
+    const stores = (appConfig.stores||[]);
+    const dates = getWeekDates(weekStr); // ['M/D'...] 對應 dayNames(週一..週日)
+    _supportGaps = [];
+    await Promise.all(stores.map(s =>
+      window.db.collection('stores').doc(s).collection('weeks').doc(weekStr).get()
+        .then(snap => {
+          if(!snap.exists) return;
+          (snap.data().records||[]).forEach(r => {
+            if(!r || !String(r.name||'').startsWith('🆘待補')) return;              // 只看待補格
+            if(!r.shift || _OFF_SHIFTS.includes(String(r.shift).trim())) return;     // 要有實際班別
+            if(r.supportEmp) return;                                                 // 已指定/認領/申請中 → 非開放
+            _supportGaps.push({ store:s, week:weekStr, name:r.name, day:r.day, shift:r.shift, note:r.note||'' });
+          });
+        }).catch(()=>{})
+    ));
+    document.getElementById('supportBoardWeekLbl').textContent = `📅 ${weekStr}　${dates[0]}～${dates[6]}`;
+    renderSupportBoard();
+    openModal('supportBoardModal');
+  } catch(e) { showToast('❌ 讀取失敗：'+e.message); }
+  hideLoading();
+}
+
+function renderSupportBoard() {
+  const myViewStore = document.getElementById('storeSelector').value;
+  const el = document.getElementById('supportBoardList');
+  const gaps = _supportGaps.filter(g => g.store !== myViewStore); // 本店缺口自己排即可，看板只列他店
+  if(!gaps.length){ el.innerHTML = `<div style="text-align:center;padding:24px;color:var(--text-muted);">目前其他門市沒有開放中的待補缺口 🎉</div>`; return; }
+  gaps.sort((a,b)=> a.store.localeCompare(b.store) || dayNames.indexOf(a.day)-dayNames.indexOf(b.day));
+  el.innerHTML = gaps.map(g => {
+    const enc = encodeURIComponent(JSON.stringify(g));
+    return `<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;">
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:800;font-size:14px;">🏪 ${g.store}　${g.day}　<span style="color:var(--primary);">${g.shift}</span></div>
+        ${g.note?`<div style="font-size:12px;color:var(--text-muted);margin-top:2px;">📝 ${g.note}</div>`:''}
+      </div>
+      <button class="tool-btn" style="background:#0369a1;color:#fff;white-space:nowrap;" onclick="openClaimGap('${enc}')">認領</button>
+    </div>`;
+  }).join('');
+}
+
+async function openClaimGap(enc) {
+  const g = JSON.parse(decodeURIComponent(enc));
+  document.getElementById('claimGapData').value = enc;
+  document.getElementById('claimGapDesc').innerHTML =
+    `派人前往 <strong>${g.store}</strong> 支援：<br>
+     <span style="font-size:18px;font-weight:900;color:var(--primary);">${g.day}　${g.shift}</span>
+     ${g.note?`<br><span style="font-size:12px;color:var(--text-muted);">📝 ${g.note}</span>`:''}`;
+  const perm = currentUser.permission;
+  const canPickStore = (perm==='admin' || perm==='owner');
+  const storeGroup = document.getElementById('claimStoreGroup');
+  const storeSel = document.getElementById('claimStoreSel');
+  if(canPickStore){
+    storeGroup.style.display='block';
+    storeSel.innerHTML = (appConfig.stores||[]).filter(s=>s!==g.store).map(s=>`<option value="${s}">${s}</option>`).join('');
+  } else {
+    storeGroup.style.display='none';
+    storeSel.innerHTML = `<option value="${currentUser.store}">${currentUser.store}</option>`;
+  }
+  await onClaimStoreChange();
+  openModal('claimGapModal');
+}
+
+async function onClaimStoreChange() {
+  const g = JSON.parse(decodeURIComponent(document.getElementById('claimGapData').value));
+  const fromStore = document.getElementById('claimStoreSel').value;
+  const empSel = document.getElementById('claimEmpSel');
+  const hint = document.getElementById('claimGapHint');
+  empSel.innerHTML = `<option value="">讀取中...</option>`; hint.textContent='';
+  let recs = [];
+  try { const snap = await window.db.collection('stores').doc(fromStore).collection('weeks').doc(g.week).get(); if(snap.exists) recs = snap.data().records||[]; } catch(e){}
+  let emps = (fromStore === document.getElementById('storeSelector').value)
+    ? (appData.employees||[]).map(e=>e.name)
+    : (appData.allStoresEmployees[fromStore] || []);
+  emps = emps.filter(n => n && !String(n).startsWith('🆘'));
+  const busy = new Set();
+  recs.forEach(r => { if(r.day===g.day && r.name && r.shift && !_OFF_SHIFTS.includes(String(r.shift).trim())) busy.add(r.name); });
+  const free = emps.filter(n => !busy.has(n));
+  if(!free.length){ empSel.innerHTML = `<option value="">（${fromStore} 該日無可派的人）</option>`; hint.textContent='該門市當日所有人都已排班。'; return; }
+  empSel.innerHTML = free.map(n=>`<option value="${n}">${getDisplayName(n)}</option>`).join('');
+  hint.textContent = `${fromStore} ${g.day} 沒排班者共 ${free.length} 位可派。`;
+}
+
+async function confirmClaimGap() {
+  const g = JSON.parse(decodeURIComponent(document.getElementById('claimGapData').value));
+  const fromStore = document.getElementById('claimStoreSel').value;
+  const emp = document.getElementById('claimEmpSel').value;
+  if(!emp){ showToast('請選擇支援人員'); return; }
+  if(!confirm(`確定派「${getDisplayName(emp)}」（${fromStore}）於 ${g.day} ${g.shift} 前往 ${g.store} 支援？`)) return;
+  showLoading('認領中...');
+  try {
+    const docRef = window.db.collection('stores').doc(g.store).collection('weeks').doc(g.week);
+    const snap = await docRef.get();
+    if(!snap.exists){ showToast('❌ 該週班表不存在'); hideLoading(); return; }
+    const records = snap.data().records||[];
+    const idx = records.findIndex(r => r.name===g.name && r.day===g.day && r.shift===g.shift && !r.supportEmp);
+    if(idx===-1){ showToast('⚠️ 此缺口已被認領或已異動，請重新開啟看板'); hideLoading(); return; }
+    records[idx].supportEmp = `${fromStore}-${emp}`;
+    records[idx].approvalStatus = 'approved';
+    records[idx].claimedBy = fromStore; // 供 onSupportRequest 發「已被認領」通知給缺工店
+    await docRef.update({ records });
+    showToast('✅ 已認領，將前往支援');
+    closeModal('claimGapModal');
+    closeModal('supportBoardModal');
+    await fetchAllStoreData();
+  } catch(e) { showToast('❌ 認領失敗：'+e.message); }
   hideLoading();
 }
 
