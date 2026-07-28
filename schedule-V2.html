@@ -1844,6 +1844,15 @@ async function fetchAllStoreData() {
 
     await Promise.all(allFetches);
 
+    // 去重：allStoresRecords 也移除完全相同的重複（含 _store），避免週時/月時被重複灌大（如 W28）
+    {
+      const _seenAll = new Set();
+      appData.allStoresRecords = appData.allStoresRecords.filter(r => {
+        const k = [r._store, r.name, r.day, r.week, r.shift, r.location, r.supportEmp, r.note].join('|');
+        if(_seenAll.has(k)) return false; _seenAll.add(k); return true;
+      });
+    }
+
     // 本月薪資記錄（供本週總計人力成本估算用）
     appData.salaryRecData = {};
     try {
