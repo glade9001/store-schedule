@@ -420,7 +420,8 @@ function recLbl(t){
 // 可見判斷
 function visible(todo){
   const td=toDay();
-  if(todo.startDate&&td<todo.startDate)return false;
+  // 未到顯示日：僅「建立者本人」看得到，以便先編輯/確認（標「排程中」）；其他人一律隱藏到顯示日
+  if(todo.startDate&&td<todo.startDate&&todo.createdBy!==myName())return false;
   if(todo.deleted)return false;
   // 截止日判斷（非週期公告）
   if(!todo.isRecurring&&todo.type==='announcement'&&todo.endDate&&td>todo.endDate)return false;
@@ -558,6 +559,8 @@ function card(todo,isDone=false){
   else if(tt==='stores_manager')scopeTag=`<span class="tag scope">店長群</span>`;
   else if(tt==='specific')scopeTag=`<span class="tag scope">指定人員</span>`;
   const privTag=todo.targetType==='self'?`<span class="tag priv">🔒 僅自己可見</span>`:'';
+  const _notStarted=todo.startDate&&toDay()<todo.startDate;
+  const schedTag=_notStarted?`<span class="tag" style="background:#fef3c7;color:#b45309;">🕒 排程中·顯示從 ${dateLbl(todo.startDate)}</span>`:'';
   const emps=todo.targetEmps||[];
   const personsHtml=emps.length?`<div class="todo-persons">👤 ${emps.map(n=>getDN(n)).join('、')}</div>`:'';
   const dragHtml=!isAnn&&!isDone?`<div class="drag-handle" data-id="${todo.id}" ontouchstart="tStart(event,'${todo.id}')" ontouchmove="tMove(event)" ontouchend="tEnd(event)">⠿</div>`:'';
@@ -568,7 +571,7 @@ function card(todo,isDone=false){
     <div class="todo-body">
       <div class="todo-title ${isDone?'done-txt':''}">${todo.title}</div>
       ${todo.note?`<div class="todo-note">${todo.note}</div>`:''}
-      <div class="todo-foot">${dlTag}${recTag}${scopeTag}${privTag}</div>
+      <div class="todo-foot">${schedTag}${dlTag}${recTag}${scopeTag}${privTag}</div>
       ${personsHtml}
     </div>
     ${dragHtml}
