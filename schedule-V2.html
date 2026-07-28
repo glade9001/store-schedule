@@ -154,6 +154,8 @@ th:first-child { background: #1557b0; z-index: 12; }
 /* ✅ 特休/補休專屬樣式（內建班別，不進系統設定）*/
 .cell-btn.annual-leave { color: #7c3aed !important; border: 2px solid #7c3aed !important; background: #f5f3ff !important; }
 .cell-btn.comp-leave   { color: #0891b2 !important; border: 2px solid #0891b2 !important; background: #ecfeff !important; }
+/* 被排班卻原本許願休假：左側橘色警示條，提醒改班時此格可調 */
+.cell-btn.wish-worked { box-shadow: inset 4px 0 0 #f59e0b; }
 .quick-shift-btn.annual-leave { color: #7c3aed; border-color: #7c3aed; background: #f5f3ff; }
 .quick-shift-btn.comp-leave   { color: #0891b2; border-color: #0891b2; background: #ecfeff; }
 .paint-shift-btn.annual-leave { color: #7c3aed; border-color: #7c3aed; background: #f5f3ff; }
@@ -2526,7 +2528,7 @@ function updateCellUI(btn, extraHtml='') {
   const isVirtual=btn.dataset.emp.startsWith('🆘');
   const hVal=parseFloat(h)||0;
 
-  btn.classList.remove('unfilled','zhi-xiu','pai-xiu','shift-night','shift-morning','conflict','annual-leave','comp-leave');
+  btn.classList.remove('unfilled','zhi-xiu','pai-xiu','shift-night','shift-morning','conflict','annual-leave','comp-leave','wish-worked');
 
   let txt='';
   if(isVirtual && !supportEmp && s && s!=='排休' && s!=='指休') {
@@ -2590,9 +2592,22 @@ function updateCellUI(btn, extraHtml='') {
         (lr.type === 'comp'   && s === '補休') ||
         (lr.type === 'off'    && (s === '排休' || s === '指休'));
       if(!alreadyHandled) {
-        let lrLabel = lr.type==='annual'?'🏖️特休申請':lr.type==='comp'?'🗓️補休申請':'📝排休許願';
-        const lrColor = lr.type==='annual'?'#9334e6':lr.type==='comp'?'#0891b2':'var(--primary)';
-        const lrBg   = lr.type==='annual'?'#f3e8ff':lr.type==='comp'?'#ecfeff':'#e8f0fe';
+        // 是否被排了「實際上班」的班別（非休假別）→ 與許願休假衝突，需醒目提示以便改班
+        const workedOverWish = !!(s && !['排休','指休','特休','補休'].includes(s));
+        const partMap = { morning:'早', afternoon:'午', night:'晚', full:'整天' };
+        const partTxt = partMap[lr.shift] || '';
+        const typeName = lr.type==='annual'?'特休':lr.type==='comp'?'補休':'休';
+        let lrColor = lr.type==='annual'?'#9334e6':lr.type==='comp'?'#0891b2':'var(--primary)';
+        let lrBg   = lr.type==='annual'?'#f3e8ff':lr.type==='comp'?'#ecfeff':'#e8f0fe';
+        let lrLabel;
+        if(workedOverWish){
+          // 被排班卻原本許願休 → 醒目警示 + 格子左側警示條
+          lrLabel = `🙅 原想休${typeName}${partTxt?`(${partTxt})`:''}`;
+          lrColor = '#b45309'; lrBg = '#fff7ed';
+          btn.classList.add('wish-worked');
+        } else {
+          lrLabel = lr.type==='annual'?'🏖️特休申請':lr.type==='comp'?'🗓️補休申請':`📝排休許願${partTxt?`(${partTxt})`:''}`;
+        }
         // 排休：顯示順位 M/N（依 createdAt 先送先贏、同角色同日）→ 店長依序裁決
         if(lr.type === 'off'){
           const alive = x => !['cancelled','unfulfilled'].includes(x.status);
