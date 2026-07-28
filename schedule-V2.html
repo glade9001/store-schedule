@@ -156,6 +156,8 @@ th:first-child { background: #1557b0; z-index: 12; }
 .cell-btn.comp-leave   { color: #0891b2 !important; border: 2px solid #0891b2 !important; background: #ecfeff !important; }
 /* 被排班卻原本許願休假：左側橘色警示條，提醒改班時此格可調 */
 .cell-btn.wish-worked { box-shadow: inset 4px 0 0 #f59e0b; }
+/* 離職日之後：鎖死空白格 */
+.cell-btn.locked-off { background: repeating-linear-gradient(45deg,#f1f3f4,#f1f3f4 6px,#e8eaed 6px,#e8eaed 12px) !important; color:#bbb !important; cursor:not-allowed !important; border:1px dashed #ccc !important; }
 .quick-shift-btn.annual-leave { color: #7c3aed; border-color: #7c3aed; background: #f5f3ff; }
 .quick-shift-btn.comp-leave   { color: #0891b2; border-color: #0891b2; background: #ecfeff; }
 .paint-shift-btn.annual-leave { color: #7c3aed; border-color: #7c3aed; background: #f5f3ff; }
@@ -867,6 +869,27 @@ function updatePublishBtn(store, weekStr) {
   }
 }
 
+// 找本週所有「空白格」（在職員工×七天，無班別；離職鎖死格不算）— 依 appData，跨檢視皆正確
+function getBlankCellsData(weekStr){
+  const blanks = [];
+  (appData.employees||[]).forEach(emp=>{
+    if(String(emp.name).startsWith('🆘')) return;
+    dayNames.forEach(day=>{
+      if(emp.retireDate){ const cd=dayToFullDate(weekStr,day); if(cd && cd>=emp.retireDate) return; } // 離職鎖死格
+      const rec = appData.records.find(r=>r.name===emp.name && r.day===day && r.week===weekStr);
+      if(!(rec && rec.shift && String(rec.shift).trim()!=='')) blanks.push({ name:emp.name, day });
+    });
+  });
+  return blanks;
+}
+function fillBlanksWithOff(weekStr, blanks){
+  blanks.forEach(({name,day})=>{
+    const idx = appData.records.findIndex(r=>r.name===name && r.day===day && r.week===weekStr);
+    const data = { week:weekStr, day, name, shift:'排休', location:'本店', note:'', actualHours:0, isOT:false, isHourly:false, supportEmp:'', approvalStatus:'', requestOff:false, lawOverrides:[] };
+    if(idx!==-1) appData.records[idx]=data; else appData.records.push(data);
+  });
+}
+
 async function togglePublish() {
   const store = document.getElementById('storeSelector').value;
   const weekStr = document.getElementById('weekSelector').value;
@@ -879,6 +902,15 @@ async function togglePublish() {
     if(!confirm('確定要取消發布嗎？員工將看不到班表。')) return;
   } else if(!isPublished) {
     if(!confirm('確定要發布此週班表嗎？員工將可以看到。')) return;
+    // 發布前：偵測空白格，詢問是否填「休」
+    const blanks = getBlankCellsData(weekStr);
+    if(blanks.length){
+      if(confirm(`此週有 ${blanks.length} 個空白格。\n\n要把空白處都填為「休」再發布嗎？\n確定＝填休後發布；取消＝保留空白直接發布。`)){
+        fillBlanksWithOff(weekStr, blanks);
+        renderSchedule();
+        await saveScheduleData(false);
+      }
+    }
   } else {
     showToast('下週班表已於週五自動發布，無法取消。如需修改請重新排班後儲存。');
     return;
@@ -1713,8 +1745,13 @@ async function fetchAllStoreData() {
         return;
       }
 
-      // 離職：永遠隱藏（不管有無 retireDate、不管是否已發布）
-      if(status === '離職') return;
+      // 離職：離職日「當週及之前」仍顯示（該週離職日起的格子由 buildCellButton 鎖死）；
+      //       離職日之後的整週 → 隱藏。無 retireDate 則比照原本永遠隱藏。
+      if(status === '離職') {
+        const rd = data.retireDate;
+        if(rd && weekMonStr < rd) appData.employees.push({ name: d.id, ...data });
+        return;
+      }
 
       // 調走：依 transferDate 判斷
       const effectDate = data.transferDate;
@@ -2379,6 +2416,20 @@ function updateViewToggleUI() {
 // 確保三種檢視都走同一套編輯(handleCellClick/applyShift)與同步(syncUIToMemory)邏輯。
 function buildCellButton(emp, eIdx, day, store, weekStr, isReadonly) {
   const isVirtual = emp.name.startsWith('🆘');
+  // 離職生效日：當天(含)之後的格子鎖死、產出空白，不可排班（存檔即清空該格）
+  if(!isVirtual && emp.retireDate){
+    const cellDate = dayToFullDate(weekStr, day);
+    if(cellDate && cellDate >= emp.retireDate){
+      const lb = document.createElement('button');
+      lb.className = 'cell-btn locked-off';
+      lb.dataset.emp=emp.name; lb.dataset.day=day; lb.dataset.week=weekStr; lb.dataset.eidx=eIdx;
+      lb.dataset.shift=''; lb.dataset.hours=0; lb.dataset.loc='本店'; lb.dataset.note='';
+      lb.dataset.ot=false; lb.dataset.hourly=false; lb.dataset.support=''; lb.dataset.approval=''; lb.dataset.reqoff=false; lb.dataset.lawoverrides=''; lb.dataset.badges='';
+      lb.innerHTML='🔒'; lb.disabled=true;
+      lb.title=`${getDisplayName(emp.name)} 已於 ${emp.retireDate} 離職，此日之後不可排班`;
+      return lb;
+    }
+  }
   let rec = appData.records.find(r => r.name===emp.name && r.day===day && r.week===weekStr);
   let supportOutRec = null;
   const ownIsOff = rec && (rec.shift === '排休' || rec.shift === '指休');
