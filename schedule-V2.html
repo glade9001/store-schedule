@@ -446,9 +446,9 @@ th:first-child { background: #1557b0; z-index: 12; }
         <label>指派支援人員</label>
         <div style="display:flex; gap:6px;">
           <select id="modalSupportEmp" style="flex:1;" onchange="toggleApprovalVis()"></select>
-          <select id="modalApproval" style="display:none; width:110px;" onchange="onApprovalChange(this)">
-            <option value="pending">⏳ 待審核</option>
-            <option value="approved">✅ 直接核准</option>
+          <!-- 申請指定某人一律「待對方審核」，不再提供「直接核准」後門 -->
+          <select id="modalApproval" style="display:none; width:170px;">
+            <option value="pending">⏳ 送出申請（待對方審核）</option>
           </select>
         </div>
       </div>
@@ -3160,8 +3160,14 @@ async function applyShift() {
   currentCell.dataset.note=document.getElementById('modalNote').value;
   if(isVirtual) {
     currentCell.dataset.loc='本店';
-    currentCell.dataset.support=document.getElementById('modalSupportEmp').value;
-    currentCell.dataset.approval=document.getElementById('modalApproval').value;
+    const _newSupport = document.getElementById('modalSupportEmp').value;
+    const _prevSupport = currentCell.dataset.support||'';
+    const _prevApproval = currentCell.dataset.approval||'';
+    currentCell.dataset.support = _newSupport;
+    // 支援人員沒換且原本已核准/已認領 → 保留；新指派或換人 → 一律 pending(待對方審核)；沒指定人 → 空
+    currentCell.dataset.approval = (_newSupport && _newSupport===_prevSupport && _prevApproval==='approved')
+      ? 'approved'
+      : (_newSupport ? 'pending' : '');
   } else {
     currentCell.dataset.loc=document.getElementById('modalLocation').value;
     if(document.getElementById('clearReqWrap').style.display!=='none' && document.getElementById('clearReqCheck').checked) {
