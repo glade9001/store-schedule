@@ -493,9 +493,11 @@ exports.onSchedulePublished = onDocumentWritten(
   }
 );
 
-// 已發布班表被異動（published→published 且 records 變動）→ 只通知「班次有變」的員工
+// 已發布班表被異動（published→published 且 records 變動）→ 不即時發送，改「延遲通知」：
+// 進 scheduleNotifyQueue 佇列，靜置滿 10 分鐘無新異動才由 scheduledScheduleNotifyFlush 彙整發送；
+// 店長亦可用班表頁「立即通知」按鈕（flushScheduleNotify）即時送出。避免一改就發、通知過於頻繁。
 exports.onScheduleChanged = onDocumentWritten(
-  { document: "stores/{store}/weeks/{weekStr}", region: "asia-east1", secrets: [LINE_TOKEN] },
+  { document: "stores/{store}/weeks/{weekStr}", region: "asia-east1" },
   async (event) => {
     const before = event.data.before.exists ? event.data.before.data() : {};
     const after = event.data.after.exists ? event.data.after.data() : {};
@@ -505,24 +507,38 @@ exports.onScheduleChanged = onDocumentWritten(
     if (JSON.stringify(beforeRecs) === JSON.stringify(afterRecs)) return; // records 沒變（純 metadata 寫入）→ 略過
     const store = fixStoreName(event.params.store);
     const weekStr = event.params.weekStr;
-    const label = weekRangeLabel(weekStr);
     const db = admin.firestore();
-    const active = new Set(await getActiveEmpNames(db, store));
-    // 找出班次有變動的在職員工（比對每日時段 map）
-    const changed = [];
-    for (const emp of active) {
-      const bMap = weekShiftMap(beforeRecs, emp);
-      const aMap = weekShiftMap(afterRecs, emp);
-      if (JSON.stringify(bMap) !== JSON.stringify(aMap)) changed.push(emp);
+    const qref = db.collection("scheduleNotifyQueue").doc(`${store}__${weekStr}`);
+    const qs = await qref.get().catch(() => null);
+    const nowTs = admin.firestore.FieldValue.serverTimestamp();
+    if (qs && qs.exists) {
+      await qref.update({ lastChangeAt: nowTs }); // 每次新異動 → 重置 10 分鐘靜置計時
+    } else {
+      // 首次進佇列：baseRecs＝本批異動前的班表，作為「淨變動」比對基準（連改多次只比首尾）
+      await qref.set({ store, weekStr, baseRecs: JSON.stringify(beforeRecs), lastChangeAt: nowTs, createdAt: nowTs });
     }
-    if (!changed.length) return;
-    await notifyEmployees(
-      db, changed, store,
-      (name, emp) => `🔔 ${name}，${store} ${label} 班表有異動\n\n${weekScheduleText(afterRecs, emp, weekStr)}\n\n請至 App 確認最新班表`,
-      LINE_TOKEN.value()
-    );
   }
 );
+
+// 彙整某週佇列 → 比對 baseRecs vs 目前班表，只通知「班次有淨變動」的在職員工
+async function flushScheduleQueueEntry(db, store, weekStr, baseRecs, token) {
+  const wkSnap = await db.collection("stores").doc(store).collection("weeks").doc(weekStr).get();
+  if (!wkSnap.exists || wkSnap.data().published !== true) return { sent: 0 };
+  const curRecs = wkSnap.data().records || [];
+  const label = weekRangeLabel(weekStr);
+  const active = new Set(await getActiveEmpNames(db, store));
+  const changed = [];
+  for (const emp of active) {
+    if (JSON.stringify(weekShiftMap(baseRecs, emp)) !== JSON.stringify(weekShiftMap(curRecs, emp))) changed.push(emp);
+  }
+  if (!changed.length) return { sent: 0 };
+  await notifyEmployees(
+    db, changed, store,
+    (name, emp) => `🔔 ${name}，${store} ${label} 班表有異動\n\n${weekScheduleText(curRecs, emp, weekStr)}\n\n請至 App 確認最新班表`,
+    token
+  );
+  return { sent: changed.length };
+}
 
 // ===== 跨店支援請求通知 =====
 // 支援記錄(有 supportEmp)存在「請求店(受支援)」的 weeks；supportEmp='{被請求店}-{員工}'。
@@ -877,6 +893,93 @@ exports.scheduledSalaryAckReminder = onSchedule(
         await remRef.set({ uid: b.uid, ym, empName: b.empName, lastAt: NOW }, { merge: true });
       }
     }
+  }
+);
+
+// ===== 班表異動「延遲通知」排程：每 5 分鐘檢查佇列，靜置滿 10 分鐘無新異動才彙整發送 =====
+exports.scheduledScheduleNotifyFlush = onSchedule(
+  { schedule: "*/5 * * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN] },
+  async () => {
+    const db = admin.firestore();
+    const token = LINE_TOKEN.value();
+    const QUIET_MS = 10 * 60 * 1000;
+    const now = Date.now();
+    const qsnap = await db.collection("scheduleNotifyQueue").get().catch(() => null);
+    if (!qsnap) return;
+    for (const d of qsnap.docs) {
+      const q = d.data();
+      const last = q.lastChangeAt && q.lastChangeAt.toMillis ? q.lastChangeAt.toMillis() : 0;
+      if (now - last < QUIET_MS) continue; // 尚未靜置滿 10 分鐘 → 等下輪
+      await flushScheduleQueueEntry(db, q.store, q.weekStr, JSON.parse(q.baseRecs || "[]"), token).catch(() => {});
+      await d.ref.delete().catch(() => {});
+    }
+  }
+);
+
+// ===== 班表異動「立即通知」：店長於班表頁按下按鈕 → 馬上彙整發送並清空佇列（僅店長以上）=====
+exports.flushScheduleNotify = onCall(
+  { region: "asia-east1", secrets: [LINE_TOKEN] },
+  async (request) => {
+    const auth = request.auth;
+    if (!auth) throw new HttpsError("unauthenticated", "請先登入");
+    const db = admin.firestore();
+    const callerSnap = await db.collection("users").doc(auth.uid).get();
+    const caller = callerSnap.data();
+    if (!caller || !ALLOWED_PERMS.includes(caller.permission)) throw new HttpsError("permission-denied", "僅店長以上可用");
+    const store = fixStoreName((request.data && request.data.store) || "");
+    const weekStr = (request.data && request.data.weekStr) || "";
+    if (!store || !weekStr) throw new HttpsError("invalid-argument", "缺少 store / weekStr");
+    const token = LINE_TOKEN.value();
+    const qref = db.collection("scheduleNotifyQueue").doc(`${store}__${weekStr}`);
+    const qs = await qref.get().catch(() => null);
+    if (qs && qs.exists) {
+      // 有待發異動 → 依 baseRecs 淨變動只通知有異動者
+      const res = await flushScheduleQueueEntry(db, store, weekStr, JSON.parse(qs.data().baseRecs || "[]"), token);
+      await qref.delete().catch(() => {});
+      return { ok: true, sent: res.sent || 0 };
+    }
+    // 無待發異動 → 直接把目前已發布班表推給全店在職員工
+    const wkSnap = await db.collection("stores").doc(store).collection("weeks").doc(weekStr).get();
+    if (!wkSnap.exists || wkSnap.data().published !== true) throw new HttpsError("failed-precondition", "此週尚未發布，無法通知");
+    const curRecs = wkSnap.data().records || [];
+    const label = weekRangeLabel(weekStr);
+    const empNames = await getActiveEmpNames(db, store);
+    await notifyEmployees(
+      db, empNames, store,
+      (name, emp) => `🔔 ${name}，${store} ${label} 班表有異動\n\n${weekScheduleText(curRecs, emp, weekStr)}\n\n請至 App 確認最新班表`,
+      token
+    );
+    return { ok: true, sent: empNames.length };
+  }
+);
+
+// 通知「店長以上」(manager/owner/admin) 有綁定 LINE 者
+async function notifyManagersAndAbove(db, text, token) {
+  const uids = new Set();
+  for (const p of ["manager", "owner", "admin"]) {
+    const us = await db.collection("users").where("permission", "==", p).get().catch(() => null);
+    if (us) us.forEach((d) => uids.add(d.id));
+  }
+  for (const uid of uids) {
+    const b = await db.collection("lineBindings").doc(uid).get().catch(() => null);
+    if (b && b.exists && b.data().lineUserId) await linePush(b.data().lineUserId, text, token);
+  }
+}
+
+// ===== 月底提醒（每月最後一天 09:00）：LINE 通知店長以上「結帳/匯款時間、週轉金上限」=====
+exports.scheduledMonthEndReminder = onSchedule(
+  { schedule: "0 9 * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN] },
+  async () => {
+    const now = new Date(Date.now() + 8 * 3600000); // 台北時間
+    const y = now.getUTCFullYear(), m = now.getUTCMonth();
+    const lastDay = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+    if (now.getUTCDate() !== lastDay) return; // 僅每月最後一天
+    const db = admin.firestore();
+    await notifyManagersAndAbove(
+      db,
+      "🧾 今天是月底，結帳時間 17:00；匯款時間 17:59 前。\n（週轉金請勿超過留存上限）",
+      LINE_TOKEN.value()
+    );
   }
 );
 

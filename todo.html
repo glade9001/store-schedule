@@ -428,8 +428,8 @@ function visible(todo){
   if(!todo.isRecurring&&todo.type==='announcement'&&todo.endDate&&td>todo.endDate)return false;
   // 週期型：先判斷是否有下一次，再判斷 targetType
   if(todo.isRecurring&&calcNext(todo)===null)return false;
-  // 週期「公告」只在發生日「當天」顯示給員工（如每月最後一天提醒）；建立者本人隨時可見以便管理。週期「代辦」則持續顯示到完成
-  if(todo.isRecurring&&todo.type==='announcement'&&nextStr(todo)!==toDay()&&todo.createdBy!==myName())return false;
+  // 週期「公告」只在發生日「當天」顯示（如每月最後一天提醒）— 對所有人(含建立者)一致，避免混淆；週期「代辦」則持續顯示到完成
+  if(todo.isRecurring&&todo.type==='announcement'&&nextStr(todo)!==toDay())return false;
 
   // ✅ targetType 判斷（週期型也要走這裡）
   const tt=todo.targetType;
@@ -503,8 +503,8 @@ function renderAll(){
       return true;
     });
   }
-  const ann=vis.filter(t=>t.type==='announcement'&&!t.isRecurring);
-  const tasks=vis.filter(t=>!(t.type==='announcement'&&!t.isRecurring));
+  const ann=vis.filter(t=>t.type==='announcement');          // 公告(含循環公告)→ 📢 區、無勾選框
+  const tasks=vis.filter(t=>t.type!=='announcement');          // 代辦(含循環代辦)→ 勾選完成
   const pending=tasks.filter(t=>!myChecks[t.isRecurring?recChkKey(t.id):t.id]);
   const done=tasks.filter(t=>!!myChecks[t.isRecurring?recChkKey(t.id):t.id]);
 
@@ -543,7 +543,7 @@ function toggleDone(){
 }
 
 function card(todo,isDone=false){
-  const isAnn=todo.type==='announcement'&&!todo.isRecurring;
+  const isAnn=todo.type==='announcement'; // 公告(含循環公告)：顯示 📢、無勾選框
   const isRec=todo.isRecurring;
   const ck=isRec?recChkKey(todo.id):todo.id;
   const chked=!!myChecks[ck];

@@ -2659,6 +2659,33 @@ async function loadPendingItems() {
     ]);
 
     if(todoSnap) {
+      // 計算循環任務「下次(或當天)發生日」YYYY-MM-DD（比照 todo.html calcNext）
+      const recurNextStr = (todo) => {
+        const base=new Date(); base.setHours(0,0,0,0);
+        const start=todo.startDate?new Date(todo.startDate):base;
+        const end=todo.recurringEnd?new Date(todo.recurringEnd):null;
+        if(end&&base>end)return null;
+        let next=null;
+        if(todo.recurringType==='weekly'){
+          const tgt=parseInt(todo.recurringDay||1);
+          const dow=base.getDay()===0?7:base.getDay();
+          let diff=tgt-dow; if(diff<0)diff+=7;
+          next=new Date(base); next.setDate(base.getDate()+diff);
+          if(next<start)next.setDate(next.getDate()+7);
+        } else if(todo.recurringType==='monthly'){
+          const isLast=(todo.recurringDay==='last'||parseInt(todo.recurringDay)===0);
+          const dayOf=(yr,mo)=> isLast ? new Date(yr,mo+1,0).getDate() : Math.min(parseInt(todo.recurringDay||1), new Date(yr,mo+1,0).getDate());
+          next=new Date(base.getFullYear(),base.getMonth(),dayOf(base.getFullYear(),base.getMonth()));
+          if(next<base){const y=base.getFullYear(),m=base.getMonth()+1;next=new Date(y,m,dayOf(y,m));}
+          if(next<start){const y=next.getFullYear(),m=next.getMonth()+1;next=new Date(y,m,dayOf(y,m));}
+        } else if(todo.recurringType==='custom'){
+          const iv=parseInt(todo.recurringInterval||7);
+          let cur=new Date(start); while(cur<base)cur.setDate(cur.getDate()+iv); next=cur;
+        }
+        if(!next)return null;
+        if(end&&next>end)return null;
+        return `${next.getFullYear()}-${String(next.getMonth()+1).padStart(2,'0')}-${String(next.getDate()).padStart(2,'0')}`;
+      };
       const myChecks = {};
       checkSnap?.forEach(d => {
         const data=d.data();
@@ -2670,6 +2697,8 @@ async function loadPendingItems() {
         if(t.startDate && today < t.startDate) return false;
         if(t.isRecurring && t.recurringEnd && today > t.recurringEnd) return false;
         if(t.type==='announcement' && !t.isRecurring && t.endDate && today > t.endDate) return false;
+        // 循環「公告」只在發生日當天顯示（如每月最後一天提醒），與 todo 頁一致，避免每天都出現
+        if(t.isRecurring && t.type==='announcement' && recurNextStr(t) !== today) return false;
         const tt = t.targetType;
         if(tt==='self') return t.createdBy === empName;
         if(tt==='all') return true;

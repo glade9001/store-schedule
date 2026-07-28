@@ -13,6 +13,7 @@
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-functions.js"></script>
 <script src="firebase-init.js"></script>
 <style>
 /* ===== RESET & BASE ===== */
@@ -278,6 +279,10 @@ th:first-child { background: #1557b0; z-index: 12; }
     <button class="publish-btn" id="publishBtn" style="display:none;" onclick="togglePublish()">
       <span id="publishBtnIcon">🚀</span>
       <span id="publishBtnText">發布</span>
+    </button>
+    <!-- 已發布週：手動「立即通知」班表異動（否則靜置 10 分鐘後自動發送）-->
+    <button class="publish-btn" id="notifyBtn" style="display:none; background:#0369a1;" onclick="manualNotifySchedule()" title="立即以 LINE 通知本週班表異動">
+      <span>🔔</span><span>通知</span>
     </button>
   </div>
 
@@ -850,14 +855,18 @@ async function fetchPublishStatus(store, weekStr) {
 
 function updatePublishBtn(store, weekStr) {
   const btn = document.getElementById('publishBtn');
+  const notifyBtn = document.getElementById('notifyBtn');
   const pd = weekPublishData[weekStr] || {};
   const isPublished = pd.published || isAutoPublished(weekStr);
   // 店長只能發布本店
   if(!canScheduleStore(store)) {
     btn.style.display = 'none';
+    if(notifyBtn) notifyBtn.style.display = 'none';
     return;
   }
   btn.style.display = 'flex';
+  // 「立即通知」只在本店、已發布時可用（已發布週的異動才需通知）
+  if(notifyBtn) notifyBtn.style.display = isPublished ? 'flex' : 'none';
   if(isPublished) {
     btn.classList.add('published');
     document.getElementById('publishBtnIcon').textContent = '✅';
@@ -866,6 +875,27 @@ function updatePublishBtn(store, weekStr) {
     btn.classList.remove('published');
     document.getElementById('publishBtnIcon').textContent = '🚀';
     document.getElementById('publishBtnText').textContent = '發布';
+  }
+}
+
+// 店長按「立即通知」→ 呼叫 flushScheduleNotify，馬上把本週班表異動以 LINE 發送給相關員工
+async function manualNotifySchedule() {
+  const store = document.getElementById('storeSelector').value;
+  const weekStr = document.getElementById('weekSelector').value;
+  if(!store || !weekStr) return;
+  if(!confirm(`立即以 LINE 通知「${store}」${weekStr} 班表異動給相關員工？\n（未按此鈕，系統也會在最後一次修改滿 10 分鐘後自動通知）`)) return;
+  const btn = document.getElementById('notifyBtn');
+  const old = btn ? btn.innerHTML : '';
+  if(btn){ btn.disabled = true; btn.innerHTML = '<span>⏳</span><span>發送中</span>'; }
+  try {
+    const fn = firebase.app().functions('asia-east1').httpsCallable('flushScheduleNotify');
+    const res = await fn({ store, weekStr });
+    const sent = (res && res.data && res.data.sent) || 0;
+    alert(sent > 0 ? `✅ 已通知 ${sent} 位員工` : '✅ 已送出（本週目前無班次異動需通知）');
+  } catch(e) {
+    alert('通知失敗：' + (e.message || e));
+  } finally {
+    if(btn){ btn.disabled = false; btn.innerHTML = old; }
   }
 }
 
@@ -2296,30 +2326,10 @@ function renderSchedule() {
   }
 }
 
-// 本週「他店 location=支援本店」的來支援（loc-based，非 supportEmp 流程）→ 唯讀橫幅顯示，補足被支援店看不到的缺口
+// （已停用）「來本店支援」唯讀橫幅：實務上顯示意義不大，故不再呈現；保留函式避免呼叫端出錯，並隱藏任何殘留橫幅。
 function renderIncomingSupportBanner(){
-  const store = document.getElementById('storeSelector').value;
-  const weekStr = document.getElementById('weekSelector').value;
-  const incoming = (appData.allStoresRecords||[]).filter(r =>
-    r._store && r._store !== store && r.week === weekStr &&
-    r.location === '支援' + store && r.shift &&
-    !['排休','指休','特休','補休','清空'].includes(r.shift)
-  );
-  let el = document.getElementById('incomingSupportBanner');
-  if(!incoming.length){ if(el) el.style.display='none'; return; }
-  if(!el){
-    el = document.createElement('div');
-    el.id = 'incomingSupportBanner';
-    el.style.cssText = 'margin:8px 0;padding:10px 12px;background:#e0f2fe;border:1px solid #7dd3fc;border-radius:10px;font-size:13px;color:#0369a1;';
-    const anchor = document.getElementById('scheduleTable') || document.getElementById('tableBody');
-    if(anchor && anchor.parentNode) anchor.parentNode.insertBefore(el, anchor);
-    else document.body.appendChild(el);
-  }
-  el.style.display = 'block';
-  const items = incoming
-    .slice().sort((a,b)=> dayNames.indexOf(a.day)-dayNames.indexOf(b.day))
-    .map(r=>`<span style="display:inline-block;margin:2px 10px 2px 0;font-weight:700;white-space:nowrap;">🔵 ${getDisplayName(r.name)}（來自 ${r._store}）${r.day} ${r.shift} → 到本店</span>`).join('');
-  el.innerHTML = `<div style="font-weight:800;margin-bottom:4px;">🤝 本週有外店同仁「來本店」支援（唯讀；班次登記在來源門市，需修改請至該門市）</div>${items}`;
+  const el = document.getElementById('incomingSupportBanner');
+  if(el) el.style.display='none';
 }
 
 // 切換「經典寬表格」與「手機版容器」的顯示
