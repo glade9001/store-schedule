@@ -594,9 +594,9 @@ exports.onSupportRequest = onDocumentWritten(
         await notifyStoreManagers(db, requestingStore,
           `✅ 跨店支援已核准\n${homeStore} 已核准「${disp}」於 ${when} 到 ${requestingStore} 支援。`, token);
       } else if (e.type === "filled") {
-        // 別店店長從「跨店待補看板」認領本店的開放缺口 → 通知缺工店店長
+        // 別店店長從「跨店支援請求」看板派人支援本店的開放缺口 → 通知缺工店店長
         await notifyStoreManagers(db, requestingStore,
-          `🤝 待補缺口已被認領\n${homeStore}「${disp}」已認領 ${requestingStore} 於 ${when} 的待補缺口，將前往支援。`, token);
+          `🤝 待補缺口已有人支援\n${homeStore}「${disp}」將於 ${when} 前往 ${requestingStore} 支援（填補待補缺口）。`, token);
       } else if (e.type === "cancelled") {
         const msg = `⚠️ 跨店支援已取消\n「${disp}」（${homeStore}）於 ${when} 支援 ${requestingStore} 的安排已取消／未成立。`;
         await notifyStoreManagers(db, requestingStore, msg, token);
