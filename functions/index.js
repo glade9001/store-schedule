@@ -233,7 +233,15 @@ exports.lineWebhook = onRequest(
         if (ev.type === "message" && ev.message && ev.message.type === "text") {
           const code = (ev.message.text || "").trim();
           if (!/^\d{4,8}$/.test(code)) {
-            await lineReply(ev.replyToken, "請傳送 App 上顯示的綁定碼（純數字）。", token);
+            // 非綁定碼：已綁定者不再提示綁定碼，改回「無法一對一回覆」；未綁定才提示傳碼
+            const bound = lineUserId
+              ? await db.collection("lineBindings").where("lineUserId", "==", lineUserId).limit(1).get().catch(() => null)
+              : null;
+            if (bound && !bound.empty) {
+              await lineReply(ev.replyToken, "此為莉學商行系統通知帳號，無法一對一回覆訊息。相關操作請至 App 進行。", token);
+            } else {
+              await lineReply(ev.replyToken, "請傳送 App 上顯示的綁定碼（純數字）。", token);
+            }
             continue;
           }
           const codeRef = db.collection("lineBindCodes").doc(code);
