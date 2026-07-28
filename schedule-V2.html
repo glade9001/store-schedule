@@ -2605,7 +2605,11 @@ function renderTable() {
   nTr.innerHTML = `<td style="background:#fff8e1;"><strong>📝 備註</strong></td>`;
   dayNames.forEach(day => {
     const rec = appData.records.find(r => r.name==='門市備註' && r.day===day && r.week===weekStr);
-    const noteVal = (rec?.note||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    let noteRaw = rec?.note || '';
+    // 每月最後一天：備註為空時自動帶入「1700月底帳」（存檔即寫入）
+    const _fd = dayToFullDate(weekStr, day);
+    if(_fd){ const _dt=new Date(_fd+'T00:00'); const _last=new Date(_dt.getFullYear(),_dt.getMonth()+1,0).getDate(); if(_dt.getDate()===_last && !noteRaw.trim()) noteRaw='1700月底帳'; }
+    const noteVal = noteRaw.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     nTr.innerHTML += `<td style="padding:0; background:#fffde7;"><textarea class="note-input" data-day="${day}" data-week="${weekStr}" oninput="autoResizeNote(this);triggerAutoSave()" rows="2">${noteVal}</textarea></td>`;
   });
   nTr.innerHTML += '<td></td>';
