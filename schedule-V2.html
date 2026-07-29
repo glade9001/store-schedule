@@ -2265,7 +2265,14 @@ async function loadEmpView() {
         }
       });
 
-      renderEmpCanvas(store, empWeekStr, records, emps);
+      // 跨店記錄：供產圖顯示「本店員工去他店支援」（他店🆘待補格 supportEmp='{本店}-{員工}' approved）
+      const crossRecs = [];
+      otherSnaps.forEach((snap, idx) => {
+        if(!snap || !snap.exists) return;
+        const os = otherStores[idx];
+        (snap.data().records || []).forEach(r => crossRecs.push({ ...r, _store: os, week: empWeekStr }));
+      });
+      renderEmpCanvas(store, empWeekStr, records, emps, [...records, ...crossRecs]);
     } else {
       infoCard.style.display = 'none';
       notPubCard.style.display = 'block';
@@ -2280,14 +2287,14 @@ async function loadEmpView() {
   hideLoading();
 }
 
-function renderEmpCanvas(store, weekStr, records, emps) {
+function renderEmpCanvas(store, weekStr, records, emps, allRecs) {
   const canvas = document.getElementById('scheduleCanvas');
   const dates = getWeekDates(weekStr);
   // 加入 virtual rows（🆘 緊急人力），與店長產圖保持一致
   const virtualRows = [...new Set(records.map(r=>r.name).filter(n=>n&&n.startsWith('🆘')))];
   const allEmpsWithVirtual = [...emps];
   virtualRows.forEach(n => { if(!allEmpsWithVirtual.find(e=>e.name===n)) allEmpsWithVirtual.push({ name:n, role:'待補' }); });
-  drawScheduleCanvas(canvas, store, weekStr, records, allEmpsWithVirtual, dates, records);
+  drawScheduleCanvas(canvas, store, weekStr, records, allEmpsWithVirtual, dates, allRecs || records);
   canvas.style.maxWidth = '100%';
   canvas.style.height = 'auto';
 }
@@ -4017,9 +4024,9 @@ function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, al
       const h = parseFloat(rec.actualHours || 0);
       const recIsSupportOut = !!(loc && loc.startsWith('支援'));
 
-      // 跨店支援：本店員工當天另去他店支援（與 buildCellButton 一致，補進產圖）
+      // 跨店支援：本店員工當天去他店支援（新模型下支援者本店多為休假，故不要求本店有班也要顯示）
       let supportOut = null;
-      if(!emp.name.startsWith('🆘') && !recIsSupportOut && shift && shift !== '排休' && shift !== '指休') {
+      if(!emp.name.startsWith('🆘') && !recIsSupportOut) {
         supportOut = allRecs.find(r =>
           r.supportEmp === `${store}-${emp.name}` && r.day === day && r.week === weekStr && r.approvalStatus === 'approved'
         );

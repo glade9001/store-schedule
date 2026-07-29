@@ -191,6 +191,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
   <div class="header">
     <button class="header-back" onclick="handleBack()">← 首頁</button>
     <div class="header-title">🗒️ 代辦事項</div>
+    <button class="header-add-btn" id="showAllAnnBtn" onclick="toggleShowAllAnn()" title="顯示全部公告（含過期/非發生日）— 管理清理用" style="display:none;font-size:18px;">👁️</button>
     <button class="header-add-btn" id="headerAddBtn" onclick="openAddModal()" style="display:none;">＋</button>
   </div>
 
@@ -419,7 +420,21 @@ function recLbl(t){
 }
 
 // 可見判斷
+let showAllAnn = false; // admin 清理模式：顯示全部公告（含過期/非發生日/未到起始/所有對象）
+function toggleShowAllAnn(){
+  showAllAnn = !showAllAnn;
+  const b = document.getElementById('showAllAnnBtn');
+  if(b) b.style.background = showAllAnn ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.18)';
+  showToast(showAllAnn ? '👁️ 已顯示全部公告（含過期/非發生日）' : '已恢復一般顯示');
+  renderAll();
+}
 function visible(todo){
+  if(todo.deleted)return false;
+  // admin 清理：全部「公告」都顯示，方便找出殘留公告刪除（不影響代辦）
+  if(showAllAnn && isAdmin() && todo.type==='announcement') return true;
+  return visibleNormal(todo);
+}
+function visibleNormal(todo){
   const td=toDay();
   // 未到顯示日：僅「建立者本人」看得到，以便先編輯/確認（標「排程中」）；其他人一律隱藏到顯示日
   if(todo.startDate&&td<todo.startDate&&todo.createdBy!==myName())return false;
@@ -466,6 +481,7 @@ window.onload=async()=>{
     const accSnap=await window.db.collection('users').where('store','==',myStore()).get().catch(()=>null);
     if(accSnap)accSnap.forEach(d=>{const a=d.data();if(a.empName&&a.displayName)displayNameMap[a.empName]=a.displayName;});
     document.getElementById('headerAddBtn').style.display='flex';
+    if(isAdmin()) document.getElementById('showAllAnnBtn').style.display='flex'; // admin 才有「顯示全部公告」清理鈕
     await loadTodos();
     renderCal();
     document.getElementById('appShell').classList.add('active');
@@ -564,6 +580,8 @@ function card(todo,isDone=false){
   const privTag=todo.targetType==='self'?`<span class="tag priv">🔒 僅自己可見</span>`:'';
   const _notStarted=todo.startDate&&toDay()<todo.startDate;
   const schedTag=_notStarted?`<span class="tag" style="background:#fef3c7;color:#b45309;">🕒 排程中·顯示從 ${dateLbl(todo.startDate)}</span>`:'';
+  // admin 清理模式下，標示「平常不會顯示給員工」的公告(過期/非發生日/未到起始/非本人對象)
+  const hiddenTag=(showAllAnn&&isAdmin()&&!visibleNormal(todo))?`<span class="tag" style="background:#fee2e2;color:#b91c1c;">🔕 平常不顯示</span>`:'';
   const emps=todo.targetEmps||[];
   const personsHtml=emps.length?`<div class="todo-persons">👤 ${emps.map(n=>getDN(n)).join('、')}</div>`:'';
   const dragHtml=!isAnn&&!isDone?`<div class="drag-handle" data-id="${todo.id}" ontouchstart="tStart(event,'${todo.id}')" ontouchmove="tMove(event)" ontouchend="tEnd(event)">⠿</div>`:'';
@@ -574,7 +592,7 @@ function card(todo,isDone=false){
     <div class="todo-body">
       <div class="todo-title ${isDone?'done-txt':''}">${todo.title}</div>
       ${todo.note?`<div class="todo-note">${todo.note}</div>`:''}
-      <div class="todo-foot">${schedTag}${dlTag}${recTag}${scopeTag}${privTag}</div>
+      <div class="todo-foot">${hiddenTag}${schedTag}${dlTag}${recTag}${scopeTag}${privTag}</div>
       ${personsHtml}
     </div>
     ${dragHtml}
