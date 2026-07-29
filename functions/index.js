@@ -1101,12 +1101,20 @@ exports.onMaintenanceEnded = onDocumentWritten(
     const token = LINE_TOKEN.value();
     const snap = await db.collection("maintenanceNotify").get().catch(() => null);
     if (!snap) return;
+    const endedAt = new Date().toISOString();
     for (const d of snap.docs) {
-      const disp = d.data().displayName || d.data().empName || "";
+      const rec = d.data();
+      const disp = rec.displayName || rec.empName || "";
       const b = await db.collection("lineBindings").doc(d.id).get().catch(() => null);
-      if (b && b.exists && b.data().lineUserId) {
+      const bound = !!(b && b.exists && b.data().lineUserId);
+      if (bound) {
         await linePush(b.data().lineUserId, `✅ 系統維護已完成${disp ? "，" + disp : ""}，現在可以正常登入使用了！`, token);
       }
+      // 歸檔到歷史(可日後查誰登記等候)，再刪除登記
+      await db.collection("maintenanceNotifyLog").add({
+        uid: d.id, empName: rec.empName || "", displayName: rec.displayName || "", store: rec.store || "",
+        registeredAt: rec.at || "", notifiedAt: endedAt, lineNotified: bound,
+      }).catch(() => {});
       await d.ref.delete().catch(() => {}); // 通知後清除登記
     }
   }
