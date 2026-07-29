@@ -186,7 +186,7 @@ window.onload=async()=>{
 async function onStoreChange(){ curStore=document.getElementById('storeSel').value; showLoading('載入…'); await loadList(); if(curTab==='analysis')renderAnalysis(); hideLoading(); }
 
 async function loadList(){
-  pnlCache={}; perfCache={};
+  pnlCache={}; perfCache={}; cmpData=null;
   try{
     const snap=await window.db.collection('stores').doc(curStore).collection('pnl').get();
     snap.forEach(d=>pnlCache[d.id]=d.data());
@@ -404,7 +404,36 @@ function renderAnalysis(){
     +chart('壞品（元）','badGoodsCost',money,'#c5221f','')
     +`<div style="font-size:12px;color:var(--text-muted);font-weight:700;margin:8px 4px 8px;">📈 人力效率（含支援，需該月薪資已結算，2026/4 起）</div>`
     +derived('人事費率（人事成本÷營業淨額 %，越低越好）','#9334e6',(pf,pn)=>pf.laborCost/pn.netSales*100,v=>v.toFixed(1),'%')
-    +derived('每工時營收（營業淨額÷總工時，元/h）','#0891b2',(pf,pn)=>pf.totalHours?pn.netSales/pf.totalHours:null,v=>Math.round(v).toLocaleString('en-US'),'');
+    +derived('每工時營收（營業淨額÷總工時，元/h）','#0891b2',(pf,pn)=>pf.totalHours?pn.netSales/pf.totalHours:null,v=>Math.round(v).toLocaleString('en-US'),'')
+    +(isAdminOwner()?`<div id="compareBox" style="margin-top:8px;"><div style="font-size:12px;color:var(--text-muted);padding:8px 4px;">載入三店對照…</div></div>`:'');
+  if(isAdminOwner()) renderCompare(months[months.length-1]);
+}
+let cmpData=null; // {store:{pnl:{m:..},perf:{m:..}}}
+async function loadAllForCompare(){
+  if(cmpData)return;
+  cmpData={};
+  for(const s of (appConfig.stores||[])){
+    cmpData[s]={pnl:{},perf:{}};
+    try{const p=await window.db.collection('stores').doc(s).collection('pnl').get();p.forEach(d=>cmpData[s].pnl[d.id]=d.data());}catch(e){}
+    try{const q=await window.db.collection('stores').doc(s).collection('perfSnapshot').get();q.forEach(d=>cmpData[s].perf[d.id]=d.data());}catch(e){}
+  }
+}
+async function renderCompare(m){
+  const box=document.getElementById('compareBox');if(!box)return;
+  await loadAllForCompare();
+  const stores=(appConfig.stores||[]).filter(s=>s!=='人力支援');
+  const cell=(v)=>v==null?'<td style="text-align:right;color:#bbb;">—</td>':`<td style="text-align:right;">${v}</td>`;
+  let rows='';
+  stores.forEach(s=>{const pn=cmpData[s]&&cmpData[s].pnl[m];const pf=cmpData[s]&&cmpData[s].perf[m];
+    const rate=(pf&&pn&&pn.netSales)?(pf.laborCost/pn.netSales*100).toFixed(1)+'%':null;
+    const rev=(pf&&pn&&pf.totalHours)?Math.round(pn.netSales/pf.totalHours).toLocaleString('en-US'):null;
+    rows+=`<tr><td style="font-weight:800;">${s}</td>${cell(pn?money(pn.netSales):null)}${cell(pn?pn.grossMargin+'%':null)}${cell(pn?money(pn.operatingReward):null)}${cell(rate)}${cell(rev)}</tr>`;
+  });
+  box.innerHTML=`<div class="chart-card"><div class="chart-title">🏪 三店對照 · ${m.split('-')[0]}年${parseInt(m.split('-')[1])}月</div>
+    <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12.5px;white-space:nowrap;">
+    <thead><tr style="color:var(--text-muted);font-size:11px;"><th style="text-align:left;padding:4px;">門市</th><th style="text-align:right;padding:4px;">營業淨額</th><th style="text-align:right;">毛利率</th><th style="text-align:right;">經營報酬</th><th style="text-align:right;">人事費率</th><th style="text-align:right;">每工時營收</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">人事費率＝人事成本(含支援)÷營業淨額；—代表該月尚無資料</div></div>`;
 }
 </script>
 </body>
