@@ -95,9 +95,7 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
     <div class="sheet-sub" id="editSub"></div>
     <div id="formSection">
     <div class="field"><label>營業淨額 <span class="unit">元</span></label><input type="number" id="fNetSales" inputmode="numeric"></div>
-    <div class="field"><label>毛利率 <span class="unit">% （例：29.32）</span></label><input type="number" id="fGross" step="0.01" inputmode="decimal"></div>
     <div class="field"><label>壞品（成本）<span class="unit">元</span></label><input type="number" id="fBad" inputmode="numeric"></div>
-    <div class="field"><label>壞品補貼 <span class="unit">元（含在經營報酬內）</span></label><input type="number" id="fSubsidy" inputmode="numeric"></div>
     <div class="field">
       <label>盤點損益 <span class="unit">元（盤損填負數，如 -7751）</span></label>
       <input type="number" id="fInv" inputmode="numeric">
@@ -106,6 +104,8 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
         <label><input type="checkbox" id="fNoStk" onchange="onInvToggle()"> 本月無盤點</label>
       </div>
     </div>
+    <div class="field"><label>毛利率 <span class="unit">% （例：29.32）</span></label><input type="number" id="fGross" step="0.01" inputmode="decimal"></div>
+    <div class="field"><label>壞品補貼 <span class="unit">元（含在經營報酬內）</span></label><input type="number" id="fSubsidy" inputmode="numeric"></div>
     <div class="field"><label>經營報酬 <span class="unit">元</span></label><input type="number" id="fReward" inputmode="numeric"></div>
     <button class="btn-primary" onclick="saveMonth()">儲存並比較</button>
     </div>
