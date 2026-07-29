@@ -97,10 +97,10 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
     <div class="field"><label>營業淨額 <span class="unit">元</span></label><input type="number" id="fNetSales" inputmode="numeric"></div>
     <div class="field"><label>壞品（成本）<span class="unit">元</span></label><input type="number" id="fBad" inputmode="numeric"></div>
     <div class="field">
-      <label>盤點損益 <span class="unit">元（盤損填負數，如 -7751）</span></label>
-      <input type="number" id="fInv" inputmode="numeric">
+      <label>盤損 <span class="unit">元（直接填金額即可，系統自動帶入負向；盤盈請勾下方）</span></label>
+      <input type="number" id="fInv" inputmode="numeric" placeholder="例：7751">
       <div class="chk-row">
-        <label><input type="checkbox" id="fInvGain" onchange="onInvToggle()"> 本月為盤盈（填正數）</label>
+        <label><input type="checkbox" id="fInvGain" onchange="onInvToggle()"> 本月為盤盈（改記正值）</label>
         <label><input type="checkbox" id="fNoStk" onchange="onInvToggle()"> 本月無盤點</label>
       </div>
     </div>
