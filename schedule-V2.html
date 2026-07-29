@@ -1657,6 +1657,7 @@ function paintCell(btn) {
   const weekStr = document.getElementById('weekSelector').value;
   if(!canScheduleStore(store)) return;
   pushToUndo(btn);
+  const prevShift = btn.dataset.shift || ''; // 捕捉舊班別，供特休/補休扣還
   if(paintShift === '清空') {
     btn.dataset.shift=''; btn.dataset.hours=0; btn.dataset.ot='false';
     btn.dataset.note=''; btn.dataset.loc='本店';
@@ -1666,6 +1667,8 @@ function paintCell(btn) {
     btn.dataset.hours = h;
     btn.dataset.ot = 'false';
   }
+  // 🌟 畫筆也要處理特休/補休扣還（否則塗掉特休不退假、塗上特休不扣假）
+  if(prevShift !== btn.dataset.shift) deductLeave(btn.dataset.emp, btn.dataset.day, weekStr, prevShift, btn.dataset.shift||'');
   const idx = appData.records.findIndex(r=>r.name===btn.dataset.emp&&r.day===btn.dataset.day&&r.week===weekStr);
   const data = {week:weekStr,day:btn.dataset.day,name:btn.dataset.emp,
     shift:btn.dataset.shift,location:btn.dataset.loc||'本店',note:btn.dataset.note||'',
