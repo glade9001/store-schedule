@@ -3646,8 +3646,11 @@ function pushToUndo(btn) {
 function undoLastAction() {
   if(!undoStack.length) { showToast('沒有可回復的動作'); return; }
   const l=undoStack.pop();
+  const fromShift=l.btn.dataset.shift||''; // 回復前的班別
   l.btn.dataset.shift=l.s; l.btn.dataset.hours=l.h; l.btn.dataset.loc=l.l; l.btn.dataset.note=l.n;
   l.btn.dataset.ot=l.ot; l.btn.dataset.support=l.supp; l.btn.dataset.approval=l.app; l.btn.dataset.reqoff=l.reqOff; l.btn.dataset.lawoverrides=l.lo||'';
+  // 🌟 undo 也要同步特休/補休扣還（否則回復班別後假別對不上）
+  if(fromShift!==(l.s||'')) deductLeave(l.btn.dataset.emp, l.btn.dataset.day, document.getElementById('weekSelector').value, fromShift, l.s||'');
   syncUIToMemory(); renderSchedule(); triggerAutoSave();
 }
 
