@@ -85,7 +85,7 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
 </div>
 
 <!-- 輸入 sheet -->
-<div class="overlay" id="editOverlay">
+<div class="overlay" id="editOverlay" onclick="if(event.target===this)closeEdit()">
   <div class="sheet">
     <div class="sheet-handle"></div>
     <div style="display:flex;align-items:flex-start;gap:8px;">
