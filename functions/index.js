@@ -285,6 +285,11 @@ exports.lineWebhook = onRequest(
 const { onDocumentWritten } = require("firebase-functions/v2/firestore");
 
 // 依 empName 找 LINE 綁定（優先同 store）並推播；buildText(displayName, empName)→訊息
+// 系統維護模式：開啟時，班表相關的 LINE 通知全部暫停（避免維護/整理時狂發）
+async function maintenanceOn(db) {
+  const d = await db.collection("settings").doc("maintenance").get().catch(() => null);
+  return !!(d && d.exists && d.data().enabled);
+}
 async function notifyEmployees(db, empNames, store, buildText, token) {
   const names = [...new Set((empNames || []).filter(Boolean))];
   if (!names.length) return;
@@ -479,6 +484,7 @@ exports.onSchedulePublished = onDocumentWritten(
     const before = event.data.before.exists ? event.data.before.data() : {};
     const after = event.data.after.exists ? event.data.after.data() : {};
     if (before.published === true || after.published !== true) return; // 只在「剛發布」
+    if (await maintenanceOn(admin.firestore())) return; // 維護模式不發班表通知
     const store = fixStoreName(event.params.store);
     const weekStr = event.params.weekStr;
     const label = weekRangeLabel(weekStr);
@@ -502,6 +508,7 @@ exports.onScheduleChanged = onDocumentWritten(
     const before = event.data.before.exists ? event.data.before.data() : {};
     const after = event.data.after.exists ? event.data.after.data() : {};
     if (!(before.published === true && after.published === true)) return; // 僅已發布週的後續異動
+    if (await maintenanceOn(admin.firestore())) return; // 維護模式：不排入通知佇列
     const beforeRecs = before.records || [];
     const afterRecs = after.records || [];
     if (JSON.stringify(beforeRecs) === JSON.stringify(afterRecs)) return; // records 沒變（純 metadata 寫入）→ 略過
@@ -548,6 +555,7 @@ exports.onSupportRequest = onDocumentWritten(
   async (event) => {
     const before = event.data.before.exists ? event.data.before.data() : {};
     const after = event.data.after.exists ? event.data.after.data() : {};
+    if (await maintenanceOn(admin.firestore())) return; // 維護模式不發跨店支援通知
     const supKey = (r) => `${r.supportEmp}|${r.day}|${r.shift}`;
     const mapOf = (recs) => {
       const m = {};
@@ -694,6 +702,7 @@ exports.onScheduleOtWarning = onDocumentWritten(
     if (!after) return; // 刪除不處理
     const before = event.data.before.exists ? event.data.before.data() : {};
     if (JSON.stringify(before.records || []) === JSON.stringify(after.records || [])) return; // records 沒變
+    if (await maintenanceOn(admin.firestore())) return; // 維護模式不發加班預警
     const store = fixStoreName(event.params.store);
     const weekStr = event.params.weekStr;
     const db = admin.firestore();
@@ -908,6 +917,7 @@ exports.scheduledScheduleNotifyFlush = onSchedule(
   { schedule: "*/5 * * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN] },
   async () => {
     const db = admin.firestore();
+    if (await maintenanceOn(db)) return; // 維護模式不彙整發送班表異動
     const token = LINE_TOKEN.value();
     const QUIET_MS = 10 * 60 * 1000;
     const now = Date.now();
