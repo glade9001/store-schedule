@@ -88,8 +88,12 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
 <div class="overlay" id="editOverlay">
   <div class="sheet">
     <div class="sheet-handle"></div>
-    <div class="sheet-title" id="editTitle">輸入損益</div>
+    <div style="display:flex;align-items:flex-start;gap:8px;">
+      <div class="sheet-title" id="editTitle" style="flex:1;">輸入損益</div>
+      <button id="editBtn" onclick="switchToEdit()" style="display:none;background:#fff3e0;color:#c0620f;border:1.5px solid #e67e22;border-radius:9px;padding:6px 12px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;">✏️ 編輯</button>
+    </div>
     <div class="sheet-sub" id="editSub"></div>
+    <div id="formSection">
     <div class="field"><label>營業淨額 <span class="unit">元</span></label><input type="number" id="fNetSales" inputmode="numeric"></div>
     <div class="field"><label>毛利率 <span class="unit">% （例：29.32）</span></label><input type="number" id="fGross" step="0.01" inputmode="decimal"></div>
     <div class="field"><label>壞品（成本）<span class="unit">元</span></label><input type="number" id="fBad" inputmode="numeric"></div>
@@ -104,7 +108,8 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
     </div>
     <div class="field"><label>經營報酬 <span class="unit">元</span></label><input type="number" id="fReward" inputmode="numeric"></div>
     <button class="btn-primary" onclick="saveMonth()">儲存並比較</button>
-    <button class="btn-cancel" onclick="closeEdit()">取消</button>
+    </div>
+    <button class="btn-cancel" onclick="closeEdit()">關閉</button>
     <div id="cmpBox"></div>
   </div>
 </div>
@@ -203,7 +208,6 @@ function onInvToggle(){
 function openEdit(m){
   editMonth=m;
   document.getElementById('editTitle').textContent=`${monthLabel(m)}　${curStore}`;
-  document.getElementById('editSub').textContent=pnlCache[m]?'已輸入 · 可修改後重新比較':'請照公司損益表填入';
   const d=pnlCache[m]||{};
   document.getElementById('fNetSales').value=d.netSales??'';
   document.getElementById('fGross').value=d.grossMargin??'';
@@ -211,13 +215,26 @@ function openEdit(m){
   document.getElementById('fSubsidy').value=d.badGoodsSubsidy??'';
   document.getElementById('fReward').value=d.operatingReward??'';
   document.getElementById('fNoStk').checked=!!d.noStocktake;
-  const gain=(d.invResult||0)>0;
-  document.getElementById('fInvGain').checked=gain;
+  document.getElementById('fInvGain').checked=(d.invResult||0)>0;
   document.getElementById('fInv').value=(d.noStocktake||d.invResult==null)?'':Math.abs(d.invResult);
   onInvToggle();
   document.getElementById('cmpBox').innerHTML='';
+  if(pnlCache[m]) viewMode(m); else editMode();   // 已輸入→檢視；待輸入→直接編輯
   document.getElementById('editOverlay').classList.add('show');
 }
+function viewMode(m){
+  document.getElementById('formSection').style.display='none';
+  document.getElementById('editBtn').style.display='block';
+  document.getElementById('editSub').textContent='已輸入 · 點右上「編輯」可修改數字';
+  showComparison(m);
+}
+function editMode(){
+  document.getElementById('formSection').style.display='block';
+  document.getElementById('editBtn').style.display='none';
+  document.getElementById('editSub').textContent=pnlCache[editMonth]?'修改數字後重新儲存並比較':'請照公司損益表填入';
+  document.getElementById('cmpBox').innerHTML='';
+}
+function switchToEdit(){ editMode(); }
 function closeEdit(){ document.getElementById('editOverlay').classList.remove('show'); }
 
 const num=id=>{const v=parseFloat(document.getElementById(id).value);return isNaN(v)?null:v;};
@@ -242,9 +259,12 @@ async function saveMonth(){
   try{
     await window.db.collection('stores').doc(curStore).collection('pnl').doc(editMonth).set(rec,{merge:true});
     pnlCache[editMonth]=rec;
-    toast('✅ 已儲存，已通知全體店長');
+    // 只有「有去年同期資料」才會通知全體（回填月份無同期→不發送）
+    let hasPrev=false;
+    try{ const ps=await window.db.collection('stores').doc(curStore).collection('pnl').doc(prevYearMonth(editMonth)).get(); hasPrev=ps.exists; }catch(e){}
+    toast(hasPrev ? '✅ 已儲存，已通知全體店長' : '✅ 已儲存');
     renderList();
-    await showComparison(editMonth);
+    viewMode(editMonth); // 存完切回檢視模式（只看績效，右上可再編輯）
   }catch(e){ toast('儲存失敗：'+e.message); }
   hideLoading();
 }
@@ -287,7 +307,7 @@ async function showComparison(m){
   rows.push(`<div class="cmp-row"><div class="cmp-metric">毛利 ${cur.grossMargin}%</div>${upDown(cur.grossMargin,prev?.grossMargin,'%',true,v=>v.toFixed(2))}</div>`);
   rows.push(`<div class="cmp-row"><div class="cmp-metric">壞品補貼 ${money(cur.badGoodsSubsidy)}元</div>${neutralDelta(cur.badGoodsSubsidy,prev?.badGoodsSubsidy,'元',money)}</div>`);
   rows.push(`<div class="cmp-row"><div class="cmp-metric">經營報酬 ${money(cur.operatingReward)}元</div>${upDown(cur.operatingReward,prev?.operatingReward,'元',true,money)}</div>`);
-  document.getElementById('cmpBox').innerHTML=`<div class="cmp"><div class="cmp-title">${curStore} ${parseInt(m.split('-')[1])}月 經營績效</div>${rows.join('')}</div>`;
+  document.getElementById('cmpBox').innerHTML=`<div class="cmp"><div class="cmp-title">${curStore} ${m.split('-')[0]}年${parseInt(m.split('-')[1])}月 經營績效</div>${rows.join('')}</div>`;
 }
 </script>
 </body>

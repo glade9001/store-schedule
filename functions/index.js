@@ -1005,8 +1005,8 @@ function pnlInvLabel(d){
   return "0 元";
 }
 function buildPnlText(store, month, cur, prev){
-  const mo = parseInt(month.split("-")[1]);
-  const L = [`📊 ${store} ${mo}月 經營績效`, ""];
+  const [yr, mm] = month.split("-");
+  const L = [`📊 ${store} ${yr}年${parseInt(mm)}月 經營績效`, ""];
   const upDown = (c, p, unit, goodUp, fmt) => {
     if(!prev || p == null) return "（同期無資料）";
     const d = c - p, abs = fmt(Math.abs(d));
@@ -1052,10 +1052,9 @@ exports.onPnlSubmitted = onDocumentWritten(
     const store = fixStoreName(event.params.store);
     const month = event.params.month;
     const db = admin.firestore();
-    let prev = null;
     const ps = await db.collection("stores").doc(store).collection("pnl").doc(pnlPrevYM(month)).get().catch(() => null);
-    if(ps && ps.exists) prev = ps.data();
-    await notifyManagersAndAbove(db, buildPnlText(store, month, after, prev), LINE_TOKEN.value());
+    if(!ps || !ps.exists) return; // 無去年同期資料(回填月份) → 不發送
+    await notifyManagersAndAbove(db, buildPnlText(store, month, after, ps.data()), LINE_TOKEN.value());
   }
 );
 
