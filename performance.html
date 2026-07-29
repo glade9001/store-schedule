@@ -65,6 +65,16 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
 .up{color:#137333;} .down{color:#c5221f;} .neu{color:var(--text-muted);}
 #toast{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:11px 20px;border-radius:20px;font-size:13px;font-weight:700;z-index:99999;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap;}
 #toast.show{opacity:1;}
+.tabbar{display:flex;gap:8px;padding:10px 12px 0;max-width:640px;margin:0 auto;}
+.tab{flex:1;padding:11px;border:none;border-radius:12px 12px 0 0;background:#eef1f6;color:var(--text-muted);font-size:14px;font-weight:800;cursor:pointer;}
+.tab.active{background:#fff;color:var(--primary);box-shadow:0 -2px 8px rgba(0,0,0,.05);}
+.chart-card{background:#fff;border-radius:14px;box-shadow:0 1px 4px rgba(0,0,0,.06);padding:14px;margin-bottom:14px;}
+.chart-title{font-size:14px;font-weight:800;margin-bottom:8px;}
+.kpi-row{display:flex;gap:10px;margin-bottom:14px;}
+.kpi{flex:1;min-width:0;background:#fff;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,.06);padding:12px 10px;}
+.kpi-label{font-size:11px;color:var(--text-muted);font-weight:700;}
+.kpi-val{font-size:18px;font-weight:900;margin-top:2px;line-height:1.2;}
+.kpi-delta{font-size:11px;margin-top:4px;font-weight:800;}
 </style>
 </head>
 <body>
@@ -76,12 +86,20 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
   <select class="header-store" id="storeSel" onchange="onStoreChange()" style="display:none;"></select>
 </div>
 
+<div class="tabbar">
+  <button class="tab active" id="tab-input" onclick="switchTab('input')">📝 損益輸入</button>
+  <button class="tab" id="tab-analysis" onclick="switchTab('analysis')">📊 統計分析</button>
+</div>
+
 <div class="content">
-  <div class="note">
-    📅 公司每月 <b>4–7 號</b>寄門市損益表，請於 <b>10 號前</b>輸入「上一個月」的數據（例：7 月輸入 6 月）。<br>
-    首次請從 <b>2025 年 7 月</b>起補齊；輸入完成後會與<b>去年同期</b>比較，並自動通知全體店長與加盟主。
+  <div id="tabInput">
+    <div class="note">
+      📅 公司每月 <b>4–7 號</b>寄門市損益表，請於 <b>10 號前</b>輸入「上一個月」的數據（例：7 月輸入 6 月）。<br>
+      首次請從 <b>2025 年 7 月</b>起補齊；輸入完成後會與<b>去年同期</b>比較，並自動通知全體店長與加盟主。
+    </div>
+    <div id="listWrap"></div>
   </div>
-  <div id="listWrap"></div>
+  <div id="tabAnalysis" style="display:none;"></div>
 </div>
 
 <!-- 輸入 sheet -->
@@ -165,7 +183,7 @@ window.onload=async()=>{
   hideLoading();
 };
 
-async function onStoreChange(){ curStore=document.getElementById('storeSel').value; showLoading('載入…'); await loadList(); hideLoading(); }
+async function onStoreChange(){ curStore=document.getElementById('storeSel').value; showLoading('載入…'); await loadList(); if(curTab==='analysis')renderAnalysis(); hideLoading(); }
 
 async function loadList(){
   pnlCache={};
@@ -308,6 +326,58 @@ async function showComparison(m){
   rows.push(`<div class="cmp-row"><div class="cmp-metric">壞品補貼 ${money(cur.badGoodsSubsidy)}元</div>${neutralDelta(cur.badGoodsSubsidy,prev?.badGoodsSubsidy,'元',money)}</div>`);
   rows.push(`<div class="cmp-row"><div class="cmp-metric">經營報酬 ${money(cur.operatingReward)}元</div>${upDown(cur.operatingReward,prev?.operatingReward,'元',true,money)}</div>`);
   document.getElementById('cmpBox').innerHTML=`<div class="cmp"><div class="cmp-title">${curStore} ${m.split('-')[0]}年${parseInt(m.split('-')[1])}月 經營績效</div>${rows.join('')}</div>`;
+}
+
+// ===== 📊 統計分析（Phase 1：損益指標逐月趨勢）=====
+let curTab='input';
+function switchTab(t){
+  curTab=t;
+  document.getElementById('tab-input').classList.toggle('active',t==='input');
+  document.getElementById('tab-analysis').classList.toggle('active',t==='analysis');
+  document.getElementById('tabInput').style.display=t==='input'?'block':'none';
+  document.getElementById('tabAnalysis').style.display=t==='analysis'?'block':'none';
+  if(t==='analysis')renderAnalysis();
+}
+function lineChart(points,opt){
+  const vals=points.map(p=>p.value).filter(v=>v!=null);
+  if(!vals.length)return '<div style="font-size:12px;color:var(--text-muted);">尚無資料</div>';
+  const W=620,H=170,pl=6,pr=6,pt=16,pb=26,iw=W-pl-pr,ih=H-pt-pb;
+  let min=Math.min(...vals),max=Math.max(...vals);if(min===max){min=min-Math.abs(min||1)*0.1;max=max+Math.abs(max||1)*0.1;}
+  const X=i=>pl+(points.length<=1?iw/2:i/(points.length-1)*iw);
+  const Y=v=>pt+ih-(v-min)/(max-min)*ih;
+  let path='',dots='',labels='';
+  points.forEach((p,i)=>{if(p.value==null)return;path+=(path?' L':'M')+X(i).toFixed(1)+' '+Y(p.value).toFixed(1);dots+=`<circle cx="${X(i).toFixed(1)}" cy="${Y(p.value).toFixed(1)}" r="2.6" fill="${opt.color}"/>`;});
+  points.forEach((p,i)=>{if(points.length>8&&i%2)return;labels+=`<text x="${X(i).toFixed(1)}" y="${H-8}" font-size="9" fill="#999" text-anchor="middle">${p.label}</text>`;});
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;overflow:visible;">
+    <path d="${path}" fill="none" stroke="${opt.color}" stroke-width="2.2"/>${dots}${labels}
+    <text x="${pl}" y="11" font-size="9" fill="#999">${opt.fmt(max)}</text>
+    <text x="${pl}" y="${(pt+ih).toFixed(0)}" font-size="9" fill="#999">${opt.fmt(min)}</text></svg>`;
+}
+function renderAnalysis(){
+  const wrap=document.getElementById('tabAnalysis');
+  const months=Object.keys(pnlCache).sort();
+  if(!months.length){wrap.innerHTML=`<div class="empty">尚無損益資料，請先在「損益輸入」建檔（從 2025/7 起）</div>`;return;}
+  const lbl=m=>{const p=m.split('-');return `${p[0].slice(2)}/${parseInt(p[1])}`;};
+  const pts=months.map(m=>({m,d:pnlCache[m]}));
+  const last=months[months.length-1],L=pnlCache[last];
+  const yoyD=pnlCache[prevYearMonth(last)]||null;
+  const kpi=(label,cur,ym,fmt,unit,goodUp)=>{
+    let delta='';
+    if(ym!=null){const dv=cur-ym,better=goodUp?dv>=0:dv<=0;delta=`<div class="kpi-delta ${better?'up':'down'}">${better?'▲':'▼'} 同期${goodUp?(dv>=0?'+':''):''}${fmt(Math.abs(dv))}${unit}</div>`;}
+    else delta=`<div class="kpi-delta neu">同期無資料</div>`;
+    return `<div class="kpi"><div class="kpi-label">${label}</div><div class="kpi-val">${fmt(cur)}${unit}</div>${delta}</div>`;
+  };
+  const kpiHtml=`<div class="kpi-row">
+    ${kpi('營業淨額',L.netSales,yoyD&&yoyD.netSales,money,'',true)}
+    ${kpi('毛利率',L.grossMargin,yoyD&&yoyD.grossMargin,v=>v.toFixed(2),'%',true)}
+    ${kpi('經營報酬',L.operatingReward,yoyD&&yoyD.operatingReward,money,'',true)}
+  </div><div style="font-size:12px;color:var(--text-muted);margin:-6px 4px 12px;">最新：${last.split('-')[0]}年${parseInt(last.split('-')[1])}月 · ${curStore}（KPI 與去年同期比）</div>`;
+  const chart=(title,key,fmt,color,unit)=>`<div class="chart-card"><div class="chart-title">${title}</div>${lineChart(pts.map(p=>({label:lbl(p.m),value:p.d[key]!=null?p.d[key]:null})),{fmt:v=>fmt(v)+unit,color})}</div>`;
+  wrap.innerHTML=kpiHtml
+    +chart('營業淨額（元）','netSales',money,'#1a73e8','')
+    +chart('毛利率（%）','grossMargin',v=>v.toFixed(1),'#34a853','')
+    +chart('經營報酬（元）','operatingReward',money,'#e67e22','')
+    +chart('壞品（元）','badGoodsCost',money,'#c5221f','');
 }
 </script>
 </body>
