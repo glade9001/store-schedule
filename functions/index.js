@@ -990,6 +990,97 @@ exports.scheduledMonthEndReminder = onSchedule(
   }
 );
 
+// ===== 經營績效專區：完成即通知全體 + 每日提醒未輸入者 =====
+function pnlMoney(n){ return Math.round(n || 0).toLocaleString("en-US"); }
+function pnlPrevYM(month){ const [y, m] = month.split("-"); return `${parseInt(y) - 1}-${m}`; }
+function pnlSig(d){
+  if(!d) return "";
+  return [d.netSales, d.badGoodsCost, d.invResult, d.noStocktake ? 1 : 0, d.grossMargin, d.badGoodsSubsidy, d.operatingReward]
+    .map(v => (v == null ? "" : v)).join("|");
+}
+function pnlInvLabel(d){
+  if(!d || d.noStocktake || d.invResult == null) return "本月無盤點";
+  if(d.invResult < 0) return `盤損 ${pnlMoney(-d.invResult)}元`;
+  if(d.invResult > 0) return `盤盈 ${pnlMoney(d.invResult)}元`;
+  return "0 元";
+}
+function buildPnlText(store, month, cur, prev){
+  const mo = parseInt(month.split("-")[1]);
+  const L = [`📊 ${store} ${mo}月 經營績效`, ""];
+  const upDown = (c, p, unit, goodUp, fmt) => {
+    if(!prev || p == null) return "（同期無資料）";
+    const d = c - p, abs = fmt(Math.abs(d));
+    const better = goodUp ? d >= 0 : d <= 0;
+    const word = goodUp ? (d >= 0 ? "成長" : "衰退") : (d <= 0 ? "減少" : "增加");
+    return `（較同期${word} ${better ? "✅" : "❌"} ${abs}${unit}）`;
+  };
+  L.push(`營業淨額 ${pnlMoney(cur.netSales)}`, upDown(cur.netSales, prev && prev.netSales, "元", true, pnlMoney), "");
+  L.push(`壞品 ${pnlMoney(cur.badGoodsCost)}元`, upDown(cur.badGoodsCost, prev && prev.badGoodsCost, "元", false, pnlMoney), "");
+  let invCmp;
+  if(!prev || prev.noStocktake || prev.invResult == null) invCmp = "（同期無盤點）";
+  else if(cur.noStocktake || cur.invResult == null) invCmp = "（本月無盤點）";
+  else invCmp = upDown(cur.invResult, prev.invResult, "元", true, pnlMoney);
+  L.push(pnlInvLabel(cur), invCmp, "");
+  L.push(`毛利 ${cur.grossMargin}%`, upDown(cur.grossMargin, prev && prev.grossMargin, "%", true, v => v.toFixed(2)), "");
+  let subCmp;
+  if(!prev || prev.badGoodsSubsidy == null) subCmp = "（同期無資料）";
+  else { const d = cur.badGoodsSubsidy - prev.badGoodsSubsidy; subCmp = `（較同期${d >= 0 ? "增加" : "減少"} ${pnlMoney(Math.abs(d))}元）`; }
+  L.push(`壞品補貼 ${pnlMoney(cur.badGoodsSubsidy)}元`, subCmp, "");
+  L.push(`經營報酬 ${pnlMoney(cur.operatingReward)}元`, upDown(cur.operatingReward, prev && prev.operatingReward, "元", true, pnlMoney));
+  return L.join("\n");
+}
+// 通知某店「店長/加盟主/admin」(依 users.store 比對，單一 where 免複合索引)
+async function notifyStoreScopedManagers(db, store, text, token){
+  const us = await db.collection("users").where("store", "==", store).get().catch(() => null);
+  if(!us) return;
+  for(const d of us.docs){
+    if(!["manager", "owner", "admin"].includes(d.data().permission)) continue;
+    const b = await db.collection("lineBindings").doc(d.id).get().catch(() => null);
+    if(b && b.exists && b.data().lineUserId) await linePush(b.data().lineUserId, text, token);
+  }
+}
+
+// 店長輸入/更新某月損益 → 與去年同期比較 → LINE 給全體店長+加盟主
+exports.onPnlSubmitted = onDocumentWritten(
+  { document: "stores/{store}/pnl/{month}", region: "asia-east1", secrets: [LINE_TOKEN] },
+  async (event) => {
+    const before = event.data.before.exists ? event.data.before.data() : null;
+    const after = event.data.after.exists ? event.data.after.data() : null;
+    if(!after) return; // 刪除不通知
+    if([after.netSales, after.badGoodsCost, after.grossMargin, after.badGoodsSubsidy, after.operatingReward].some(v => v == null)) return; // 必填不齊 → 不發
+    if(pnlSig(before) === pnlSig(after)) return; // 內容沒變(只動 submittedAt 等) → 不重複發
+    const store = fixStoreName(event.params.store);
+    const month = event.params.month;
+    const db = admin.firestore();
+    let prev = null;
+    const ps = await db.collection("stores").doc(store).collection("pnl").doc(pnlPrevYM(month)).get().catch(() => null);
+    if(ps && ps.exists) prev = ps.data();
+    await notifyManagersAndAbove(db, buildPnlText(store, month, after, prev), LINE_TOKEN.value());
+  }
+);
+
+// 每日 09:00：當期(上個月)未輸入且今天≥7號 → 提醒該店店長，直到完成為止
+exports.scheduledPnlReminder = onSchedule(
+  { schedule: "0 9 * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN] },
+  async () => {
+    const now = new Date(Date.now() + 8 * 3600000); // 台北
+    if(now.getUTCDate() < 7) return; // 7 號起才提醒
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)); d.setUTCMonth(d.getUTCMonth() - 1);
+    const dueMonth = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`; // 上個月
+    if(dueMonth < "2025-07") return;
+    const db = admin.firestore();
+    const token = LINE_TOKEN.value();
+    const stores = await getAllStores(db);
+    for(const store of stores){
+      const snap = await db.collection("stores").doc(store).collection("pnl").doc(dueMonth).get().catch(() => null);
+      if(snap && snap.exists) continue; // 已完成 → 不提醒
+      await notifyStoreScopedManagers(db, store,
+        `📊 提醒：${store} 尚未輸入 ${parseInt(dueMonth.split("-")[1])}月 經營績效（損益表）。\n請於 10 號前至 App →「更多管理 → 經營績效專區」完成輸入。`,
+        token);
+    }
+  }
+);
+
 // ===== 管理者測試通知：推一則測試訊息給呼叫者自己的 LINE（僅店長以上）=====
 exports.sendTestNotify = onCall(
   { region: "asia-east1", secrets: [LINE_TOKEN] },
