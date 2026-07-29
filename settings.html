@@ -127,6 +127,20 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
     <div id="kwGrid"></div>
     <button onclick="addKwRow()" style="width:100%; margin-top:4px; padding:10px; background:#eef4ff; color:var(--primary); border:1.5px dashed var(--primary); border-radius:10px; font-size:13px; font-weight:700; cursor:pointer;">＋ 新增一列</button>
     <button class="save-btn" style="margin-top:10px;" onclick="saveLineKeywords()">💾 儲存關鍵字</button>
+
+    <div class="card-title" style="padding:16px 0 8px;">🔧 系統維護模式
+      <span class="perm-badge perm-admin">管理者</span>
+    </div>
+    <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px; line-height:1.6;">
+      開啟後，<b>管理者以外</b>的使用者登入會看到「系統維護中」畫面（可登記完成後 LINE 通知、也可綁定 LINE）。<b>關閉</b>維護時，會 LINE 通知所有登記者「維護完成」。
+    </div>
+    <label style="display:flex; align-items:center; gap:10px; background:#fff8ee; border:1.5px solid #ffd8a8; border-radius:12px; padding:12px 14px; cursor:pointer;">
+      <input type="checkbox" id="maintenanceToggle" onchange="toggleMaintenance(this.checked)" style="width:20px; height:20px;">
+      <div style="flex:1;">
+        <div style="font-size:14px; font-weight:800; color:#c0620f;">啟用系統維護模式</div>
+        <div id="maintenanceStatus" style="font-size:12px; color:var(--text-muted);">目前：關閉</div>
+      </div>
+    </label>
   </div>
 
   <!-- 國定假日管理（加盟主以上）-->
@@ -417,7 +431,7 @@ window.onload = async () => {
     `${currentUser.displayName || currentUser.empName || ''}<br>${PERM_LABELS[currentUser.permission] || ''} · ${currentUser.store || ''}`;
 
   // 依權限顯示區塊
-  if(canAdmin())   { document.getElementById('sectionSysConfig').style.display  = 'block'; loadLineKeywords(); }
+  if(canAdmin())   { document.getElementById('sectionSysConfig').style.display  = 'block'; loadLineKeywords(); loadMaintenanceState(); }
   if(canOwner())   document.getElementById('sectionHoliday').style.display   = 'block';
   if(canOwner())   document.getElementById('sectionInsurance').style.display  = 'block';
   if(canManager()) document.getElementById('sectionStoreConfig').style.display = 'block';
@@ -468,6 +482,29 @@ function kwRowHtml(keys, reply){
 }
 function addKwRow(keys, reply){
   document.getElementById('kwGrid').insertAdjacentHTML('beforeend', kwRowHtml(keys, reply));
+}
+// ===== 系統維護模式 =====
+async function loadMaintenanceState() {
+  try {
+    const d = await window.db.collection('settings').doc('maintenance').get();
+    const on = !!(d.exists && d.data().enabled);
+    const t = document.getElementById('maintenanceToggle');
+    if(t) t.checked = on;
+    const st = document.getElementById('maintenanceStatus');
+    if(st) st.textContent = on ? '目前：🔧 維護中' : '目前：關閉';
+  } catch(e) {}
+}
+async function toggleMaintenance(on) {
+  const t = document.getElementById('maintenanceToggle');
+  if(on && !confirm('確定啟用「系統維護模式」？\n\n管理者以外的人登入都會被擋在「系統維護中」畫面。')) { if(t) t.checked = false; return; }
+  if(!on && !confirm('確定關閉維護、恢復系統？\n\n會 LINE 通知所有登記「完成後通知我」的使用者。')) { if(t) t.checked = true; return; }
+  try {
+    await window.db.collection('settings').doc('maintenance').set({
+      enabled: on, updatedBy: currentUser.empName || '', updatedAt: new Date().toISOString()
+    }, { merge: true });
+    document.getElementById('maintenanceStatus').textContent = on ? '目前：🔧 維護中' : '目前：關閉';
+    showToast(on ? '🔧 已啟用維護模式' : '✅ 已關閉維護，將通知登記者');
+  } catch(e) { showToast('失敗：' + e.message); if(t) t.checked = !on; }
 }
 async function loadLineKeywords() {
   try {

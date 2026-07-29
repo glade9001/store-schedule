@@ -1080,6 +1080,28 @@ exports.scheduledPnlReminder = onSchedule(
   }
 );
 
+// ===== 系統維護結束（enabled true→false）→ LINE 通知所有登記「完成後通知我」的使用者，並清除登記 =====
+exports.onMaintenanceEnded = onDocumentWritten(
+  { document: "settings/maintenance", region: "asia-east1", secrets: [LINE_TOKEN] },
+  async (event) => {
+    const before = event.data.before.exists ? event.data.before.data() : {};
+    const after = event.data.after.exists ? event.data.after.data() : {};
+    if (!(before.enabled === true && after.enabled === false)) return; // 只在「維護→關閉」
+    const db = admin.firestore();
+    const token = LINE_TOKEN.value();
+    const snap = await db.collection("maintenanceNotify").get().catch(() => null);
+    if (!snap) return;
+    for (const d of snap.docs) {
+      const disp = d.data().displayName || d.data().empName || "";
+      const b = await db.collection("lineBindings").doc(d.id).get().catch(() => null);
+      if (b && b.exists && b.data().lineUserId) {
+        await linePush(b.data().lineUserId, `✅ 系統維護已完成${disp ? "，" + disp : ""}，現在可以正常登入使用了！`, token);
+      }
+      await d.ref.delete().catch(() => {}); // 通知後清除登記
+    }
+  }
+);
+
 // ===== 管理者測試通知：推一則測試訊息給呼叫者自己的 LINE（僅店長以上）=====
 exports.sendTestNotify = onCall(
   { region: "asia-east1", secrets: [LINE_TOKEN] },

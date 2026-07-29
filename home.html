@@ -1137,6 +1137,18 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
   </div>
 </div>
 
+<!-- ===== 系統維護中畫面 ===== -->
+<div id="maintenanceScreen" style="display:none; position:fixed; inset:0; background:linear-gradient(135deg,#1a73e8,#0d47a1); z-index:5500; flex-direction:column; justify-content:center; align-items:center; padding:28px; text-align:center; color:#fff;">
+  <div style="font-size:56px; margin-bottom:16px;">🔧</div>
+  <div style="font-size:23px; font-weight:900; margin-bottom:10px;">系統維護中</div>
+  <div style="font-size:15px; opacity:.92; margin-bottom:26px; line-height:1.7;">系統正在維護，請稍後再登入。<br>造成不便敬請見諒 🙏</div>
+  <div style="width:100%; max-width:340px;">
+    <button id="mtNotifyBtn" onclick="maintenanceNotifyMe()" style="width:100%; padding:14px; background:#06c755; color:#fff; border:none; border-radius:12px; font-size:15px; font-weight:800; cursor:pointer; margin-bottom:10px;">🔔 維護完成後請通知我</button>
+    <div id="mtNotifyHint" style="font-size:12px; opacity:.9; line-height:1.7;"></div>
+  </div>
+  <button onclick="doLogout()" style="margin-top:26px; padding:11px 26px; background:rgba(255,255,255,.18); color:#fff; border:1px solid rgba(255,255,255,.5); border-radius:10px; font-size:14px; font-weight:700; cursor:pointer;">登出</button>
+</div>
+
 <!-- ===== LINE 通知綁定 ===== -->
 <div id="lineBindOverlay" style="display:none; position:fixed; inset:0; background:rgba(30,41,59,0.7); z-index:6000; justify-content:center; align-items:center; padding:20px;" onclick="if(event.target===this)closeLineBind()">
   <div style="background:#fff; border-radius:18px; width:100%; max-width:400px; padding:22px; max-height:88vh; overflow-y:auto;">
@@ -1793,7 +1805,48 @@ async function unbindLine(){
 }
 
 // ===== 初始化 APP =====
+// ===== 系統維護模式 =====
+async function checkMaintenance() {
+  if(currentUser?.permission === 'admin') return false; // 管理者不受影響，要能進系統維護
+  let on = false;
+  try { const d = await window.db.collection('settings').doc('maintenance').get(); on = !!(d.exists && d.data().enabled); } catch(e) {}
+  if(!on) return false;
+  document.getElementById('appShell').classList.remove('active');
+  await renderMaintenanceNotifyState();
+  document.getElementById('maintenanceScreen').style.display = 'flex';
+  hideLoading();
+  return true;
+}
+async function renderMaintenanceNotifyState() {
+  const uid = currentUser.uid;
+  let opted = false, bound = false;
+  try { const b = await window.db.collection('lineBindings').doc(uid).get(); bound = !!(b.exists && b.data().lineUserId); } catch(e) {}
+  try { const n = await window.db.collection('maintenanceNotify').doc(uid).get(); opted = n.exists; } catch(e) {}
+  const btn = document.getElementById('mtNotifyBtn'), hint = document.getElementById('mtNotifyHint');
+  if(opted) {
+    btn.textContent = '✅ 已登記，完成後通知你'; btn.disabled = true; btn.style.opacity = '.75';
+    hint.textContent = bound ? '維護完成會用 LINE 通知你' : '⚠️ 你尚未綁定 LINE，請完成綁定才收得到通知';
+  } else {
+    btn.textContent = '🔔 維護完成後請通知我'; btn.disabled = false; btn.style.opacity = '1';
+    hint.textContent = bound ? '' : '（未綁定 LINE？點上方會同時帶你綁定）';
+  }
+}
+async function maintenanceNotifyMe() {
+  const uid = currentUser.uid;
+  try {
+    await window.db.collection('maintenanceNotify').doc(uid).set({
+      uid, empName: currentUser.empName || '', displayName: currentUser.displayName || currentUser.empName || '', store: currentUser.store || '', at: new Date().toISOString()
+    }, { merge: true });
+    let bound = false;
+    try { const b = await window.db.collection('lineBindings').doc(uid).get(); bound = !!(b.exists && b.data().lineUserId); } catch(e) {}
+    showToast('✅ 已登記，維護完成會通知你');
+    await renderMaintenanceNotifyState();
+    if(!bound) openLineBindModal(); // 未綁定 → 同時開綁定流程
+  } catch(e) { showToast('登記失敗：' + e.message); }
+}
+
 async function initApp() {
+  if(await checkMaintenance()) return; // 維護模式：非管理者顯示維護畫面、不進 App
   showLoading('載入個人資料中...');
   const storeLabel = currentUser.store || '全門市';
   const dName = currentUser.displayName || currentUser.empName || '使用者';
