@@ -333,7 +333,7 @@ async function showComparison(m){
 }
 
 // ===== 📊 統計分析（Phase 1：損益指標逐月趨勢）=====
-let curTab='input';
+let curTab='input', anaFrom='', anaTo='';
 function switchTab(t){
   curTab=t;
   document.getElementById('tab-input').classList.toggle('active',t==='input');
@@ -342,25 +342,38 @@ function switchTab(t){
   document.getElementById('tabAnalysis').style.display=t==='analysis'?'block':'none';
   if(t==='analysis')renderAnalysis();
 }
+// 點值精簡格式：萬/整數/一位小數
+function ptFmt(v){ if(v==null)return''; const a=Math.abs(v); if(a>=10000)return (v/10000).toFixed(1)+'萬'; if(Number.isInteger(v))return String(v); return v.toFixed(1); }
 function lineChart(points,opt){
   const vals=points.map(p=>p.value).filter(v=>v!=null);
   if(!vals.length)return '<div style="font-size:12px;color:var(--text-muted);">尚無資料</div>';
-  const W=620,H=170,pl=6,pr=6,pt=16,pb=26,iw=W-pl-pr,ih=H-pt-pb;
+  const n=points.length, W=Math.max(620,n*54), H=180, pl=10,pr=10,pt=22,pb=26, iw=W-pl-pr, ih=H-pt-pb;
   let min=Math.min(...vals),max=Math.max(...vals);if(min===max){min=min-Math.abs(min||1)*0.1;max=max+Math.abs(max||1)*0.1;}
-  const X=i=>pl+(points.length<=1?iw/2:i/(points.length-1)*iw);
+  const X=i=>pl+(n<=1?iw/2:i/(n-1)*iw);
   const Y=v=>pt+ih-(v-min)/(max-min)*ih;
-  let path='',dots='',labels='';
-  points.forEach((p,i)=>{if(p.value==null)return;path+=(path?' L':'M')+X(i).toFixed(1)+' '+Y(p.value).toFixed(1);dots+=`<circle cx="${X(i).toFixed(1)}" cy="${Y(p.value).toFixed(1)}" r="2.6" fill="${opt.color}"/>`;});
-  points.forEach((p,i)=>{if(points.length>8&&i%2)return;labels+=`<text x="${X(i).toFixed(1)}" y="${H-8}" font-size="9" fill="#999" text-anchor="middle">${p.label}</text>`;});
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;overflow:visible;">
-    <path d="${path}" fill="none" stroke="${opt.color}" stroke-width="2.2"/>${dots}${labels}
-    <text x="${pl}" y="11" font-size="9" fill="#999">${opt.fmt(max)}</text>
-    <text x="${pl}" y="${(pt+ih).toFixed(0)}" font-size="9" fill="#999">${opt.fmt(min)}</text></svg>`;
+  let path='',dots='',vlabels='',labels='';
+  points.forEach((p,i)=>{if(p.value==null)return;const x=X(i),y=Y(p.value);path+=(path?' L':'M')+x.toFixed(1)+' '+y.toFixed(1);
+    dots+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.8" fill="${opt.color}"/>`;
+    vlabels+=`<text x="${x.toFixed(1)}" y="${(y-6).toFixed(1)}" font-size="9" fill="${opt.color}" text-anchor="middle" font-weight="800">${ptFmt(p.value)}</text>`;});
+  points.forEach((p,i)=>{labels+=`<text x="${X(i).toFixed(1)}" y="${H-8}" font-size="9" fill="#999" text-anchor="middle">${p.label}</text>`;});
+  const scroll = W>620 ? 'min-width:'+W+'px;' : 'width:100%;';
+  return `<div style="overflow-x:auto;"><svg viewBox="0 0 ${W} ${H}" style="${scroll}height:auto;overflow:visible;">
+    <path d="${path}" fill="none" stroke="${opt.color}" stroke-width="2.2"/>${dots}${vlabels}${labels}</svg></div>`;
 }
 function renderAnalysis(){
   const wrap=document.getElementById('tabAnalysis');
-  const months=Object.keys(pnlCache).sort();
-  if(!months.length){wrap.innerHTML=`<div class="empty">尚無損益資料，請先在「損益輸入」建檔（從 2025/7 起）</div>`;return;}
+  const allM=Object.keys(pnlCache).sort();
+  if(!allM.length){wrap.innerHTML=`<div class="empty">尚無損益資料，請先在「損益輸入」建檔（從 2025/7 起）</div>`;return;}
+  if(!anaFrom||!allM.includes(anaFrom))anaFrom=allM[0];
+  if(!anaTo||!allM.includes(anaTo)||anaTo<anaFrom)anaTo=allM[allM.length-1];
+  const months=allM.filter(m=>m>=anaFrom&&m<=anaTo);
+  const mOpt=(sel)=>allM.map(m=>`<option value="${m}"${m===sel?' selected':''}>${m.split('-')[0]}/${parseInt(m.split('-')[1])}</option>`).join('');
+  const rangeBar=`<div style="display:flex;align-items:center;gap:6px;margin-bottom:12px;font-size:13px;flex-wrap:wrap;">
+    <span style="color:var(--text-muted);font-weight:800;">📅 期間</span>
+    <select onchange="anaFrom=this.value;renderAnalysis();" style="padding:7px 8px;border:1.5px solid var(--border);border-radius:8px;font-weight:700;">${mOpt(anaFrom)}</select>
+    <span>～</span>
+    <select onchange="anaTo=this.value;renderAnalysis();" style="padding:7px 8px;border:1.5px solid var(--border);border-radius:8px;font-weight:700;">${mOpt(anaTo)}</select>
+  </div>`;
   const lbl=m=>{const p=m.split('-');return `${p[0].slice(2)}/${parseInt(p[1])}`;};
   const pts=months.map(m=>({m,d:pnlCache[m]}));
   const last=months[months.length-1],L=pnlCache[last];
@@ -384,7 +397,7 @@ function renderAnalysis(){
   </div><div style="font-size:12px;color:var(--text-muted);margin:-6px 4px 12px;">最新：${last.split('-')[0]}年${parseInt(last.split('-')[1])}月 · ${curStore}（KPI 與去年同期比）</div>`;
   const chart=(title,key,fmt,color,unit)=>`<div class="chart-card"><div class="chart-title">${title}</div>${lineChart(pts.map(p=>({label:lbl(p.m),value:p.d[key]!=null?p.d[key]:null})),{fmt:v=>fmt(v)+unit,color})}</div>`;
   const derived=(title,color,fn,fmt,unit)=>{const dp=pts.map(p=>({label:lbl(p.m),value:(perfCache[p.m]&&p.d&&p.d.netSales)?fn(perfCache[p.m],p.d):null}));if(!dp.some(x=>x.value!=null))return '';return `<div class="chart-card"><div class="chart-title">${title}</div>${lineChart(dp,{fmt:v=>fmt(v)+unit,color})}</div>`;};
-  wrap.innerHTML=kpiHtml
+  wrap.innerHTML=rangeBar+kpiHtml
     +chart('營業淨額（元）','netSales',money,'#1a73e8','')
     +chart('毛利率（%）','grossMargin',v=>v.toFixed(1),'#34a853','')
     +chart('經營報酬（元）','operatingReward',money,'#e67e22','')
