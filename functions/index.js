@@ -1120,6 +1120,77 @@ exports.onMaintenanceEnded = onDocumentWritten(
   }
 );
 
+// ===== 經營績效月快照：某月薪資發布 → 重算該月「全門市」perfSnapshot（含支援成本/工時）=====
+async function computeMonthSnapshots(db, month) {
+  const [y, mo] = month.split("-").map(Number);
+  const lastDay = new Date(y, mo, 0).getDate();
+  const weekSet = new Set();
+  for (let d = 1; d <= lastDay; d++) weekSet.add(simpleWeekStr(new Date(y, mo - 1, d)));
+  const stores = await getAllStores(db);
+  const OFF = ["排休", "指休", "特休", "補休", "清空", ""];
+  const rate = {}, ownPay = {};
+  for (const s of stores) {
+    rate[s] = {};
+    const es = await db.collection("stores").doc(s).collection("employees").get().catch(() => null);
+    if (es) es.forEach((d) => { const o = d.data(); rate[s][d.id] = { role: o.role, wage: o.wage }; });
+    const sd = await db.collection("stores").doc(s).collection("salary").doc(month).get().catch(() => null);
+    if (sd && sd.exists && (sd.data().status || "draft") === "published") {
+      let g = 0, er = 0;
+      (sd.data().records || []).forEach((r) => {
+        g += (r.grossAmt || 0); er += (r.laborEr || 0) + (r.healthEr || 0) + (r.pensionEr || 0);
+        rate[s][r.empName] = rate[s][r.empName] || {}; rate[s][r.empName].role = r.role;
+        if (/正職|店長|副店長|加盟主/.test(String(r.role || ""))) rate[s][r.empName].h = ((r.baseSalary || 0) + (r.fullAttendBonus || 0)) / 240;
+      });
+      ownPay[s] = g + er;
+    }
+  }
+  const hourly = (s, p) => { const e = rate[s] && rate[s][p]; if (!e) return 0; if (e.h) return e.h; if (e.wage) return e.wage; return 0; };
+  const ownH = {}, supIn = {}, supOut = {};
+  stores.forEach((s) => { ownH[s] = 0; supIn[s] = { h: 0, c: 0 }; supOut[s] = { h: 0, c: 0 }; });
+  for (const s of stores) {
+    for (const w of weekSet) {
+      const snap = await db.collection("stores").doc(s).collection("weeks").doc(w).get().catch(() => null);
+      if (!snap || !snap.exists) continue;
+      const mon = weekMondayDate(w);
+      for (const r of (snap.data().records || [])) {
+        if (!r || r.name === "門市備註" || !r.shift || OFF.includes(String(r.shift).trim())) continue;
+        const di = WEEK_DAYS.indexOf(r.day); if (di < 0) continue;
+        const dt = new Date(mon); dt.setDate(mon.getDate() + di);
+        if (dt.getFullYear() !== y || dt.getMonth() + 1 !== mo) continue;
+        const h = parseFloat(r.actualHours || 0);
+        if (String(r.name || "").startsWith("🆘") && r.supportEmp) {
+          const i = r.supportEmp.indexOf("-"); const home = r.supportEmp.slice(0, i), per = r.supportEmp.slice(i + 1);
+          const c = hourly(home, per) * h; supIn[s].h += h; supIn[s].c += c;
+          if (supOut[home]) { supOut[home].h += h; supOut[home].c += c; }
+        } else if (!String(r.name || "").startsWith("🆘")) {
+          const loc = r.location || ""; if (loc && loc !== "本店") continue;
+          ownH[s] += h;
+        }
+      }
+    }
+  }
+  for (const s of stores) {
+    if (ownPay[s] == null) continue;
+    const tot = ownH[s] + supIn[s].h; if (tot < 500) continue; // 殘月不寫
+    const labor = ownPay[s] + supIn[s].c - supOut[s].c;
+    await db.collection("stores").doc(s).collection("perfSnapshot").doc(month).set({
+      store: s, month, totalHours: Math.round(tot), ownHours: Math.round(ownH[s]),
+      supportInHours: Math.round(supIn[s].h), supportOutHours: Math.round(supOut[s].h),
+      ownPayroll: Math.round(ownPay[s]), supportInCost: Math.round(supIn[s].c), supportOutCost: Math.round(supOut[s].c),
+      laborCost: Math.round(labor), computedAt: new Date().toISOString(),
+    }, { merge: true }).catch(() => {});
+  }
+}
+exports.onSalaryPublishedSnapshot = onDocumentWritten(
+  { document: "stores/{store}/salary/{month}", region: "asia-east1" },
+  async (event) => {
+    const before = event.data.before.exists ? event.data.before.data() : {};
+    const after = event.data.after.exists ? event.data.after.data() : {};
+    if (!(before.status !== "published" && after.status === "published")) return; // 只在「剛發布」
+    await computeMonthSnapshots(admin.firestore(), event.params.month);
+  }
+);
+
 // ===== 管理者測試通知：推一則測試訊息給呼叫者自己的 LINE（僅店長以上）=====
 exports.sendTestNotify = onCall(
   { region: "asia-east1", secrets: [LINE_TOKEN] },
