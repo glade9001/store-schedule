@@ -1513,6 +1513,30 @@ function triggerAutoSave() {
   autoSaveTimer = setTimeout(() => saveScheduleData(false), 1500);
 }
 
+// 交易式合併存檔：整包寫回時，保護「待補格」被別店寫入的跨店欄位不被倒退覆蓋
+// （B 店支援/審核透過交易寫 supportEmp 到本店待補格；A 店整包存檔不可把它蓋回舊值）
+async function saveWeekRecordsMerged(store, weekStr, localRecords, extra) {
+  const docRef = window.db.collection('stores').doc(store).collection('weeks').doc(weekStr);
+  const rank = r => ((r && r.approvalStatus === 'approved') ? 2 : ((r && r.supportEmp) ? 1 : 0)); // 開放<待審<已成立
+  try {
+    await window.db.runTransaction(async (tx) => {
+      const snap = await tx.get(docRef);
+      const dbRecs = (snap.exists && snap.data().records) ? snap.data().records : [];
+      const merged = (localRecords || []).map(r => {
+        if(!String(r.name || '').startsWith('🆘待補')) return r; // 只保護待補格
+        const d = dbRecs.find(x => x.name === r.name && x.day === r.day);
+        // DB 的跨店狀態較新(別店剛支援/同意) → 保留 DB 的 supportEmp/approvalStatus/claimedBy，不讓本次存檔倒退
+        if(d && rank(d) > rank(r)) return { ...r, supportEmp: d.supportEmp || '', approvalStatus: d.approvalStatus || '', claimedBy: d.claimedBy || '' };
+        return r;
+      });
+      tx.set(docRef, { records: merged, ...(extra || {}) }, { merge: true });
+    });
+  } catch(e) {
+    // 交易失敗(多半離線/網路)→ 退回一般寫入(可離線佇列)，保 offline 可用；離線時本就無跨店併發，覆蓋風險極低
+    await docRef.set({ records: localRecords || [], ...(extra || {}) }, { merge: true });
+  }
+}
+
 async function saveScheduleData(isManual) {
   syncUIToMemory();
   const store = document.getElementById('storeSelector').value;
@@ -1530,9 +1554,7 @@ async function saveScheduleData(isManual) {
       weekPublishData[weekStr] = { ...weekPublishData[weekStr], ...extra };
       updatePublishBtn(store, weekStr);
     }
-    await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).set(
-      { records: schedule, ...extra }, { merge: true }
-    );
+    await saveWeekRecordsMerged(store, weekStr, schedule, extra);
     setSyncStatus('ok', `已儲存 ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`);
     if(isManual) showToast('💾 儲存成功！');
   } catch(e) {
@@ -1553,7 +1575,7 @@ async function flushCurrentWeek(storeOverride) {
   if(typeof canScheduleStore === 'function' && !canScheduleStore(store)) return; // 只寫使用者可排班的門市，唯讀他店不寫
   try {
     const schedule = appData.records.filter(r => r.week === domWeek);
-    await window.db.collection('stores').doc(store).collection('weeks').doc(domWeek).set({ records: schedule }, { merge: true });
+    await saveWeekRecordsMerged(store, domWeek, schedule, null);
     setSyncStatus('ok', '已儲存');
   } catch(e) { console.error('換週前存檔失敗', e); }
 }
