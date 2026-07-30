@@ -626,6 +626,17 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
   </div>
 </div>
 
+<!-- ===== 店長登入：補齊員工到職日（強制）===== -->
+<div class="modal-overlay" id="hireDateGateModal">
+  <div class="modal-box" style="max-width:460px;">
+    <div style="font-size:40px; margin-bottom:8px;">📅</div>
+    <div class="modal-title">請補齊員工到職日</div>
+    <div class="modal-sub" style="margin-bottom:14px;">以下員工尚未設定到職日，會影響<b>薪資起算月份</b>與<b>特休計算</b>。請確認後儲存（預設已帶入特補休系統的到職日，可修改）。<br><span style="color:#e67e22;font-size:12px;">※ 若更動日期，正職請再至「特補休管理」確認特休批次。</span></div>
+    <div id="hireGateList" style="max-height:52vh; overflow-y:auto;"></div>
+    <button class="save-btn" style="margin-top:16px;" onclick="saveHireDateGate()">全部儲存</button>
+  </div>
+</div>
+
 <!-- ===== 首次登入：強制改密碼 ===== -->
 <div id="pwdChangeScreen">
   <div style="font-size:40px; margin-bottom:12px;">🔐</div>
@@ -1644,6 +1655,58 @@ async function checkPnlPending(){
     bar.style.display = 'flex';
   }catch(e){ console.error('checkPnlPending', e); }
 }
+// ===== 店長登入：補齊員工到職日（強制，Feature②）=====
+let _hireGateStore = '';
+async function checkHireDateGate(){
+  try{
+    if(!['manager','owner','admin'].includes(currentUser?.permission)) return;
+    const store = currentUser.store;
+    if(!store) return;
+    _hireGateStore = store;
+    const empSnap = await window.db.collection('stores').doc(store).collection('employees').get().catch(()=>null);
+    if(!empSnap) return;
+    const todayStr = new Date().toISOString().slice(0,10);
+    const cy = new Date().getFullYear().toString();
+    const need = [];
+    empSnap.forEach(d=>{
+      const data = d.data();
+      if(['離職','調走'].includes(data.status)) return;
+      if(data.startDate) return; // 已有到職日
+      need.push({ name: d.id });
+    });
+    if(!need.length) return;
+    // 預設帶入各人 leaves.hireDate（無則今天=建檔日概念）
+    await Promise.all(need.map(async n=>{
+      const lv = await window.db.collection('employees').doc(n.name).collection('leaves').doc(cy).get().catch(()=>null);
+      n.prefill = (lv && lv.exists && lv.data().hireDate) ? lv.data().hireDate : todayStr;
+    }));
+    document.getElementById('hireGateList').innerHTML = need.map(n=>{
+      const dn = displayNameMap[n.name] || n.name;
+      return `<div style="display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid #eef1f4;">
+        <span style="flex:1; font-weight:700; font-size:15px;">${dn}</span>
+        <input type="date" data-emp="${n.name.replace(/"/g,'&quot;')}" value="${n.prefill}" style="padding:8px; border:1.5px solid #d0d7de; border-radius:8px; font-size:14px;">
+      </div>`;
+    }).join('');
+    openModal('hireDateGateModal');
+  }catch(e){ console.error('checkHireDateGate', e); }
+}
+async function saveHireDateGate(){
+  const inputs = [...document.querySelectorAll('#hireGateList input[data-emp]')];
+  if(!inputs.length){ closeModal('hireDateGateModal'); return; }
+  if(inputs.some(i=>!i.value)){ showToast('⚠️ 請確認每位員工的到職日都已填寫'); return; }
+  showLoading('儲存到職日中...');
+  try{
+    const cy = new Date().getFullYear().toString();
+    for(const i of inputs){
+      const emp = i.dataset.emp, date = i.value;
+      await window.db.collection('stores').doc(_hireGateStore).collection('employees').doc(emp).set({ startDate: date }, { merge:true });
+      await window.db.collection('employees').doc(emp).collection('leaves').doc(cy).set({ hireDate: date, store:_hireGateStore }, { merge:true });
+    }
+    hideLoading();
+    closeModal('hireDateGateModal');
+    showToast('✅ 已補齊到職日');
+  }catch(e){ hideLoading(); showToast('❌ 儲存失敗：'+e.message); }
+}
 async function checkSalaryAck(){
   try{
     if(!currentUser?.uid || !currentUser?.empName) return;
@@ -1897,6 +1960,7 @@ async function initApp() {
   renderQuickBtns();
   checkSalaryAck(); // 背景檢查薪資待簽收，完成後顯示橫幅
   checkPnlPending(); // 背景檢查經營績效待輸入
+  checkHireDateGate(); // 店長：補齊缺到職日的員工（強制）
   checkLeaveHint(); // 背景檢查下週劃休提醒
   checkLineBindHint(); // 未綁定 LINE → 首頁顯示小條
 
