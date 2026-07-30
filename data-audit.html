@@ -91,7 +91,7 @@ async function runAudit(){
   const btn=document.getElementById('runBtn'); btn.disabled=true; btn.textContent='健檢中…';
   document.getElementById('results').innerHTML='';
   const cy=String(new Date().getFullYear());
-  const leaveIssues=[], hireIssues=[]; let oldFmt=0; const oldSamples=[];
+  const leaveIssues=[], hireIssues=[], snapMissing=[]; let oldFmt=0; const oldSamples=[];
   try{
     // 收集員工
     setProg('讀取員工名單…');
@@ -146,11 +146,22 @@ async function runAudit(){
         });
       });
     }
+    // D. 薪資快照（已發布月份是否有金額快照 netAmt/payHash；無則走即時重算 fallback）
+    setProg('薪資快照檢查…');
+    for(const st of stores()){
+      const sal=await window.db.collection('stores').doc(st).collection('salary').get().catch(()=>null);
+      if(!sal)continue;
+      sal.forEach(d=>{const data=d.data()||{}; if((data.status||'')!=='published')return;
+        const recs=(data.records||[]).filter(r=>{const n=r.empName||r.name;return n&&!String(n).startsWith('🆘');});
+        const missing=recs.some(r=>typeof r.netAmt!=='number' && !r.payHash);
+        if(missing) snapMissing.push(`${st}/${d.id}`);
+      });
+    }
   }catch(err){ setProg(''); toast('健檢出錯：'+err.message); btn.disabled=false; btn.textContent='▶ 重新健檢'; return; }
 
   setProg('');
   btn.disabled=false; btn.textContent='▶ 重新健檢';
-  render(leaveIssues, hireIssues, oldFmt, oldSamples);
+  render(leaveIssues, hireIssues, oldFmt, oldSamples, snapMissing);
 }
 
 function card(title, issues, okDesc, extraNote){
@@ -165,7 +176,8 @@ function card(title, issues, okDesc, extraNote){
   </div>`;
 }
 
-function render(leaveIssues, hireIssues, oldFmt, oldSamples){
+function render(leaveIssues, hireIssues, oldFmt, oldSamples, snapMissing){
+  snapMissing=snapMissing||[];
   const total=leaveIssues.length+hireIssues.length;
   const summary=`<div class="summary">
     <div class="summary-big" style="color:${total?'var(--danger)':'var(--accent)'};">${total?'⚠️ 發現 '+total+' 筆待處理':'✅ 全數通過'}</div>
@@ -173,10 +185,20 @@ function render(leaveIssues, hireIssues, oldFmt, oldSamples){
   </div>`;
   const cNote=`跨店支援「派出店顯示記錄」(location=支援X) 共 <b>${oldFmt}</b> 筆——此為設計上的顯示記錄，工時/成本計算已用「loc≠本店排除」跳過，非數字錯誤。`+
     (oldSamples.length?`<br>樣本：${oldSamples.join('、')}`:'');
+  const snapCard=(()=>{
+    const ok=snapMissing.length===0;
+    return `<div class="card"><div class="card-head">
+      <span class="badge ${ok?'ok':'warn'}">${ok?'✅ 皆已鎖定':'ℹ️ '+snapMissing.length+' 月未鎖定'}</span>
+      <span class="card-title">薪資快照（已發布月份）</span></div>
+      ${ok?`<div class="card-desc">所有已發布月份都已存實發金額快照（netAmt/payHash）。</div>`
+        :`<div class="note">以下已發布月份缺金額快照，會改用「即時重算」顯示（數字仍正確，但未鎖定）。可到薪資頁用「🔒 回填快照」補上：<br><b>${snapMissing.join('、')}</b></div>`}
+    </div>`;
+  })();
   document.getElementById('results').innerHTML = summary
     + card('假別帳本一致性', leaveIssues, '用量、帳本筆數、批次已用三者對齊。', '')
     + card('到職日雙欄位一致性', hireIssues, '非調店者 startDate=到職日；調店者 startDate=調入日；皆已設定。', '')
-    + card('跨店支援資料格式', [], '', cNote);
+    + card('跨店支援資料格式', [], '', cNote)
+    + snapCard;
 }
 </script>
 </body>

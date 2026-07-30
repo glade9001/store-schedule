@@ -363,6 +363,11 @@ function lineChart(points,opt){
   const X=i=>pl+(n<=1?iw/2:i/(n-1)*iw);
   const Y=v=>pt+ih-(v-min)/(max-min)*ih;
   // 平均線（虛線）＋左上標示
+  // Y 軸刻度線（3 等分，淺灰）
+  let grid='';
+  for(let t=0;t<=3;t++){const gv=min+(max-min)*t/3, gy=Y(gv);
+    grid+=`<line x1="${pl}" y1="${gy.toFixed(1)}" x2="${(W-pr).toFixed(1)}" y2="${gy.toFixed(1)}" stroke="#eef1f4" stroke-width="1"/>`+
+      `<text x="${(pl-5)}" y="${(gy+3).toFixed(1)}" font-size="8" fill="#bbb" text-anchor="end">${ptFmt(gv)}</text>`;}
   const avg=vals.reduce((s,v)=>s+v,0)/vals.length, avgY=Y(avg);
   const avgLine=`<line x1="${pl}" y1="${avgY.toFixed(1)}" x2="${(W-pr).toFixed(1)}" y2="${avgY.toFixed(1)}" stroke="${opt.color}" stroke-width="1" stroke-dasharray="4 3" opacity=".45"/>`+
     `<text x="${(pl+2)}" y="${(avgY-4).toFixed(1)}" font-size="8.5" fill="${opt.color}" text-anchor="start" opacity=".9" font-weight="700">均 ${fmtV(avg)}</text>`;
@@ -375,7 +380,7 @@ function lineChart(points,opt){
   points.forEach((p,i)=>{labels+=`<text x="${X(i).toFixed(1)}" y="${H-8}" font-size="9" fill="#999" text-anchor="middle">${p.label}</text>`;});
   const scroll = W>600 ? 'min-width:'+W+'px;' : 'width:100%;';
   return `<div style="overflow-x:auto;"><svg viewBox="0 0 ${W} ${H}" style="${scroll}height:auto;">
-    ${avgLine}<path d="${path}" fill="none" stroke="${opt.color}" stroke-width="2.2"/>${dots}${taps}${vlabels}${labels}</svg></div>`;
+    ${grid}${avgLine}<path d="${path}" fill="none" stroke="${opt.color}" stroke-width="2.2"/>${dots}${taps}${vlabels}${labels}</svg></div>`;
 }
 function showPt(title,val,detail){
   const el=document.getElementById('ptPop'); if(!el)return;
@@ -400,6 +405,10 @@ function multiLineChart(months, series, opt){
   const n=months.length, W=Math.max(600,n*58), H=214, pl=38,pr=42,pt=42,pb=28, iw=W-pl-pr, ih=H-pt-pb;
   let min=Math.min(...allV),max=Math.max(...allV); if(min===max){min=min-Math.abs(min||1)*0.1;max=max+Math.abs(max||1)*0.1;}
   const X=i=>pl+(n<=1?iw/2:i/(n-1)*iw), Y=v=>pt+ih-(v-min)/(max-min)*ih;
+  let grid='';
+  for(let t=0;t<=3;t++){const gv=min+(max-min)*t/3, gy=Y(gv);
+    grid+=`<line x1="${pl}" y1="${gy.toFixed(1)}" x2="${(W-pr).toFixed(1)}" y2="${gy.toFixed(1)}" stroke="#eef1f4" stroke-width="1"/>`+
+      `<text x="${(pl-5)}" y="${(gy+3).toFixed(1)}" font-size="8" fill="#bbb" text-anchor="end">${ptFmt(gv)}</text>`;}
   let body='';
   series.forEach(s=>{let path='',dots='',taps='';
     s.values.forEach((v,i)=>{if(v==null)return;const x=X(i),y=Y(v);
@@ -410,7 +419,7 @@ function multiLineChart(months, series, opt){
   let legend=''; series.forEach((s,i)=>{const lx=pl+i*96;legend+=`<circle cx="${lx}" cy="18" r="4.5" fill="${s.color}"/><text x="${lx+9}" y="22" font-size="11" fill="#333" font-weight="800">${esc(s.name)}</text>`;});
   let labels=''; months.forEach((m,i)=>{labels+=`<text x="${X(i).toFixed(1)}" y="${H-8}" font-size="9" fill="#999" text-anchor="middle">${mlbl(m)}</text>`;});
   const scroll=W>600?'min-width:'+W+'px;':'width:100%;';
-  return `<div style="overflow-x:auto;"><svg viewBox="0 0 ${W} ${H}" style="${scroll}height:auto;">${legend}${body}${labels}</svg></div>`;
+  return `<div style="overflow-x:auto;"><svg viewBox="0 0 ${W} ${H}" style="${scroll}height:auto;">${grid}${legend}${body}${labels}</svg></div>`;
 }
 async function renderStoreTrend(){
   const box=document.getElementById('storeTrendBox'); if(!box)return;
