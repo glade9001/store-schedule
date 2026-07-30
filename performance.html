@@ -484,8 +484,17 @@ function renderAnalysis(){
     +derived('人事費率（人事成本÷營業淨額 %，越低越好）','#9334e6',(pf,pn)=>pf.laborCost/pn.netSales*100,v=>v.toFixed(1),'%')
     +derived('每工時營收（營業淨額÷總工時，元/h）','#0891b2',(pf,pn)=>pf.totalHours?pn.netSales/pf.totalHours:null,v=>Math.round(v).toLocaleString('en-US'),'')
     +derived('門市實際餘裕（經營報酬−人事成本，元）','#137333',(pf,pn)=>pn.operatingReward-pf.laborCost,money,'')
-    +(isAdminOwner()?`<div class="chart-card"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px;"><div class="chart-title" style="margin:0;">🏪 三店趨勢比較</div><select id="cmpMetricSel" onchange="cmpMetric=this.value;renderStoreTrend();" style="padding:6px 8px;border:1.5px solid var(--border);border-radius:8px;font-weight:700;font-size:12px;">${Object.keys(METRICS).map(k=>`<option value="${k}"${k===cmpMetric?' selected':''}>${METRICS[k].t}</option>`).join('')}</select></div><div id="storeTrendBox"><div style="font-size:12px;color:var(--text-muted);">載入中…</div></div></div>`:'')
-    +(isAdminOwner()?`<div id="compareBox" style="margin-top:8px;"><div style="font-size:12px;color:var(--text-muted);padding:8px 4px;">載入三店對照…</div></div>`:'');
+    +(isAdminOwner()?`<div class="chart-card">
+      <div class="chart-title" style="margin-bottom:10px;">🏪 三店比較</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+        <span style="font-size:12.5px;font-weight:800;color:var(--text-muted);">趨勢</span>
+        <select id="cmpMetricSel" onchange="cmpMetric=this.value;renderStoreTrend();" style="padding:6px 8px;border:1.5px solid var(--border);border-radius:8px;font-weight:700;font-size:12px;">${Object.keys(METRICS).map(k=>`<option value="${k}"${k===cmpMetric?' selected':''}>${METRICS[k].t}</option>`).join('')}</select>
+      </div>
+      <div id="storeTrendBox"><div style="font-size:12px;color:var(--text-muted);">載入中…</div></div>
+      <div style="height:1px;background:var(--border);margin:14px 0 10px;"></div>
+      <div style="font-size:12.5px;font-weight:800;color:var(--text-muted);margin-bottom:6px;">單月對照</div>
+      <div id="compareBox"><div style="font-size:12px;color:var(--text-muted);">載入中…</div></div>
+    </div>`:'');
   if(isAdminOwner()){ renderStoreTrend(); renderCompare(months[months.length-1]); }
 }
 let cmpData=null; // {store:{pnl:{m:..},perf:{m:..}}}
@@ -531,15 +540,14 @@ async function renderCompare(defaultM){
     const rev=(pf&&pn&&pf.totalHours)?Math.round(pn.netSales/pf.totalHours).toLocaleString('en-US'):null;
     rows+=`<tr><td style="font-weight:800;">${s}</td>${cell(pn?money(pn.netSales):null)}${cell(pn?pn.grossMargin+'%':null)}${cell(pn?money(pn.operatingReward):null)}${cell(rate)}${cell(rev)}</tr>`;
   });
-  box.innerHTML=`<div class="chart-card">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
-      <div class="chart-title" style="margin:0;">🏪 三店對照</div>
+  box.innerHTML=`
+    <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:8px;">
       <select onchange="cmpMonth=this.value;renderCompare();" style="padding:6px 8px;border:1.5px solid var(--border);border-radius:8px;font-weight:700;font-size:12px;">${mOpt}</select>
     </div>
     <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12.5px;white-space:nowrap;">
     <thead><tr style="color:var(--text-muted);font-size:11px;"><th style="text-align:left;padding:4px;">門市</th><th style="text-align:right;padding:4px;">營業淨額</th><th style="text-align:right;">毛利率</th><th style="text-align:right;">經營報酬</th><th style="text-align:right;">人事費率</th><th style="text-align:right;">每工時營收</th></tr></thead>
     <tbody>${rows}</tbody></table></div>
-    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">人事費率＝人事成本(含支援)÷營業淨額；—代表該月尚無資料</div></div>`;
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">人事費率＝人事成本(含支援)÷營業淨額；2026/4 不列入；—代表該月尚無資料</div>`;
 }
 </script>
 </body>
