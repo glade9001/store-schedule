@@ -551,13 +551,15 @@ async function loadLeaveData() {
   compLogMap = {};
   try {
     await Promise.all(empList.map(async emp => {
-      const [leaveSnap, batchSnap, compSnap, compPrevSnap, leaveLogSnap] = await Promise.all([
+      const [leaveSnap, batchSnap, compSnap, compPrevSnap, leaveLogSnap, compUseSnap] = await Promise.all([
         window.db.collection('employees').doc(emp.name).collection('leaves').doc(year).get().catch(()=>null),
         window.db.collection('employees').doc(emp.name).collection('leaveBatches').get().catch(()=>null),
         window.db.collection('employees').doc(emp.name).collection('comp').doc(year).get().catch(()=>null),
         window.db.collection('employees').doc(emp.name).collection('comp').doc(prevYear).get().catch(()=>null),
         // ✅ Bug6：讀取全年 leaveLog，用於建立補休發放批次清單
-        window.db.collection('employees').doc(emp.name).collection('leaveLog').get().catch(()=>null)
+        window.db.collection('employees').doc(emp.name).collection('leaveLog').get().catch(()=>null),
+        // 🌟 方案C：補休使用日期化帳本（消耗發放批次用）
+        window.db.collection('employees').doc(emp.name).collection('compUsage').get().catch(()=>null)
       ]);
       if(leaveSnap?.exists) leaveDataMap[emp.name] = leaveSnap.data();
       let batches = [];
@@ -573,15 +575,13 @@ async function loadLeaveData() {
         totalRemaining: Math.max(0,(cd.earned||0)-(cd.used||0)) + carriedRem
       };
 
-      // ✅ Bug6：從 leaveLog 建立補休發放批次清單（FIFO 排序）
+      // ✅ Bug6 / 🌟方案C：從 leaveLog 建立補休發放批次(comp_earn/comp_cancel)，使用量改由 compUsage 帳本 FIFO 消耗
       const earnBatches = [];
-      let totalUsed = 0;
       if(leaveLogSnap) {
         const allRecords = [];
         leaveLogSnap.forEach(d => {
           (d.data().records || []).forEach(r => allRecords.push({ ...r, _ym: d.id }));
         });
-        // 依日期排序
         allRecords.sort((a,b)=>(a.date||'').localeCompare(b.date||''));
         allRecords.forEach(r => {
           if(r.type === 'comp_earn') {
@@ -589,16 +589,6 @@ async function loadLeaveData() {
               date: r.date, source: r.source||'', note: r.note||'',
               days: parseFloat(r.days)||0, used: 0, _ym: r._ym
             });
-          }
-          if(r.type === 'comp_use') {
-            // FIFO：依序從最舊的批次扣抵
-            let remaining = parseFloat(r.days)||0;
-            for(const b of earnBatches) {
-              if(remaining <= 0) break;
-              const canUse = Math.min(b.days - b.used, remaining);
-              if(canUse > 0) { b.used += canUse; remaining -= canUse; }
-            }
-            totalUsed += parseFloat(r.days)||0;
           }
           if(r.type === 'comp_cancel') {
             // 撤回最新的 earn
@@ -609,6 +599,14 @@ async function loadLeaveData() {
             }
           }
         });
+      }
+      // 🌟 方案C：補休使用天數 = compUsage 帳本筆數，FIFO 從最舊發放批次扣抵
+      let toConsume = 0;
+      if(compUseSnap) compUseSnap.forEach(()=>{ toConsume++; });
+      for(const b of earnBatches) {
+        if(toConsume <= 0) break;
+        const canUse = Math.min(b.days - b.used, toConsume);
+        if(canUse > 0) { b.used += canUse; toConsume -= canUse; }
       }
       compLogMap[emp.name] = earnBatches.filter(b => b.days > 0);
     }));
@@ -839,18 +837,21 @@ async function _doGrantUnworked(empName, rec, emp, days) {
     const leaveRef = window.db.collection('employees').doc(empName).collection('leaves').doc(year);
     const leaveSnap = await leaveRef.get();
     const existing = leaveSnap.exists ? leaveSnap.data() : {};
-    const logSnaps2 = await window.db.collection('employees').doc(empName).collection('leaveLog').get();
+    // 🌟 方案C：usedAnnual/usedComp 一律取自日期化帳本（annualUsage/compUsage）；earned 仍取 leaveLog
+    const [logSnaps2, annUseSnap2, compUseSnap2] = await Promise.all([
+      window.db.collection('employees').doc(empName).collection('leaveLog').get(),
+      window.db.collection('employees').doc(empName).collection('annualUsage').get(),
+      window.db.collection('employees').doc(empName).collection('compUsage').get()
+    ]);
     let usedAnnual = 0, earnedComp = 0, usedComp = 0;
+    annUseSnap2.forEach(d => { const dt=(d.data().date)||d.id; if(String(dt).startsWith(year)) usedAnnual++; });
+    compUseSnap2.forEach(d => { const dt=(d.data().date)||d.id; if(String(dt).startsWith(year)) usedComp++; });
     logSnaps2.forEach(d => {
       if(!d.id.startsWith(year)) return;
       (d.data().records || []).forEach(r => {
         const rd = parseFloat(r.days) || 0;
-        if(r.type === 'annual_use')        usedAnnual += rd;
-        if(r.type === 'comp_earn')         earnedComp += rd;
-        if(r.type === 'comp_use')          usedComp   += rd;
-        if(r.type === 'annual_use_cancel') usedAnnual = Math.max(0, usedAnnual - rd);
-        if(r.type === 'comp_use_cancel')   usedComp   = Math.max(0, usedComp   - rd);
-        if(r.type === 'comp_cancel')       earnedComp = Math.max(0, earnedComp - rd);
+        if(r.type === 'comp_earn')   earnedComp += rd;
+        if(r.type === 'comp_cancel') earnedComp = Math.max(0, earnedComp - rd);
       });
     });
     const updatedLeave = { ...existing, usedAnnual, earnedComp, usedComp, updatedAt: new Date().toISOString() };
@@ -942,18 +943,21 @@ async function confirmCompEarned(empName) {
     const leaveSnap = await leaveRef.get();
     const existing = leaveSnap.exists ? leaveSnap.data() : {};
     // leaveLog 重新加總 leaves 總帳
-    const logSnaps2 = await window.db.collection('employees').doc(empName).collection('leaveLog').get();
+    // 🌟 方案C：usedAnnual/usedComp 一律取自日期化帳本（annualUsage/compUsage）；earned 仍取 leaveLog
+    const [logSnaps2, annUseSnap2, compUseSnap2] = await Promise.all([
+      window.db.collection('employees').doc(empName).collection('leaveLog').get(),
+      window.db.collection('employees').doc(empName).collection('annualUsage').get(),
+      window.db.collection('employees').doc(empName).collection('compUsage').get()
+    ]);
     let usedAnnual = 0, earnedComp = 0, usedComp = 0;
+    annUseSnap2.forEach(d => { const dt=(d.data().date)||d.id; if(String(dt).startsWith(year)) usedAnnual++; });
+    compUseSnap2.forEach(d => { const dt=(d.data().date)||d.id; if(String(dt).startsWith(year)) usedComp++; });
     logSnaps2.forEach(d => {
       if(!d.id.startsWith(year)) return;
       (d.data().records || []).forEach(r => {
         const rd = parseFloat(r.days) || 0;
-        if(r.type === 'annual_use')        usedAnnual += rd;
-        if(r.type === 'comp_earn')         earnedComp += rd;
-        if(r.type === 'comp_use')          usedComp   += rd;
-        if(r.type === 'annual_use_cancel') usedAnnual = Math.max(0, usedAnnual - rd);
-        if(r.type === 'comp_use_cancel')   usedComp   = Math.max(0, usedComp   - rd);
-        if(r.type === 'comp_cancel')       earnedComp = Math.max(0, earnedComp - rd);
+        if(r.type === 'comp_earn')   earnedComp += rd;
+        if(r.type === 'comp_cancel') earnedComp = Math.max(0, earnedComp - rd);
       });
     });
     const updatedLeave = { ...existing, usedAnnual, earnedComp, usedComp, updatedAt: new Date().toISOString() };
@@ -976,18 +980,21 @@ async function confirmCompEarned(empName) {
 // 重算 comp/{year} 總帳（同時同步 leaves/{year} 與 in-memory leaveDataMap，避免補休撤回後顯示舊值）
 async function recalcComp(empName, year) {
   const y = String(year), prevY = String(parseInt(y) - 1);
-  const logSnaps = await window.db.collection('employees').doc(empName).collection('leaveLog').get();
+  // 🌟 方案C：earned 取自 leaveLog、used 取自 compUsage 日期化帳本
+  const [logSnaps, compUseSnap] = await Promise.all([
+    window.db.collection('employees').doc(empName).collection('leaveLog').get(),
+    window.db.collection('employees').doc(empName).collection('compUsage').get()
+  ]);
   let earned = 0, used = 0;
   logSnaps.forEach(d => {
     if(!d.id.startsWith(y)) return;
     (d.data().records || []).forEach(r => {
       const rd = parseFloat(r.days) || 0;
-      if(r.type === 'comp_earn')         earned += rd;
-      if(r.type === 'comp_use')          used   += rd;
-      if(r.type === 'comp_cancel')       earned  = Math.max(0, earned - rd);
-      if(r.type === 'comp_use_cancel')   used    = Math.max(0, used   - rd);
+      if(r.type === 'comp_earn')   earned += rd;
+      if(r.type === 'comp_cancel') earned  = Math.max(0, earned - rd);
     });
   });
+  compUseSnap.forEach(d => { const dt=(d.data().date)||d.id; if(String(dt).startsWith(y)) used++; });
   // 先扣前一年度遞延補休（快到期、不可再延），用完才動當年度
   const prevRef = window.db.collection('employees').doc(empName).collection('comp').doc(prevY);
   const prevSnap = await prevRef.get();

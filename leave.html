@@ -289,11 +289,8 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
       <div class="form-field">
         <label>類型</label>
         <select id="addLogType">
-          <option value="annual_use">特休 — 使用</option>
-          <option value="annual_use_cancel">特休 — 取消</option>
-          <option value="comp_earn">補休 — 取得</option>
-          <option value="comp_use">補休 — 使用</option>
-          <option value="comp_use_cancel">補休 — 取消</option>
+          <option value="comp_earn">補休 — 取得（發放）</option>
+          <option value="comp_cancel">補休 — 取消取得</option>
         </select>
       </div>
       <div class="form-field"><label>日期</label><input type="date" id="addLogDate"></div>
@@ -317,11 +314,8 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
       <div class="form-field">
         <label>類型</label>
         <select id="editLogType">
-          <option value="annual_use">特休 — 使用</option>
-          <option value="annual_use_cancel">特休 — 取消</option>
-          <option value="comp_earn">補休 — 取得</option>
-          <option value="comp_use">補休 — 使用</option>
-          <option value="comp_use_cancel">補休 — 取消</option>
+          <option value="comp_earn">補休 — 取得（發放）</option>
+          <option value="comp_cancel">補休 — 取消取得</option>
         </select>
       </div>
       <div class="form-field"><label>日期</label><input type="date" id="editLogDate"></div>
@@ -376,6 +370,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 let currentUser = null, appConfig = { stores:[], shifts:[] };
 let empList = [], batchesAll = {}, leaveLogAll = {}, displayNameMap = {};
 let compDataAll = {}; // empName -> { current: {year, earned, used, remaining}, carried: {year, earned, used, remaining} }
+let annUsageAll = {}, compUsageAll = {}; // 方案C 日期化帳本 empName -> [{date,store,source,savedBy,ts}]
 let currentStore = '', currentTab = 'overview', currentViewEmp = '';
 let urlMode = '';
 
@@ -558,11 +553,22 @@ async function loadAllEmps() {
 
 // ===== 讀取特休批次 =====
 async function loadEmpBatches(empName) {
-  const [batchSnap, leaveSnap, logSnap] = await Promise.all([
+  const [batchSnap, leaveSnap, logSnap, annUseSnap, compUseSnap] = await Promise.all([
     window.db.collection('employees').doc(empName).collection('leaveBatches').get().catch(()=>null),
     window.db.collection('employees').doc(empName).collection('leaves').doc(new Date().getFullYear().toString()).get().catch(()=>null),
-    window.db.collection('employees').doc(empName).collection('leaveLog').get().catch(()=>null)
+    window.db.collection('employees').doc(empName).collection('leaveLog').get().catch(()=>null),
+    window.db.collection('employees').doc(empName).collection('annualUsage').get().catch(()=>null),
+    window.db.collection('employees').doc(empName).collection('compUsage').get().catch(()=>null)
   ]);
+
+  // 方案C 日期化使用帳本（唯一真相）
+  const annU=[], compU=[];
+  if(annUseSnap) annUseSnap.forEach(d=>annU.push({ date:d.id, ...d.data() }));
+  if(compUseSnap) compUseSnap.forEach(d=>compU.push({ date:d.id, ...d.data() }));
+  annU.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  compU.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  annUsageAll[empName] = annU;
+  compUsageAll[empName] = compU;
 
   let batches = [];
   if(batchSnap) batchSnap.forEach(d=>batches.push({id:d.id,...d.data()}));
@@ -618,37 +624,11 @@ async function loadEmpComp(empName) {
   };
 }
 
-// ===== 補休重算（先扣遞延、再扣當年度）=====
-// 規則：使用補休時，優先消耗「前一年度遞延（快到期、不可再延）」的補休，用完才動當年度。
-// 由整年 leaveLog 重算後寫回，idempotent；同時更新前一年度的 carriedUsed（遞延已用量）。
+// ===== 補休重算（方案C：委派給權威重算）=====
+// used 來自 compUsage 日期化帳本、earned 來自 leaveLog(comp_earn/comp_cancel)，
+// 遞延優先扣、其餘記當年度，並同步更新 leaves 與 comp。（recomputeCountersClient 已 hoist）
 async function recalcCompCarriedFirst(empName, year) {
-  const y = String(year), prevY = String(parseInt(y) - 1);
-  const logSnaps = await window.db.collection('employees').doc(empName).collection('leaveLog').get();
-  let earned = 0, used = 0;
-  logSnaps.forEach(d => {
-    if(!d.id.startsWith(y)) return;
-    (d.data().records || []).forEach(r => {
-      const rd = parseFloat(r.days) || 0;
-      if(r.type === 'comp_earn')       earned += rd;
-      if(r.type === 'comp_cancel')     earned  = Math.max(0, earned - rd);
-      if(r.type === 'comp_use')        used   += rd;
-      if(r.type === 'comp_use_cancel') used    = Math.max(0, used  - rd);
-    });
-  });
-  // 前一年度遞延補休可用量（= 前一年自身剩餘），先從這裡扣
-  const prevRef = window.db.collection('employees').doc(empName).collection('comp').doc(prevY);
-  const prevSnap = await prevRef.get();
-  const prev = prevSnap.exists ? prevSnap.data() : null;
-  const carriedActive = !!(prev && prev.carried === true && !prev.settled);
-  const carriedAvail  = carriedActive ? Math.max(0, (prev.earned||0) - (prev.used||0)) : 0;
-  const carriedUsed   = carriedActive ? Math.min(used, carriedAvail) : 0;
-  const currentUsed   = used - carriedUsed;   // 其餘記入當年度（可能使餘額為負，符合既有設計）
-  const writes = [
-    window.db.collection('employees').doc(empName).collection('comp').doc(y)
-      .set({ earned, used: currentUsed }, { merge: true })
-  ];
-  if(carriedActive) writes.push(prevRef.set({ carriedUsed }, { merge: true }));
-  await Promise.all(writes);
+  await recomputeCountersClient(empName, String(year));
 }
 
 // ===== 計算特休概況 =====
@@ -657,15 +637,16 @@ function calcEmpSummary(empName) {
   const logs    = leaveLogAll[empName] || [];
   const todayStr = today();
 
-  let usedAnnual=0, earnedComp=0, usedComp=0;
+  // 🌟 方案C：使用天數一律以「日期化帳本」筆數為準（唯一真相，不再從 leaveLog 淨額累計）
+  const yStr = todayStr.slice(0,4);
+  const usedAnnual = (annUsageAll[empName]||[]).filter(u=>String(u.date||'').startsWith(yStr)).length;
+  const usedComp   = (compUsageAll[empName]||[]).filter(u=>String(u.date||'').startsWith(yStr)).length;
+  // 補休「取得」仍記在 leaveLog（國定假日/例休未休/手動）
+  let earnedComp=0;
   logs.forEach(r=>{
     const d=parseFloat(r.days)||0;
-    if(r.type==='annual_use')        usedAnnual+=d;
-    if(r.type==='annual_use_cancel') usedAnnual=Math.max(0,usedAnnual-d);
-    if(r.type==='comp_earn')         earnedComp+=d;
-    if(r.type==='comp_use')          usedComp+=d;
-    if(r.type==='comp_use_cancel')   usedComp=Math.max(0,usedComp-d);
-    if(r.type==='comp_cancel')       earnedComp=Math.max(0,earnedComp-d);
+    if(r.type==='comp_earn')   earnedComp+=d;
+    if(r.type==='comp_cancel') earnedComp=Math.max(0,earnedComp-d);
   });
 
   let activeDays=0, carriedDays=0, nearExpire=null;
@@ -1073,10 +1054,14 @@ function renderEmpDetail(empName, showBack=true) {
     }
   }
 
-  // 近期紀錄
-  const recentLogs = logs.slice(0,20);
+  // ===== 🌟 方案C：使用明細（特休 / 補休 分開，逐日列出）=====
+  html += renderUsageList('🏖️ 特休使用明細', annUsageAll[empName]||[], 'annual', empName, canEdit);
+  html += renderUsageList('🔄 補休使用明細', compUsageAll[empName]||[], 'comp', empName, canEdit);
+
+  // 近期紀錄（發放/結算/遞延等事件；使用/取消已改由上方使用明細呈現）
+  const recentLogs = logs.filter(r=>!['annual_use','annual_use_cancel','comp_use','comp_use_cancel'].includes(r.type)).slice(0,20);
   if(recentLogs.length>0) {
-    html+=`<div style="font-size:12px;font-weight:800;color:var(--text-muted);letter-spacing:0.5px;margin:14px 0 8px;text-transform:uppercase;">近期紀錄</div>`;
+    html+=`<div style="font-size:12px;font-weight:800;color:var(--text-muted);letter-spacing:0.5px;margin:14px 0 8px;text-transform:uppercase;">發放 / 結算紀錄</div>`;
     html+=recentLogs.map((r,i)=>renderLogItem(r,i,empName)).join('');
   }
 
@@ -1136,6 +1121,114 @@ function renderLogItem(r, idx, empName) {
       <button class="log-btn del" onclick="confirmDeleteLog('${empName}','${r.ym}',${idx})">🗑️ 刪除</button>
     </div>`:''}
   </div>`;
+}
+
+// ===== 🌟 方案C：使用明細渲染 =====
+function renderUsageList(title, arr, type, empName, canEdit) {
+  const y = today().slice(0,4);
+  const thisYear = (arr||[]).filter(u=>String(u.date||'').startsWith(y));
+  let h = `<div style="display:flex;align-items:center;justify-content:space-between;margin:16px 0 8px;">
+    <div style="font-size:12px;font-weight:800;color:var(--text-muted);letter-spacing:0.5px;text-transform:uppercase;">${title}　<span style="color:var(--primary);">${y}年 ${thisYear.length} 天</span></div>
+    ${canEdit?`<button onclick="addUsageDay('${empName}','${type}')" style="background:#eef2ff;color:#4338ca;border:none;border-radius:8px;padding:4px 10px;font-size:11px;font-weight:800;cursor:pointer;">＋補登</button>`:''}
+  </div>`;
+  if(!arr || arr.length===0){ h+=`<div style="color:var(--text-muted);font-size:12px;padding:4px 0 2px;">尚無使用紀錄</div>`; return h; }
+  h += arr.map(u=>{
+    const s = String(u.source||'');
+    const src = s==='manual'?'手動補登' : s.startsWith('migration')?'班表遷移' : s.startsWith('schedule')?'排班使用' : (s||'—');
+    return `<div class="log-item">
+      <div class="log-header">
+        <span class="log-badge use">${type==='annual'?'特休':'補休'}</span>
+        <span class="log-date">${fmtDate(u.date)}</span>
+        <span class="log-days neg">-1 天</span>
+      </div>
+      <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:2px;">
+        ${u.store?`<span style="background:#f0fdf4;color:#166534;border-radius:5px;padding:1px 7px;font-size:10px;font-weight:700;">🏬 ${u.store}</span>`:''}
+        <span style="background:#f0f9ff;color:#0369a1;border-radius:5px;padding:1px 7px;font-size:10px;font-weight:700;">📌 ${src}</span>
+        ${u.savedBy?`<span class="log-note">👤 ${u.savedBy}</span>`:''}
+      </div>
+      ${canEdit?`<div class="log-actions"><button class="log-btn del" onclick="removeUsageDay('${empName}','${type}','${u.date}')">🗑️ 移除</button></div>`:''}
+    </div>`;
+  }).join('');
+  return h;
+}
+
+// 手動補登 / 移除使用日（管理者）— 寫帳本 + 重算快取，與排班同一套邏輯
+async function addUsageDay(empName, type) {
+  const dateStr = prompt(`補登${type==='annual'?'特休':'補休'}使用日期（YYYY-MM-DD）：`, today());
+  if(!dateStr) return;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) { showToast('⚠️ 日期格式需 YYYY-MM-DD'); return; }
+  const yearStr = dateStr.slice(0,4);
+  const savedBy = currentUser?.displayName || currentUser?.empName || '';
+  const empRef = window.db.collection('employees').doc(empName);
+  const coll = type==='annual'?'annualUsage':'compUsage';
+  const store = (empList.find(e=>e.name===empName)||{}).store || currentStore || '';
+  showLoading('補登中...');
+  try {
+    await empRef.collection(coll).doc(dateStr).set({ date:dateStr, store, source:'manual', note:`${dateStr} 手動補登使用${type==='annual'?'特休':'補休'}`, savedBy, ts:Date.now() });
+    if(type==='annual') await adjustBatchUsed(empName, +1);
+    await recomputeCountersClient(empName, yearStr);
+    await loadEmpBatches(empName); await loadEmpComp(empName);
+    renderEmpDetail(empName, true);
+    showToast('✅ 已補登');
+  } catch(e){ showToast('❌ 補登失敗：'+e.message); }
+  hideLoading();
+}
+async function removeUsageDay(empName, type, dateStr) {
+  if(!confirm(`確定移除 ${fmtDate(dateStr)} 的${type==='annual'?'特休':'補休'}使用紀錄？（會退還 1 天）`)) return;
+  const yearStr = dateStr.slice(0,4);
+  const empRef = window.db.collection('employees').doc(empName);
+  const coll = type==='annual'?'annualUsage':'compUsage';
+  showLoading('移除中...');
+  try {
+    await empRef.collection(coll).doc(dateStr).delete();
+    if(type==='annual') await adjustBatchUsed(empName, -1);
+    await recomputeCountersClient(empName, yearStr);
+    await loadEmpBatches(empName); await loadEmpComp(empName);
+    renderEmpDetail(empName, true);
+    showToast('✅ 已移除並退還');
+  } catch(e){ showToast('❌ 移除失敗：'+e.message); }
+  hideLoading();
+}
+async function adjustBatchUsed(empName, delta) {
+  const ref = window.db.collection('employees').doc(empName).collection('leaveBatches');
+  const snap = await ref.get();
+  let target=null, latest=null;
+  if(delta>0) {
+    snap.forEach(d=>{ const b={id:d.id,...d.data()}; if(!latest||b.createdAt>latest.createdAt)latest=b; if(!b.settled){ const rem=(b.days||0)-(b.used||0); if(rem>0&&(!target||b.grantDate<target.grantDate))target=b; } });
+    const bd = target||latest; if(bd) await ref.doc(bd.id).update({ used:(bd.used||0)+1 });
+  } else {
+    snap.forEach(d=>{ const b={id:d.id,...d.data()}; if(b.used>0&&(!target||b.grantDate>target.grantDate))target=b; });
+    if(target) await ref.doc(target.id).update({ used:Math.max(0,target.used-1) });
+  }
+}
+// 從帳本集合重算快取（與 schedule-V2.html recomputeLeaveCounters 一致）
+async function recomputeCountersClient(empName, yearStr) {
+  const empRef = window.db.collection('employees').doc(empName);
+  const [annSnap, compSnap, leaveSnap, logSnaps, prevCompSnap] = await Promise.all([
+    empRef.collection('annualUsage').get(),
+    empRef.collection('compUsage').get(),
+    empRef.collection('leaves').doc(yearStr).get(),
+    empRef.collection('leaveLog').get(),
+    empRef.collection('comp').doc(String(parseInt(yearStr)-1)).get()
+  ]);
+  let fa=0, fc=0;
+  annSnap.forEach(d=>{ const dt=(d.data().date)||d.id; if(String(dt).startsWith(yearStr)) fa++; });
+  compSnap.forEach(d=>{ const dt=(d.data().date)||d.id; if(String(dt).startsWith(yearStr)) fc++; });
+  let cE=0, cC=0;
+  logSnaps.forEach(doc=>{ if(!doc.id.startsWith(yearStr)) return; (doc.data().records||[]).forEach(r=>{ const rd=parseFloat(r.days)||0; if(r.type==='comp_earn')cE+=rd; if(r.type==='comp_cancel')cC+=rd; }); });
+  const fCE=Math.max(0,cE-cC);
+  const ld=leaveSnap.exists?leaveSnap.data():{};
+  const prevC=prevCompSnap.exists?prevCompSnap.data():null;
+  const cActive=!!(prevC&&prevC.carried===true&&!prevC.settled);
+  const cAvail=cActive?Math.max(0,(prevC.earned||0)-(prevC.used||0)):0;
+  const cUsedNow=cActive?Math.min(fc,cAvail):0;
+  const curUse=fc-cUsedNow;
+  const writes=[
+    empRef.collection('leaves').doc(yearStr).set({ ...ld, usedAnnual:fa, earnedComp:fCE, usedComp:fc, updatedAt:new Date().toISOString() }, { merge:true }),
+    empRef.collection('comp').doc(yearStr).set({ earned:fCE, used:curUse }, { merge:true })
+  ];
+  if(cActive) writes.push(empRef.collection('comp').doc(String(parseInt(yearStr)-1)).set({ carriedUsed:cUsedNow }, { merge:true }));
+  await Promise.all(writes);
 }
 
 // ===== Tab 切換 =====
@@ -1454,7 +1547,8 @@ function openAddLogModal(empName) {
   document.getElementById('addLogDate').value = today();
   document.getElementById('addLogDays').value = '';
   document.getElementById('addLogNote').value = '';
-  document.getElementById('addLogType').value = 'annual_use';
+  document.getElementById('addLogType').value = 'comp_earn';
+  document.getElementById('addLogDays').value = '1';
   openModal('addLogModal');
 }
 async function saveAddLog() {
