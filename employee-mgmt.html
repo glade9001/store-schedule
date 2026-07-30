@@ -171,8 +171,13 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
       </select>
     </div>
     <div class="form-field">
-      <label>時薪 / 月薪</label>
-      <input type="number" id="addEmpWage" placeholder="例如：183">
+      <label>到職日 <span style="color:#d93025;">＊必填</span> <span style="color:var(--text-muted);font-size:10px;">（連動特補休＋薪資，決定薪資從哪個月開始）</span></label>
+      <input type="date" id="addEmpStartDate">
+    </div>
+    <div class="form-field">
+      <label>時薪 / 月薪 <span style="color:#d93025;">＊必填</span></label>
+      <input type="number" id="addEmpWage" placeholder="工讀填時薪(如183)；正職填月薪(底薪基準)">
+      <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">⚠️ 正職詳細底薪／全勤／勞健保級距仍於「薪資」頁逐月設定</div>
     </div>
     <div class="form-field">
       <label>帳號（身分證字母 + 後5碼）</label>
@@ -1013,6 +1018,7 @@ function openAddEmpModal() {
   document.getElementById('addEmpStoreSub').textContent = `「${store}」新增員工並同時建立帳號`;
   document.getElementById('addEmpDisplayName').value = '';
   document.getElementById('addEmpRole').value = '工讀';
+  document.getElementById('addEmpStartDate').value = '';
   document.getElementById('addEmpWage').value = '';
   document.getElementById('addEmpUsername').value = '';
   document.getElementById('addEmpPassword').value = '';
@@ -1029,8 +1035,11 @@ async function saveNewEmployee() {
   const username = document.getElementById('addEmpUsername').value.trim().toUpperCase();
   const password = document.getElementById('addEmpPassword').value;
   const perm     = document.getElementById('addEmpPermission').value;
+  const startDate= document.getElementById('addEmpStartDate').value;
 
   if(!dispName) { showToast('⚠️ 請輸入姓名'); return; }
+  if(!startDate) { showToast('⚠️ 請填寫到職日（必填）'); return; }
+  if(!(wage > 0)) { showToast('⚠️ 請填寫時薪/月薪（需大於 0）'); return; }
   if(!username || !/^[A-Z][0-9]{5}$/.test(username)) { showToast('⚠️ 帳號格式：1英文字母+5碼數字'); return; }
   if(!password || password.length < 6) { showToast('⚠️ 密碼至少6碼'); return; }
 
@@ -1048,8 +1057,13 @@ async function saveNewEmployee() {
     const sortKey = empCount.size;
 
     await window.db.collection('stores').doc(store).collection('employees').doc(sysName).set({
-      role, wage, sortKey, status: '在職'
+      role, wage, sortKey, status: '在職', startDate  // startDate=到職日，供薪資「到職前不顯示」篩選
     });
+
+    // 到職日連動特補休系統：寫入 leaves.hireDate（當年度文件，與 leave.html 讀取一致）
+    const _cy = new Date().getFullYear().toString();
+    await window.db.collection('employees').doc(sysName).collection('leaves').doc(_cy)
+      .set({ hireDate: startDate, store }, { merge: true });
 
     // 建立 Firebase Auth 帳號
     const uid = await _createAuthUser(username, password);
@@ -1068,7 +1082,7 @@ async function saveNewEmployee() {
 
     closeModal('addEmpModal');
     await loadEmpAdminList(store);
-    showToast(`✅ 已新增員工「${sysName}」`);
+    showToast(`✅ 已新增員工「${sysName}」（到職日 ${startDate}）${role.includes('工讀')?'':'，請至特補休系統建立特休批次'}`);
   } catch(e) { showToast('❌ 新增失敗：' + e.message); }
   hideLoading();
 }
@@ -1116,7 +1130,7 @@ async function handleRehire(accDoc, form) {
     // 3) 建新門市員工記錄（在職）；原門市離職記錄保留不動
     const empCount = await window.db.collection('stores').doc(form.store).collection('employees').get().catch(()=>({size:0}));
     await window.db.collection('stores').doc(form.store).collection('employees').doc(existName)
-      .set({ role: form.role, wage: form.wage, sortKey: empCount.size, status: '在職' });
+      .set({ role: form.role, wage: form.wage, sortKey: empCount.size, status: '在職', startDate: newHire });
     // 4) users 更新門市
     const us = await window.db.collection('users').where('ID','==',form.username).limit(1).get().catch(()=>null);
     if(us && !us.empty) await us.docs[0].ref.update({ store: form.store, role: form.role, permission: form.perm, disabled:false });
