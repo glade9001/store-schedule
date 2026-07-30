@@ -141,6 +141,24 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
         <div id="maintenanceStatus" style="font-size:12px; color:var(--text-muted);">目前：關閉</div>
       </div>
     </label>
+
+    <div class="card-title" style="padding:16px 0 8px;">🕐 打卡系統
+      <span class="perm-badge perm-admin">管理者</span>
+    </div>
+    <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px; line-height:1.6;">
+      控制打卡功能開放範圍，並設定各門市 GPS 座標（打卡圍欄）。建議<b>站在店內</b>按「📍 抓當下座標」最準；半徑建議 100–150m。未開放的層級，打卡入口與出勤頁會顯示「維護中敬請期待」。
+    </div>
+    <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+      <span style="font-size:13px; font-weight:800; white-space:nowrap;">開放範圍</span>
+      <select id="clockStage" style="flex:1; padding:10px; border:1.5px solid var(--border); border-radius:10px; font-weight:700;">
+        <option value="off">關閉（全部顯示維護中）</option>
+        <option value="admin">僅管理者（測試用）</option>
+        <option value="manager">管理者＋店長</option>
+        <option value="all">全面開放</option>
+      </select>
+    </div>
+    <div id="clockGeoGrid"></div>
+    <button class="save-btn" style="margin-top:10px;" onclick="saveClockConfig()">💾 儲存打卡設定</button>
   </div>
 
   <!-- 國定假日管理（加盟主以上）-->
@@ -431,7 +449,7 @@ window.onload = async () => {
     `${currentUser.displayName || currentUser.empName || ''}<br>${PERM_LABELS[currentUser.permission] || ''} · ${currentUser.store || ''}`;
 
   // 依權限顯示區塊
-  if(canAdmin())   { document.getElementById('sectionSysConfig').style.display  = 'block'; loadLineKeywords(); loadMaintenanceState(); }
+  if(canAdmin())   { document.getElementById('sectionSysConfig').style.display  = 'block'; loadLineKeywords(); loadMaintenanceState(); loadClockConfig(); }
   if(canOwner())   document.getElementById('sectionHoliday').style.display   = 'block';
   if(canOwner())   document.getElementById('sectionInsurance').style.display  = 'block';
   if(canManager()) document.getElementById('sectionStoreConfig').style.display = 'block';
@@ -505,6 +523,61 @@ async function toggleMaintenance(on) {
     document.getElementById('maintenanceStatus').textContent = on ? '目前：🔧 維護中' : '目前：關閉';
     showToast(on ? '🔧 已啟用維護模式' : '✅ 已關閉維護，將通知登記者');
   } catch(e) { showToast('失敗：' + e.message); if(t) t.checked = !on; }
+}
+// ===== 打卡系統設定（功能旗標＋門市座標）=====
+function loadClockConfig() {
+  const c = (appConfig && appConfig.clockIn) || {};
+  const sel = document.getElementById('clockStage');
+  if(sel) sel.value = c.stage || 'admin';
+  renderClockGeo();
+}
+function renderClockGeo() {
+  const grid = document.getElementById('clockGeoGrid');
+  if(!grid) return;
+  const geo = ((appConfig.clockIn||{}).geo) || {};
+  const stores = (appConfig.stores||[]).filter(s=>s!=='人力支援');
+  grid.innerHTML = stores.map(s=>{
+    const g = geo[s] || {};
+    return `<div style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
+        <b style="font-size:14px;">${s}</b>
+        <button onclick="captureStoreGeo('${s.replace(/'/g,'')}')" style="background:var(--primary);color:#fff;border:none;border-radius:8px;padding:6px 10px;font-size:12px;font-weight:800;cursor:pointer;">📍 抓當下座標</button>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <input data-geo="${s}" data-k="lat" type="number" step="0.000001" placeholder="緯度 lat" value="${g.lat!=null?g.lat:''}" style="flex:1;min-width:110px;padding:8px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;">
+        <input data-geo="${s}" data-k="lng" type="number" step="0.000001" placeholder="經度 lng" value="${g.lng!=null?g.lng:''}" style="flex:1;min-width:110px;padding:8px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;">
+        <input data-geo="${s}" data-k="radiusM" type="number" placeholder="半徑m" value="${g.radiusM!=null?g.radiusM:120}" style="width:80px;padding:8px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;">
+      </div>
+      <div id="geoAcc-${s}" style="font-size:11px;color:var(--text-muted);margin-top:4px;"></div>
+    </div>`;
+  }).join('') || '<div style="font-size:12px;color:var(--text-muted);">尚無門市</div>';
+}
+function captureStoreGeo(store){
+  const acc=document.getElementById('geoAcc-'+store);
+  if(!navigator.geolocation){ showToast('此裝置不支援定位'); return; }
+  if(acc) acc.textContent='定位中…';
+  navigator.geolocation.getCurrentPosition(p=>{
+    const lat=p.coords.latitude, lng=p.coords.longitude, a=Math.round(p.coords.accuracy);
+    const li=document.querySelector(`input[data-geo="${store}"][data-k="lat"]`);
+    const gi=document.querySelector(`input[data-geo="${store}"][data-k="lng"]`);
+    if(li) li.value=lat.toFixed(6); if(gi) gi.value=lng.toFixed(6);
+    if(acc) acc.textContent=`✅ 已抓：${lat.toFixed(6)}, ${lng.toFixed(6)}（精度約 ${a}m，可多抓幾次確認）`;
+  }, e=>{ if(acc) acc.textContent='❌ 定位失敗：'+e.message; showToast('定位失敗：'+e.message); }, {enableHighAccuracy:true,timeout:10000,maximumAge:0});
+}
+async function saveClockConfig(){
+  const stage=document.getElementById('clockStage').value;
+  const geo={};
+  (appConfig.stores||[]).filter(s=>s!=='人力支援').forEach(s=>{
+    const lat=parseFloat((document.querySelector(`input[data-geo="${s}"][data-k="lat"]`)||{}).value);
+    const lng=parseFloat((document.querySelector(`input[data-geo="${s}"][data-k="lng"]`)||{}).value);
+    const radiusM=parseInt((document.querySelector(`input[data-geo="${s}"][data-k="radiusM"]`)||{}).value)||120;
+    if(!isNaN(lat)&&!isNaN(lng)) geo[s]={lat,lng,radiusM};
+  });
+  try{
+    await window.db.collection('settings').doc('globalConfig').set({ clockIn:{ stage, geo } }, { merge:true });
+    appConfig.clockIn={ stage, geo };
+    showToast('✅ 打卡設定已儲存');
+  }catch(e){ showToast('儲存失敗：'+e.message); }
 }
 async function loadLineKeywords() {
   try {
