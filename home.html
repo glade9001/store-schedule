@@ -638,7 +638,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
   <div class="modal-box" style="max-width:460px;">
     <div style="font-size:40px; margin-bottom:8px;">📅</div>
     <div class="modal-title">請補齊員工到職日</div>
-    <div class="modal-sub" style="margin-bottom:14px;">以下員工尚未設定到職日，會影響<b>薪資起算月份</b>與<b>特休計算</b>。請確認後儲存（預設已帶入特補休系統的到職日，可修改）。<br><span style="color:#e67e22;font-size:12px;">※ 若更動日期，正職請再至「特補休管理」確認特休批次。</span></div>
+    <div class="modal-sub" style="margin-bottom:14px;">以下員工的到職日<b>需要確認</b>（缺漏或為建檔日預設值），會影響<b>薪資起算月份</b>與<b>特休計算</b>。請核對／修正為<b>實際到職日</b>後儲存。<br><span style="color:#e67e22;font-size:12px;">※ 若更動日期，正職請再至「特補休管理」確認特休批次。</span></div>
     <div id="hireGateList" style="max-height:52vh; overflow-y:auto;"></div>
     <button class="save-btn" style="margin-top:16px;" onclick="saveHireDateGate()">全部儲存</button>
   </div>
@@ -1719,19 +1719,21 @@ async function checkHireDateGate(){
     empSnap.forEach(d=>{
       const data = d.data();
       if(['離職','調走'].includes(data.status)) return;
-      if(data.startDate) return; // 已有到職日(startDate) → 不處理
-      candidates.push({ name: d.id });
+      // 需處理：缺 startDate，或被標記為「待確認」(建檔日預設值等)
+      const needsReview = !data.startDate || data.startDateConfirmed === false;
+      if(!needsReview) return;
+      candidates.push({ name: d.id, startDate: data.startDate||'', confirmed: data.startDateConfirmed });
     });
     if(!candidates.length) return;
-    // 有 hireDate 者 → 靜默把 startDate 同步過去(不打擾店長)；兩者皆無者才要求店長填寫
+    // 缺 startDate 但有真實 hireDate 且非待確認 → 靜默同步(不打擾)；其餘(待確認/兩者皆無)→ 列給店長核對
     const need = [];
     await Promise.all(candidates.map(async c=>{
       const lv = await window.db.collection('employees').doc(c.name).collection('leaves').doc(cy).get().catch(()=>null);
       const hire = (lv && lv.exists && lv.data().hireDate) ? lv.data().hireDate : '';
-      if(hire){
+      if(!c.startDate && hire && c.confirmed !== false){
         await window.db.collection('stores').doc(store).collection('employees').doc(c.name).set({ startDate: hire }, { merge:true });
       } else {
-        need.push({ name: c.name, prefill: todayStr }); // 真的完全沒到職日
+        need.push({ name: c.name, prefill: c.startDate || hire || todayStr }); // 待確認 或 完全無到職日
       }
     }));
     if(!need.length) return;
@@ -1754,7 +1756,7 @@ async function saveHireDateGate(){
     const cy = new Date().getFullYear().toString();
     for(const i of inputs){
       const emp = i.dataset.emp, date = i.value;
-      await window.db.collection('stores').doc(_hireGateStore).collection('employees').doc(emp).set({ startDate: date }, { merge:true });
+      await window.db.collection('stores').doc(_hireGateStore).collection('employees').doc(emp).set({ startDate: date, startDateConfirmed: true }, { merge:true });
       await window.db.collection('employees').doc(emp).collection('leaves').doc(cy).set({ hireDate: date, store:_hireGateStore }, { merge:true });
     }
     hideLoading();
