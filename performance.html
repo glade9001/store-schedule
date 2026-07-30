@@ -133,6 +133,7 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
 </div>
 
 <div id="toast"></div>
+<div id="ptPop" onclick="this.style.display='none'" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#fff;border:1.5px solid var(--border);box-shadow:0 6px 24px rgba(0,0,0,.18);border-radius:14px;padding:12px 18px;z-index:99998;max-width:88vw;text-align:center;cursor:pointer;"></div>
 
 <script>
 let currentUser=null, appConfig={}, curStore='', pnlCache={}, perfCache={}, editMonth='';
@@ -346,20 +347,43 @@ function switchTab(t){
 // 點值精簡格式：萬/整數/一位小數
 function ptFmt(v){ if(v==null)return''; const a=Math.abs(v); if(a>=10000)return (v/10000).toFixed(1)+'萬'; if(Number.isInteger(v))return String(v); return v.toFixed(1); }
 function lineChart(points,opt){
+  opt=opt||{};
+  const esc=s=>String(s==null?'':s).replace(/['"\\<>]/g,'');
+  const fmtV=v=>opt.fmt?opt.fmt(v):ptFmt(v);
+  // 去掉前後端連續空值（前期沒資料就不留空白、不用往左滑找）
+  let a=0,b=points.length-1;
+  while(a<=b && points[a].value==null)a++;
+  while(b>=a && points[b].value==null)b--;
+  if(a>b)return '<div style="font-size:12px;color:var(--text-muted);">尚無資料</div>';
+  points=points.slice(a,b+1);
   const vals=points.map(p=>p.value).filter(v=>v!=null);
   if(!vals.length)return '<div style="font-size:12px;color:var(--text-muted);">尚無資料</div>';
-  const n=points.length, W=Math.max(620,n*54), H=180, pl=10,pr=10,pt=22,pb=26, iw=W-pl-pr, ih=H-pt-pb;
+  const n=points.length, W=Math.max(600,n*58), H=192, pl=38,pr=42,pt=28,pb=28, iw=W-pl-pr, ih=H-pt-pb;
   let min=Math.min(...vals),max=Math.max(...vals);if(min===max){min=min-Math.abs(min||1)*0.1;max=max+Math.abs(max||1)*0.1;}
   const X=i=>pl+(n<=1?iw/2:i/(n-1)*iw);
   const Y=v=>pt+ih-(v-min)/(max-min)*ih;
-  let path='',dots='',vlabels='',labels='';
-  points.forEach((p,i)=>{if(p.value==null)return;const x=X(i),y=Y(p.value);path+=(path?' L':'M')+x.toFixed(1)+' '+y.toFixed(1);
+  // 平均線（虛線）＋左上標示
+  const avg=vals.reduce((s,v)=>s+v,0)/vals.length, avgY=Y(avg);
+  const avgLine=`<line x1="${pl}" y1="${avgY.toFixed(1)}" x2="${(W-pr).toFixed(1)}" y2="${avgY.toFixed(1)}" stroke="${opt.color}" stroke-width="1" stroke-dasharray="4 3" opacity=".45"/>`+
+    `<text x="${(pl+2)}" y="${(avgY-4).toFixed(1)}" font-size="8.5" fill="${opt.color}" text-anchor="start" opacity=".9" font-weight="700">均 ${fmtV(avg)}</text>`;
+  let path='',dots='',taps='',vlabels='',labels='';
+  points.forEach((p,i)=>{if(p.value==null)return;const x=X(i),y=Y(p.value);
+    path+=(path?' L':'M')+x.toFixed(1)+' '+y.toFixed(1);
     dots+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.8" fill="${opt.color}"/>`;
+    taps+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="14" fill="transparent" style="cursor:pointer" onclick="showPt('${esc(p.label)}','${esc(fmtV(p.value))}','${esc(p.detail||'')}')"/>`;
     vlabels+=`<text x="${x.toFixed(1)}" y="${(y-6).toFixed(1)}" font-size="9" fill="${opt.color}" text-anchor="middle" font-weight="800">${ptFmt(p.value)}</text>`;});
   points.forEach((p,i)=>{labels+=`<text x="${X(i).toFixed(1)}" y="${H-8}" font-size="9" fill="#999" text-anchor="middle">${p.label}</text>`;});
-  const scroll = W>620 ? 'min-width:'+W+'px;' : 'width:100%;';
-  return `<div style="overflow-x:auto;"><svg viewBox="0 0 ${W} ${H}" style="${scroll}height:auto;overflow:visible;">
-    <path d="${path}" fill="none" stroke="${opt.color}" stroke-width="2.2"/>${dots}${vlabels}${labels}</svg></div>`;
+  const scroll = W>600 ? 'min-width:'+W+'px;' : 'width:100%;';
+  return `<div style="overflow-x:auto;"><svg viewBox="0 0 ${W} ${H}" style="${scroll}height:auto;">
+    ${avgLine}<path d="${path}" fill="none" stroke="${opt.color}" stroke-width="2.2"/>${dots}${taps}${vlabels}${labels}</svg></div>`;
+}
+function showPt(title,val,detail){
+  const el=document.getElementById('ptPop'); if(!el)return;
+  el.innerHTML=`<div style="font-weight:900;font-size:14px;">${title}</div>`+
+    `<div style="font-size:17px;font-weight:900;color:var(--primary);margin:2px 0 4px;">${val}</div>`+
+    (detail?`<div style="font-size:12px;color:var(--text-muted);line-height:1.7;">${String(detail).split('｜').join('<br>')}</div>`:'');
+  el.style.display='block';
+  clearTimeout(window._ptT); window._ptT=setTimeout(()=>{el.style.display='none';},4500);
 }
 function renderAnalysis(){
   const wrap=document.getElementById('tabAnalysis');
@@ -389,15 +413,23 @@ function renderAnalysis(){
   const perfMs=months.filter(m=>perfCache[m]&&!PERF_EXCLUDE.has(m)&&pnlCache[m]&&pnlCache[m].netSales);
   const lp=perfMs.length?perfMs[perfMs.length-1]:null;
   let rateKpi='';
-  if(lp){const yp=prevYearMonth(lp);const cur=perfCache[lp].laborCost/pnlCache[lp].netSales*100;const ymv=(perfCache[yp]&&pnlCache[yp]&&pnlCache[yp].netSales)?perfCache[yp].laborCost/pnlCache[yp].netSales*100:null;rateKpi=kpi('人事費率',cur,ymv,v=>v.toFixed(1),'%',false);}
+  let surplusKpi='';
+  if(lp){const yp=prevYearMonth(lp);const cur=perfCache[lp].laborCost/pnlCache[lp].netSales*100;const ymv=(perfCache[yp]&&pnlCache[yp]&&pnlCache[yp].netSales)?perfCache[yp].laborCost/pnlCache[yp].netSales*100:null;rateKpi=kpi('人事費率',cur,ymv,v=>v.toFixed(1),'%',false);
+    const sCur=pnlCache[lp].operatingReward-perfCache[lp].laborCost;const sYm=(perfCache[yp]&&pnlCache[yp])?pnlCache[yp].operatingReward-perfCache[yp].laborCost:null;surplusKpi=kpi('門市餘裕',sCur,sYm,money,'',true);}
   const kpiHtml=`<div class="kpi-row">
     ${kpi('營業淨額',L.netSales,yoyD&&yoyD.netSales,money,'',true)}
     ${kpi('毛利率',L.grossMargin,yoyD&&yoyD.grossMargin,v=>v.toFixed(2),'%',true)}
     ${kpi('經營報酬',L.operatingReward,yoyD&&yoyD.operatingReward,money,'',true)}
     ${rateKpi}
+    ${surplusKpi}
   </div><div style="font-size:12px;color:var(--text-muted);margin:-6px 4px 12px;">最新：${last.split('-')[0]}年${parseInt(last.split('-')[1])}月 · ${curStore}（KPI 與去年同期比）</div>`;
   const chart=(title,key,fmt,color,unit)=>`<div class="chart-card"><div class="chart-title">${title}</div>${lineChart(pts.map(p=>({label:lbl(p.m),value:p.d[key]!=null?p.d[key]:null})),{fmt:v=>fmt(v)+unit,color})}</div>`;
-  const derived=(title,color,fn,fmt,unit)=>{const dp=pts.map(p=>({label:lbl(p.m),value:(perfCache[p.m]&&!PERF_EXCLUDE.has(p.m)&&p.d&&p.d.netSales)?fn(perfCache[p.m],p.d):null}));if(!dp.some(x=>x.value!=null))return '';return `<div class="chart-card"><div class="chart-title">${title}</div>${lineChart(dp,{fmt:v=>fmt(v)+unit,color})}</div>`;};
+  const derived=(title,color,fn,fmt,unit)=>{const dp=pts.map(p=>{
+    const usable=perfCache[p.m]&&!PERF_EXCLUDE.has(p.m)&&p.d&&p.d.netSales;
+    const pf=perfCache[p.m],pn=p.d;
+    const det=usable?`營業淨額 ${money(pn.netSales)} 元｜經營報酬 ${money(pn.operatingReward)} 元｜人事成本(含支援) ${money(pf.laborCost)} 元｜總工時 ${pf.totalHours}h（本店${pf.ownHours} 支入${pf.supportInHours||0} 支出${pf.supportOutHours||0}）`:'';
+    return {label:lbl(p.m),value:usable?fn(pf,pn):null,detail:det};
+  });if(!dp.some(x=>x.value!=null))return '';return `<div class="chart-card"><div class="chart-title">${title}</div>${lineChart(dp,{fmt:v=>fmt(v)+unit,color})}</div>`;};
   wrap.innerHTML=rangeBar+kpiHtml
     +chart('營業淨額（元）','netSales',money,'#1a73e8','')
     +chart('毛利率（%）','grossMargin',v=>v.toFixed(1),'#34a853','')
@@ -406,6 +438,7 @@ function renderAnalysis(){
     +`<div style="font-size:12px;color:var(--text-muted);font-weight:700;margin:8px 4px 8px;">📈 人力效率（含支援，需該月薪資已結算，2026/5 起；2026/4 系統剛上線不列入）</div>`
     +derived('人事費率（人事成本÷營業淨額 %，越低越好）','#9334e6',(pf,pn)=>pf.laborCost/pn.netSales*100,v=>v.toFixed(1),'%')
     +derived('每工時營收（營業淨額÷總工時，元/h）','#0891b2',(pf,pn)=>pf.totalHours?pn.netSales/pf.totalHours:null,v=>Math.round(v).toLocaleString('en-US'),'')
+    +derived('門市實際餘裕（經營報酬−人事成本，元）','#137333',(pf,pn)=>pn.operatingReward-pf.laborCost,money,'')
     +(isAdminOwner()?`<div id="compareBox" style="margin-top:8px;"><div style="font-size:12px;color:var(--text-muted);padding:8px 4px;">載入三店對照…</div></div>`:'');
   if(isAdminOwner()) renderCompare(months[months.length-1]);
 }
