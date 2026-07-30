@@ -390,6 +390,11 @@ function handleBack(){if(window.history.length>1)window.history.back();else wind
 function today(){return new Date().toISOString().split('T')[0];}
 function fmtDate(s){if(!s)return '--';const[y,m,d]=s.split('-');return `${y}/${parseInt(m)}/${parseInt(d)}`;}
 function getDN(n){return displayNameMap[n]||n;}
+// 方案C：把某年度使用日期排成「4/21、4/22」字串（給概況卡內嵌顯示）
+function usageDatesInline(arr, yStr){
+  const ds=(arr||[]).filter(u=>String(u.date||'').startsWith(yStr)).map(u=>u.date).sort();
+  return ds.map(d=>{const p=d.split('-');return `${parseInt(p[1])}/${parseInt(p[2])}`;}).join('、');
+}
 function daysUntil(s){if(!s)return null;const t=new Date(s);t.setHours(23,59,59);return Math.ceil((t-new Date())/86400000);}
 function dateAdd(s,months){const d=new Date(s);d.setMonth(d.getMonth()+months);return d.toISOString().split('T')[0];}
 function dateAddExpire(s,months){const d=new Date(s);d.setMonth(d.getMonth()+months);d.setDate(d.getDate()-1);return d.toISOString().split('T')[0];}
@@ -898,6 +903,7 @@ function renderEmpDetail(empName, showBack=true) {
       <span class="leave-row-val accent">${s.totalAvail} 天</span>
     </div>
     <div class="leave-row"><span class="leave-row-label">累計已使用</span><span class="leave-row-val">${s.usedAnnual} 天</span></div>
+    ${(()=>{const ds=usageDatesInline(annUsageAll[empName], todayStr.slice(0,4)); return ds?`<div style="font-size:12px;color:var(--primary);padding:0 0 4px;line-height:1.7;">📅 ${ds}</div>`:'';})()}
     ${hireDate?`<div class="leave-row"><span class="leave-row-label">到職日</span><span class="leave-row-val" style="font-size:13px;color:var(--text-muted);">${fmtDate(hireDate)}</span></div>`:''}
     </div>`;
   }
@@ -918,7 +924,8 @@ function renderEmpDetail(empName, showBack=true) {
       </span>
     </div>
     <div class="leave-row"><span class="leave-row-label" style="font-size:11px;color:var(--text-muted);">　取得</span><span style="font-size:12px;">${cd.current.earned} 天</span></div>
-    <div class="leave-row"><span class="leave-row-label" style="font-size:11px;color:var(--text-muted);">　使用</span><span style="font-size:12px;">${cd.current.used} 天</span></div>`;
+    <div class="leave-row"><span class="leave-row-label" style="font-size:11px;color:var(--text-muted);">　使用</span><span style="font-size:12px;">${cd.current.used} 天</span></div>
+    ${(()=>{const ds=usageDatesInline(compUsageAll[empName], todayStr.slice(0,4)); return ds?`<div style="font-size:12px;color:var(--accent);padding:0 0 4px;line-height:1.7;">📅 ${ds}</div>`:'';})()}`;
 
     // 遞延補休
     if(cd.carried) {
