@@ -809,6 +809,15 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
         </div>
       </div>
 
+      <div onclick="window.location.href='clock.html'" style="background:linear-gradient(135deg,#34a853,#1e7e34);border-radius:16px;padding:16px 18px;margin-bottom:12px;display:flex;align-items:center;gap:14px;cursor:pointer;box-shadow:0 3px 12px rgba(52,168,83,.3);">
+        <div style="font-size:32px;line-height:1;">🕐</div>
+        <div style="flex:1;">
+          <div style="font-size:18px;font-weight:900;color:#ffffff;">上下班打卡</div>
+          <div style="font-size:12.5px;color:rgba(255,255,255,.92);margin-top:2px;">定位打卡 · 上班／下班／到場</div>
+        </div>
+        <div style="font-size:22px;color:rgba(255,255,255,.85);">›</div>
+      </div>
+
       <div class="card" style="padding:14px 14px 10px;">
         <div class="func-section">
           <div class="func-grid expanded" id="grid-personal"></div>
@@ -1092,6 +1101,14 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
     <div class="bs-item-text">
       <div class="bs-item-label">加盟主專區</div>
       <div class="bs-item-sub">人事分析、薪資匯出</div>
+    </div>
+    <div class="bs-item-arrow">›</div>
+  </div>
+  <div class="bs-item" id="bsMgmtAttendance" onclick="closeMoreMgmtSheet(); window.location.href='attendance.html';">
+    <div class="bs-item-icon" style="background:#e8f5e9;">🗂️</div>
+    <div class="bs-item-text">
+      <div class="bs-item-label">出勤管理</div>
+      <div class="bs-item-sub">打卡記錄、遲到早退、到場待對應</div>
     </div>
     <div class="bs-item-arrow">›</div>
   </div>
@@ -3100,9 +3117,6 @@ function renderQuickBtns() {
 
   // ===== 常用功能（所有人，3個）=====
   personal.innerHTML = `
-    <button class="func-btn" style="background:linear-gradient(135deg,#34a853,#1e7e34);" onclick="window.location.href='clock.html'">
-      <div class="func-icon">🕐</div><div class="func-label">打卡</div>
-    </button>
     <button class="func-btn blue-dark" onclick="window.location.href='schedule-V2.html'">
       <div class="func-icon">📅</div><div class="func-label">班表</div>
     </button>
