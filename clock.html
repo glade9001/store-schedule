@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="莉學商行">
+<link rel="apple-touch-icon" href="icon-192.svg">
+<meta name="theme-color" content="#e67e22">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>🕐 打卡</title>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+<script src="firebase-init.js"></script>
+<script src="utils.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{--primary:#e67e22;--primary-dark:#c0620f;--accent:#34a853;--danger:#d93025;--warn:#f9ab00;--bg:#f4f6fb;--text:#1e293b;--text-muted:#64748b;--border:#e2e8f0;--header-h:56px;}
+html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;color:var(--text);}
+#loadingOverlay{display:flex;position:fixed;inset:0;background:linear-gradient(135deg,#e67e22,#c0620f);z-index:99999;flex-direction:column;justify-content:center;align-items:center;color:#fff;transition:opacity .4s;}
+#loadingOverlay.hidden{opacity:0;pointer-events:none;}
+.spinner{width:40px;height:40px;border:4px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite;margin-bottom:16px;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.header{background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#fff;padding:0 14px;height:var(--header-h);display:flex;align-items:center;gap:10px;box-shadow:0 2px 12px rgba(230,126,34,.3);position:sticky;top:0;z-index:100;}
+.header-back{background:rgba(255,255,255,.18);border:none;color:#fff;height:34px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;padding:0 12px;white-space:nowrap;}
+.header-title{font-size:17px;font-weight:800;flex:1;}
+.wrap{max-width:520px;margin:0 auto;padding:16px;}
+.card{background:#fff;border-radius:16px;box-shadow:0 1px 6px rgba(0,0,0,.06);padding:18px;margin-bottom:14px;}
+.today{font-size:15px;font-weight:800;text-align:center;}
+.sub{font-size:13px;color:var(--text-muted);text-align:center;margin-top:2px;}
+.locbox{margin:14px 0;padding:12px;border-radius:12px;text-align:center;font-size:14px;font-weight:800;}
+.loc-ok{background:#e6f4ea;color:#137333;}
+.loc-bad{background:#fce8e6;color:#c5221f;}
+.loc-wait{background:#f1f5f9;color:#64748b;}
+.shiftinfo{text-align:center;font-size:14px;margin:6px 0 2px;font-weight:700;}
+.punch-btn{width:100%;padding:20px;border:none;border-radius:16px;font-size:20px;font-weight:900;color:#fff;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.15);margin-top:8px;transition:transform .1s;}
+.punch-btn:active{transform:scale(.98);}
+.punch-in{background:linear-gradient(135deg,#34a853,#1e7e34);}
+.punch-out{background:linear-gradient(135deg,#d93025,#a52714);}
+.punch-visit{background:linear-gradient(135deg,#1a73e8,#0d47a1);}
+.punch-btn:disabled{background:#cbd5e1;color:#fff;cursor:default;box-shadow:none;}
+.plist{margin-top:6px;}
+.pitem{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;background:#f8fafc;margin-bottom:6px;font-size:14px;}
+.ptag{font-size:12px;font-weight:900;border-radius:6px;padding:2px 8px;white-space:nowrap;}
+.tag-in{background:#e6f4ea;color:#137333;}.tag-out{background:#fce8e6;color:#c5221f;}.tag-visit{background:#e3f2fd;color:#1565c0;}
+.pstat{margin-left:auto;font-size:12px;font-weight:800;}
+.stat-ok{color:#137333;}.stat-warn{color:#f9ab00;}.stat-bad{color:#d93025;}.stat-visit{color:#1565c0;}
+.maint{text-align:center;padding:40px 20px;}
+.maint-icon{font-size:52px;margin-bottom:14px;}
+.maint-title{font-size:20px;font-weight:900;margin-bottom:8px;}
+.maint-sub{font-size:14px;color:var(--text-muted);}
+#toast{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:11px 20px;border-radius:20px;font-size:13px;font-weight:700;z-index:99999;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap;max-width:90vw;}
+#toast.show{opacity:1;}
+</style>
+</head>
+<body>
+<div id="loadingOverlay"><div class="spinner"></div><div id="loadingText">載入中…</div></div>
+<div class="header">
+  <button class="header-back" onclick="window.location.href='home.html'">← 首頁</button>
+  <div class="header-title">🕐 打卡</div>
+</div>
+<div class="wrap" id="wrap"></div>
+<div id="toast"></div>
+<script>
+let currentUser=null, appConfig={}, geoCfg={}, myGeo=null, atStore='', distanceM=null, todayShift=null, todayPunches=[], locating=false;
+const DAYS=["週一","週二","週三","週四","週五","週六","週日"];
+function showLoading(t){document.getElementById('loadingText').textContent=t||'載入中…';document.getElementById('loadingOverlay').classList.remove('hidden');}
+function hideLoading(){document.getElementById('loadingOverlay').classList.add('hidden');}
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2800);}
+function todayStr(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+function hm(d){return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;}
+function distM(la1,lo1,la2,lo2){const R=6371000,rad=x=>x*Math.PI/180;const dLa=rad(la2-la1),dLo=rad(lo2-lo1);const s=Math.sin(dLa/2)**2+Math.cos(rad(la1))*Math.cos(rad(la2))*Math.sin(dLo/2)**2;return R*2*Math.atan2(Math.sqrt(s),Math.sqrt(1-s));}
+function canClock(stage,perm){ if(stage==='all')return true; if(stage==='manager')return['manager','owner','admin'].includes(perm); if(stage==='admin')return perm==='admin'; return false; }
+
+window.onload=async()=>{
+  showLoading('驗證登入…');
+  const saved=localStorage.getItem('currentUser')||sessionStorage.getItem('currentUser');
+  if(!saved){location.replace('home.html');return;}
+  try{currentUser=JSON.parse(saved);}catch(e){location.replace('home.html');return;}
+  const fb=await new Promise(r=>{const u=firebase.auth().onAuthStateChanged(x=>{u();r(x);});});
+  if(!fb){localStorage.removeItem('currentUser');location.replace('home.html');return;}
+  try{const s=await window.db.collection('settings').doc('globalConfig').get();if(s.exists)appConfig=s.data();}catch(e){}
+  const clk=appConfig.clockIn||{}; geoCfg=clk.geo||{};
+  if(!canClock(clk.stage||'off', currentUser.permission)){
+    hideLoading();
+    document.getElementById('wrap').innerHTML=`<div class="card maint"><div class="maint-icon">🚧</div><div class="maint-title">維護中敬請期待</div><div class="maint-sub">打卡功能尚未對您開放，請稍候。</div></div>`;
+    return;
+  }
+  hideLoading();
+  render();
+  locate();
+};
+
+function locate(){
+  if(!navigator.geolocation){ atStore=''; distanceM=null; render(); toast('此裝置不支援定位'); return; }
+  locating=true; render();
+  navigator.geolocation.getCurrentPosition(async p=>{
+    myGeo={lat:p.coords.latitude,lng:p.coords.longitude,acc:Math.round(p.coords.accuracy)};
+    // 找落在哪家店圍欄（取最近的一家）
+    let best=null;
+    Object.entries(geoCfg).forEach(([st,g])=>{
+      if(g.lat==null||g.lng==null)return;
+      const d=distM(myGeo.lat,myGeo.lng,g.lat,g.lng);
+      if(d<=(g.radiusM||120) && (!best||d<best.d)) best={st,d};
+    });
+    atStore=best?best.st:''; distanceM=best?Math.round(best.d):null;
+    locating=false;
+    if(atStore) await loadToday();
+    render();
+  }, e=>{ locating=false; atStore=''; distanceM=null; render(); toast('定位失敗：'+e.message); }, {enableHighAccuracy:true,timeout:12000,maximumAge:0});
+}
+
+async function loadToday(){
+  todayShift=null; todayPunches=[];
+  const ds=todayStr();
+  // 今日在 atStore 的打卡
+  try{
+    const snap=await window.db.collection('stores').doc(atStore).collection('attendance')
+      .where('date','==',ds).where('empName','==',currentUser.empName).get();
+    snap.forEach(d=>todayPunches.push({id:d.id,...d.data()}));
+    todayPunches.sort((a,b)=>(a.deviceTs||'').localeCompare(b.deviceTs||''));
+  }catch(e){}
+  // 今日在 atStore 的排班（本店班 or 支援班）
+  try{
+    const wk=dateToISOWeek(new Date());
+    const dayName=DAYS[(new Date().getDay()+6)%7];
+    const wd=await window.db.collection('stores').doc(atStore).collection('weeks').doc(wk).get();
+    if(wd.exists){
+      const recs=wd.data().records||[];
+      const mine=recs.find(r=> r.day===dayName && (
+        (r.name===currentUser.empName && /^\d/.test(r.shift||'')) ||
+        (r.supportEmp===`${currentUser.store}-${currentUser.empName}` && r.approvalStatus==='approved' && /^\d/.test(r.shift||''))
+      ));
+      if(mine){ const m=String(mine.shift).match(/^(\d{1,2})-(\d{1,2})$/); if(m) todayShift={shift:mine.shift,start:+m[1],end:+m[2]}; }
+    }
+  }catch(e){}
+}
+
+function nextAction(){
+  // 有排班：上班→下班；無排班：到場→離場
+  const hasIn=todayPunches.some(p=>p.type==='上班'), hasOut=todayPunches.some(p=>p.type==='下班');
+  const hasVisit=todayPunches.some(p=>p.type==='到場'), hasLeave=todayPunches.some(p=>p.type==='離場');
+  if(todayShift){
+    if(!hasIn) return '上班'; if(!hasOut) return '下班'; return null;
+  } else {
+    if(!hasVisit) return '到場'; if(!hasLeave) return '離場'; return null;
+  }
+}
+
+function render(){
+  const wrap=document.getElementById('wrap');
+  const d=new Date();
+  const dateLine=`${d.getMonth()+1}月${d.getDate()}日（${['日','一','二','三','四','五','六'][d.getDay()]}）`;
+  let loc='';
+  if(locating) loc=`<div class="locbox loc-wait">📍 定位中…</div>`;
+  else if(atStore) loc=`<div class="locbox loc-ok">📍 ${atStore}　距 ${distanceM}m　✓ 可打卡</div>`;
+  else if(myGeo) loc=`<div class="locbox loc-bad">⚠️ 不在任何門市範圍內，無法打卡<br><span style="font-size:12px;font-weight:600;">（若確實在店內，請至設定確認門市座標）</span></div>`;
+  else loc=`<div class="locbox loc-wait">📍 尚未定位</div>`;
+
+  const shiftLine = atStore ? (todayShift?`<div class="shiftinfo">今日班別：${todayShift.shift}（${todayShift.start}:00–${todayShift.end}:00）</div>`
+    : `<div class="shiftinfo" style="color:var(--text-muted);">今日於 ${atStore} 無排班 → 到場打卡</div>`) : '';
+
+  const act=nextAction();
+  let btn='';
+  if(!atStore){ btn=`<button class="punch-btn" disabled>需在門市範圍內才能打卡</button>`; }
+  else if(!act){ btn=`<button class="punch-btn" disabled>✅ 今日已完成</button>`; }
+  else{
+    const cls=act==='上班'?'punch-in':act==='下班'?'punch-out':'punch-visit';
+    btn=`<button class="punch-btn ${cls}" onclick="doPunch('${act}')">${act}打卡</button>`;
+  }
+
+  const plist = todayPunches.length? `<div class="plist">${todayPunches.map(p=>{
+    const tag=p.type==='上班'?'tag-in':p.type==='下班'?'tag-out':'tag-visit';
+    const sc=p.status==='遲到'?'stat-bad':p.status==='早退'?'stat-bad':p.status==='警告'?'stat-warn':p.status==='到場'?'stat-visit':'stat-ok';
+    const statTxt=p.status==='遲到'?`遲到${p.lateMin||''}分`:p.status||'';
+    return `<div class="pitem"><span class="ptag ${tag}">${p.type}</span><span>${(p.deviceTs||'').slice(11,16)||''}</span><span style="color:var(--text-muted);font-size:12px;">@${p.atStore}</span><span class="pstat ${sc}">${statTxt}</span></div>`;
+  }).join('')}</div>`:'';
+
+  wrap.innerHTML=`<div class="card">
+    <div class="today">🕐 ${dateLine}</div>
+    <div class="sub">${currentUser.displayName||currentUser.empName}（${currentUser.store||''}）</div>
+    ${loc}${shiftLine}${btn}
+    <div style="text-align:center;margin-top:10px;"><button onclick="locate()" style="background:none;border:none;color:var(--primary);font-size:13px;font-weight:700;cursor:pointer;">🔄 重新定位</button></div>
+  </div>
+  ${todayPunches.length?`<div class="card"><div style="font-size:13px;font-weight:800;color:var(--text-muted);margin-bottom:8px;">今日打卡</div>${plist}</div>`:''}`;
+}
+
+async function doPunch(type){
+  if(!atStore){ toast('不在門市範圍內'); return; }
+  // 防抖：同類型 10 分鐘內只成功一次
+  const now=new Date();
+  const dup=todayPunches.find(p=>p.type===type && p.deviceTs && (now-new Date(p.deviceTs))<10*60*1000);
+  if(dup){ toast(`剛剛已${type}打卡，10 分鐘內不用再打`); return; }
+  showLoading('打卡中…');
+  // 狀態判定
+  let status='正常', lateMin=0;
+  const tol=(appConfig.clockIn||{}).lateToleranceMin ?? 10;
+  const nowMin=now.getHours()*60+now.getMinutes();
+  if(type==='上班' && todayShift){
+    const startMin=todayShift.start*60; const late=nowMin-startMin;
+    if(late> tol) { status='遲到'; lateMin=late; }
+    else if(late>0){ status='警告'; lateMin=late; } // 容許內
+    else status='正常';
+  } else if(type==='下班' && todayShift){
+    let endMin=todayShift.end*60; if(todayShift.end<=todayShift.start) endMin+=24*60; // 跨日班
+    let cur=nowMin; if(todayShift.end<=todayShift.start && now.getHours()<todayShift.start) cur+=24*60;
+    if(cur<endMin) status='早退';
+  } else if(type==='到場'||type==='離場'){ status='到場'; }
+
+  const rec={
+    empName: currentUser.empName, displayName: currentUser.displayName||currentUser.empName,
+    date: todayStr(), weekday: DAYS[(now.getDay()+6)%7], type, atStore, homeStore: currentUser.store||'',
+    lat: myGeo?myGeo.lat:null, lng: myGeo?myGeo.lng:null, accuracy: myGeo?myGeo.acc:null, distanceM,
+    shift: todayShift?todayShift.shift:'', status, lateMin,
+    ts: firebase.firestore.FieldValue.serverTimestamp(), deviceTs: now.toISOString(),
+    createdBy: currentUser.empName, source:'app'
+  };
+  try{
+    await window.db.collection('stores').doc(atStore).collection('attendance').add(rec);
+    hideLoading();
+    const msg = status==='遲到'?`⚠️ ${type}打卡成功（遲到 ${lateMin} 分）`
+      : status==='早退'?`⚠️ ${type}打卡成功（早退）`
+      : status==='警告'?`${type}打卡成功（遲到 ${lateMin} 分，容許內）`
+      : `✅ ${type}打卡成功`;
+    toast(`${msg}　${hm(now)} @${atStore}`);
+    await loadToday(); render();
+  }catch(e){ hideLoading(); toast('打卡失敗：'+e.message); }
+}
+</script>
+</body>
+</html>
