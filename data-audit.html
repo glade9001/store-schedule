@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="莉學商行">
+<link rel="apple-touch-icon" href="icon-192.svg">
+<meta name="theme-color" content="#e67e22">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>🩺 資料健檢</title>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+<script src="firebase-init.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{--primary:#e67e22;--primary-dark:#c0620f;--accent:#34a853;--danger:#d93025;--warn:#f9ab00;
+  --bg:#f4f6fb;--text:#1e293b;--text-muted:#64748b;--border:#e2e8f0;--header-h:56px;}
+html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;color:var(--text);}
+#loadingOverlay{display:flex;position:fixed;inset:0;background:linear-gradient(135deg,#e67e22,#c0620f);z-index:99999;flex-direction:column;justify-content:center;align-items:center;color:#fff;transition:opacity .4s;}
+#loadingOverlay.hidden{opacity:0;pointer-events:none;}
+.spinner{width:40px;height:40px;border:4px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite;margin-bottom:16px;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.header{background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#fff;padding:0 14px;height:var(--header-h);display:flex;align-items:center;gap:10px;box-shadow:0 2px 12px rgba(230,126,34,.3);position:sticky;top:0;z-index:100;}
+.header-back{background:rgba(255,255,255,.18);border:none;color:#fff;height:34px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;padding:0 12px;white-space:nowrap;}
+.header-title{font-size:17px;font-weight:800;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.wrap{max-width:640px;margin:0 auto;padding:14px;}
+.intro{font-size:13px;color:var(--text-muted);line-height:1.7;margin-bottom:14px;}
+.run-btn{width:100%;padding:15px;background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#fff;border:none;border-radius:14px;font-size:16px;font-weight:900;cursor:pointer;box-shadow:0 3px 10px rgba(230,126,34,.3);}
+.run-btn:disabled{opacity:.6;cursor:default;}
+.prog{font-size:13px;color:var(--text-muted);text-align:center;margin:14px 0;font-weight:700;}
+.card{background:#fff;border-radius:14px;box-shadow:0 1px 4px rgba(0,0,0,.06);padding:14px 16px;margin-bottom:12px;}
+.card-head{display:flex;align-items:center;gap:10px;}
+.badge{font-size:12px;font-weight:900;border-radius:20px;padding:4px 12px;white-space:nowrap;}
+.badge.ok{background:#e6f4ea;color:#137333;}
+.badge.warn{background:#fce8e6;color:#c5221f;}
+.card-title{font-size:15px;font-weight:800;flex:1;}
+.card-desc{font-size:12px;color:var(--text-muted);margin-top:6px;line-height:1.6;}
+.issue{font-size:13px;color:#b3261e;background:#fff5f5;border-left:3px solid #d93025;border-radius:6px;padding:7px 10px;margin-top:8px;line-height:1.5;}
+.note{font-size:12px;color:var(--text-muted);background:#f8fafc;border-radius:8px;padding:8px 10px;margin-top:8px;line-height:1.6;}
+.summary{background:#fff;border-radius:14px;box-shadow:0 1px 4px rgba(0,0,0,.06);padding:16px;margin-bottom:14px;text-align:center;}
+.summary-big{font-size:22px;font-weight:900;}
+.summary-sub{font-size:13px;color:var(--text-muted);margin-top:4px;}
+#toast{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:11px 20px;border-radius:20px;font-size:13px;font-weight:700;z-index:99999;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap;}
+#toast.show{opacity:1;}
+</style>
+</head>
+<body>
+<div id="loadingOverlay"><div class="spinner"></div><div id="loadingText">載入中…</div></div>
+
+<div class="header">
+  <button class="header-back" onclick="window.location.href='home.html'">← 首頁</button>
+  <div class="header-title">🩺 資料健檢</div>
+</div>
+
+<div class="wrap">
+  <div class="intro">一次檢查全系統資料一致性：<b>假別帳本</b>（用量 vs 帳本 vs 批次）、<b>到職日雙欄位</b>（年資／薪資起算）、<b>跨店支援舊格式</b>。唯讀，不會改動任何資料。</div>
+  <button class="run-btn" id="runBtn" onclick="runAudit()">▶ 開始健檢</button>
+  <div class="prog" id="prog"></div>
+  <div id="results"></div>
+</div>
+
+<div id="toast"></div>
+<script>
+let currentUser=null, appConfig={};
+const STORES_FALLBACK=["美德","聯鑫","錦花","人力支援"];
+function showLoading(t){document.getElementById('loadingText').textContent=t||'載入中…';document.getElementById('loadingOverlay').classList.remove('hidden');}
+function hideLoading(){document.getElementById('loadingOverlay').classList.add('hidden');}
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500);}
+function setProg(t){document.getElementById('prog').textContent=t||'';}
+
+window.onload=async()=>{
+  showLoading('驗證登入…');
+  const saved=localStorage.getItem('currentUser')||sessionStorage.getItem('currentUser');
+  if(!saved){location.replace('home.html');return;}
+  try{currentUser=JSON.parse(saved);}catch(e){location.replace('home.html');return;}
+  const fb=await new Promise(r=>{const u=firebase.auth().onAuthStateChanged(x=>{u();r(x);});});
+  if(!fb){localStorage.removeItem('currentUser');location.replace('home.html');return;}
+  if(currentUser?.permission!=='admin'){toast('僅系統管理者可用');setTimeout(()=>location.replace('home.html'),1200);return;}
+  try{const s=await window.db.collection('settings').doc('globalConfig').get();if(s.exists)appConfig=s.data();}catch(e){}
+  hideLoading();
+};
+
+function stores(){return (appConfig.stores&&appConfig.stores.length?appConfig.stores:STORES_FALLBACK);}
+const DAYS=["週一","週二","週三","週四","週五","週六","週日"];
+function wkMon(w){const P=w.split("-W");const yr=+P[0],wk=+P[1];const d=new Date(yr,0,1);const day=d.getDay();d.setDate(d.getDate()+(wk-1)*7);const off=day<=4?1-day:8-day;d.setDate(d.getDate()+off);return d;}
+
+async function runAudit(){
+  const btn=document.getElementById('runBtn'); btn.disabled=true; btn.textContent='健檢中…';
+  document.getElementById('results').innerHTML='';
+  const cy=String(new Date().getFullYear());
+  const leaveIssues=[], hireIssues=[]; let oldFmt=0; const oldSamples=[];
+  try{
+    // 收集員工
+    setProg('讀取員工名單…');
+    const emps=[];
+    for(const st of stores()){
+      const es=await window.db.collection('stores').doc(st).collection('employees').get().catch(()=>null);
+      if(es) es.forEach(d=>emps.push({st, name:d.id, data:d.data()||{}}));
+    }
+    // A. 假別帳本
+    const seen=new Set(); let i=0;
+    for(const e of emps){
+      if(seen.has(e.name))continue; seen.add(e.name); i++;
+      setProg(`假別帳本檢查… ${i}`);
+      const ref=window.db.collection('employees').doc(e.name);
+      const [lvS,auS,cuS,bS]=await Promise.all([
+        ref.collection('leaves').doc(cy).get().catch(()=>null),
+        ref.collection('annualUsage').get().catch(()=>null),
+        ref.collection('compUsage').get().catch(()=>null),
+        ref.collection('leaveBatches').get().catch(()=>null)
+      ]);
+      const lv=lvS&&lvS.exists?lvS.data():{};
+      const annCy=auS?auS.docs.filter(d=>String(d.id).startsWith(cy)).length:0;
+      const annAll=auS?auS.size:0;
+      const cmpCy=cuS?cuS.docs.filter(d=>String(d.id).startsWith(cy)).length:0;
+      const usedSum=bS?bS.docs.reduce((s,d)=>s+((d.data().used)||0),0):0;
+      if((lv.usedAnnual||0)!==annCy) leaveIssues.push(`${e.name}：usedAnnual=${lv.usedAnnual||0}，但特休帳本 ${annCy} 天`);
+      if((lv.usedComp||0)!==cmpCy) leaveIssues.push(`${e.name}：usedComp=${lv.usedComp||0}，但補休帳本 ${cmpCy} 天`);
+      if(bS&&bS.size&&usedSum!==annAll) leaveIssues.push(`${e.name}：批次已用合計 ${usedSum}，但特休使用總數 ${annAll}`);
+    }
+    // B. 到職日
+    setProg('到職日一致性檢查…');
+    for(const e of emps){
+      if(["離職","調走"].includes(e.data.status))continue;
+      const lvS=await window.db.collection('employees').doc(e.name).collection('leaves').doc(cy).get().catch(()=>null);
+      const hire=(lvS&&lvS.exists&&lvS.data().hireDate)||'';
+      const sd=e.data.startDate||'', td=e.data.transferDate||'', tf=e.data.transferFrom||'';
+      const isTransfer=!!(td||tf);
+      if(!sd){ hireIssues.push(`${e.st}/${e.name}：缺到職日(startDate)`); continue; }
+      if(isTransfer){ if(td&&sd!==td) hireIssues.push(`${e.st}/${e.name}：調店員工 startDate(${sd}) ≠ 調入日(${td})`); }
+      else if(hire&&sd!==hire){ hireIssues.push(`${e.st}/${e.name}：startDate(${sd}) ≠ 到職日(${hire})`); }
+    }
+    // C. 跨店舊格式
+    setProg('跨店支援格式檢查…');
+    for(const st of stores()){
+      const wk=await window.db.collection('stores').doc(st).collection('weeks').get().catch(()=>null);
+      if(!wk)continue;
+      wk.forEach(wd=>{const w=wd.id;if(!/^\d{4}-W/.test(w))return;
+        (wd.data().records||[]).forEach(r=>{
+          if(r&&r.location&&String(r.location).startsWith('支援')&&!String(r.name||'').startsWith('🆘')){
+            oldFmt++; if(oldSamples.length<6) oldSamples.push(`${st}/${w} ${r.name}→${r.location}`);
+          }
+        });
+      });
+    }
+  }catch(err){ setProg(''); toast('健檢出錯：'+err.message); btn.disabled=false; btn.textContent='▶ 重新健檢'; return; }
+
+  setProg('');
+  btn.disabled=false; btn.textContent='▶ 重新健檢';
+  render(leaveIssues, hireIssues, oldFmt, oldSamples);
+}
+
+function card(title, issues, okDesc, extraNote){
+  const ok=issues.length===0;
+  return `<div class="card">
+    <div class="card-head">
+      <span class="badge ${ok?'ok':'warn'}">${ok?'✅ 通過':'⚠️ '+issues.length+' 筆'}</span>
+      <span class="card-title">${title}</span>
+    </div>
+    ${ok?`<div class="card-desc">${okDesc}</div>`:issues.map(x=>`<div class="issue">${x}</div>`).join('')}
+    ${extraNote?`<div class="note">${extraNote}</div>`:''}
+  </div>`;
+}
+
+function render(leaveIssues, hireIssues, oldFmt, oldSamples){
+  const total=leaveIssues.length+hireIssues.length;
+  const summary=`<div class="summary">
+    <div class="summary-big" style="color:${total?'var(--danger)':'var(--accent)'};">${total?'⚠️ 發現 '+total+' 筆待處理':'✅ 全數通過'}</div>
+    <div class="summary-sub">檢查時間：${new Date().toLocaleString('zh-TW')}</div>
+  </div>`;
+  const cNote=`跨店支援「派出店顯示記錄」(location=支援X) 共 <b>${oldFmt}</b> 筆——此為設計上的顯示記錄，工時/成本計算已用「loc≠本店排除」跳過，非數字錯誤。`+
+    (oldSamples.length?`<br>樣本：${oldSamples.join('、')}`:'');
+  document.getElementById('results').innerHTML = summary
+    + card('假別帳本一致性', leaveIssues, '用量、帳本筆數、批次已用三者對齊。', '')
+    + card('到職日雙欄位一致性', hireIssues, '非調店者 startDate=到職日；調店者 startDate=調入日；皆已設定。', '')
+    + card('跨店支援資料格式', [], '', cNote);
+}
+</script>
+</body>
+</html>

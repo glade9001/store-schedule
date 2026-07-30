@@ -1082,6 +1082,14 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
     </div>
     <div class="bs-item-arrow">›</div>
   </div>
+  <div class="bs-item" id="bsMgmtAudit" style="display:none;" onclick="closeMoreMgmtSheet(); window.location.href='data-audit.html';">
+    <div class="bs-item-icon" style="background:#e3f2fd;">🩺</div>
+    <div class="bs-item-text">
+      <div class="bs-item-label">資料健檢</div>
+      <div class="bs-item-sub">假別／到職日／跨店 一致性一鍵檢查</div>
+    </div>
+    <div class="bs-item-arrow">›</div>
+  </div>
   <div style="height:16px;"></div>
 </div>
 
@@ -3100,6 +3108,8 @@ function closeSettingsSheet() {
 function openMoreMgmtSheet() {
   const bsOwner = document.getElementById('bsMgmtOwner'); // 加盟主專區（人事分析＋薪資匯出）
   if(bsOwner) bsOwner.style.display = canViewReport() ? 'flex' : 'none';
+  const bsAudit = document.getElementById('bsMgmtAudit'); // 資料健檢（僅系統管理者）
+  if(bsAudit) bsAudit.style.display = canSysConfig() ? 'flex' : 'none';
   document.getElementById('moreMgmtOverlay').classList.add('active');
   document.getElementById('moreMgmtSheet').classList.add('active');
 }
