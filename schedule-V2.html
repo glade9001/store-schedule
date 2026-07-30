@@ -1245,19 +1245,13 @@ async function recomputeLeaveCounters(empName, yearStr) {
   ];
   if(carriedActive) writes.push(prevCompRef.set({ carriedUsed: carriedUsedNow }, { merge: true }));
 
-  // 🌟 批次「已用」從帳本『日期歸屬』重算：每天特休記到當天在窗內(grant<=D<=exp)且未滿的批次(最早到期優先)，
-  // 落在所有批次窗外/全滿 → 記到最新批次(容許負餘額)。settled 批次不動 → 合計可用與到期歸屬永遠正確。
+  // 🌟 批次「已用」重算：先拿到先用(FIFO)——依取得日(grantDate)由舊到新扣完，快到期的先消耗。
+  // settled 批次不動；超額(用超過總天數)記到最新批次(容許負餘額)。sum(used)==特休使用總數。
   const batches=[]; bSnap.forEach(d=>batches.push({ id:d.id, ...d.data() }));
-  const nonS = batches.filter(b=>!b.settled);
-  const newUsed={}; nonS.forEach(b=>newUsed[b.id]=0);
-  const latestB = nonS.slice().sort((a,b)=>String(b.grantDate||'').localeCompare(String(a.grantDate||'')))[0];
-  annDatesAll.slice().sort().forEach(D=>{
-    const cands = nonS.filter(b=>String(b.grantDate||'')<=D && D<=String(b.expireDate||'9999') && newUsed[b.id]<(b.days||0))
-                      .sort((a,b)=>String(a.expireDate||'').localeCompare(String(b.expireDate||'')));
-    if(cands.length) newUsed[cands[0].id]++;
-    else if(latestB) newUsed[latestB.id]++;
-  });
-  nonS.forEach(b=>{ if((b.used||0)!==newUsed[b.id]) writes.push(batchesRef.doc(b.id).set({ used:newUsed[b.id] }, { merge:true })); });
+  const settledUsed = batches.filter(b=>b.settled).reduce((s,b)=>s+(b.used||0),0);
+  const nonS = batches.filter(b=>!b.settled).sort((a,b)=>String(a.grantDate||'').localeCompare(String(b.grantDate||'')));
+  let rem = Math.max(0, annDatesAll.length - settledUsed);
+  nonS.forEach((b,i)=>{ const cap=b.days||0; let u=Math.min(cap,rem); rem-=u; if(i===nonS.length-1 && rem>0){ u+=rem; rem=0; } if((b.used||0)!==u) writes.push(batchesRef.doc(b.id).set({ used:u }, { merge:true })); });
 
   await Promise.all(writes);
 }

@@ -898,12 +898,17 @@ function renderEmpDetail(empName, showBack=true) {
       html+=`<div style="color:var(--text-muted);font-size:13px;padding:8px 0;">目前無可用特休</div>`;
     }
 
+    // 🌟 特休概況三欄：年度取得 / 已使用 / 剩餘（剩餘＝取得−已使用，全部取得計入）
+    const annualGranted = batches.filter(b=>!b.settled).reduce((sum,b)=>sum+(b.days||0),0);
+    const annualRemain = annualGranted - s.usedAnnual;
+    const annUseDates = usageDatesInline(annUsageAll[empName], todayStr.slice(0,4));
     html+=`<div class="leave-row" style="border-top:1px solid #e2e8f0;margin-top:4px;">
-      <span class="leave-row-label" style="font-weight:800;">合計可用</span>
-      <span class="leave-row-val accent">${s.totalAvail} 天</span>
+      <span class="leave-row-label" style="font-weight:800;">年度取得</span>
+      <span class="leave-row-val">${annualGranted} 天</span>
     </div>
-    <div class="leave-row"><span class="leave-row-label">累計已使用</span><span class="leave-row-val">${s.usedAnnual} 天</span></div>
-    ${(()=>{const ds=usageDatesInline(annUsageAll[empName], todayStr.slice(0,4)); return ds?`<div style="font-size:12px;color:var(--primary);padding:0 0 4px;line-height:1.7;">📅 ${ds}</div>`:'';})()}
+    <div class="leave-row"><span class="leave-row-label">已使用</span><span class="leave-row-val">${s.usedAnnual} 天</span></div>
+    ${annUseDates?`<div style="font-size:12px;color:var(--primary);padding:0 0 4px;line-height:1.7;">📅 ${annUseDates}</div>`:''}
+    <div class="leave-row"><span class="leave-row-label" style="font-weight:800;">剩餘</span><span class="leave-row-val accent">${annualRemain} 天</span></div>
     ${hireDate?`<div class="leave-row"><span class="leave-row-label">到職日</span><span class="leave-row-val" style="font-size:13px;color:var(--text-muted);">${fmtDate(hireDate)}</span></div>`:''}
     </div>`;
   }
@@ -1240,18 +1245,12 @@ async function recomputeCountersClient(empName, yearStr) {
   ];
   if(cActive) writes.push(empRef.collection('comp').doc(String(parseInt(yearStr)-1)).set({ carriedUsed:cUsedNow }, { merge:true }));
 
-  // 🌟 批次「已用」日期歸屬重算(與 schedule-V2 一致)：每天記到當天在窗內且未滿的批次(最早到期優先)
+  // 🌟 批次「已用」重算(與 schedule-V2 一致)：先拿到先用(FIFO)，依取得日由舊到新扣完；settled 不動
   const batches=[]; bSnap.forEach(d=>batches.push({ id:d.id, ...d.data() }));
-  const nonS = batches.filter(b=>!b.settled);
-  const newUsed={}; nonS.forEach(b=>newUsed[b.id]=0);
-  const latestB = nonS.slice().sort((a,b)=>String(b.grantDate||'').localeCompare(String(a.grantDate||'')))[0];
-  annDatesAll.slice().sort().forEach(D=>{
-    const cands = nonS.filter(b=>String(b.grantDate||'')<=D && D<=String(b.expireDate||'9999') && newUsed[b.id]<(b.days||0))
-                      .sort((a,b)=>String(a.expireDate||'').localeCompare(String(b.expireDate||'')));
-    if(cands.length) newUsed[cands[0].id]++;
-    else if(latestB) newUsed[latestB.id]++;
-  });
-  nonS.forEach(b=>{ if((b.used||0)!==newUsed[b.id]) writes.push(batchesRef.doc(b.id).set({ used:newUsed[b.id] }, { merge:true })); });
+  const settledUsed = batches.filter(b=>b.settled).reduce((s,b)=>s+(b.used||0),0);
+  const nonS = batches.filter(b=>!b.settled).sort((a,b)=>String(a.grantDate||'').localeCompare(String(b.grantDate||'')));
+  let rem = Math.max(0, annDatesAll.length - settledUsed);
+  nonS.forEach((b,i)=>{ const cap=b.days||0; let u=Math.min(cap,rem); rem-=u; if(i===nonS.length-1 && rem>0){ u+=rem; rem=0; } if((b.used||0)!==u) writes.push(batchesRef.doc(b.id).set({ used:u }, { merge:true })); });
 
   await Promise.all(writes);
 }
