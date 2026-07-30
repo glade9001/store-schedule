@@ -1142,7 +1142,8 @@ function renderUsageList(title, arr, type, empName, canEdit) {
   h += arr.map(u=>{
     const s = String(u.source||'');
     const isMig = s.startsWith('migration');
-    const src = s==='manual'?'手動補登' : isMig?'班表遷移' : s.startsWith('schedule')?'排班使用' : (s||'—');
+    // 遷移進來的與排班畫上的語意相同，一律顯示「排班使用」
+    const src = s==='manual'?'手動補登' : (isMig||s.startsWith('schedule'))?'排班使用' : (s||'—');
     return `<div class="log-item">
       <div class="log-header">
         <span class="log-badge use">${type==='annual'?'特休':'補休'}</span>
@@ -1212,15 +1213,17 @@ async function adjustBatchUsed(empName, delta) {
 // 從帳本集合重算快取（與 schedule-V2.html recomputeLeaveCounters 一致）
 async function recomputeCountersClient(empName, yearStr) {
   const empRef = window.db.collection('employees').doc(empName);
-  const [annSnap, compSnap, leaveSnap, logSnaps, prevCompSnap] = await Promise.all([
+  const batchesRef = empRef.collection('leaveBatches');
+  const [annSnap, compSnap, leaveSnap, logSnaps, prevCompSnap, bSnap] = await Promise.all([
     empRef.collection('annualUsage').get(),
     empRef.collection('compUsage').get(),
     empRef.collection('leaves').doc(yearStr).get(),
     empRef.collection('leaveLog').get(),
-    empRef.collection('comp').doc(String(parseInt(yearStr)-1)).get()
+    empRef.collection('comp').doc(String(parseInt(yearStr)-1)).get(),
+    batchesRef.get()
   ]);
-  let fa=0, fc=0;
-  annSnap.forEach(d=>{ const dt=(d.data().date)||d.id; if(String(dt).startsWith(yearStr)) fa++; });
+  let fa=0, fc=0; const annDatesAll=[];
+  annSnap.forEach(d=>{ const dt=(d.data().date)||d.id; annDatesAll.push(dt); if(String(dt).startsWith(yearStr)) fa++; });
   compSnap.forEach(d=>{ const dt=(d.data().date)||d.id; if(String(dt).startsWith(yearStr)) fc++; });
   let cE=0, cC=0;
   logSnaps.forEach(doc=>{ if(!doc.id.startsWith(yearStr)) return; (doc.data().records||[]).forEach(r=>{ const rd=parseFloat(r.days)||0; if(r.type==='comp_earn')cE+=rd; if(r.type==='comp_cancel')cC+=rd; }); });
@@ -1236,6 +1239,20 @@ async function recomputeCountersClient(empName, yearStr) {
     empRef.collection('comp').doc(yearStr).set({ earned:fCE, used:curUse }, { merge:true })
   ];
   if(cActive) writes.push(empRef.collection('comp').doc(String(parseInt(yearStr)-1)).set({ carriedUsed:cUsedNow }, { merge:true }));
+
+  // 🌟 批次「已用」日期歸屬重算(與 schedule-V2 一致)：每天記到當天在窗內且未滿的批次(最早到期優先)
+  const batches=[]; bSnap.forEach(d=>batches.push({ id:d.id, ...d.data() }));
+  const nonS = batches.filter(b=>!b.settled);
+  const newUsed={}; nonS.forEach(b=>newUsed[b.id]=0);
+  const latestB = nonS.slice().sort((a,b)=>String(b.grantDate||'').localeCompare(String(a.grantDate||'')))[0];
+  annDatesAll.slice().sort().forEach(D=>{
+    const cands = nonS.filter(b=>String(b.grantDate||'')<=D && D<=String(b.expireDate||'9999') && newUsed[b.id]<(b.days||0))
+                      .sort((a,b)=>String(a.expireDate||'').localeCompare(String(b.expireDate||'')));
+    if(cands.length) newUsed[cands[0].id]++;
+    else if(latestB) newUsed[latestB.id]++;
+  });
+  nonS.forEach(b=>{ if((b.used||0)!==newUsed[b.id]) writes.push(batchesRef.doc(b.id).set({ used:newUsed[b.id] }, { merge:true })); });
+
   await Promise.all(writes);
 }
 

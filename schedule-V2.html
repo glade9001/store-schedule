@@ -1206,16 +1206,19 @@ async function deductLeave(empName, day, weekStr, prevShift, newShift) {
 // 補休遞延(前一年度 carried)優先扣，其餘記當年度。idempotent。
 async function recomputeLeaveCounters(empName, yearStr) {
   const empRef = window.db.collection('employees').doc(empName);
-  const [annSnap, compSnap, leaveSnap, logSnaps, prevCompSnap] = await Promise.all([
+  const batchesRef = empRef.collection('leaveBatches');
+  const [annSnap, compSnap, leaveSnap, logSnaps, prevCompSnap, bSnap] = await Promise.all([
     empRef.collection('annualUsage').get(),
     empRef.collection('compUsage').get(),
     empRef.collection('leaves').doc(yearStr).get(),
     empRef.collection('leaveLog').get(),
-    empRef.collection('comp').doc(String(parseInt(yearStr)-1)).get()
+    empRef.collection('comp').doc(String(parseInt(yearStr)-1)).get(),
+    batchesRef.get()
   ]);
 
   let finalAnnualUse=0, finalCompUse=0;
-  annSnap.forEach(d => { const dt=(d.data().date)||d.id; if(String(dt).startsWith(yearStr)) finalAnnualUse++; });
+  const annDatesAll=[]; // 全部特休使用日(跨年)，用於批次日期歸屬
+  annSnap.forEach(d => { const dt=(d.data().date)||d.id; annDatesAll.push(dt); if(String(dt).startsWith(yearStr)) finalAnnualUse++; });
   compSnap.forEach(d => { const dt=(d.data().date)||d.id; if(String(dt).startsWith(yearStr)) finalCompUse++; });
 
   let cEarn=0, cCan=0;
@@ -1241,6 +1244,21 @@ async function recomputeLeaveCounters(empName, yearStr) {
     compRef.set({ earned: finalCompEarn, used: currentCompUse }, { merge: true })
   ];
   if(carriedActive) writes.push(prevCompRef.set({ carriedUsed: carriedUsedNow }, { merge: true }));
+
+  // 🌟 批次「已用」從帳本『日期歸屬』重算：每天特休記到當天在窗內(grant<=D<=exp)且未滿的批次(最早到期優先)，
+  // 落在所有批次窗外/全滿 → 記到最新批次(容許負餘額)。settled 批次不動 → 合計可用與到期歸屬永遠正確。
+  const batches=[]; bSnap.forEach(d=>batches.push({ id:d.id, ...d.data() }));
+  const nonS = batches.filter(b=>!b.settled);
+  const newUsed={}; nonS.forEach(b=>newUsed[b.id]=0);
+  const latestB = nonS.slice().sort((a,b)=>String(b.grantDate||'').localeCompare(String(a.grantDate||'')))[0];
+  annDatesAll.slice().sort().forEach(D=>{
+    const cands = nonS.filter(b=>String(b.grantDate||'')<=D && D<=String(b.expireDate||'9999') && newUsed[b.id]<(b.days||0))
+                      .sort((a,b)=>String(a.expireDate||'').localeCompare(String(b.expireDate||'')));
+    if(cands.length) newUsed[cands[0].id]++;
+    else if(latestB) newUsed[latestB.id]++;
+  });
+  nonS.forEach(b=>{ if((b.used||0)!==newUsed[b.id]) writes.push(batchesRef.doc(b.id).set({ used:newUsed[b.id] }, { merge:true })); });
+
   await Promise.all(writes);
 }
 // ===== 國定假日補休：發放 =====
