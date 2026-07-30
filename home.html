@@ -1715,19 +1715,26 @@ async function checkHireDateGate(){
     if(!empSnap) return;
     const todayStr = new Date().toISOString().slice(0,10);
     const cy = new Date().getFullYear().toString();
-    const need = [];
+    const candidates = [];
     empSnap.forEach(d=>{
       const data = d.data();
       if(['離職','調走'].includes(data.status)) return;
-      if(data.startDate) return; // 已有到職日
-      need.push({ name: d.id });
+      if(data.startDate) return; // 已有到職日(startDate) → 不處理
+      candidates.push({ name: d.id });
     });
-    if(!need.length) return;
-    // 預設帶入各人 leaves.hireDate（無則今天=建檔日概念）
-    await Promise.all(need.map(async n=>{
-      const lv = await window.db.collection('employees').doc(n.name).collection('leaves').doc(cy).get().catch(()=>null);
-      n.prefill = (lv && lv.exists && lv.data().hireDate) ? lv.data().hireDate : todayStr;
+    if(!candidates.length) return;
+    // 有 hireDate 者 → 靜默把 startDate 同步過去(不打擾店長)；兩者皆無者才要求店長填寫
+    const need = [];
+    await Promise.all(candidates.map(async c=>{
+      const lv = await window.db.collection('employees').doc(c.name).collection('leaves').doc(cy).get().catch(()=>null);
+      const hire = (lv && lv.exists && lv.data().hireDate) ? lv.data().hireDate : '';
+      if(hire){
+        await window.db.collection('stores').doc(store).collection('employees').doc(c.name).set({ startDate: hire }, { merge:true });
+      } else {
+        need.push({ name: c.name, prefill: todayStr }); // 真的完全沒到職日
+      }
     }));
+    if(!need.length) return;
     document.getElementById('hireGateList').innerHTML = need.map(n=>{
       const dn = displayNameMap[n.name] || n.name;
       return `<div style="display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid #eef1f4;">
