@@ -607,7 +607,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
   <div class="modal-box" style="max-width:420px;">
     <div style="font-size:44px; margin-bottom:10px;">🔐</div>
     <div class="modal-title">首次登入安全設定</div>
-    <div class="modal-sub" style="margin-bottom:18px;">為確保您的帳號安全，首次登入需完成以下兩個步驟</div>
+    <div class="modal-sub" style="margin-bottom:18px;">首次登入請完成以下步驟，以確保帳號安全與通知暢通</div>
     <div class="setup-step">
       <div class="setup-step-num">1</div>
       <div class="setup-step-text">
@@ -618,8 +618,15 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
     <div class="setup-step">
       <div class="setup-step-num">2</div>
       <div class="setup-step-text">
-        <div class="setup-step-title">綁定 Google 帳號</div>
-        為加強帳號安全性，綁定後可雙重驗證身分，同時免除每次輸入密碼的麻煩
+        <div class="setup-step-title">確認個人資料</div>
+        核對姓名／職稱／門市／到職日是否正確
+      </div>
+    </div>
+    <div class="setup-step">
+      <div class="setup-step-num">3</div>
+      <div class="setup-step-text">
+        <div class="setup-step-title">綁定 LINE 通知</div>
+        綁定後可即時收到薪資、班表、劃休等主動通知
       </div>
     </div>
     <button class="save-btn" style="margin-top:20px;" onclick="startFirstLoginSetup()">我了解，開始設定 →</button>
@@ -634,6 +641,17 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
     <div class="modal-sub" style="margin-bottom:14px;">以下員工尚未設定到職日，會影響<b>薪資起算月份</b>與<b>特休計算</b>。請確認後儲存（預設已帶入特補休系統的到職日，可修改）。<br><span style="color:#e67e22;font-size:12px;">※ 若更動日期，正職請再至「特補休管理」確認特休批次。</span></div>
     <div id="hireGateList" style="max-height:52vh; overflow-y:auto;"></div>
     <button class="save-btn" style="margin-top:16px;" onclick="saveHireDateGate()">全部儲存</button>
+  </div>
+</div>
+
+<!-- ===== 首次登入：確認個人資料（Feature③）===== -->
+<div class="modal-overlay" id="onboardConfirmModal">
+  <div class="modal-box" style="max-width:420px;">
+    <div style="font-size:40px; margin-bottom:8px;">👤</div>
+    <div class="modal-title">確認你的基本資料</div>
+    <div class="modal-sub" style="margin-bottom:16px;">請核對以下資料是否正確，有誤請聯絡店長修改。</div>
+    <div id="obcInfo" style="text-align:left; background:#f8fafc; border-radius:12px; padding:14px 16px; font-size:15px; line-height:2;"></div>
+    <button class="save-btn" style="margin-top:18px;" onclick="onboardConfirmOK()">資料正確，下一步 →</button>
   </div>
 </div>
 
@@ -1510,14 +1528,14 @@ async function doFirstTimePwdChange() {
     document.getElementById('pcNewPwd').value = '';
     document.getElementById('pcNewPwdC').value = '';
 
-    // [Google 綁定凍結] 不再進入強制綁定畫面，改密碼完成直接進 App
+    // 首登精靈：改密碼完成 → 確認個人資料 → 綁定 LINE → 進 App
     const redirect = localStorage.getItem('redirectAfterLogin');
     if(redirect) {
       localStorage.removeItem('redirectAfterLogin');
       window.location.href = redirect;
       return;
     }
-    await initApp();
+    startOnboardConfirm();
   } catch(e) {
     hideLoading();
     const codeMap = {
@@ -1527,6 +1545,36 @@ async function doFirstTimePwdChange() {
     };
     errEl.textContent = '❌ ' + (codeMap[e.code] || e.message);
   }
+}
+
+// ===== 首登精靈：確認個人資料 → LINE 綁定（Feature③）=====
+let _afterLineBindCb = null;
+async function startOnboardConfirm(){
+  try{
+    const dn = currentUser.displayName || currentUser.empName || '';
+    const roleLabel = (ROLE_LABELS[currentUser.role] || currentUser.role || '');
+    const emp = currentUser.empName, st = currentUser.store;
+    let hire = '';
+    if(st && emp){
+      const es = await window.db.collection('stores').doc(st).collection('employees').doc(emp).get().catch(()=>null);
+      hire = (es && es.exists && es.data().startDate) ? es.data().startDate : '';
+    }
+    if(!hire && emp){
+      const cy = new Date().getFullYear().toString();
+      const lv = await window.db.collection('employees').doc(emp).collection('leaves').doc(cy).get().catch(()=>null);
+      hire = (lv && lv.exists && lv.data().hireDate) ? lv.data().hireDate : '';
+    }
+    const row=(k,v)=>`<div style="display:flex; justify-content:space-between; gap:12px;"><span style="color:var(--text-muted);">${k}</span><b>${v||'—'}</b></div>`;
+    document.getElementById('obcInfo').innerHTML =
+      row('姓名', dn) + row('職稱', roleLabel) + row('門市', st||'—') + row('到職日', hire);
+    openModal('onboardConfirmModal');
+  }catch(e){ console.error('startOnboardConfirm', e); initApp(); }
+}
+function onboardConfirmOK(){
+  closeModal('onboardConfirmModal');
+  // LINE 綁定於 LINE 端非同步完成；關閉綁定視窗後進入 App，未綁定者首頁仍會持續提醒
+  _afterLineBindCb = () => { initApp(); };
+  openLineBindModal();
 }
 
 // ===== Google 登入 =====
@@ -1817,7 +1865,7 @@ async function checkLineBindHint(){
     el.style.display = (bs && bs.exists) ? 'none' : 'flex';
   }catch(e){ console.error('checkLineBindHint', e); }
 }
-function closeLineBind(){ document.getElementById('lineBindOverlay').style.display='none'; const mt=document.getElementById('maintenanceScreen'); if(mt && mt.style.display!=='none') renderMaintenanceNotifyState(); }
+function closeLineBind(){ document.getElementById('lineBindOverlay').style.display='none'; const mt=document.getElementById('maintenanceScreen'); if(mt && mt.style.display!=='none') renderMaintenanceNotifyState(); if(_afterLineBindCb){ const cb=_afterLineBindCb; _afterLineBindCb=null; cb(); } }
 async function openLineBindModal(){
   document.getElementById('lineBindOverlay').style.display='flex';
   const body=document.getElementById('lineBindBody');
