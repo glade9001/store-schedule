@@ -1335,9 +1335,11 @@ async function saveHireDate() {
 
     const year = new Date().getFullYear().toString();
     await window.db.collection('employees').doc(empName).collection('leaves').doc(year).set({ hireDate },{ merge:true });
-    // 🌟 同步門市員工檔 startDate（供薪資「到職前不顯示」篩選；與 leaves.hireDate 保持一致）
+    // 🌟 同步門市員工檔 startDate（供薪資「到職前不顯示」篩選）
+    // ⚠️ 調店進來的員工 startDate=調入本店日，不可被到職日覆蓋——到職日(年資)持續累積、與本店薪資起算分離
     const _st = emp.store || currentStore;
-    if(_st) await window.db.collection('stores').doc(_st).collection('employees').doc(empName).set({ startDate: hireDate }, { merge:true });
+    const _isTransferIn = !!(emp.transferDate || emp.transferFrom);
+    if(_st && !_isTransferIn) await window.db.collection('stores').doc(_st).collection('employees').doc(empName).set({ startDate: hireDate }, { merge:true });
 
     showToast('✅ 已設定到職日並建立批次');
     closeModal('hireDateModal');

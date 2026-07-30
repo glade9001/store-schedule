@@ -1722,18 +1722,19 @@ async function checkHireDateGate(){
       // 需處理：缺 startDate，或被標記為「待確認」(建檔日預設值等)
       const needsReview = !data.startDate || data.startDateConfirmed === false;
       if(!needsReview) return;
-      candidates.push({ name: d.id, startDate: data.startDate||'', confirmed: data.startDateConfirmed });
+      candidates.push({ name: d.id, startDate: data.startDate||'', confirmed: data.startDateConfirmed, transferDate: data.transferDate||'' });
     });
     if(!candidates.length) return;
-    // 缺 startDate 但有真實 hireDate 且非待確認 → 靜默同步(不打擾)；其餘(待確認/兩者皆無)→ 列給店長核對
+    // 缺 startDate 但有可用日期且非待確認 → 靜默同步(調店員工用調入日、否則用到職日)；其餘(待確認/完全無)→ 列給店長核對
     const need = [];
     await Promise.all(candidates.map(async c=>{
       const lv = await window.db.collection('employees').doc(c.name).collection('leaves').doc(cy).get().catch(()=>null);
       const hire = (lv && lv.exists && lv.data().hireDate) ? lv.data().hireDate : '';
-      if(!c.startDate && hire && c.confirmed !== false){
-        await window.db.collection('stores').doc(store).collection('employees').doc(c.name).set({ startDate: hire }, { merge:true });
+      const autoDate = c.transferDate || hire; // 調店進來的以調入日為本店薪資起算，不用到職日
+      if(!c.startDate && autoDate && c.confirmed !== false){
+        await window.db.collection('stores').doc(store).collection('employees').doc(c.name).set({ startDate: autoDate }, { merge:true });
       } else {
-        need.push({ name: c.name, prefill: c.startDate || hire || todayStr }); // 待確認 或 完全無到職日
+        need.push({ name: c.name, prefill: c.startDate || autoDate || todayStr }); // 待確認 或 完全無到職日
       }
     }));
     if(!need.length) return;
