@@ -1556,6 +1556,8 @@ async function flushCurrentWeek(storeOverride) {
 
 // ===== 班別 Modal =====
 function openShiftModal(btn) {
+  // 跨店整日外派格（loc=支援X）為衍生唯讀顯示，請至該門市班表修改/取消，不在本店編輯（避免落地成雙軌）
+  if(String(btn.dataset.loc||'').startsWith('支援')) { showToast('此為跨店支援班，請至該門市班表修改或取消'); return; }
   // 調走員工不能編輯
   const emp = appData.employees.find(e => e.name === btn.dataset.emp);
   if(emp?.status === '調走') {
@@ -1627,6 +1629,8 @@ function saveShiftModal() {
 // ===== 畫筆模式 =====
 function paintCell(btn) {
   if(!paintMode || !paintShift) return;
+  // 跨店整日外派格（loc=支援X）為衍生唯讀顯示，畫筆不可覆蓋（避免落地成雙軌 set#1）
+  if(String(btn.dataset.loc||'').startsWith('支援')) return;
   const store = document.getElementById('storeSelector').value;
   const weekStr = document.getElementById('weekSelector').value;
   if(!canScheduleStore(store)) return;
@@ -3595,6 +3599,8 @@ async function updateSummary(idx, emp) {
 function syncUIToMemory() {
   const selWeek=document.getElementById('weekSelector').value;
   document.querySelectorAll('.cell-btn').forEach(btn=>{
+    // 🌟 跨店支援「整日外派」的格子是即時衍生顯示（loc=支援X），不可落地存成本店記錄（否則又生出雙軌 set#1）
+    if(String(btn.dataset.loc||'').startsWith('支援')) return;
     // ✅ 以「格子自己的週」為準（非全域 selector），避免換週瞬間把畫面資料標成新週而覆蓋他週
     const week=btn.dataset.week||selWeek;
     const idx=appData.records.findIndex(r=>r.name===btn.dataset.emp&&r.day===btn.dataset.day&&r.week===week);
