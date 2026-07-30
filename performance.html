@@ -409,6 +409,7 @@ function renderAnalysis(){
   if(isAdminOwner()) renderCompare(months[months.length-1]);
 }
 let cmpData=null; // {store:{pnl:{m:..},perf:{m:..}}}
+let cmpMonth=''; // 三店對照選定的分析年月（獨立於上方範圍）
 async function loadAllForCompare(){
   if(cmpData)return;
   cmpData={};
@@ -418,10 +419,20 @@ async function loadAllForCompare(){
     try{const q=await window.db.collection('stores').doc(s).collection('perfSnapshot').get();q.forEach(d=>cmpData[s].perf[d.id]=d.data());}catch(e){}
   }
 }
-async function renderCompare(m){
+async function renderCompare(defaultM){
   const box=document.getElementById('compareBox');if(!box)return;
   await loadAllForCompare();
   const stores=(appConfig.stores||[]).filter(s=>s!=='人力支援');
+  // 跨店有資料的年月(union)，供對照選單
+  const mset=new Set();
+  Object.values(cmpData||{}).forEach(sd=>Object.keys(sd.pnl||{}).forEach(k=>{ if(/^\d{4}-\d{2}$/.test(k)) mset.add(k); }));
+  const allMonths=[...mset].sort();
+  if(!allMonths.length){ box.innerHTML='<div style="font-size:12px;color:var(--text-muted);padding:8px 4px;">尚無對照資料</div>'; return; }
+  let m = (cmpMonth && allMonths.includes(cmpMonth)) ? cmpMonth
+        : (defaultM && allMonths.includes(defaultM)) ? defaultM
+        : allMonths[allMonths.length-1];
+  cmpMonth=m;
+  const mOpt=allMonths.map(x=>`<option value="${x}" ${x===m?'selected':''}>${x.split('-')[0]}年${parseInt(x.split('-')[1])}月</option>`).join('');
   const cell=(v)=>v==null?'<td style="text-align:right;color:#bbb;">—</td>':`<td style="text-align:right;">${v}</td>`;
   let rows='';
   stores.forEach(s=>{const pn=cmpData[s]&&cmpData[s].pnl[m];const pf=cmpData[s]&&cmpData[s].perf[m];
@@ -429,7 +440,11 @@ async function renderCompare(m){
     const rev=(pf&&pn&&pf.totalHours)?Math.round(pn.netSales/pf.totalHours).toLocaleString('en-US'):null;
     rows+=`<tr><td style="font-weight:800;">${s}</td>${cell(pn?money(pn.netSales):null)}${cell(pn?pn.grossMargin+'%':null)}${cell(pn?money(pn.operatingReward):null)}${cell(rate)}${cell(rev)}</tr>`;
   });
-  box.innerHTML=`<div class="chart-card"><div class="chart-title">🏪 三店對照 · ${m.split('-')[0]}年${parseInt(m.split('-')[1])}月</div>
+  box.innerHTML=`<div class="chart-card">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+      <div class="chart-title" style="margin:0;">🏪 三店對照</div>
+      <select onchange="cmpMonth=this.value;renderCompare();" style="padding:6px 8px;border:1.5px solid var(--border);border-radius:8px;font-weight:700;font-size:12px;">${mOpt}</select>
+    </div>
     <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12.5px;white-space:nowrap;">
     <thead><tr style="color:var(--text-muted);font-size:11px;"><th style="text-align:left;padding:4px;">門市</th><th style="text-align:right;padding:4px;">營業淨額</th><th style="text-align:right;">毛利率</th><th style="text-align:right;">經營報酬</th><th style="text-align:right;">人事費率</th><th style="text-align:right;">每工時營收</th></tr></thead>
     <tbody>${rows}</tbody></table></div>
