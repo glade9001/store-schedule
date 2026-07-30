@@ -655,6 +655,19 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
   </div>
 </div>
 
+<!-- ===== 經營績效資料異常提醒（店長登入）===== -->
+<div class="modal-overlay" id="pnlAnomalyModal">
+  <div class="modal-box" style="max-width:440px;">
+    <div style="font-size:40px; margin-bottom:8px;">⚠️</div>
+    <div class="modal-title">經營績效資料異常提醒</div>
+    <div class="modal-sub" id="pnlAnomalyBody" style="margin-bottom:16px; text-align:left; line-height:1.7;"></div>
+    <div style="display:flex; gap:10px;">
+      <button class="save-btn" style="flex:1; background:#eef2ff; color:#3730a3;" onclick="window.location.href='performance.html'">前往修正</button>
+      <button class="save-btn" style="flex:1;" onclick="ackPnlAnomaly()">我已確認</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== 首次登入：強制改密碼 ===== -->
 <div id="pwdChangeScreen">
   <div style="font-size:40px; margin-bottom:12px;">🔐</div>
@@ -1773,6 +1786,42 @@ async function saveHireDateGate(){
     showToast('✅ 已補齊到職日');
   }catch(e){ hideLoading(); showToast('❌ 儲存失敗：'+e.message); }
 }
+// ===== 經營績效資料異常提醒（店長登入）=====
+let _pnlAnomalyMonths=[];
+async function checkPnlAnomaly(){
+  try{
+    if(!['manager','owner','admin'].includes(currentUser?.permission)) return;
+    const store = currentUser.store;
+    if(!store) return;
+    const snap = await window.db.collection('stores').doc(store).collection('pnl').get().catch(()=>null);
+    if(!snap) return;
+    const bad=[];
+    snap.forEach(d=>{ const data=d.data()||{}; const ns=Number(data.netSales); if(ns && ns>10000000 && !data.netSalesAnomalyAck) bad.push({ id:d.id, ns }); });
+    if(!bad.length) return;
+    _pnlAnomalyMonths=bad;
+    const rows=bad.map(b=>{
+      const y=b.id.split('-')[0], mo=parseInt(b.id.split('-')[1]);
+      const suggest=Math.round(b.ns/10);
+      return `<div style="background:#fff5f5; border-left:3px solid #d93025; border-radius:6px; padding:8px 10px; margin-top:8px;">
+        <b>${y}年${mo}月</b>：營業淨額登記為 <b style="color:#c5221f;">${b.ns.toLocaleString()}</b> 元，明顯多打一位數（其他月份約 360～400 萬），推估正確值約 <b>${suggest.toLocaleString()}</b> 元。</div>`;
+    }).join('');
+    document.getElementById('pnlAnomalyBody').innerHTML =
+      `系統偵測到「${store}」的經營績效資料異常，此錯誤會拉高年度趨勢與同期比較，請確認並修正：${rows}
+       <div style="font-size:12px; color:var(--text-muted); margin-top:10px;">點「前往修正」到經營績效專區編輯該月數字；或「我已確認」暫不再提醒（修正後也會自動停止）。</div>`;
+    openModal('pnlAnomalyModal');
+  }catch(e){ console.error('checkPnlAnomaly', e); }
+}
+async function ackPnlAnomaly(){
+  try{
+    const store=currentUser.store;
+    for(const b of _pnlAnomalyMonths){
+      await window.db.collection('stores').doc(store).collection('pnl').doc(b.id)
+        .set({ netSalesAnomalyAck:true, netSalesAnomalyAckBy:(currentUser.displayName||currentUser.empName||''), netSalesAnomalyAckAt:new Date().toISOString() }, { merge:true });
+    }
+  }catch(e){}
+  closeModal('pnlAnomalyModal');
+  showToast('已確認，將不再提醒');
+}
 async function checkSalaryAck(){
   try{
     if(!currentUser?.uid || !currentUser?.empName) return;
@@ -2027,6 +2076,7 @@ async function initApp() {
   checkSalaryAck(); // 背景檢查薪資待簽收，完成後顯示橫幅
   checkPnlPending(); // 背景檢查經營績效待輸入
   checkHireDateGate(); // 店長：補齊缺到職日的員工（強制）
+  checkPnlAnomaly(); // 店長：經營績效資料異常提醒（如營業淨額多打一位數）
   checkLeaveHint(); // 背景檢查下週劃休提醒
   checkLineBindHint(); // 未綁定 LINE → 首頁顯示小條
 
