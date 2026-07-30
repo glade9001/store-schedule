@@ -385,6 +385,51 @@ function showPt(title,val,detail){
   el.style.display='block';
   clearTimeout(window._ptT); window._ptT=setTimeout(()=>{el.style.display='none';},4500);
 }
+// 多線圖（三店同圖比較）：series=[{name,color,values:[...]}]，values 對齊 months
+function multiLineChart(months, series, opt){
+  opt=opt||{};
+  const esc=s=>String(s==null?'':s).replace(/['"\\<>]/g,'');
+  const fmtV=v=>opt.fmt?opt.fmt(v):ptFmt(v);
+  const mlbl=m=>{const p=String(m).split('-');return `${p[0].slice(2)}/${parseInt(p[1])}`;};
+  const hasAny=i=>series.some(s=>s.values[i]!=null);
+  let a=0,b=months.length-1; while(a<=b&&!hasAny(a))a++; while(b>=a&&!hasAny(b))b--;
+  if(a>b)return '<div style="font-size:12px;color:var(--text-muted);">此期間尚無資料</div>';
+  months=months.slice(a,b+1); series=series.map(s=>({name:s.name,color:s.color,values:s.values.slice(a,b+1)}));
+  const allV=[]; series.forEach(s=>s.values.forEach(v=>{if(v!=null)allV.push(v);}));
+  if(!allV.length)return '<div style="font-size:12px;color:var(--text-muted);">此期間尚無資料</div>';
+  const n=months.length, W=Math.max(600,n*58), H=214, pl=38,pr=42,pt=42,pb=28, iw=W-pl-pr, ih=H-pt-pb;
+  let min=Math.min(...allV),max=Math.max(...allV); if(min===max){min=min-Math.abs(min||1)*0.1;max=max+Math.abs(max||1)*0.1;}
+  const X=i=>pl+(n<=1?iw/2:i/(n-1)*iw), Y=v=>pt+ih-(v-min)/(max-min)*ih;
+  let body='';
+  series.forEach(s=>{let path='',dots='',taps='';
+    s.values.forEach((v,i)=>{if(v==null)return;const x=X(i),y=Y(v);
+      path+=(path?' L':'M')+x.toFixed(1)+' '+y.toFixed(1);
+      dots+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.6" fill="${s.color}"/>`;
+      taps+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="12" fill="transparent" style="cursor:pointer" onclick="showPt('${esc(s.name)} · ${esc(mlbl(months[i]))}','${esc(fmtV(v))}','')"/>`;});
+    body+=`<path d="${path}" fill="none" stroke="${s.color}" stroke-width="2.2"/>${dots}${taps}`;});
+  let legend=''; series.forEach((s,i)=>{const lx=pl+i*96;legend+=`<circle cx="${lx}" cy="18" r="4.5" fill="${s.color}"/><text x="${lx+9}" y="22" font-size="11" fill="#333" font-weight="800">${esc(s.name)}</text>`;});
+  let labels=''; months.forEach((m,i)=>{labels+=`<text x="${X(i).toFixed(1)}" y="${H-8}" font-size="9" fill="#999" text-anchor="middle">${mlbl(m)}</text>`;});
+  const scroll=W>600?'min-width:'+W+'px;':'width:100%;';
+  return `<div style="overflow-x:auto;"><svg viewBox="0 0 ${W} ${H}" style="${scroll}height:auto;">${legend}${body}${labels}</svg></div>`;
+}
+async function renderStoreTrend(){
+  const box=document.getElementById('storeTrendBox'); if(!box)return;
+  await loadAllForCompare();
+  const sts=(appConfig.stores||[]).filter(s=>s!=='人力支援');
+  const mset=new Set();
+  sts.forEach(s=>Object.keys((cmpData[s]||{}).pnl||{}).forEach(k=>{if(/^\d{4}-\d{2}$/.test(k)&&k>=anaFrom&&k<=anaTo)mset.add(k);}));
+  // 人事效率類指標也把有 perf 的月份納入(即使 pnl 缺，仍可能想看)；但目前指標多需 pnl，故以 pnl 月為主
+  const months=[...mset].sort();
+  if(!months.length){box.innerHTML='<div style="font-size:12px;color:var(--text-muted);">此期間尚無資料</div>';return;}
+  const M=METRICS[cmpMetric]||METRICS.netSales;
+  const series=sts.map(s=>({name:s,color:STORE_COLORS[s]||'#888',values:months.map(m=>{
+    const pn=(cmpData[s]||{}).pnl[m];
+    const pf=PERF_EXCLUDE.has(m)?null:(cmpData[s]||{}).perf[m];
+    return M.get(pn, pf);
+  })}));
+  box.innerHTML=multiLineChart(months, series, {fmt:M.fmt})
+    +`<div style="font-size:11px;color:var(--text-muted);margin-top:6px;">點線上的點看該店該月數值；人事類指標 2026/4 不列入。錦花無損益資料，僅工時相關可見。</div>`;
+}
 function renderAnalysis(){
   const wrap=document.getElementById('tabAnalysis');
   const allM=Object.keys(pnlCache).sort();
@@ -439,11 +484,23 @@ function renderAnalysis(){
     +derived('人事費率（人事成本÷營業淨額 %，越低越好）','#9334e6',(pf,pn)=>pf.laborCost/pn.netSales*100,v=>v.toFixed(1),'%')
     +derived('每工時營收（營業淨額÷總工時，元/h）','#0891b2',(pf,pn)=>pf.totalHours?pn.netSales/pf.totalHours:null,v=>Math.round(v).toLocaleString('en-US'),'')
     +derived('門市實際餘裕（經營報酬−人事成本，元）','#137333',(pf,pn)=>pn.operatingReward-pf.laborCost,money,'')
+    +(isAdminOwner()?`<div class="chart-card"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px;"><div class="chart-title" style="margin:0;">🏪 三店趨勢比較</div><select id="cmpMetricSel" onchange="cmpMetric=this.value;renderStoreTrend();" style="padding:6px 8px;border:1.5px solid var(--border);border-radius:8px;font-weight:700;font-size:12px;">${Object.keys(METRICS).map(k=>`<option value="${k}"${k===cmpMetric?' selected':''}>${METRICS[k].t}</option>`).join('')}</select></div><div id="storeTrendBox"><div style="font-size:12px;color:var(--text-muted);">載入中…</div></div></div>`:'')
     +(isAdminOwner()?`<div id="compareBox" style="margin-top:8px;"><div style="font-size:12px;color:var(--text-muted);padding:8px 4px;">載入三店對照…</div></div>`:'');
-  if(isAdminOwner()) renderCompare(months[months.length-1]);
+  if(isAdminOwner()){ renderStoreTrend(); renderCompare(months[months.length-1]); }
 }
 let cmpData=null; // {store:{pnl:{m:..},perf:{m:..}}}
 let cmpMonth=''; // 三店對照選定的分析年月（獨立於上方範圍）
+let cmpMetric='netSales'; // 三店趨勢比較選定指標
+const STORE_COLORS={'美德':'#1a73e8','聯鑫':'#e67e22','錦花':'#34a853'};
+const METRICS={
+  netSales:{t:'營業淨額',fmt:money,get:(pn,pf)=>pn?pn.netSales:null},
+  grossMargin:{t:'毛利率(%)',fmt:v=>v.toFixed(1),get:(pn,pf)=>pn?pn.grossMargin:null},
+  operatingReward:{t:'經營報酬',fmt:money,get:(pn,pf)=>pn?pn.operatingReward:null},
+  badGoodsCost:{t:'壞品(元)',fmt:money,get:(pn,pf)=>pn?pn.badGoodsCost:null},
+  laborRate:{t:'人事費率(%)',fmt:v=>v.toFixed(1),get:(pn,pf)=>(pn&&pf&&pn.netSales)?pf.laborCost/pn.netSales*100:null},
+  revPerHour:{t:'每工時營收',fmt:money,get:(pn,pf)=>(pn&&pf&&pf.totalHours)?pn.netSales/pf.totalHours:null},
+  surplus:{t:'門市餘裕(報酬−人事)',fmt:money,get:(pn,pf)=>(pn&&pf)?pn.operatingReward-pf.laborCost:null}
+};
 async function loadAllForCompare(){
   if(cmpData)return;
   cmpData={};
