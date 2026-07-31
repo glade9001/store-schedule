@@ -1393,7 +1393,7 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
   const d = request.data || {};
   const lat = Number(d.lat), lng = Number(d.lng), type = d.type;
   if (!isFinite(lat) || !isFinite(lng)) throw new HttpsError("invalid-argument", "缺少定位資訊");
-  if (!["上班", "下班", "到場", "離場"].includes(type)) throw new HttpsError("invalid-argument", "打卡類型錯誤");
+  if (!["上班", "下班"].includes(type)) throw new HttpsError("invalid-argument", "打卡類型錯誤");
   // 後端複驗圍欄
   const geo = clk.geo || {};
   let atStore = "", distanceM = null;
@@ -1432,15 +1432,17 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
   });
   const tol = clk.lateToleranceMin != null ? clk.lateToleranceMin : 10;
   let status = "正常", lateMin = 0, matchedShift = "";
-  if (type === "上班" && shifts.length) {
+  if (!shifts.length) {
+    status = "到場"; // 無排班的打卡 → 自動歸類「到場」(未來薪資整併分類用)，仍是上班/下班
+  } else if (type === "上班") {
     let best = null; shifts.forEach((s) => { const dd = Math.abs(s.start * 60 - nowMin); if (!best || dd < best.d) best = { s, d: dd }; });
     const s = best.s; matchedShift = s.shift; const late = nowMin - s.start * 60;
     if (late > tol) { status = "遲到"; lateMin = late; } else if (late > 0) { status = "警告"; lateMin = late; }
-  } else if (type === "下班" && shifts.length) {
+  } else if (type === "下班") {
     let best = null; shifts.forEach((s) => { let e = s.end * 60; if (s.end <= s.start) e += 1440; const dd = Math.abs(e - nowMin); if (!best || dd < best.d) best = { s, d: dd }; });
     const s = best.s; matchedShift = s.shift; let endMin = s.end * 60; if (s.end <= s.start) endMin += 1440; let cur = nowMin; if (s.end <= s.start && nowTp.getUTCHours() < s.start) cur += 1440;
     if (cur < endMin) status = "早退";
-  } else if (type === "到場" || type === "離場") { status = "到場"; }
+  }
   const info = await resolveEmpInfo(db, empName);
   const deviceTs = new Date(nowMs).toISOString();
   await attCol.add({

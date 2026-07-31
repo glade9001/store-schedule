@@ -148,12 +148,11 @@ async function loadToday(){
   }catch(e){}
 }
 
-// 依「最後一次打卡」決定下一步，支援多段（兩頭班/跨店連班）：上班↔下班可重複循環
+// 依「最後一次打卡」決定下一步，只有上班/下班（可重複多段：兩頭班/跨店連班）。
+// 沒排班的打卡由後端自動歸類為「到場」，不做成按鈕。
 function nextAction(){
   const ins=todayPunches.filter(p=>p.type==='上班').length, outs=todayPunches.filter(p=>p.type==='下班').length;
-  const vis=todayPunches.filter(p=>p.type==='到場').length, lev=todayPunches.filter(p=>p.type==='離場').length;
-  if(todayShifts.length){ return ins>outs ? '下班' : '上班'; }
-  return vis>lev ? '離場' : '到場';
+  return ins>outs ? '下班' : '上班';
 }
 function nearestShiftByStart(nowMin){ let best=null; todayShifts.forEach(s=>{const d=Math.abs(s.start*60-nowMin);if(!best||d<best.d)best={s,d};}); return best?best.s:null; }
 function nearestShiftByEnd(nowMin){ let best=null; todayShifts.forEach(s=>{let e=s.end*60;if(s.end<=s.start)e+=1440;const d=Math.abs(e-nowMin);if(!best||d<best.d)best={s,d};}); return best?best.s:null; }
@@ -169,14 +168,14 @@ function render(){
   else loc=`<div class="locbox loc-wait">📍 尚未定位</div>`;
 
   const shiftLine = atStore ? (todayShifts.length?`<div class="shiftinfo">今日班別：${todayShifts.map(s=>s.shift).join('、')}</div>`
-    : `<div class="shiftinfo" style="color:var(--text-muted);">今日於 ${atStore} 無排班 → 到場打卡</div>`) : '';
+    : `<div class="shiftinfo" style="color:var(--text-muted);">今日於 ${atStore} 無排班（打卡將自動記為到場）</div>`) : '';
 
   const act=nextAction();
   let btn='';
   if(!atStore){ btn=`<button class="punch-btn" disabled>需在門市範圍內才能打卡</button>`; }
   else if(!act){ btn=`<button class="punch-btn" disabled>✅ 今日已完成</button>`; }
   else{
-    const cls=act==='上班'?'punch-in':act==='下班'?'punch-out':'punch-visit';
+    const cls=act==='上班'?'punch-in':'punch-out';
     btn=`<button class="punch-btn ${cls}" onclick="doPunch('${act}')">${act}打卡</button>`;
   }
 

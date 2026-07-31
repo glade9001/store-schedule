@@ -1,0 +1,29 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── users：員工 profile ──────────────────────────────
+    match /users/{uid} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+                   && (request.auth.uid == uid
+                       || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permission in ['admin', 'owner']);
+    }
+
+    // ── account：舊集合，遷移期保留 ─────────────────────
+    match /account/{doc} {
+      allow read, write: if request.auth != null;
+    }
+
+    // ── 其他所有集合：登入即可讀寫 ───────────────────────
+    // 涵蓋 settings, stores(含 weeks/salary/employees/attendance/attendanceRequests…),
+    //      leaves/comp/leaveBatches/leaveLog/annualUsage/compUsage, lineBindings…
+    match /{document=**} {
+      allow read: if request.auth != null;
+      allow update, delete: if request.auth != null;
+      // 打卡防偽：source=="app" 的打卡「只能」由 clockPunch callable(Admin SDK 略過規則)建立；
+      //          客戶端不可直接寫入假打卡。管理者補登(source=manual)、缺卡(source=system)、其他無 source 的建立照常。
+      allow create: if request.auth != null && request.resource.data.source != 'app';
+    }
+  }
+}

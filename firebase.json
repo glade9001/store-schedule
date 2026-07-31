@@ -7,10 +7,14 @@
       "**/.*",
       "**/node_modules/**",
       "functions/**",
+      "firestore.rules",
       "README.md"
     ]
   },
   "functions": {
     "source": "functions"
+  },
+  "firestore": {
+    "rules": "firestore.rules"
   }
 }
