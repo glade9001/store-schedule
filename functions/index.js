@@ -1216,3 +1216,127 @@ exports.sendTestNotify = onCall(
     return { ok: true };
   }
 );
+
+// ============ 打卡/出勤 phase2 ============
+
+// 台北 HH:MM
+function tpHM(iso, ts) {
+  const t = iso ? new Date(iso) : (ts && ts.toDate ? ts.toDate() : new Date());
+  return new Date(t.getTime() + 8 * 3600000).toISOString().slice(11, 16);
+}
+// 單一員工通知：只查該員工的綁定(省讀取，不像 notifyEmployees 讀全表)
+async function notifyOneEmp(db, empName, store, text, token) {
+  if (!empName) return;
+  const snap = await db.collection("lineBindings").where("empName", "==", empName).get().catch(() => null);
+  if (!snap || snap.empty) return;
+  const arr = []; snap.forEach((d) => arr.push(d.data()));
+  const b = arr.find((x) => x.store === store) || arr[0];
+  if (b && b.lineUserId) await linePush(b.lineUserId, text, token);
+}
+
+// A. 打卡事件 → 成功回執給員工；異常(遲到/早退)加通知店長(接收店+原店)
+exports.onClockPunch = onDocumentWritten(
+  { document: "stores/{store}/attendance/{id}", region: "asia-east1", secrets: [LINE_TOKEN] },
+  async (event) => {
+    if (event.data.before.exists || !event.data.after.exists) return; // 只在新建
+    const db = admin.firestore();
+    if (await maintenanceOn(db)) return;
+    const r = event.data.after.data();
+    if (!r || !r.empName || !r.type) return;
+    if (r.source && r.source !== "app") return; // 系統缺卡/管理者補登另有通知
+    const token = LINE_TOKEN.value();
+    const atStore = r.atStore || fixStoreName(event.params.store);
+    const homeStore = r.homeStore || atStore;
+    const hm = tpHM(r.deviceTs, r.ts);
+    const anomaly = r.status === "遲到" || r.status === "早退";
+    const note = r.status === "遲到" ? `（遲到 ${r.lateMin || ""} 分）`
+      : r.status === "早退" ? "（早退）"
+      : r.status === "警告" ? `（遲到 ${r.lateMin || ""} 分・容許內）`
+      : r.status === "到場" ? "（到場記錄）" : "";
+    await notifyOneEmp(db, r.empName, homeStore, `✅ 打卡成功\n${r.type}　${hm}　@${atStore}${note}`, token);
+    if (anomaly) {
+      const dn = r.displayName || r.empName;
+      const mtext = `⚠️ 出勤異常\n${dn}（${homeStore}）於 ${atStore} ${r.type} ${hm}${note}\n請至「出勤管理」查看。`;
+      await notifyStoreManagers(db, atStore, mtext, token);
+      if (homeStore && homeStore !== atStore) await notifyStoreManagers(db, homeStore, mtext, token);
+    }
+  }
+);
+
+// B. 補登/修改申請 → 送出通知店長；核准/駁回通知員工
+exports.onAttendanceRequest = onDocumentWritten(
+  { document: "stores/{store}/attendanceRequests/{id}", region: "asia-east1", secrets: [LINE_TOKEN] },
+  async (event) => {
+    const db = admin.firestore();
+    const before = event.data.before.exists ? event.data.before.data() : null;
+    const after = event.data.after.exists ? event.data.after.data() : null;
+    if (!after) return;
+    const token = LINE_TOKEN.value();
+    const store = after.atStore || fixStoreName(event.params.store);
+    const dn = after.displayName || after.empName;
+    const when = `${after.targetDate || ""} ${after.punchType || ""} ${after.requestedTime || ""}`.trim();
+    if (!before && after.status === "pending") {
+      await notifyStoreManagers(db, store,
+        `📝 出勤${after.type || "補登"}申請\n${dn} 申請：${when}\n原因：${after.reason || "—"}\n請至「出勤管理」審核。`, token);
+      return;
+    }
+    if (before && before.status === "pending" && after.status && after.status !== "pending") {
+      const res = after.status === "approved" ? "✅ 已核准" : "❌ 已駁回";
+      await notifyOneEmp(db, after.empName, after.homeStore || store, `${res}　出勤${after.type || "補登"}申請\n${when}${after.reviewNote ? `\n備註：${after.reviewNote}` : ""}`, token);
+    }
+  }
+);
+
+// C. 缺卡排程：每小時，班別結束後 2 小時仍無打卡 → 標記+通知(去重)
+exports.scheduledMissingClock = onSchedule(
+  { schedule: "5 * * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN] },
+  async () => {
+    const db = admin.firestore();
+    if (await maintenanceOn(db)) return;
+    const cfg = await db.collection("settings").doc("globalConfig").get().catch(() => null);
+    const conf = cfg && cfg.exists ? cfg.data() : {};
+    if (!conf.clockIn || conf.clockIn.stage === "off") return;
+    const stores = (conf.stores || []).filter((s) => s !== "人力支援");
+    const token = LINE_TOKEN.value();
+    const nowTp = new Date(Date.now() + 8 * 3600000);
+    const ds = nowTp.toISOString().slice(0, 10);
+    const nowMin = nowTp.getUTCHours() * 60 + nowTp.getUTCMinutes();
+    const wk = simpleWeekStr(nowTp);
+    const dayName = WEEK_DAYS[(nowTp.getUTCDay() + 6) % 7];
+    for (const store of stores) {
+      const wd = await db.collection("stores").doc(store).collection("weeks").doc(wk).get().catch(() => null);
+      if (!wd || !wd.exists) continue;
+      const recs = wd.data().records || [];
+      const shifts = recs.filter((r) => r.day === dayName && /^\d{1,2}-\d{1,2}$/.test(String(r.shift || "")));
+      if (!shifts.length) continue;
+      const attSnap = await db.collection("stores").doc(store).collection("attendance").where("date", "==", ds).get().catch(() => null);
+      const punches = []; if (attSnap) attSnap.forEach((d) => punches.push(d.data()));
+      for (const sh of shifts) {
+        const m = String(sh.shift).match(/^(\d{1,2})-(\d{1,2})$/);
+        if (+m[2] <= +m[1]) continue; // 跨日班先略過
+        if (nowMin < (+m[2]) * 60 + 120) continue; // 未到「結束後 2 小時」
+        const isSupport = sh.supportEmp && sh.approvalStatus === "approved";
+        const emp = (sh.name && !String(sh.name).startsWith("🆘")) ? sh.name
+          : (isSupport ? sh.supportEmp.slice(sh.supportEmp.indexOf("-") + 1) : "");
+        if (!emp) continue;
+        const homeStore = isSupport ? sh.supportEmp.slice(0, sh.supportEmp.indexOf("-")) : store;
+        const empPunches = punches.filter((p) => p.empName === emp);
+        const hasIn = empPunches.some((p) => p.type === "上班");
+        const hasOut = empPunches.some((p) => p.type === "下班");
+        if (hasIn && hasOut) continue;
+        const flagId = ("miss_" + ds + "_" + emp + "_" + sh.shift).replace(/[^\w一-龥]/g, "_");
+        const flagRef = db.collection("stores").doc(store).collection("attendance").doc(flagId);
+        const exist = await flagRef.get().catch(() => null);
+        if (exist && exist.exists) continue;
+        const missWhat = (!hasIn && !hasOut) ? "整天未打卡" : (!hasIn ? "缺上班卡" : "缺下班卡");
+        await flagRef.set({
+          empName: emp, displayName: emp, date: ds, type: "缺卡", atStore: store, homeStore,
+          shift: sh.shift, status: "缺卡", note: missWhat, source: "system",
+          ts: admin.firestore.FieldValue.serverTimestamp(), deviceTs: new Date().toISOString(),
+        });
+        await notifyOneEmp(db, emp, homeStore, `🔴 缺卡提醒\n你 ${ds} 在 ${store} 的班別 ${sh.shift} ${missWhat}，如有出勤請盡快申請補登。`, token);
+        await notifyStoreManagers(db, store, `🔴 缺卡\n${emp} ${ds} ${store} 班別 ${sh.shift} ${missWhat}。`, token);
+      }
+    }
+  }
+);

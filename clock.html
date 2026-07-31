@@ -67,6 +67,8 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
 let currentUser=null, appConfig={}, geoCfg={}, myGeo=null, atStore='', distanceM=null, todayShifts=[], todayPunches=[], locating=false;
 const DAYS=["週一","週二","週三","週四","週五","週六","週日"];
 function fmtT(iso){ if(!iso)return''; const d=new Date(iso); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
+// weeks doc id 用 schedule-V2 getCurrentWeekString 的「簡單公式」(非 ISO)，才對得到班表
+function curWeekStr(){ const d=new Date(); const first=new Date(d.getFullYear(),0,1); const w=Math.ceil((((d-first)/86400000)+first.getDay()+1)/7); return `${d.getFullYear()}-W${w<10?'0'+w:w}`; }
 function showLoading(t){document.getElementById('loadingText').textContent=t||'載入中…';document.getElementById('loadingOverlay').classList.remove('hidden');}
 function hideLoading(){document.getElementById('loadingOverlay').classList.add('hidden');}
 function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2800);}
@@ -125,7 +127,7 @@ async function loadToday(){
   }catch(e){}
   // 今日在 atStore 的排班（本店班 or 支援班；兩頭班會有多筆）
   try{
-    const wk=dateToISOWeek(new Date());
+    const wk=curWeekStr();
     const dayName=DAYS[(new Date().getDay()+6)%7];
     const wd=await window.db.collection('stores').doc(atStore).collection('weeks').doc(wk).get();
     if(wd.exists){
