@@ -415,7 +415,7 @@ function multiLineChart(months, series, opt){
       path+=(path?' L':'M')+x.toFixed(1)+' '+y.toFixed(1);
       dots+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.6" fill="${s.color}"/>`;
       taps+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="12" fill="transparent" style="cursor:pointer" onclick="showPt('${esc(s.name)} · ${esc(mlbl(months[i]))}','${esc(fmtV(v))}','')"/>`;});
-    body+=`<path d="${path}" fill="none" stroke="${s.color}" stroke-width="2.2"/>${dots}${taps}`;});
+    body+=`<path d="${path}" fill="none" stroke="${s.color}" stroke-width="${s.dash?2:2.2}"${s.dash?' stroke-dasharray="6 4"':''}/>${dots}${taps}`;});
   let legend=''; series.forEach((s,i)=>{const lx=pl+i*96;legend+=`<circle cx="${lx}" cy="18" r="4.5" fill="${s.color}"/><text x="${lx+9}" y="22" font-size="11" fill="#333" font-weight="800">${esc(s.name)}</text>`;});
   let labels=''; months.forEach((m,i)=>{labels+=`<text x="${X(i).toFixed(1)}" y="${H-8}" font-size="9" fill="#999" text-anchor="middle">${mlbl(m)}</text>`;});
   const scroll=W>600?'min-width:'+W+'px;':'width:100%;';
@@ -436,6 +436,11 @@ async function renderStoreTrend(){
     const pf=PERF_EXCLUDE.has(m)?null:(cmpData[s]||{}).perf[m];
     return M.get(pn, pf);
   })}));
+  // 聚合線：門市餘裕用「總計」，其餘用「平均」
+  const isSum=M.agg==='sum';
+  const aggVals=months.map((m,i)=>{const vs=series.map(s=>s.values[i]).filter(v=>v!=null);
+    if(!vs.length)return null; const sum=vs.reduce((a,b)=>a+b,0); return isSum?sum:sum/vs.length;});
+  series.push({name:isSum?'總計':'平均',color:'#94a3b8',dash:true,values:aggVals});
   box.innerHTML=multiLineChart(months, series, {fmt:M.fmt})
     +`<div style="font-size:11px;color:var(--text-muted);margin-top:6px;">點線上的點看該店該月數值；人事類指標 2026/4 不列入。錦花無損益資料，僅工時相關可見。</div>`;
 }
@@ -517,7 +522,7 @@ const METRICS={
   badGoodsCost:{t:'壞品(元)',fmt:money,get:(pn,pf)=>pn?pn.badGoodsCost:null},
   laborRate:{t:'人事費率(%)',fmt:v=>v.toFixed(1),get:(pn,pf)=>(pn&&pf&&pn.netSales)?pf.laborCost/pn.netSales*100:null},
   revPerHour:{t:'每工時營收',fmt:money,get:(pn,pf)=>(pn&&pf&&pf.totalHours)?pn.netSales/pf.totalHours:null},
-  surplus:{t:'門市餘裕(報酬−人事)',fmt:money,get:(pn,pf)=>(pn&&pf)?pn.operatingReward-pf.laborCost:null}
+  surplus:{t:'門市餘裕(報酬−人事)',fmt:money,get:(pn,pf)=>(pn&&pf)?pn.operatingReward-pf.laborCost:null,agg:'sum'}
 };
 async function loadAllForCompare(){
   if(cmpData)return;
@@ -544,11 +549,20 @@ async function renderCompare(defaultM){
   const mOpt=allMonths.map(x=>`<option value="${x}" ${x===m?'selected':''}>${x.split('-')[0]}年${parseInt(x.split('-')[1])}月</option>`).join('');
   const cell=(v)=>v==null?'<td style="text-align:right;color:#bbb;">—</td>':`<td style="text-align:right;">${v}</td>`;
   let rows='';
+  const acc={net:[],gm:[],rew:[],rate:[],rev:[]};
   stores.forEach(s=>{const pn=cmpData[s]&&cmpData[s].pnl[m];const pf=(cmpData[s]&&!PERF_EXCLUDE.has(m))?cmpData[s].perf[m]:null;
-    const rate=(pf&&pn&&pn.netSales)?(pf.laborCost/pn.netSales*100).toFixed(1)+'%':null;
-    const rev=(pf&&pn&&pf.totalHours)?Math.round(pn.netSales/pf.totalHours).toLocaleString('en-US'):null;
-    rows+=`<tr><td style="font-weight:800;">${s}</td>${cell(pn?money(pn.netSales):null)}${cell(pn?pn.grossMargin+'%':null)}${cell(pn?money(pn.operatingReward):null)}${cell(rate)}${cell(rev)}</tr>`;
+    const rateN=(pf&&pn&&pn.netSales)?pf.laborCost/pn.netSales*100:null;
+    const revN=(pf&&pn&&pf.totalHours)?pn.netSales/pf.totalHours:null;
+    if(pn){acc.net.push(pn.netSales);acc.gm.push(pn.grossMargin);acc.rew.push(pn.operatingReward);}
+    if(rateN!=null)acc.rate.push(rateN); if(revN!=null)acc.rev.push(revN);
+    rows+=`<tr><td style="font-weight:800;">${s}</td>${cell(pn?money(pn.netSales):null)}${cell(pn?pn.grossMargin+'%':null)}${cell(pn?money(pn.operatingReward):null)}${cell(rateN!=null?rateN.toFixed(1)+'%':null)}${cell(revN!=null?Math.round(revN).toLocaleString('en-US'):null)}</tr>`;
   });
+  const avg=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:null;
+  const acell=(v)=>v==null?'<td style="text-align:right;color:#bbb;">—</td>':`<td style="text-align:right;font-weight:800;">${v}</td>`;
+  rows+=`<tr style="border-top:1.5px solid var(--border);background:#f8fafc;"><td style="font-weight:800;color:var(--primary);">平均</td>`+
+    `${acell(avg(acc.net)!=null?money(Math.round(avg(acc.net))):null)}${acell(avg(acc.gm)!=null?avg(acc.gm).toFixed(1)+'%':null)}`+
+    `${acell(avg(acc.rew)!=null?money(Math.round(avg(acc.rew))):null)}${acell(avg(acc.rate)!=null?avg(acc.rate).toFixed(1)+'%':null)}`+
+    `${acell(avg(acc.rev)!=null?Math.round(avg(acc.rev)).toLocaleString('en-US'):null)}</tr>`;
   box.innerHTML=`
     <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:8px;">
       <select onchange="cmpMonth=this.value;renderCompare();" style="padding:6px 8px;border:1.5px solid var(--border);border-radius:8px;font-weight:700;font-size:12px;">${mOpt}</select>

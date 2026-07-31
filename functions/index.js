@@ -1278,6 +1278,10 @@ exports.onClockPunch = onDocumentWritten(
     const token = LINE_TOKEN.value();
     const atStore = r.atStore || fixStoreName(event.params.store);
     const homeStore = r.homeStore || atStore;
+    // 店長可關閉該店打卡通知(不用打卡的店)——關了回執/異常都不發，打卡功能照常
+    const cfg = await db.collection("settings").doc("globalConfig").get().catch(() => null);
+    const clk = (cfg && cfg.exists ? cfg.data().clockIn : {}) || {};
+    if (clk.notifyByStore && clk.notifyByStore[atStore] === false) return;
     const hm = tpHM(r.deviceTs, r.ts);
     const anomaly = r.status === "遲到" || r.status === "早退";
     const note = r.status === "遲到" ? `（遲到 ${r.lateMin || ""} 分）`
@@ -1335,7 +1339,9 @@ exports.scheduledMissingClock = onSchedule(
     const nowMin = nowTp.getUTCHours() * 60 + nowTp.getUTCMinutes();
     const wk = simpleWeekStr(nowTp);
     const dayName = WEEK_DAYS[(nowTp.getUTCDay() + 6) % 7];
+    const notifyBy = conf.clockIn.notifyByStore || {};
     for (const store of stores) {
+      if (notifyBy[store] === false) continue; // 該店關閉打卡通知 → 不判缺卡
       const wd = await db.collection("stores").doc(store).collection("weeks").doc(wk).get().catch(() => null);
       if (!wd || !wd.exists) continue;
       const recs = wd.data().records || [];

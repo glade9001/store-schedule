@@ -97,10 +97,24 @@ function renderBar(stores){
     <span>分（含以內顯示警告但算正常）</span>
     <button onclick="saveTol()" style="background:var(--primary);color:#fff;border:none;border-radius:8px;padding:8px 12px;font-weight:800;font-size:12px;cursor:pointer;">儲存</button>
   </div>
+  <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:13px;cursor:pointer;flex-wrap:wrap;">
+    <input type="checkbox" id="notifyChk" ${notifyOf(curStore)?'checked':''} onchange="saveNotify(this.checked)" style="width:18px;height:18px;">
+    <span style="font-weight:800;">🔔 打卡通知</span>
+    <span style="color:var(--muted);">（關閉後此店打卡回執／異常／缺卡都不發；打卡功能仍可正常使用）</span>
+  </label>
   <div id="reqs"></div><div id="sum"></div><div id="list"><div class="empty">載入中…</div></div>`;
 }
 
 function tolOf(store){ const c=appConfig.clockIn||{}; const t=(c.tolByStore||{})[store]; return t!=null?t:(c.lateToleranceMin!=null?c.lateToleranceMin:10); }
+function notifyOf(store){ const c=appConfig.clockIn||{}; return (c.notifyByStore||{})[store]!==false; }
+async function saveNotify(on){
+  showLoading('儲存中…');
+  try{
+    await window.db.collection('settings').doc('globalConfig').update({['clockIn.notifyByStore.'+curStore]: !!on});
+    appConfig.clockIn=appConfig.clockIn||{}; appConfig.clockIn.notifyByStore=appConfig.clockIn.notifyByStore||{}; appConfig.clockIn.notifyByStore[curStore]=!!on;
+    hideLoading(); alert(`✅ 已${on?'開啟':'關閉'}「${curStore}」打卡通知`);
+  }catch(e){ hideLoading(); alert('儲存失敗：'+e.message); }
+}
 async function saveTol(){
   const v=parseInt(document.getElementById('tolInput').value);
   if(isNaN(v)||v<0||v>60){ alert('請輸入 0–60 的分鐘數'); return; }
@@ -177,6 +191,7 @@ async function delPunch(id){
 async function load(){
   loadRequests();
   const tolEl=document.getElementById('tolInput'); if(tolEl) tolEl.value=tolOf(curStore);
+  const nfEl=document.getElementById('notifyChk'); if(nfEl) nfEl.checked=notifyOf(curStore);
   const list=document.getElementById('list'); if(list) list.innerHTML='<div class="empty">載入中…</div>';
   let recs=[];
   try{

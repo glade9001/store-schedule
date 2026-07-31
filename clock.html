@@ -102,6 +102,23 @@ window.onload=async()=>{
   locate();
 };
 
+// 取「當下」即時定位（maximumAge:0，不吃快取），並回傳落在哪家店
+function freshGeo(){
+  return new Promise((resolve,reject)=>{
+    if(!navigator.geolocation){ reject(new Error('此裝置不支援定位')); return; }
+    navigator.geolocation.getCurrentPosition(p=>{
+      const g={lat:p.coords.latitude,lng:p.coords.longitude,acc:Math.round(p.coords.accuracy)};
+      let best=null;
+      Object.entries(geoCfg).forEach(([st,cfg])=>{
+        if(cfg.lat==null||cfg.lng==null)return;
+        const d=distM(g.lat,g.lng,cfg.lat,cfg.lng);
+        if(d<=(cfg.radiusM||120) && (!best||d<best.d)) best={st,d};
+      });
+      resolve({geo:g, store:best?best.st:'', dist:best?Math.round(best.d):null});
+    }, e=>reject(e), {enableHighAccuracy:true,timeout:12000,maximumAge:0});
+  });
+}
+
 function locate(){
   if(!navigator.geolocation){ atStore=''; distanceM=null; render(); toast('此裝置不支援定位'); return; }
   locating=true; render();
@@ -207,7 +224,13 @@ async function doPunch(type){
     const lastIn=todayPunches.filter(p=>p.type==='上班').map(p=>p.deviceTs).filter(Boolean).sort().pop();
     if(lastIn && (now-new Date(lastIn))<5*60*1000){ toast('上班後 5 分鐘內不能打下班'); return; }
   }
-  if(!myGeo){ toast('尚未定位，請稍候'); return; }
+  showLoading('定位中…');
+  // 🌟 打卡「當下」重新抓即時定位，避免在店內開頁面後走遠再打卡
+  let fg;
+  try{ fg=await freshGeo(); }
+  catch(e){ hideLoading(); toast('定位失敗：'+(e.message||e)); return; }
+  myGeo=fg.geo; atStore=fg.store; distanceM=fg.dist;
+  if(!atStore){ hideLoading(); render(); toast('目前不在門市範圍內，無法打卡'); return; }
   showLoading('打卡中…');
   // 🌟 交由後端 callable 權威判定（伺服器時間＋複驗圍欄＋狀態），前端只送座標
   try{
