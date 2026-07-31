@@ -1298,7 +1298,7 @@ exports.scheduledMissingClock = onSchedule(
     if (await maintenanceOn(db)) return;
     const cfg = await db.collection("settings").doc("globalConfig").get().catch(() => null);
     const conf = cfg && cfg.exists ? cfg.data() : {};
-    if (!conf.clockIn || conf.clockIn.stage === "off") return;
+    if (!conf.clockIn || conf.clockIn.stage !== "all") return; // 僅「全面開放」才判缺卡，避免測試階段對還不能打卡的人發通知
     const stores = (conf.stores || []).filter((s) => s !== "人力支援");
     const token = LINE_TOKEN.value();
     const nowTp = new Date(Date.now() + 8 * 3600000);
