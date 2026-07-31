@@ -1227,14 +1227,26 @@ function tpHM(iso, ts) {
   const t = iso ? new Date(iso) : (ts && ts.toDate ? ts.toDate() : new Date());
   return new Date(t.getTime() + 8 * 3600000).toISOString().slice(11, 16);
 }
-// 解析 app 顯示名(displayName)：排班/缺卡用的是短名，通知要用顯示名
-async function resolveDisplayName(db, empName) {
-  if (!empName) return empName;
+// 解析員工 app 顯示名 + 登入權限（排班/缺卡用短名，通知用顯示名、判斷開放層級用權限）
+async function resolveEmpInfo(db, empName) {
+  const out = { displayName: empName, permission: "employee" };
+  if (!empName) return out;
+  let d = null;
   const s = await db.collection("account").where("empName", "==", empName).limit(1).get().catch(() => null);
-  if (s && !s.empty) { const d = s.docs[0].data(); if (d.displayName) return d.displayName; }
-  const u = await db.collection("users").where("empName", "==", empName).limit(1).get().catch(() => null);
-  if (u && !u.empty) { const d = u.docs[0].data(); if (d.displayName) return d.displayName; }
-  return empName;
+  if (s && !s.empty) d = s.docs[0].data();
+  if (!d || !d.permission) {
+    const u = await db.collection("users").where("empName", "==", empName).limit(1).get().catch(() => null);
+    if (u && !u.empty) d = Object.assign({}, d, u.docs[0].data());
+  }
+  if (d) { if (d.displayName) out.displayName = d.displayName; if (d.permission) out.permission = d.permission; }
+  return out;
+}
+// 該權限在此開放層級是否已能打卡（對應 clock.html canClock）
+function canClockPerm(stage, perm) {
+  if (stage === "all") return true;
+  if (stage === "manager") return ["manager", "owner", "admin"].includes(perm);
+  if (stage === "admin") return perm === "admin";
+  return false;
 }
 // 單一員工通知：只查該員工的綁定(省讀取，不像 notifyEmployees 讀全表)
 async function notifyOneEmp(db, empName, store, text, token) {
@@ -1307,7 +1319,8 @@ exports.scheduledMissingClock = onSchedule(
     if (await maintenanceOn(db)) return;
     const cfg = await db.collection("settings").doc("globalConfig").get().catch(() => null);
     const conf = cfg && cfg.exists ? cfg.data() : {};
-    if (!conf.clockIn || conf.clockIn.stage !== "all") return; // 僅「全面開放」才判缺卡，避免測試階段對還不能打卡的人發通知
+    const stage = conf.clockIn && conf.clockIn.stage;
+    if (!stage || stage === "off") return; // 關閉不判；其餘依個別員工「開放層級」判定(見下 canClockPerm)
     const stores = (conf.stores || []).filter((s) => s !== "人力支援");
     const token = LINE_TOKEN.value();
     const nowTp = new Date(Date.now() + 8 * 3600000);
@@ -1336,12 +1349,15 @@ exports.scheduledMissingClock = onSchedule(
         const hasIn = empPunches.some((p) => p.type === "上班");
         const hasOut = empPunches.some((p) => p.type === "下班");
         if (hasIn && hasOut) continue;
+        // 只對「該開放層級已能打卡」的人發缺卡（如 stage=manager 只發店長，不發一般員工）
+        const info = await resolveEmpInfo(db, emp);
+        if (!canClockPerm(stage, info.permission)) continue;
         const flagId = ("miss_" + ds + "_" + emp + "_" + sh.shift).replace(/[^\w一-龥]/g, "_");
         const flagRef = db.collection("stores").doc(store).collection("attendance").doc(flagId);
         const exist = await flagRef.get().catch(() => null);
         if (exist && exist.exists) continue;
         const missWhat = (!hasIn && !hasOut) ? "整天未打卡" : (!hasIn ? "缺上班卡" : "缺下班卡");
-        const dn = await resolveDisplayName(db, emp);
+        const dn = info.displayName;
         await flagRef.set({
           empName: emp, displayName: dn, date: ds, type: "缺卡", atStore: store, homeStore,
           shift: sh.shift, status: "缺卡", note: missWhat, source: "system",
