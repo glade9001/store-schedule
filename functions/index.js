@@ -1385,6 +1385,48 @@ exports.scheduledMissingClock = onSchedule(
         await notifyOneEmp(db, emp, homeStore, `🔴 缺卡提醒\n你 ${ds} 在 ${store} 的班別 ${sh.shift} ${missWhat}，如有出勤請盡快申請補登。`, token);
         await notifyStoreManagers(db, store, `🔴 缺卡\n${dn} ${ds} ${store} 班別 ${sh.shift} ${missWhat}。`, token);
       }
+
+      // 昨日「跨日班(夜班)」的下班卡落在今天：到「下班+2h」才統一判上/下班缺卡，不拆成兩天
+      const yTp = new Date(Date.now() + 8 * 3600000 - 86400000);
+      const dsY = yTp.toISOString().slice(0, 10);
+      const yName = WEEK_DAYS[(yTp.getUTCDay() + 6) % 7];
+      const wkY = simpleWeekStr(yTp);
+      const wdY = (wkY === wk) ? wd : await db.collection("stores").doc(store).collection("weeks").doc(wkY).get().catch(() => null);
+      const recsY = (wdY && wdY.exists) ? (wdY.data().records || []) : [];
+      const yShifts = recsY.filter((r) => r.day === yName && !String(r.location || "").startsWith("支援") && (() => { const mm = String(r.shift || "").match(/^(\d{1,2})-(\d{1,2})$/); return mm && +mm[2] <= +mm[1]; })());
+      if (yShifts.length) {
+        const attSnapY = await db.collection("stores").doc(store).collection("attendance").where("date", "==", dsY).get().catch(() => null);
+        const punchesY = []; if (attSnapY) attSnapY.forEach((d) => punchesY.push(d.data()));
+        for (const sh of yShifts) {
+          const mm = String(sh.shift).match(/^(\d{1,2})-(\d{1,2})$/);
+          if (nowMin < (+mm[2]) * 60 + 120) continue; // 今天還沒到「下班+2 小時」
+          const isSupport = sh.supportEmp && sh.approvalStatus === "approved";
+          const emp = (sh.name && !String(sh.name).startsWith("🆘")) ? sh.name
+            : (isSupport ? sh.supportEmp.slice(sh.supportEmp.indexOf("-") + 1) : "");
+          if (!emp) continue;
+          const sInfo = statusMap[emp] || {};
+          if (!isSupport && ["離職", "調走"].includes(sInfo.status) && (!sInfo.eff || dsY >= sInfo.eff)) continue;
+          const homeStore = isSupport ? sh.supportEmp.slice(0, sh.supportEmp.indexOf("-")) : store;
+          const hasInY = punchesY.some((p) => p.empName === emp && p.type === "上班"); // 昨天的上班
+          const hasOutT = punches.some((p) => p.empName === emp && p.type === "下班"); // 今天的下班
+          if (hasInY && hasOutT) continue;
+          const info = await resolveEmpInfo(db, emp);
+          if (!canClockPerm(stage, info.permission)) continue;
+          const flagId = ("miss_" + dsY + "_" + emp + "_" + sh.shift).replace(/[^\w一-龥]/g, "_");
+          const flagRef = db.collection("stores").doc(store).collection("attendance").doc(flagId);
+          const exist = await flagRef.get().catch(() => null);
+          if (exist && exist.exists) continue;
+          const missWhat = (!hasInY && !hasOutT) ? "整天未打卡" : (!hasInY ? "缺上班卡" : "缺下班卡");
+          const dn = info.displayName;
+          await flagRef.set({
+            empName: emp, displayName: dn, date: dsY, type: "缺卡", atStore: store, homeStore,
+            shift: sh.shift, status: "缺卡", note: missWhat + "(跨日班)", source: "system",
+            ts: admin.firestore.FieldValue.serverTimestamp(), deviceTs: new Date().toISOString(),
+          });
+          await notifyOneEmp(db, emp, homeStore, `🔴 缺卡提醒\n你 ${dsY} 在 ${store} 的跨日班別 ${sh.shift} ${missWhat}，如有出勤請盡快申請補登。`, token);
+          await notifyStoreManagers(db, store, `🔴 缺卡\n${dn} ${dsY} ${store} 跨日班別 ${sh.shift} ${missWhat}。`, token);
+        }
+      }
     }
   }
 );

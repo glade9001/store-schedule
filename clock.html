@@ -65,7 +65,7 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
 <div class="wrap" id="wrap"></div>
 <div id="toast"></div>
 <script>
-let currentUser=null, appConfig={}, geoCfg={}, myGeo=null, atStore='', distanceM=null, todayShifts=[], todayPunches=[], locating=false, isBound=true;
+let currentUser=null, appConfig={}, geoCfg={}, myGeo=null, atStore='', distanceM=null, todayShifts=[], todayPunches=[], locating=false, isBound=true, carriedOpenIn=null;
 let serverOffset=0, clockTimer=null; // 伺服器校時：serverOffset = 伺服器時間 − 本機時間
 async function syncServerTime(){
   try{ const fn=firebase.app().functions('asia-east1').httpsCallable('serverNow');
@@ -162,6 +162,18 @@ async function loadToday(){
     snap.forEach(d=>todayPunches.push({id:d.id,...d.data()}));
     todayPunches.sort((a,b)=>(a.deviceTs||'').localeCompare(b.deviceTs||''));
   }catch(e){}
+  // 跨日班(夜班)：昨天的上班若還沒打下班(下班落在今天)，今天要能補打下班而非誤成上班
+  carriedOpenIn=null;
+  try{
+    const y=new Date(Date.now()-86400000);
+    const dsY=`${y.getFullYear()}-${String(y.getMonth()+1).padStart(2,'0')}-${String(y.getDate()).padStart(2,'0')}`;
+    const ys=await window.db.collection('stores').doc(atStore).collection('attendance')
+      .where('date','==',dsY).where('empName','==',currentUser.empName).get();
+    const yp=[]; ys.forEach(d=>yp.push(d.data()));
+    const yin=yp.filter(p=>p.type==='上班').length, yout=yp.filter(p=>p.type==='下班').length;
+    const tin=todayPunches.filter(p=>p.type==='上班').length, tout=todayPunches.filter(p=>p.type==='下班').length;
+    if(yin>yout && tin===0 && tout===0) carriedOpenIn={date:dsY}; // 昨日有未配對上班、今天尚未打卡
+  }catch(e){}
   // 今日在 atStore 的排班（本店班 or 支援班；兩頭班會有多筆）
   try{
     const wk=curWeekStr();
@@ -183,6 +195,7 @@ async function loadToday(){
 // 沒排班的打卡由後端自動歸類為「到場」，不做成按鈕。
 function nextAction(){
   const ins=todayPunches.filter(p=>p.type==='上班').length, outs=todayPunches.filter(p=>p.type==='下班').length;
+  if(carriedOpenIn && ins===0 && outs===0) return '下班'; // 昨日跨日班補打下班
   return ins>outs ? '下班' : '上班';
 }
 function nearestShiftByStart(nowMin){ let best=null; todayShifts.forEach(s=>{const d=Math.abs(s.start*60-nowMin);if(!best||d<best.d)best={s,d};}); return best?best.s:null; }
@@ -217,8 +230,10 @@ function render(){
     return `<div class="pitem"><span class="ptag ${tag}">${p.type}</span><span>${fmtT(p.deviceTs)}</span><span style="color:var(--text-muted);font-size:12px;">@${p.atStore}</span><span class="pstat ${sc}">${statTxt}</span></div>`;
   }).join('')}</div>`:'';
 
+  const openIn = todayPunches.filter(p=>p.type==='上班').length > todayPunches.filter(p=>p.type==='下班').length;
+  const openWarn = (openIn||carriedOpenIn) ? `<div style="background:#fff3e0;border:1.5px solid #ffc27a;border-radius:12px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;"><span style="font-size:20px;">⏰</span><div style="flex:1;font-size:12.5px;font-weight:700;color:#c0620f;line-height:1.5;">你有一筆上班尚未打下班${carriedOpenIn?`（${carriedOpenIn.date} 跨日班）`:''}，記得補打下班</div></div>` : '';
   const bindWarn = !isBound ? `<div onclick="window.location.href='home.html'" style="background:#fff3e0;border:1.5px solid #ffc27a;border-radius:12px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;cursor:pointer;"><span style="font-size:20px;">🔔</span><div style="flex:1;font-size:12.5px;font-weight:700;color:#c0620f;line-height:1.5;">你尚未綁定 LINE，打卡結果與異常通知收不到<br>點此前往首頁綁定 LINE</div><span style="color:#c0620f;font-size:18px;">›</span></div>` : '';
-  wrap.innerHTML=bindWarn+`<div class="card">
+  wrap.innerHTML=openWarn+bindWarn+`<div class="card">
     <div class="today">${dateLine}</div>
     <div id="srvClock" style="text-align:center;font-size:34px;font-weight:900;letter-spacing:1px;color:var(--primary);font-variant-numeric:tabular-nums;margin:2px 0 2px;">🕐 --:--:--</div>
     <div style="text-align:center;font-size:11px;color:var(--text-muted);margin-bottom:8px;">以伺服器時間為準</div>
