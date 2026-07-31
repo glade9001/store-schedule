@@ -64,8 +64,9 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
 <div class="wrap" id="wrap"></div>
 <div id="toast"></div>
 <script>
-let currentUser=null, appConfig={}, geoCfg={}, myGeo=null, atStore='', distanceM=null, todayShift=null, todayPunches=[], locating=false;
+let currentUser=null, appConfig={}, geoCfg={}, myGeo=null, atStore='', distanceM=null, todayShifts=[], todayPunches=[], locating=false;
 const DAYS=["週一","週二","週三","週四","週五","週六","週日"];
+function fmtT(iso){ if(!iso)return''; const d=new Date(iso); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
 function showLoading(t){document.getElementById('loadingText').textContent=t||'載入中…';document.getElementById('loadingOverlay').classList.remove('hidden');}
 function hideLoading(){document.getElementById('loadingOverlay').classList.add('hidden');}
 function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2800);}
@@ -113,7 +114,7 @@ function locate(){
 }
 
 async function loadToday(){
-  todayShift=null; todayPunches=[];
+  todayShifts=[]; todayPunches=[];
   const ds=todayStr();
   // 今日在 atStore 的打卡
   try{
@@ -122,32 +123,32 @@ async function loadToday(){
     snap.forEach(d=>todayPunches.push({id:d.id,...d.data()}));
     todayPunches.sort((a,b)=>(a.deviceTs||'').localeCompare(b.deviceTs||''));
   }catch(e){}
-  // 今日在 atStore 的排班（本店班 or 支援班）
+  // 今日在 atStore 的排班（本店班 or 支援班；兩頭班會有多筆）
   try{
     const wk=dateToISOWeek(new Date());
     const dayName=DAYS[(new Date().getDay()+6)%7];
     const wd=await window.db.collection('stores').doc(atStore).collection('weeks').doc(wk).get();
     if(wd.exists){
-      const recs=wd.data().records||[];
-      const mine=recs.find(r=> r.day===dayName && (
-        (r.name===currentUser.empName && /^\d/.test(r.shift||'')) ||
-        (r.supportEmp===`${currentUser.store}-${currentUser.empName}` && r.approvalStatus==='approved' && /^\d/.test(r.shift||''))
-      ));
-      if(mine){ const m=String(mine.shift).match(/^(\d{1,2})-(\d{1,2})$/); if(m) todayShift={shift:mine.shift,start:+m[1],end:+m[2]}; }
+      (wd.data().records||[]).forEach(r=>{
+        if(r.day!==dayName) return;
+        const mine=(r.name===currentUser.empName) || (r.supportEmp===`${currentUser.store}-${currentUser.empName}` && r.approvalStatus==='approved');
+        if(!mine) return;
+        const m=String(r.shift||'').match(/^(\d{1,2})-(\d{1,2})$/);
+        if(m) todayShifts.push({shift:r.shift,start:+m[1],end:+m[2]});
+      });
     }
   }catch(e){}
 }
 
+// 依「最後一次打卡」決定下一步，支援多段（兩頭班/跨店連班）：上班↔下班可重複循環
 function nextAction(){
-  // 有排班：上班→下班；無排班：到場→離場
-  const hasIn=todayPunches.some(p=>p.type==='上班'), hasOut=todayPunches.some(p=>p.type==='下班');
-  const hasVisit=todayPunches.some(p=>p.type==='到場'), hasLeave=todayPunches.some(p=>p.type==='離場');
-  if(todayShift){
-    if(!hasIn) return '上班'; if(!hasOut) return '下班'; return null;
-  } else {
-    if(!hasVisit) return '到場'; if(!hasLeave) return '離場'; return null;
-  }
+  const ins=todayPunches.filter(p=>p.type==='上班').length, outs=todayPunches.filter(p=>p.type==='下班').length;
+  const vis=todayPunches.filter(p=>p.type==='到場').length, lev=todayPunches.filter(p=>p.type==='離場').length;
+  if(todayShifts.length){ return ins>outs ? '下班' : '上班'; }
+  return vis>lev ? '離場' : '到場';
 }
+function nearestShiftByStart(nowMin){ let best=null; todayShifts.forEach(s=>{const d=Math.abs(s.start*60-nowMin);if(!best||d<best.d)best={s,d};}); return best?best.s:null; }
+function nearestShiftByEnd(nowMin){ let best=null; todayShifts.forEach(s=>{let e=s.end*60;if(s.end<=s.start)e+=1440;const d=Math.abs(e-nowMin);if(!best||d<best.d)best={s,d};}); return best?best.s:null; }
 
 function render(){
   const wrap=document.getElementById('wrap');
@@ -159,7 +160,7 @@ function render(){
   else if(myGeo) loc=`<div class="locbox loc-bad">⚠️ 不在任何門市範圍內，無法打卡<br><span style="font-size:12px;font-weight:600;">（若確實在店內，請至設定確認門市座標）</span></div>`;
   else loc=`<div class="locbox loc-wait">📍 尚未定位</div>`;
 
-  const shiftLine = atStore ? (todayShift?`<div class="shiftinfo">今日班別：${todayShift.shift}（${todayShift.start}:00–${todayShift.end}:00）</div>`
+  const shiftLine = atStore ? (todayShifts.length?`<div class="shiftinfo">今日班別：${todayShifts.map(s=>s.shift).join('、')}</div>`
     : `<div class="shiftinfo" style="color:var(--text-muted);">今日於 ${atStore} 無排班 → 到場打卡</div>`) : '';
 
   const act=nextAction();
@@ -175,7 +176,7 @@ function render(){
     const tag=p.type==='上班'?'tag-in':p.type==='下班'?'tag-out':'tag-visit';
     const sc=p.status==='遲到'?'stat-bad':p.status==='早退'?'stat-bad':p.status==='警告'?'stat-warn':p.status==='到場'?'stat-visit':'stat-ok';
     const statTxt=p.status==='遲到'?`遲到${p.lateMin||''}分`:p.status||'';
-    return `<div class="pitem"><span class="ptag ${tag}">${p.type}</span><span>${(p.deviceTs||'').slice(11,16)||''}</span><span style="color:var(--text-muted);font-size:12px;">@${p.atStore}</span><span class="pstat ${sc}">${statTxt}</span></div>`;
+    return `<div class="pitem"><span class="ptag ${tag}">${p.type}</span><span>${fmtT(p.deviceTs)}</span><span style="color:var(--text-muted);font-size:12px;">@${p.atStore}</span><span class="pstat ${sc}">${statTxt}</span></div>`;
   }).join('')}</div>`:'';
 
   wrap.innerHTML=`<div class="card">
@@ -193,19 +194,21 @@ async function doPunch(type){
   const now=new Date();
   const dup=todayPunches.find(p=>p.type===type && p.deviceTs && (now-new Date(p.deviceTs))<10*60*1000);
   if(dup){ toast(`剛剛已${type}打卡，10 分鐘內不用再打`); return; }
+  // 上班後 5 分鐘內不能打下班（避免誤按）
+  if(type==='下班'){
+    const lastIn=todayPunches.filter(p=>p.type==='上班').map(p=>p.deviceTs).filter(Boolean).sort().pop();
+    if(lastIn && (now-new Date(lastIn))<5*60*1000){ toast('上班後 5 分鐘內不能打下班'); return; }
+  }
   showLoading('打卡中…');
-  // 狀態判定
-  let status='正常', lateMin=0;
+  // 狀態判定（多段班取最接近的班段）
+  let status='正常', lateMin=0, matchedShift='';
   const tol=(appConfig.clockIn||{}).lateToleranceMin ?? 10;
   const nowMin=now.getHours()*60+now.getMinutes();
-  if(type==='上班' && todayShift){
-    const startMin=todayShift.start*60; const late=nowMin-startMin;
-    if(late> tol) { status='遲到'; lateMin=late; }
-    else if(late>0){ status='警告'; lateMin=late; } // 容許內
-    else status='正常';
-  } else if(type==='下班' && todayShift){
-    let endMin=todayShift.end*60; if(todayShift.end<=todayShift.start) endMin+=24*60; // 跨日班
-    let cur=nowMin; if(todayShift.end<=todayShift.start && now.getHours()<todayShift.start) cur+=24*60;
+  if(type==='上班' && todayShifts.length){
+    const s=nearestShiftByStart(nowMin); matchedShift=s.shift; const late=nowMin - s.start*60;
+    if(late>tol){ status='遲到'; lateMin=late; } else if(late>0){ status='警告'; lateMin=late; } else status='正常';
+  } else if(type==='下班' && todayShifts.length){
+    const s=nearestShiftByEnd(nowMin); matchedShift=s.shift; let endMin=s.end*60; if(s.end<=s.start)endMin+=1440; let cur=nowMin; if(s.end<=s.start && now.getHours()<s.start)cur+=1440;
     if(cur<endMin) status='早退';
   } else if(type==='到場'||type==='離場'){ status='到場'; }
 
@@ -213,7 +216,7 @@ async function doPunch(type){
     empName: currentUser.empName, displayName: currentUser.displayName||currentUser.empName,
     date: todayStr(), weekday: DAYS[(now.getDay()+6)%7], type, atStore, homeStore: currentUser.store||'',
     lat: myGeo?myGeo.lat:null, lng: myGeo?myGeo.lng:null, accuracy: myGeo?myGeo.acc:null, distanceM,
-    shift: todayShift?todayShift.shift:'', status, lateMin,
+    shift: matchedShift, status, lateMin,
     ts: firebase.firestore.FieldValue.serverTimestamp(), deviceTs: now.toISOString(),
     createdBy: currentUser.empName, source:'app'
   };

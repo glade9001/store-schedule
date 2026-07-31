@@ -57,6 +57,7 @@ const isAdminOwner=()=>['owner','admin'].includes(currentUser?.permission);
 function showLoading(t){document.getElementById('loadingText').textContent=t||'載入中…';document.getElementById('loadingOverlay').classList.remove('hidden');}
 function hideLoading(){document.getElementById('loadingOverlay').classList.add('hidden');}
 function todayStr(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+function fmtT(iso){ if(!iso)return''; const d=new Date(iso); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
 function canClock(stage,perm){ if(stage==='all')return true; if(stage==='manager')return['manager','owner','admin'].includes(perm); if(stage==='admin')return perm==='admin'; return false; }
 
 window.onload=async()=>{
@@ -121,7 +122,7 @@ async function load(){
       const tag=r.type==='上班'?'tag-in':r.type==='下班'?'tag-out':'tag-visit';
       const sc=r.status==='遲到'||r.status==='早退'?'s-bad':r.status==='警告'?'s-warn':r.status==='到場'?'s-visit':'s-ok';
       const st=r.status==='遲到'?`遲到 ${r.lateMin||''} 分`:r.status==='警告'?`遲到 ${r.lateMin||''} 分(容許內)`:r.status||'';
-      const time=(r.deviceTs||'').slice(11,16);
+      const time=fmtT(r.deviceTs);
       html+=`<div class="prow">
         <span class="ptag ${tag}">${r.type}</span>
         <span style="font-weight:800;">${time}</span>
