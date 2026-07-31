@@ -549,13 +549,13 @@ async function renderCompare(defaultM){
   const mOpt=allMonths.map(x=>`<option value="${x}" ${x===m?'selected':''}>${x.split('-')[0]}年${parseInt(x.split('-')[1])}月</option>`).join('');
   const cell=(v)=>v==null?'<td style="text-align:right;color:#bbb;">—</td>':`<td style="text-align:right;">${v}</td>`;
   let rows='';
-  const acc={net:[],gm:[],rew:[],rate:[],rev:[]};
+  const acc={net:[],gm:[],rew:[],bad:[],rate:[],rev:[]};
   stores.forEach(s=>{const pn=cmpData[s]&&cmpData[s].pnl[m];const pf=(cmpData[s]&&!PERF_EXCLUDE.has(m))?cmpData[s].perf[m]:null;
     const rateN=(pf&&pn&&pn.netSales)?pf.laborCost/pn.netSales*100:null;
     const revN=(pf&&pn&&pf.totalHours)?pn.netSales/pf.totalHours:null;
-    if(pn){acc.net.push(pn.netSales);acc.gm.push(pn.grossMargin);acc.rew.push(pn.operatingReward);}
+    if(pn){acc.net.push(pn.netSales);acc.gm.push(pn.grossMargin);acc.rew.push(pn.operatingReward);if(pn.badGoodsCost!=null)acc.bad.push(pn.badGoodsCost);}
     if(rateN!=null)acc.rate.push(rateN); if(revN!=null)acc.rev.push(revN);
-    rows+=`<tr><td style="font-weight:800;">${s}</td>${cell(pn?money(pn.netSales):null)}${cell(pn?pn.grossMargin+'%':null)}${cell(pn?money(pn.operatingReward):null)}${cell(rateN!=null?rateN.toFixed(1)+'%':null)}${cell(revN!=null?Math.round(revN).toLocaleString('en-US'):null)}</tr>`;
+    rows+=`<tr><td style="font-weight:800;">${s}</td>${cell(pn?money(pn.netSales):null)}${cell(pn?pn.grossMargin+'%':null)}${cell(pn?money(pn.operatingReward):null)}${cell(pn&&pn.badGoodsCost!=null?money(pn.badGoodsCost):null)}${cell(rateN!=null?rateN.toFixed(1)+'%':null)}${cell(revN!=null?Math.round(revN).toLocaleString('en-US'):null)}</tr>`;
   });
   const avg=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:null;
   const sum=a=>a.length?a.reduce((x,y)=>x+y,0):null;
@@ -563,17 +563,17 @@ async function renderCompare(defaultM){
   // 金額用總計、比率用平均，分兩列
   rows+=`<tr style="border-top:1.5px solid var(--border);background:#f8fafc;"><td style="font-weight:800;color:var(--primary);">總計</td>`+
     `${acell(sum(acc.net)!=null?money(sum(acc.net)):null)}${acell(null)}`+
-    `${acell(sum(acc.rew)!=null?money(sum(acc.rew)):null)}${acell(null)}${acell(null)}</tr>`;
+    `${acell(sum(acc.rew)!=null?money(sum(acc.rew)):null)}${acell(sum(acc.bad)!=null?money(sum(acc.bad)):null)}${acell(null)}${acell(null)}</tr>`;
   rows+=`<tr style="background:#f8fafc;"><td style="font-weight:800;color:var(--primary);">平均</td>`+
     `${acell(null)}${acell(avg(acc.gm)!=null?avg(acc.gm).toFixed(1)+'%':null)}`+
-    `${acell(null)}${acell(avg(acc.rate)!=null?avg(acc.rate).toFixed(1)+'%':null)}`+
+    `${acell(null)}${acell(null)}${acell(avg(acc.rate)!=null?avg(acc.rate).toFixed(1)+'%':null)}`+
     `${acell(avg(acc.rev)!=null?Math.round(avg(acc.rev)).toLocaleString('en-US'):null)}</tr>`;
   box.innerHTML=`
     <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:8px;">
       <select onchange="cmpMonth=this.value;renderCompare();" style="padding:6px 8px;border:1.5px solid var(--border);border-radius:8px;font-weight:700;font-size:12px;">${mOpt}</select>
     </div>
     <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12.5px;white-space:nowrap;">
-    <thead><tr style="color:var(--text-muted);font-size:11px;"><th style="text-align:left;padding:4px;">門市</th><th style="text-align:right;padding:4px;">營業淨額</th><th style="text-align:right;">毛利率</th><th style="text-align:right;">經營報酬</th><th style="text-align:right;">人事費率</th><th style="text-align:right;">每工時營收</th></tr></thead>
+    <thead><tr style="color:var(--text-muted);font-size:11px;"><th style="text-align:left;padding:4px;">門市</th><th style="text-align:right;padding:4px;">營業淨額</th><th style="text-align:right;">毛利率</th><th style="text-align:right;">經營報酬</th><th style="text-align:right;">壞品</th><th style="text-align:right;">人事費率</th><th style="text-align:right;">每工時營收</th></tr></thead>
     <tbody>${rows}</tbody></table></div>
     <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">人事費率＝人事成本(含支援)÷營業淨額；2026/4 不列入；—代表該月尚無資料</div>`;
 }
