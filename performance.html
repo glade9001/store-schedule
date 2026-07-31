@@ -516,10 +516,10 @@ let cmpMonth=''; // 三店對照選定的分析年月（獨立於上方範圍）
 let cmpMetric='netSales'; // 三店趨勢比較選定指標
 const STORE_COLORS={'美德':'#1a73e8','聯鑫':'#e67e22','錦花':'#34a853'};
 const METRICS={
-  netSales:{t:'營業淨額',fmt:money,get:(pn,pf)=>pn?pn.netSales:null},
+  netSales:{t:'營業淨額',fmt:money,get:(pn,pf)=>pn?pn.netSales:null,agg:'sum'},
   grossMargin:{t:'毛利率(%)',fmt:v=>v.toFixed(1),get:(pn,pf)=>pn?pn.grossMargin:null},
-  operatingReward:{t:'經營報酬',fmt:money,get:(pn,pf)=>pn?pn.operatingReward:null},
-  badGoodsCost:{t:'壞品(元)',fmt:money,get:(pn,pf)=>pn?pn.badGoodsCost:null},
+  operatingReward:{t:'經營報酬',fmt:money,get:(pn,pf)=>pn?pn.operatingReward:null,agg:'sum'},
+  badGoodsCost:{t:'壞品(元)',fmt:money,get:(pn,pf)=>pn?pn.badGoodsCost:null,agg:'sum'},
   laborRate:{t:'人事費率(%)',fmt:v=>v.toFixed(1),get:(pn,pf)=>(pn&&pf&&pn.netSales)?pf.laborCost/pn.netSales*100:null},
   revPerHour:{t:'每工時營收',fmt:money,get:(pn,pf)=>(pn&&pf&&pf.totalHours)?pn.netSales/pf.totalHours:null},
   surplus:{t:'門市餘裕(報酬−人事)',fmt:money,get:(pn,pf)=>(pn&&pf)?pn.operatingReward-pf.laborCost:null,agg:'sum'}
@@ -558,10 +558,15 @@ async function renderCompare(defaultM){
     rows+=`<tr><td style="font-weight:800;">${s}</td>${cell(pn?money(pn.netSales):null)}${cell(pn?pn.grossMargin+'%':null)}${cell(pn?money(pn.operatingReward):null)}${cell(rateN!=null?rateN.toFixed(1)+'%':null)}${cell(revN!=null?Math.round(revN).toLocaleString('en-US'):null)}</tr>`;
   });
   const avg=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:null;
+  const sum=a=>a.length?a.reduce((x,y)=>x+y,0):null;
   const acell=(v)=>v==null?'<td style="text-align:right;color:#bbb;">—</td>':`<td style="text-align:right;font-weight:800;">${v}</td>`;
-  rows+=`<tr style="border-top:1.5px solid var(--border);background:#f8fafc;"><td style="font-weight:800;color:var(--primary);">平均</td>`+
-    `${acell(avg(acc.net)!=null?money(Math.round(avg(acc.net))):null)}${acell(avg(acc.gm)!=null?avg(acc.gm).toFixed(1)+'%':null)}`+
-    `${acell(avg(acc.rew)!=null?money(Math.round(avg(acc.rew))):null)}${acell(avg(acc.rate)!=null?avg(acc.rate).toFixed(1)+'%':null)}`+
+  // 金額用總計、比率用平均，分兩列
+  rows+=`<tr style="border-top:1.5px solid var(--border);background:#f8fafc;"><td style="font-weight:800;color:var(--primary);">總計</td>`+
+    `${acell(sum(acc.net)!=null?money(sum(acc.net)):null)}${acell(null)}`+
+    `${acell(sum(acc.rew)!=null?money(sum(acc.rew)):null)}${acell(null)}${acell(null)}</tr>`;
+  rows+=`<tr style="background:#f8fafc;"><td style="font-weight:800;color:var(--primary);">平均</td>`+
+    `${acell(null)}${acell(avg(acc.gm)!=null?avg(acc.gm).toFixed(1)+'%':null)}`+
+    `${acell(null)}${acell(avg(acc.rate)!=null?avg(acc.rate).toFixed(1)+'%':null)}`+
     `${acell(avg(acc.rev)!=null?Math.round(avg(acc.rev)).toLocaleString('en-US'):null)}</tr>`;
   box.innerHTML=`
     <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:8px;">
