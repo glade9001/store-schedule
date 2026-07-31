@@ -1227,6 +1227,15 @@ function tpHM(iso, ts) {
   const t = iso ? new Date(iso) : (ts && ts.toDate ? ts.toDate() : new Date());
   return new Date(t.getTime() + 8 * 3600000).toISOString().slice(11, 16);
 }
+// 解析 app 顯示名(displayName)：排班/缺卡用的是短名，通知要用顯示名
+async function resolveDisplayName(db, empName) {
+  if (!empName) return empName;
+  const s = await db.collection("account").where("empName", "==", empName).limit(1).get().catch(() => null);
+  if (s && !s.empty) { const d = s.docs[0].data(); if (d.displayName) return d.displayName; }
+  const u = await db.collection("users").where("empName", "==", empName).limit(1).get().catch(() => null);
+  if (u && !u.empty) { const d = u.docs[0].data(); if (d.displayName) return d.displayName; }
+  return empName;
+}
 // 單一員工通知：只查該員工的綁定(省讀取，不像 notifyEmployees 讀全表)
 async function notifyOneEmp(db, empName, store, text, token) {
   if (!empName) return;
@@ -1332,13 +1341,14 @@ exports.scheduledMissingClock = onSchedule(
         const exist = await flagRef.get().catch(() => null);
         if (exist && exist.exists) continue;
         const missWhat = (!hasIn && !hasOut) ? "整天未打卡" : (!hasIn ? "缺上班卡" : "缺下班卡");
+        const dn = await resolveDisplayName(db, emp);
         await flagRef.set({
-          empName: emp, displayName: emp, date: ds, type: "缺卡", atStore: store, homeStore,
+          empName: emp, displayName: dn, date: ds, type: "缺卡", atStore: store, homeStore,
           shift: sh.shift, status: "缺卡", note: missWhat, source: "system",
           ts: admin.firestore.FieldValue.serverTimestamp(), deviceTs: new Date().toISOString(),
         });
         await notifyOneEmp(db, emp, homeStore, `🔴 缺卡提醒\n你 ${ds} 在 ${store} 的班別 ${sh.shift} ${missWhat}，如有出勤請盡快申請補登。`, token);
-        await notifyStoreManagers(db, store, `🔴 缺卡\n${emp} ${ds} ${store} 班別 ${sh.shift} ${missWhat}。`, token);
+        await notifyStoreManagers(db, store, `🔴 缺卡\n${dn} ${ds} ${store} 班別 ${sh.shift} ${missWhat}。`, token);
       }
     }
   }
