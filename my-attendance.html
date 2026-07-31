@@ -129,14 +129,29 @@ async function load(){
   const list=document.getElementById('list'); if(list) list.innerHTML='<div class="empty">載入中…</div>';
   const me=currentUser.empName;
   const stores=(appConfig.stores||[]).filter(s=>s!=='人力支援');
-  let recs=[];
+  let recs=[], reqs=[];
   try{
     await Promise.all(stores.map(async st=>{
-      const snap=await window.db.collection('stores').doc(st).collection('attendance').where('empName','==',me).get().catch(()=>null);
-      if(snap) snap.forEach(d=>{ const r=d.data(); if(String(r.date||'').startsWith(curMonth)) recs.push({id:d.id,...r}); });
+      const [aSnap,rSnap]=await Promise.all([
+        window.db.collection('stores').doc(st).collection('attendance').where('empName','==',me).get().catch(()=>null),
+        window.db.collection('stores').doc(st).collection('attendanceRequests').where('empName','==',me).get().catch(()=>null)
+      ]);
+      if(aSnap) aSnap.forEach(d=>{ const r=d.data(); if(String(r.date||'').startsWith(curMonth)) recs.push({id:d.id,_store:st,...r}); });
+      if(rSnap) rSnap.forEach(d=>reqs.push({id:d.id,_store:st,...d.data()}));
     }));
   }catch(e){ if(list) list.innerHTML=`<div class="empty">讀取失敗：${e.message}</div>`; return; }
-  if(!recs.length){ if(list) list.innerHTML='<div class="empty">這個月尚無打卡紀錄</div>'; return; }
+  // 我的補登/修改申請（近期＋狀態）
+  let reqHtml='';
+  if(reqs.length){
+    reqs.sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
+    reqHtml=`<div class="daycard" style="border:1.5px solid #cfe2ff;background:#f2f8ff;"><div class="dayhdr" style="color:#0369a1;">📝 我的補登/修改申請</div>`+
+      reqs.slice(0,10).map(q=>{
+        const sc=q.status==='approved'?'s-ok':q.status==='rejected'?'s-bad':'s-warn';
+        const stt=q.status==='approved'?'✅ 已核准':q.status==='rejected'?`❌ 已駁回${q.reviewNote?'：'+q.reviewNote:''}`:'⏳ 待審核';
+        return `<div class="prow"><span class="meta" style="flex:1;font-weight:700;color:var(--text);">${q.targetDate} ${q.punchType} ${q.requestedTime} @${q.atStore}</span><span class="pstat ${sc}">${stt}</span></div>`;
+      }).join('')+`</div>`;
+  }
+  if(!recs.length){ if(list) list.innerHTML=reqHtml+'<div class="empty">這個月尚無打卡紀錄</div>'; return; }
   recs.sort((a,b)=>(b.deviceTs||b.date||'').localeCompare(a.deviceTs||a.date||''));
   const byDate={};
   recs.forEach(r=>{ (byDate[r.date]=byDate[r.date]||[]).push(r); });
@@ -149,14 +164,27 @@ async function load(){
     html+=`<div class="daycard"><div class="dayhdr">${+m}/${+d}（${wd}）</div>`;
     ps.forEach(r=>{
       const tag=r.type==='上班'?'tag-in':r.type==='下班'?'tag-out':'tag-visit';
-      const sc=r.status==='遲到'||r.status==='早退'?'s-bad':r.status==='警告'?'s-warn':r.status==='到場'?'s-visit':'s-ok';
+      const sc=r.status==='遲到'||r.status==='早退'?'s-bad':r.status==='警告'?'s-warn':r.status==='到場'?'s-visit':r.status==='缺卡'?'s-bad':'s-ok';
       const st=r.status==='遲到'?`遲到 ${r.lateMin||''} 分`:r.status==='警告'?`遲到 ${r.lateMin||''} 分(容許內)`:r.status||'';
       const time=fmtT(r.deviceTs);
       html+=`<div class="prow"><span class="ptag ${tag}">${r.type}</span><span style="font-weight:800;">${time}</span><span class="meta">@${r.atStore}${r.shift?` · 班 ${r.shift}`:''}</span><span class="pstat ${sc}">${st}</span></div>`;
+      html+=`<div style="display:flex;align-items:center;gap:6px;padding:0 0 6px 4px;">
+        <span class="meta" style="flex:1;">${r.note?('💬 '+r.note):'<span style="color:#cbd5e1;">（可加備註說明，如忘記打卡實際時間）</span>'}</span>
+        <button onclick="editNote('${r._store}','${r.id}')" style="background:#eef2ff;color:#4338ca;border:none;border-radius:6px;padding:3px 9px;font-size:11px;font-weight:800;cursor:pointer;">💬 備註</button>
+      </div>`;
     });
     html+=`</div>`;
   });
-  if(list) list.innerHTML=html;
+  if(list) list.innerHTML=reqHtml+html;
+}
+async function editNote(store,id){
+  const ref=window.db.collection('stores').doc(store).collection('attendance').doc(id);
+  let cur={}; try{ cur=(await ref.get()).data()||{}; }catch(e){}
+  const note=prompt('打卡備註（例：忘記打卡，實際 9:00 到）：', cur.note||'');
+  if(note===null) return;
+  showLoading('儲存中…');
+  try{ await ref.set({ note, noteBy:currentUser.empName }, {merge:true}); hideLoading(); load(); }
+  catch(e){ hideLoading(); alert('儲存失敗：'+e.message); }
 }
 </script>
 </body>

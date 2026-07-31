@@ -177,6 +177,7 @@ async function load(){
         <span class="meta">@${r.atStore}${r.distanceM!=null?` · ${r.distanceM}m`:''}${r.shift?` · 班 ${r.shift}`:''}${r.homeStore&&r.homeStore!==r.atStore?` · 原店 ${r.homeStore}`:''}</span>
         <span class="pstat ${sc}">${st}</span>
       </div>`;
+      if(r.note) html+=`<div class="meta" style="padding:0 0 6px 4px;">💬 ${r.note}${r.noteBy?`（${r.noteBy}）`:''}</div>`;
     });
     html+=`</div>`;
   });
