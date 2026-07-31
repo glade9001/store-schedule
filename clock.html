@@ -66,6 +66,18 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
 <div id="toast"></div>
 <script>
 let currentUser=null, appConfig={}, geoCfg={}, myGeo=null, atStore='', distanceM=null, todayShifts=[], todayPunches=[], locating=false, isBound=true;
+let serverOffset=0, clockTimer=null; // 伺服器校時：serverOffset = 伺服器時間 − 本機時間
+async function syncServerTime(){
+  try{ const fn=firebase.app().functions('asia-east1').httpsCallable('serverNow');
+    const t0=Date.now(); const res=await fn({}); const t1=Date.now(); const rtt=(t1-t0)/2;
+    serverOffset=(res.data.nowMs+rtt)-t1;
+  }catch(e){ serverOffset=0; } // 校時失敗 → 退回本機時間
+}
+function serverNowMs(){ return Date.now()+serverOffset; }
+function tickClock(){ const el=document.getElementById('srvClock'); if(!el)return;
+  const d=new Date(serverNowMs()+8*3600000); const p=n=>String(n).padStart(2,'0');
+  el.textContent='🕐 '+p(d.getUTCHours())+':'+p(d.getUTCMinutes())+':'+p(d.getUTCSeconds());
+}
 const DAYS=["週一","週二","週三","週四","週五","週六","週日"];
 function fmtT(iso){ if(!iso)return''; const d=new Date(iso); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
 // weeks doc id 用 schedule-V2 getCurrentWeekString 的「簡單公式」(非 ISO)，才對得到班表
@@ -97,8 +109,10 @@ window.onload=async()=>{
     if(currentUser.uid){ const bs=await window.db.collection('lineBindings').doc(currentUser.uid).get(); isBound=bs.exists; }
     else { const qq=await window.db.collection('lineBindings').where('empName','==',currentUser.empName).limit(1).get(); isBound=!qq.empty; }
   }catch(e){}
+  await syncServerTime();
   hideLoading();
   render();
+  if(!clockTimer) clockTimer=setInterval(tickClock,1000);
   locate();
 };
 
@@ -205,12 +219,15 @@ function render(){
 
   const bindWarn = !isBound ? `<div onclick="window.location.href='home.html'" style="background:#fff3e0;border:1.5px solid #ffc27a;border-radius:12px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;cursor:pointer;"><span style="font-size:20px;">🔔</span><div style="flex:1;font-size:12.5px;font-weight:700;color:#c0620f;line-height:1.5;">你尚未綁定 LINE，打卡結果與異常通知收不到<br>點此前往首頁綁定 LINE</div><span style="color:#c0620f;font-size:18px;">›</span></div>` : '';
   wrap.innerHTML=bindWarn+`<div class="card">
-    <div class="today">🕐 ${dateLine}</div>
+    <div class="today">${dateLine}</div>
+    <div id="srvClock" style="text-align:center;font-size:34px;font-weight:900;letter-spacing:1px;color:var(--primary);font-variant-numeric:tabular-nums;margin:2px 0 2px;">🕐 --:--:--</div>
+    <div style="text-align:center;font-size:11px;color:var(--text-muted);margin-bottom:8px;">以伺服器時間為準</div>
     <div class="sub">${currentUser.displayName||currentUser.empName}（${currentUser.store||''}）</div>
     ${loc}${shiftLine}${btn}
     <div style="text-align:center;margin-top:10px;"><button onclick="locate()" style="background:none;border:none;color:var(--primary);font-size:13px;font-weight:700;cursor:pointer;">🔄 重新定位</button></div>
   </div>
   ${todayPunches.length?`<div class="card"><div style="font-size:13px;font-weight:800;color:var(--text-muted);margin-bottom:8px;">今日打卡</div>${plist}</div>`:''}`;
+  tickClock();
 }
 
 async function doPunch(type){
@@ -235,7 +252,8 @@ async function doPunch(type){
   // 🌟 交由後端 callable 權威判定（伺服器時間＋複驗圍欄＋狀態），前端只送座標
   try{
     const fn=firebase.app().functions('asia-east1').httpsCallable('clockPunch');
-    const res=await fn({ lat:myGeo.lat, lng:myGeo.lng, accuracy:myGeo.acc, type });
+    const res=await fn({ lat:myGeo.lat, lng:myGeo.lng, accuracy:myGeo.acc, type,
+      clientTime:new Date().toISOString(), deviceInfo:navigator.userAgent, punchMethod:'GPS' });
     const r=res.data||{};
     hideLoading();
     const msg = r.status==='遲到'?`⚠️ ${type}打卡成功（遲到 ${r.lateMin} 分）`

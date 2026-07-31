@@ -1458,11 +1458,23 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
   }
   const info = await resolveEmpInfo(db, empName);
   const deviceTs = new Date(nowMs).toISOString();
+  // 防代打卡對比：手機端當下時間、與伺服器時間差、裝置資訊、打卡方式
+  const clientMs = d.clientTime ? Date.parse(d.clientTime) : (typeof d.clientMs === "number" ? d.clientMs : NaN);
+  const timeSkewMs = isFinite(clientMs) ? (nowMs - clientMs) : null;
+  const deviceInfo = String(d.deviceInfo || "").slice(0, 180);
   await attCol.add({
     empName, displayName: info.displayName, date: ds, weekday: dayName, type, atStore, homeStore,
     lat, lng, accuracy: (typeof d.accuracy === "number" ? d.accuracy : null), distanceM,
     shift: matchedShift, status, lateMin,
     ts: admin.firestore.FieldValue.serverTimestamp(), tsMs: nowMs, deviceTs, source: "app",
+    clientTime: (isFinite(clientMs) ? new Date(clientMs).toISOString() : null), timeSkewMs,
+    deviceInfo: deviceInfo || null, punchMethod: (d.punchMethod || "GPS"),
   });
   return { ok: true, atStore, distanceM, status, lateMin, hm: nowTp.toISOString().slice(11, 16) };
+});
+
+// 伺服器時間（給打卡畫面校時用，避免手機本機時間不準）
+exports.serverNow = onCall({ region: "asia-east1" }, async () => {
+  const nowMs = Date.now();
+  return { nowMs, iso: new Date(nowMs).toISOString(), tp: new Date(nowMs + 8 * 3600000).toISOString() };
 });
