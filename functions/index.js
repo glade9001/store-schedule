@@ -1340,7 +1340,7 @@ exports.scheduledMissingClock = onSchedule(
       if (!wd || !wd.exists) continue;
       const recs = wd.data().records || [];
       const esSnap = await db.collection("stores").doc(store).collection("employees").get().catch(() => null);
-      const statusMap = {}; if (esSnap) esSnap.forEach((d) => { statusMap[d.id] = (d.data() || {}).status || ""; });
+      const statusMap = {}; if (esSnap) esSnap.forEach((d) => { const e = d.data() || {}; statusMap[d.id] = { status: e.status || "", eff: e.retireDate || e.transferDate || "" }; });
       // 排除派出店的「支援X」顯示記錄(loc=支援)＝跨店去重，只認接收店 supportEmp 那筆
       const shifts = recs.filter((r) => r.day === dayName && /^\d{1,2}-\d{1,2}$/.test(String(r.shift || "")) && !String(r.location || "").startsWith("支援"));
       if (!shifts.length) continue;
@@ -1354,7 +1354,9 @@ exports.scheduledMissingClock = onSchedule(
         const emp = (sh.name && !String(sh.name).startsWith("🆘")) ? sh.name
           : (isSupport ? sh.supportEmp.slice(sh.supportEmp.indexOf("-") + 1) : "");
         if (!emp) continue;
-        if (!isSupport && ["離職", "調走"].includes(statusMap[emp])) continue; // 跳過離職/調走
+        // 離職/調走「生效日(含)後」才跳過；生效日前仍在職 → 照常判缺卡
+        const sInfo = statusMap[emp] || {};
+        if (!isSupport && ["離職", "調走"].includes(sInfo.status) && (!sInfo.eff || ds >= sInfo.eff)) continue;
         const homeStore = isSupport ? sh.supportEmp.slice(0, sh.supportEmp.indexOf("-")) : store;
         const empPunches = punches.filter((p) => p.empName === emp);
         const hasIn = empPunches.some((p) => p.type === "上班");
