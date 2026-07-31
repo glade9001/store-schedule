@@ -1523,21 +1523,22 @@ function renderHourlyTab(){
     }
     if(!rec) return;
 
+    const isPart = effR(emp, rec) === '工讀'; // 職務店長但以工讀時薪計(payAsPartTime)→無底薪，用實際時薪
     const base = n(rec.baseSalary);
     const fullAttend = n(rec.fullAttendBonus);
-    const hrRate = (base+fullAttend)/30/8;
+    const hrRate = isPart ? n(rec.wage) : (base+fullAttend)/30/8;
 
     let supportH=0, supportCost=0;
     ymList.forEach(ym=>{
       (supportMap[ym]?.[emp.name]||[]).forEach(s=>{
         const mRec = salaryMap[ym]?.[emp.name];
-        const mBase = mRec ? n(mRec.baseSalary)+n(mRec.fullAttendBonus) : base+fullAttend;
+        const rate = isPart ? n((mRec&&mRec.wage)||rec.wage) : ((mRec ? n(mRec.baseSalary)+n(mRec.fullAttendBonus) : base+fullAttend)/30/8);
         supportH = Math.round((supportH+s.hours)*10)/10;
-        supportCost += Math.round(mBase/30/8*s.hours);
+        supportCost += Math.round(rate*s.hours);
       });
     });
 
-    hourlyRows.push({ emp, base, fullAttend, hrRate, supportH, supportCost });
+    hourlyRows.push({ emp, base, fullAttend, hrRate, supportH, supportCost, isPart });
   });
 
   const tbody1 = document.getElementById('tbodyHourlyRate');
@@ -1548,9 +1549,9 @@ function renderHourlyTab(){
         return `<tr>
           <td><span class="store-badge" style="background:${color};">${r.emp.store}</span></td>
           <td><strong>${r.emp.name}</strong></td>
-          <td>${r.emp.role||'--'}</td>
-          <td class="num">$${comma(r.base)}</td>
-          <td class="num">$${comma(r.fullAttend)}</td>
+          <td>${r.emp.role||'--'}${r.isPart?'<span style="color:#e67e22;font-size:11px;"> (工讀計)</span>':''}</td>
+          <td class="num">${r.isPart?'—':'$'+comma(r.base)}</td>
+          <td class="num">${r.isPart?'—':'$'+comma(r.fullAttend)}</td>
           <td class="num"><strong>$${Math.round(r.hrRate).toLocaleString()}/h</strong></td>
           <td class="num">${r.supportH>0?r.supportH+'h':'—'}</td>
           <td class="num">${r.supportCost>0?'$'+comma(r.supportCost):'—'}</td>
