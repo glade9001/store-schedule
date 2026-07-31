@@ -419,13 +419,16 @@ exports.onSalarySubmitted = onDocumentWritten(
 );
 
 // 通知某店店長（permission=manager 且 store 相符）的 LINE 綁定
+// 通知某店「店長」——依門市員工 role=店長 判斷（涵蓋登入權限為 admin/owner 但職務是店長者，如美德楷岳），
+// 不再只看 users.permission==manager（會漏掉兼任店長的 admin/owner）。
 async function notifyStoreManagers(db, store, text, token) {
-  const us = await db.collection("users").where("permission", "==", "manager").get().catch(() => null);
-  if (!us) return;
-  for (const d of us.docs) {
-    if ((d.data().store || "") !== store) continue;
-    const b = await db.collection("lineBindings").doc(d.id).get().catch(() => null);
-    if (b && b.exists && b.data().lineUserId) await linePush(b.data().lineUserId, text, token);
+  const es = await db.collection("stores").doc(store).collection("employees").get().catch(() => null);
+  if (!es) return;
+  const leads = [];
+  es.forEach((d) => { const e = d.data() || {}; if (e.role === "店長" && !["離職", "調走"].includes(e.status)) leads.push(d.id); });
+  for (const emp of leads) {
+    const snap = await db.collection("lineBindings").where("empName", "==", emp).get().catch(() => null);
+    if (snap && !snap.empty) { const b = snap.docs[0].data(); if (b && b.lineUserId) await linePush(b.lineUserId, text, token); }
   }
 }
 
