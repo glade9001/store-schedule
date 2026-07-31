@@ -1241,6 +1241,13 @@ async function resolveEmpInfo(db, empName) {
   if (d) { if (d.displayName) out.displayName = d.displayName; if (d.permission) out.permission = d.permission; }
   return out;
 }
+// 兩點距離(公尺)
+function haversineM(la1, lo1, la2, lo2) {
+  const R = 6371000, rad = (x) => x * Math.PI / 180;
+  const dLa = rad(la2 - la1), dLo = rad(lo2 - lo1);
+  const s = Math.sin(dLa / 2) ** 2 + Math.cos(rad(la1)) * Math.cos(rad(la2)) * Math.sin(dLo / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
+}
 // 該權限在此開放層級是否已能打卡（對應 clock.html canClock）
 function canClockPerm(stage, perm) {
   if (stage === "all") return true;
@@ -1369,3 +1376,78 @@ exports.scheduledMissingClock = onSchedule(
     }
   }
 );
+
+// ============ 打卡 callable（伺服器權威：時間/圍欄/狀態全後端判定）============
+exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
+  const auth = request.auth;
+  if (!auth) throw new HttpsError("unauthenticated", "請先登入");
+  const db = admin.firestore();
+  const userSnap = await db.collection("users").doc(auth.uid).get();
+  const user = userSnap.exists ? userSnap.data() : null;
+  if (!user || !user.empName) throw new HttpsError("permission-denied", "查無使用者");
+  const empName = user.empName, homeStore = user.store || "", perm = user.permission || "employee";
+  const cfgSnap = await db.collection("settings").doc("globalConfig").get();
+  const conf = cfgSnap.exists ? cfgSnap.data() : {};
+  const clk = conf.clockIn || {};
+  if (!canClockPerm(clk.stage || "off", perm)) throw new HttpsError("failed-precondition", "打卡功能尚未對您開放");
+  const d = request.data || {};
+  const lat = Number(d.lat), lng = Number(d.lng), type = d.type;
+  if (!isFinite(lat) || !isFinite(lng)) throw new HttpsError("invalid-argument", "缺少定位資訊");
+  if (!["上班", "下班", "到場", "離場"].includes(type)) throw new HttpsError("invalid-argument", "打卡類型錯誤");
+  // 後端複驗圍欄
+  const geo = clk.geo || {};
+  let atStore = "", distanceM = null;
+  for (const st of Object.keys(geo)) {
+    const g = geo[st] || {};
+    if (typeof g.lat !== "number" || typeof g.lng !== "number") continue;
+    const dist = haversineM(lat, lng, g.lat, g.lng);
+    if (dist <= (g.radiusM || 120) && (atStore === "" || dist < distanceM)) { atStore = st; distanceM = Math.round(dist); }
+  }
+  if (!atStore) throw new HttpsError("failed-precondition", "不在任何門市範圍內，無法打卡");
+  // 伺服器時間(台北)
+  const nowMs = Date.now();
+  const nowTp = new Date(nowMs + 8 * 3600000);
+  const ds = nowTp.toISOString().slice(0, 10);
+  const nowMin = nowTp.getUTCHours() * 60 + nowTp.getUTCMinutes();
+  const attCol = db.collection("stores").doc(atStore).collection("attendance");
+  const todaySnap = await attCol.where("date", "==", ds).where("empName", "==", empName).get();
+  const punches = []; todaySnap.forEach((x) => punches.push(x.data()));
+  // 防抖 10 分 + 上班後 5 分不能下班
+  if (punches.some((p) => p.type === type && p.tsMs && (nowMs - p.tsMs) < 10 * 60000)) throw new HttpsError("failed-precondition", `剛剛已${type}打卡，10 分鐘內不用再打`);
+  if (type === "下班") {
+    const lastIn = Math.max(0, ...punches.filter((p) => p.type === "上班").map((p) => p.tsMs || 0));
+    if (lastIn && (nowMs - lastIn) < 5 * 60000) throw new HttpsError("failed-precondition", "上班後 5 分鐘內不能打下班");
+  }
+  // 今日班別(本店/支援)
+  const wk = simpleWeekStr(nowTp);
+  const dayName = WEEK_DAYS[(nowTp.getUTCDay() + 6) % 7];
+  const wd = await db.collection("stores").doc(atStore).collection("weeks").doc(wk).get();
+  const shifts = [];
+  if (wd.exists) (wd.data().records || []).forEach((r) => {
+    if (r.day !== dayName) return;
+    const mine = (r.name === empName) || (r.supportEmp === `${homeStore}-${empName}` && r.approvalStatus === "approved");
+    if (!mine) return;
+    const m = String(r.shift || "").match(/^(\d{1,2})-(\d{1,2})$/);
+    if (m) shifts.push({ shift: r.shift, start: +m[1], end: +m[2] });
+  });
+  const tol = clk.lateToleranceMin != null ? clk.lateToleranceMin : 10;
+  let status = "正常", lateMin = 0, matchedShift = "";
+  if (type === "上班" && shifts.length) {
+    let best = null; shifts.forEach((s) => { const dd = Math.abs(s.start * 60 - nowMin); if (!best || dd < best.d) best = { s, d: dd }; });
+    const s = best.s; matchedShift = s.shift; const late = nowMin - s.start * 60;
+    if (late > tol) { status = "遲到"; lateMin = late; } else if (late > 0) { status = "警告"; lateMin = late; }
+  } else if (type === "下班" && shifts.length) {
+    let best = null; shifts.forEach((s) => { let e = s.end * 60; if (s.end <= s.start) e += 1440; const dd = Math.abs(e - nowMin); if (!best || dd < best.d) best = { s, d: dd }; });
+    const s = best.s; matchedShift = s.shift; let endMin = s.end * 60; if (s.end <= s.start) endMin += 1440; let cur = nowMin; if (s.end <= s.start && nowTp.getUTCHours() < s.start) cur += 1440;
+    if (cur < endMin) status = "早退";
+  } else if (type === "到場" || type === "離場") { status = "到場"; }
+  const info = await resolveEmpInfo(db, empName);
+  const deviceTs = new Date(nowMs).toISOString();
+  await attCol.add({
+    empName, displayName: info.displayName, date: ds, weekday: dayName, type, atStore, homeStore,
+    lat, lng, accuracy: (typeof d.accuracy === "number" ? d.accuracy : null), distanceM,
+    shift: matchedShift, status, lateMin,
+    ts: admin.firestore.FieldValue.serverTimestamp(), tsMs: nowMs, deviceTs, source: "app",
+  });
+  return { ok: true, atStore, distanceM, status, lateMin, hm: nowTp.toISOString().slice(11, 16) };
+});

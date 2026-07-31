@@ -13,6 +13,7 @@
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-functions.js"></script>
 <script src="firebase-init.js"></script>
 <script src="utils.js"></script>
 <style>
@@ -207,37 +208,21 @@ async function doPunch(type){
     const lastIn=todayPunches.filter(p=>p.type==='上班').map(p=>p.deviceTs).filter(Boolean).sort().pop();
     if(lastIn && (now-new Date(lastIn))<5*60*1000){ toast('上班後 5 分鐘內不能打下班'); return; }
   }
+  if(!myGeo){ toast('尚未定位，請稍候'); return; }
   showLoading('打卡中…');
-  // 狀態判定（多段班取最接近的班段）
-  let status='正常', lateMin=0, matchedShift='';
-  const tol=(appConfig.clockIn||{}).lateToleranceMin ?? 10;
-  const nowMin=now.getHours()*60+now.getMinutes();
-  if(type==='上班' && todayShifts.length){
-    const s=nearestShiftByStart(nowMin); matchedShift=s.shift; const late=nowMin - s.start*60;
-    if(late>tol){ status='遲到'; lateMin=late; } else if(late>0){ status='警告'; lateMin=late; } else status='正常';
-  } else if(type==='下班' && todayShifts.length){
-    const s=nearestShiftByEnd(nowMin); matchedShift=s.shift; let endMin=s.end*60; if(s.end<=s.start)endMin+=1440; let cur=nowMin; if(s.end<=s.start && now.getHours()<s.start)cur+=1440;
-    if(cur<endMin) status='早退';
-  } else if(type==='到場'||type==='離場'){ status='到場'; }
-
-  const rec={
-    empName: currentUser.empName, displayName: currentUser.displayName||currentUser.empName,
-    date: todayStr(), weekday: DAYS[(now.getDay()+6)%7], type, atStore, homeStore: currentUser.store||'',
-    lat: myGeo?myGeo.lat:null, lng: myGeo?myGeo.lng:null, accuracy: myGeo?myGeo.acc:null, distanceM,
-    shift: matchedShift, status, lateMin,
-    ts: firebase.firestore.FieldValue.serverTimestamp(), deviceTs: now.toISOString(),
-    createdBy: currentUser.empName, source:'app'
-  };
+  // 🌟 交由後端 callable 權威判定（伺服器時間＋複驗圍欄＋狀態），前端只送座標
   try{
-    await window.db.collection('stores').doc(atStore).collection('attendance').add(rec);
+    const fn=firebase.app().functions('asia-east1').httpsCallable('clockPunch');
+    const res=await fn({ lat:myGeo.lat, lng:myGeo.lng, accuracy:myGeo.acc, type });
+    const r=res.data||{};
     hideLoading();
-    const msg = status==='遲到'?`⚠️ ${type}打卡成功（遲到 ${lateMin} 分）`
-      : status==='早退'?`⚠️ ${type}打卡成功（早退）`
-      : status==='警告'?`${type}打卡成功（遲到 ${lateMin} 分，容許內）`
+    const msg = r.status==='遲到'?`⚠️ ${type}打卡成功（遲到 ${r.lateMin} 分）`
+      : r.status==='早退'?`⚠️ ${type}打卡成功（早退）`
+      : r.status==='警告'?`${type}打卡成功（遲到 ${r.lateMin} 分，容許內）`
       : `✅ ${type}打卡成功`;
-    toast(`${msg}　${hm(now)} @${atStore}`);
+    toast(`${msg}　${r.hm||''} @${r.atStore||atStore}`);
     await loadToday(); render();
-  }catch(e){ hideLoading(); toast('打卡失敗：'+e.message); }
+  }catch(e){ hideLoading(); toast('打卡失敗：'+(e.message||e)); }
 }
 </script>
 </body>
