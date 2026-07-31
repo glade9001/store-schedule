@@ -64,7 +64,7 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
 <div class="wrap" id="wrap"></div>
 <div id="toast"></div>
 <script>
-let currentUser=null, appConfig={}, geoCfg={}, myGeo=null, atStore='', distanceM=null, todayShifts=[], todayPunches=[], locating=false;
+let currentUser=null, appConfig={}, geoCfg={}, myGeo=null, atStore='', distanceM=null, todayShifts=[], todayPunches=[], locating=false, isBound=true;
 const DAYS=["週一","週二","週三","週四","週五","週六","週日"];
 function fmtT(iso){ if(!iso)return''; const d=new Date(iso); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
 // weeks doc id 用 schedule-V2 getCurrentWeekString 的「簡單公式」(非 ISO)，才對得到班表
@@ -91,6 +91,11 @@ window.onload=async()=>{
     document.getElementById('wrap').innerHTML=`<div class="card maint"><div class="maint-icon">🚧</div><div class="maint-title">維護中敬請期待</div><div class="maint-sub">打卡功能尚未對您開放，請稍候。</div></div>`;
     return;
   }
+  // 檢查是否已綁定 LINE（未綁 → 打卡頁提醒去綁）
+  try{
+    if(currentUser.uid){ const bs=await window.db.collection('lineBindings').doc(currentUser.uid).get(); isBound=bs.exists; }
+    else { const qq=await window.db.collection('lineBindings').where('empName','==',currentUser.empName).limit(1).get(); isBound=!qq.empty; }
+  }catch(e){}
   hideLoading();
   render();
   locate();
@@ -181,7 +186,8 @@ function render(){
     return `<div class="pitem"><span class="ptag ${tag}">${p.type}</span><span>${fmtT(p.deviceTs)}</span><span style="color:var(--text-muted);font-size:12px;">@${p.atStore}</span><span class="pstat ${sc}">${statTxt}</span></div>`;
   }).join('')}</div>`:'';
 
-  wrap.innerHTML=`<div class="card">
+  const bindWarn = !isBound ? `<div onclick="window.location.href='home.html'" style="background:#fff3e0;border:1.5px solid #ffc27a;border-radius:12px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;cursor:pointer;"><span style="font-size:20px;">🔔</span><div style="flex:1;font-size:12.5px;font-weight:700;color:#c0620f;line-height:1.5;">你尚未綁定 LINE，打卡結果與異常通知收不到<br>點此前往首頁綁定 LINE</div><span style="color:#c0620f;font-size:18px;">›</span></div>` : '';
+  wrap.innerHTML=bindWarn+`<div class="card">
     <div class="today">🕐 ${dateLine}</div>
     <div class="sub">${currentUser.displayName||currentUser.empName}（${currentUser.store||''}）</div>
     ${loc}${shiftLine}${btn}
