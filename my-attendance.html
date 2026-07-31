@@ -70,11 +70,61 @@ window.onload=async()=>{
     hideLoading(); return;
   }
   curMonth=curYm();
-  document.getElementById('wrap').innerHTML=`<div class="bar"><span style="font-weight:800;">📅 月份</span><input type="month" id="ymSel" value="${curMonth}" onchange="curMonth=this.value;load();"></div><div id="list"><div class="empty">載入中…</div></div>`;
+  document.getElementById('wrap').innerHTML=`<div class="bar"><span style="font-weight:800;">📅 月份</span><input type="month" id="ymSel" value="${curMonth}" onchange="curMonth=this.value;load();">
+    <button onclick="openReqModal()" style="margin-left:auto;background:var(--primary);color:#fff;border:none;border-radius:10px;padding:9px 12px;font-weight:800;font-size:13px;cursor:pointer;">＋ 補登/修改申請</button>
+  </div>
+  <div id="reqModal" style="display:none;position:fixed;inset:0;background:rgba(30,41,59,.6);z-index:9000;justify-content:center;align-items:center;padding:20px;">
+    <div style="background:#fff;border-radius:16px;padding:18px;max-width:400px;width:100%;">
+      <div style="font-size:17px;font-weight:900;margin-bottom:14px;">補登／修改打卡申請</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;line-height:1.6;">送出後需店長審核（會 LINE 通知你結果）。若該日已有同類打卡＝申請修改時間；沒有＝補登。</div>
+      <label style="font-size:13px;font-weight:700;">門市</label>
+      <select id="rqStore" style="width:100%;padding:9px;border:1.5px solid var(--border);border-radius:8px;margin:4px 0 10px;"></select>
+      <label style="font-size:13px;font-weight:700;">日期</label>
+      <input type="date" id="rqDate" style="width:100%;padding:9px;border:1.5px solid var(--border);border-radius:8px;margin:4px 0 10px;">
+      <label style="font-size:13px;font-weight:700;">打卡類型</label>
+      <select id="rqType" style="width:100%;padding:9px;border:1.5px solid var(--border);border-radius:8px;margin:4px 0 10px;"><option>上班</option><option>下班</option><option>到場</option><option>離場</option></select>
+      <label style="font-size:13px;font-weight:700;">時間</label>
+      <input type="time" id="rqTime" style="width:100%;padding:9px;border:1.5px solid var(--border);border-radius:8px;margin:4px 0 10px;">
+      <label style="font-size:13px;font-weight:700;">原因</label>
+      <textarea id="rqReason" rows="2" placeholder="例：忘記打卡" style="width:100%;padding:9px;border:1.5px solid var(--border);border-radius:8px;margin:4px 0 12px;"></textarea>
+      <div style="display:flex;gap:8px;">
+        <button onclick="document.getElementById('reqModal').style.display='none'" style="flex:1;padding:11px;background:#eef1f4;border:none;border-radius:10px;font-weight:700;cursor:pointer;">取消</button>
+        <button onclick="submitReq()" style="flex:1;padding:11px;background:var(--primary);color:#fff;border:none;border-radius:10px;font-weight:800;cursor:pointer;">送出申請</button>
+      </div>
+    </div>
+  </div>
+  <div id="list"><div class="empty">載入中…</div></div>`;
   await load();
   hideLoading();
 };
 
+function openReqModal(){
+  const stores=(appConfig.stores||[]).filter(s=>s!=='人力支援');
+  const sel=document.getElementById('rqStore');
+  sel.innerHTML=stores.map(s=>`<option value="${s}"${s===currentUser.store?' selected':''}>${s}</option>`).join('');
+  document.getElementById('rqDate').value=new Date().toISOString().slice(0,10);
+  document.getElementById('rqTime').value=''; document.getElementById('rqReason').value='';
+  document.getElementById('reqModal').style.display='flex';
+}
+async function submitReq(){
+  const atStore=document.getElementById('rqStore').value;
+  const targetDate=document.getElementById('rqDate').value;
+  const punchType=document.getElementById('rqType').value;
+  const requestedTime=document.getElementById('rqTime').value;
+  const reason=document.getElementById('rqReason').value.trim();
+  if(!atStore||!targetDate||!requestedTime){ alert('請填寫門市、日期、時間'); return; }
+  showLoading('送出中…');
+  try{
+    await window.db.collection('stores').doc(atStore).collection('attendanceRequests').add({
+      empName:currentUser.empName, displayName:currentUser.displayName||currentUser.empName,
+      homeStore:currentUser.store||'', atStore, type:'補登/修改', targetDate, punchType, requestedTime,
+      reason, status:'pending', createdAt:new Date().toISOString(), createdBy:currentUser.empName
+    });
+    hideLoading();
+    document.getElementById('reqModal').style.display='none';
+    alert('✅ 已送出申請，等待店長審核（結果會 LINE 通知你）');
+  }catch(e){ hideLoading(); alert('送出失敗：'+e.message); }
+}
 async function load(){
   const list=document.getElementById('list'); if(list) list.innerHTML='<div class="empty">載入中…</div>';
   const me=currentUser.empName;

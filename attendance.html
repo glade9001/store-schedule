@@ -89,10 +89,58 @@ function renderBar(stores){
   document.getElementById('wrap').innerHTML = `<div class="bar">
     ${storeSel}
     <input type="date" id="dateSel" value="${curDate}" onchange="curDate=this.value;load();">
-  </div><div id="sum"></div><div id="list"><div class="empty">載入中…</div></div>`;
+  </div><div id="reqs"></div><div id="sum"></div><div id="list"><div class="empty">載入中…</div></div>`;
 }
 
+async function loadRequests(){
+  const box=document.getElementById('reqs'); if(!box) return;
+  let reqs=[];
+  try{
+    const snap=await window.db.collection('stores').doc(curStore).collection('attendanceRequests').where('status','==','pending').get();
+    snap.forEach(d=>reqs.push({id:d.id,...d.data()}));
+  }catch(e){ return; }
+  if(!reqs.length){ box.innerHTML=''; return; }
+  box.innerHTML=`<div class="card" style="border:1.5px solid #ffd8a8;background:#fff8ee;"><div style="font-size:14px;font-weight:900;color:#c0620f;margin-bottom:8px;">📝 待審核申請（${reqs.length}）</div>`+
+    reqs.map(r=>`<div style="border-top:1px dashed #f0d9b0;padding:8px 0;">
+      <div style="font-size:14px;font-weight:800;">${r.displayName||r.empName}　<span style="color:var(--text-muted);font-weight:600;font-size:13px;">${r.targetDate} ${r.punchType} ${r.requestedTime}</span></div>
+      <div class="meta" style="margin:2px 0;">原因：${r.reason||'—'}${r.homeStore&&r.homeStore!==r.atStore?` · 原店 ${r.homeStore}`:''}</div>
+      <div style="display:flex;gap:8px;margin-top:6px;">
+        <button onclick="approveReq('${r.id}')" style="flex:1;padding:8px;background:#e6f4ea;color:#137333;border:none;border-radius:8px;font-weight:800;cursor:pointer;">✅ 核准</button>
+        <button onclick="rejectReq('${r.id}')" style="flex:1;padding:8px;background:#fce8e6;color:#c5221f;border:none;border-radius:8px;font-weight:800;cursor:pointer;">❌ 駁回</button>
+      </div></div>`).join('')+`</div>`;
+}
+async function approveReq(id){
+  const ref=window.db.collection('stores').doc(curStore).collection('attendanceRequests').doc(id);
+  showLoading('核准中…');
+  try{
+    const snap=await ref.get(); if(!snap.exists){ hideLoading(); return; }
+    const r=snap.data();
+    const deviceTs=new Date(`${r.targetDate}T${r.requestedTime}:00`).toISOString();
+    // 找同日同類打卡→有則改時間、無則補登
+    const att=window.db.collection('stores').doc(curStore).collection('attendance');
+    const ex=await att.where('date','==',r.targetDate).where('empName','==',r.empName).get();
+    let target=null; ex.forEach(d=>{ if(d.data().type===r.punchType) target=d; });
+    const base={ empName:r.empName, displayName:r.displayName||r.empName, date:r.targetDate, type:r.punchType,
+      atStore:curStore, homeStore:r.homeStore||curStore, status:'補登', source:'manual', deviceTs,
+      editedBy:currentUser.empName, editNote:`申請${r.type||'補登/修改'}：${r.reason||''}`, ts:firebase.firestore.FieldValue.serverTimestamp() };
+    if(target){ await target.ref.set({ deviceTs, status:'補登', source:'manual', editedBy:currentUser.empName, origTs:target.data().deviceTs||'' }, {merge:true}); }
+    else { await att.add(base); }
+    await ref.set({ status:'approved', reviewedBy:currentUser.empName, reviewedAt:new Date().toISOString() }, {merge:true});
+    hideLoading(); await loadRequests(); await load();
+  }catch(e){ hideLoading(); alert('核准失敗：'+e.message); }
+}
+async function rejectReq(id){
+  const note=prompt('駁回原因（會通知員工）：','');
+  if(note===null) return;
+  showLoading('處理中…');
+  try{
+    await window.db.collection('stores').doc(curStore).collection('attendanceRequests').doc(id)
+      .set({ status:'rejected', reviewNote:note, reviewedBy:currentUser.empName, reviewedAt:new Date().toISOString() }, {merge:true});
+    hideLoading(); await loadRequests();
+  }catch(e){ hideLoading(); alert('失敗：'+e.message); }
+}
 async function load(){
+  loadRequests();
   const list=document.getElementById('list'); if(list) list.innerHTML='<div class="empty">載入中…</div>';
   let recs=[];
   try{
