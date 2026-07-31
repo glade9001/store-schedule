@@ -2623,7 +2623,8 @@ async function loadStats() {
   const store = currentUser.store;
   const empName = currentUser.empName;
   const role = currentUser.role || '';
-  const isPartTime = role === '工讀';
+  // ⚠️ 必須與 renderStatsArea 的 isPartTime 一致(含楷岳特例)，否則卡片是工讀版、卻走正職分支→工時不填顯示「--」
+  const isPartTime = role === '工讀' || ['楷岳'].includes(currentUser.empName);
 
   if(!store || !empName) return;
 

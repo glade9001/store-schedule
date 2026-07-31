@@ -18,7 +18,9 @@
   --bg:#f0f4ff;--text:#1e293b;--text-muted:#64748b;--border:#e2e8f0;--radius:14px;
   --store-colors: #1a73e8, #34a853, #f9ab00, #9334e6, #d93025;
 }
-html,body{min-height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;color:var(--text);}
+html,body{min-height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;color:var(--text);overscroll-behavior-x:none;}
+/* 防止表格橫向捲動滑到底時觸發瀏覽器「返回上一頁」手勢 */
+[style*="overflow-x"]{overscroll-behavior-x:contain;}
 
 #loadingOverlay{display:flex;position:fixed;inset:0;background:linear-gradient(135deg,#1a73e8,#0d47a1);z-index:99999;flex-direction:column;justify-content:center;align-items:center;color:white;transition:opacity 0.4s;}
 #loadingOverlay.hidden{opacity:0;pointer-events:none;}
