@@ -86,12 +86,31 @@ function renderBar(stores){
   const storeSel = isAdminOwner()
     ? `<select id="storeSel" onchange="curStore=this.value;load();">${stores.map(s=>`<option value="${s}"${s===curStore?' selected':''}>${s}</option>`).join('')}</select>`
     : `<span style="padding:9px 10px;font-weight:800;">${curStore}</span>`;
+  const tolVal = tolOf(curStore);
   document.getElementById('wrap').innerHTML = `<div class="bar">
     ${storeSel}
     <input type="date" id="dateSel" value="${curDate}" onchange="curDate=this.value;load();">
-  </div><div id="reqs"></div><div id="sum"></div><div id="list"><div class="empty">載入中…</div></div>`;
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:13px;flex-wrap:wrap;">
+    <span style="font-weight:800;">⏱️ 遲到容許值</span>
+    <input type="number" id="tolInput" min="0" max="60" value="${tolVal}" style="width:66px;padding:8px;border:1.5px solid var(--border);border-radius:8px;font-weight:700;">
+    <span>分（含以內顯示警告但算正常）</span>
+    <button onclick="saveTol()" style="background:var(--primary);color:#fff;border:none;border-radius:8px;padding:8px 12px;font-weight:800;font-size:12px;cursor:pointer;">儲存</button>
+  </div>
+  <div id="reqs"></div><div id="sum"></div><div id="list"><div class="empty">載入中…</div></div>`;
 }
 
+function tolOf(store){ const c=appConfig.clockIn||{}; const t=(c.tolByStore||{})[store]; return t!=null?t:(c.lateToleranceMin!=null?c.lateToleranceMin:10); }
+async function saveTol(){
+  const v=parseInt(document.getElementById('tolInput').value);
+  if(isNaN(v)||v<0||v>60){ alert('請輸入 0–60 的分鐘數'); return; }
+  showLoading('儲存中…');
+  try{
+    await window.db.collection('settings').doc('globalConfig').update({['clockIn.tolByStore.'+curStore]: v});
+    appConfig.clockIn=appConfig.clockIn||{}; appConfig.clockIn.tolByStore=appConfig.clockIn.tolByStore||{}; appConfig.clockIn.tolByStore[curStore]=v;
+    hideLoading(); alert(`✅ 已設定「${curStore}」遲到容許值：${v} 分`);
+  }catch(e){ hideLoading(); alert('儲存失敗：'+e.message); }
+}
 async function loadRequests(){
   const box=document.getElementById('reqs'); if(!box) return;
   let reqs=[];
@@ -141,6 +160,7 @@ async function rejectReq(id){
 }
 async function load(){
   loadRequests();
+  const tolEl=document.getElementById('tolInput'); if(tolEl) tolEl.value=tolOf(curStore);
   const list=document.getElementById('list'); if(list) list.innerHTML='<div class="empty">載入中…</div>';
   let recs=[];
   try{

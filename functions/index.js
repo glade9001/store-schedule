@@ -1339,7 +1339,10 @@ exports.scheduledMissingClock = onSchedule(
       const wd = await db.collection("stores").doc(store).collection("weeks").doc(wk).get().catch(() => null);
       if (!wd || !wd.exists) continue;
       const recs = wd.data().records || [];
-      const shifts = recs.filter((r) => r.day === dayName && /^\d{1,2}-\d{1,2}$/.test(String(r.shift || "")));
+      const esSnap = await db.collection("stores").doc(store).collection("employees").get().catch(() => null);
+      const statusMap = {}; if (esSnap) esSnap.forEach((d) => { statusMap[d.id] = (d.data() || {}).status || ""; });
+      // 排除派出店的「支援X」顯示記錄(loc=支援)＝跨店去重，只認接收店 supportEmp 那筆
+      const shifts = recs.filter((r) => r.day === dayName && /^\d{1,2}-\d{1,2}$/.test(String(r.shift || "")) && !String(r.location || "").startsWith("支援"));
       if (!shifts.length) continue;
       const attSnap = await db.collection("stores").doc(store).collection("attendance").where("date", "==", ds).get().catch(() => null);
       const punches = []; if (attSnap) attSnap.forEach((d) => punches.push(d.data()));
@@ -1351,6 +1354,7 @@ exports.scheduledMissingClock = onSchedule(
         const emp = (sh.name && !String(sh.name).startsWith("🆘")) ? sh.name
           : (isSupport ? sh.supportEmp.slice(sh.supportEmp.indexOf("-") + 1) : "");
         if (!emp) continue;
+        if (!isSupport && ["離職", "調走"].includes(statusMap[emp])) continue; // 跳過離職/調走
         const homeStore = isSupport ? sh.supportEmp.slice(0, sh.supportEmp.indexOf("-")) : store;
         const empPunches = punches.filter((p) => p.empName === emp);
         const hasIn = empPunches.some((p) => p.type === "上班");
@@ -1430,7 +1434,8 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
     const m = String(r.shift || "").match(/^(\d{1,2})-(\d{1,2})$/);
     if (m) shifts.push({ shift: r.shift, start: +m[1], end: +m[2] });
   });
-  const tol = clk.lateToleranceMin != null ? clk.lateToleranceMin : 10;
+  const tol = (clk.tolByStore && clk.tolByStore[atStore] != null) ? clk.tolByStore[atStore]
+            : (clk.lateToleranceMin != null ? clk.lateToleranceMin : 10);
   let status = "正常", lateMin = 0, matchedShift = "";
   if (!shifts.length) {
     status = "到場"; // 無排班的打卡 → 自動歸類「到場」(未來薪資整併分類用)，仍是上班/下班
