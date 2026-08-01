@@ -265,7 +265,6 @@ select.range-sel:focus{border-color:var(--primary);}
       <div class="tab-item" id="tab-hourly" onclick="switchTab('hourly')">⏱️ 員工時薪</div>
       <div class="tab-item" id="tab-compliance" onclick="switchTab('compliance')">🛡️ 合規稽核</div>
       <div class="tab-item" id="tab-weekly" onclick="switchTab('weekly')">📅 每週工時</div>
-      <div class="tab-item" id="tab-dashboard" onclick="switchTab('dashboard')">📊 經營儀表板</div>
     </div>
 
     <!-- Tab: 人事成本 -->
@@ -417,17 +416,6 @@ select.range-sel:focus{border-color:var(--primary);}
       <div id="weeklyContent"></div>
     </div>
 
-    <!-- Tab: 經營儀表板 -->
-    <div class="tab-content" id="panel-dashboard">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
-        <span style="font-size:12px;font-weight:700;color:var(--text-muted);">加班佔比目標</span>
-        <input type="number" id="dashOtTarget" value="8" min="1" max="50" step="1" onchange="renderDashboardTab()" style="width:56px;padding:5px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-weight:700;text-align:center;">
-        <span style="font-size:12px;color:var(--text-muted);">%　合理範圍帶 ±</span>
-        <input type="number" id="dashBandPct" value="10" min="1" max="50" step="1" onchange="renderDashboardTab()" style="width:56px;padding:5px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-weight:700;text-align:center;">
-        <span style="font-size:12px;color:var(--text-muted);">%（滾動均）</span>
-      </div>
-      <div id="dashboardContent"></div>
-    </div>
 
   </div>
 </div>
@@ -847,7 +835,6 @@ function switchTab(tab){
   if(tab==='anomaly') renderAnomalyTab();
   if(tab==='compliance') renderComplianceTab();
   if(tab==='weekly') renderWeeklyTab();
-  if(tab==='dashboard') renderDashboardTab();
 }
 
 // ===== 經營儀表板（優先4：每工時成本／加班佔比／趨勢／合理範圍帶／決策提示）=====
@@ -1034,7 +1021,6 @@ function renderAll(){
   renderHourlyTab();
   renderComplianceTab();
   renderWeeklyTab();
-  renderDashboardTab();
   updateAnomalyBadge(anomalyCount);
   // 合規稽核筆數標記
   const compCount = (analysisData.complianceRows||[]).length;

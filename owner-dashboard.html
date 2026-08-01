@@ -75,7 +75,7 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
 </div>
 <div class="content" id="content"><div class="empty">載入中…</div></div>
 <script>
-let currentUser=null, appConfig={}, DATA={}, STORES=[];
+let currentUser=null, appConfig={}, DATA={}, STORES=[], curHealthStore='';
 const STORE_COLORS={'美德':'#1a73e8','聯鑫':'#e67e22','錦花':'#34a853'};
 const PERF_EXCLUDE=new Set(['2026-04']); // 系統剛上線該月人事成本不完整
 const isOwner=()=>['owner','admin'].includes(currentUser?.permission);
@@ -110,9 +110,10 @@ window.onload=async()=>{
 async function loadAll(){
   DATA={};
   for(const s of STORES){
-    DATA[s]={pnl:{},perf:{}};
+    DATA[s]={pnl:{},perf:{},monthly:{}};
     try{const p=await window.db.collection('stores').doc(s).collection('pnl').get();p.forEach(d=>DATA[s].pnl[d.id]=d.data());}catch(e){}
     try{const q=await window.db.collection('stores').doc(s).collection('perfSnapshot').get();q.forEach(d=>DATA[s].perf[d.id]=d.data());}catch(e){}
+    try{const mo=await window.db.collection('stores').doc(s).collection('monthly').get();mo.forEach(d=>DATA[s].monthly[d.id]=d.data());}catch(e){}
   }
 }
 function allMonths(){const set=new Set();STORES.forEach(s=>Object.keys(DATA[s].pnl||{}).forEach(k=>{if(/^\d{4}-\d{2}$/.test(k))set.add(k);}));return[...set].sort();}
@@ -126,7 +127,60 @@ async function renderAll(m){
   // 月域掃描（合規/出勤/流動）
   const extra={};
   await Promise.all(STORES.map(async s=>{ extra[s]=await scanMonth(s,m); }));
-  el.innerHTML = renderOverview(m) + renderScorecard(m,extra) + renderAlerts(m,extra) + renderLinks();
+  el.innerHTML = renderOverview(m) + renderScorecard(m,extra) + renderHealthSection() + renderAlerts(m,extra) + renderLinks();
+  renderStoreHealth();
+}
+
+// ===== 單店成本體檢（每工時人事成本／加班佔比／合理帶／決策提示；讀 monthly 聚合，缺則 perfSnapshot）=====
+function renderHealthSection(){
+  if(!curHealthStore) curHealthStore=STORES[0]||'';
+  const inp='padding:5px 7px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-weight:700;';
+  return `<div class="sec-title">🩺 單店成本體檢<span class="sec-sub">每工時人事成本・加班佔比</span></div>
+  <div class="card">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+      <select id="healthStore" onchange="curHealthStore=this.value;renderStoreHealth();" style="${inp}">${STORES.map(s=>`<option value="${s}"${s===curHealthStore?' selected':''}>${s}</option>`).join('')}</select>
+      <span style="font-size:12px;color:var(--muted);">加班目標</span><input type="number" id="otTarget" value="8" min="1" max="50" onchange="renderStoreHealth()" style="${inp}width:52px;text-align:center;">
+      <span style="font-size:12px;color:var(--muted);">% 合理帶±</span><input type="number" id="bandPct" value="10" min="1" max="50" onchange="renderStoreHealth()" style="${inp}width:52px;text-align:center;">
+      <span style="font-size:12px;color:var(--muted);">%</span>
+    </div>
+    <div id="storeHealth"></div>
+  </div>`;
+}
+function renderStoreHealth(){
+  const el=document.getElementById('storeHealth'); if(!el)return;
+  const s=curHealthStore, M=DATA[s]||{};
+  const otTarget=parseFloat((document.getElementById('otTarget')||{}).value)||8;
+  const bandPct=(parseFloat((document.getElementById('bandPct')||{}).value)||10)/100;
+  const mset=new Set([...Object.keys(M.monthly||{}),...Object.keys(M.perf||{})].filter(k=>/^\d{4}-\d{2}$/.test(k)&&!PERF_EXCLUDE.has(k)));
+  const series=[...mset].sort().map(ym=>{
+    const mo=M.monthly&&M.monthly[ym];
+    if(mo) return {ym,cph:n(mo.costPerHour)||(n(mo.totalHours)?Math.round(n(mo.totalCost)/n(mo.totalHours)):0),otRatio:mo.otRatio!=null?n(mo.otRatio):null,cost:n(mo.totalCost),hours:n(mo.totalHours),ot:mo.otHours!=null?n(mo.otHours):null,head:mo.headcount||null};
+    const pf=M.perf&&M.perf[ym];
+    if(pf&&n(pf.totalHours)) return {ym,cph:Math.round(n(pf.laborCost)/n(pf.totalHours)),otRatio:null,cost:n(pf.laborCost),hours:n(pf.totalHours),ot:null,head:null};
+    return null;
+  }).filter(x=>x&&(x.cph>0||x.cost>0));
+  if(!series.length){ el.innerHTML='<div class="empty">此店尚無成本資料（發布薪資後產生聚合）</div>'; return; }
+  const last=series[series.length-1], prev=series[series.length-2];
+  const hist=series.slice(0,-1).map(x=>x.cph).filter(v=>v>0);
+  const avg=hist.length?Math.round(hist.reduce((a,b)=>a+b,0)/hist.length):last.cph;
+  const lo=Math.round(avg*(1-bandPct)), hi=Math.round(avg*(1+bandPct));
+  const cphSt=last.cph>hi?{c:'#c5221f',t:'偏高'}:last.cph<lo?{c:'#137333',t:'偏低(佳)'}:{c:'#137333',t:'合理'};
+  const otSt=last.otRatio==null?{c:'#64748b',t:'—'}:last.otRatio>otTarget?{c:'#c5221f',t:'超標'}:{c:'#137333',t:'達標'};
+  const mom=(cur,pv)=>pv?`<span style="font-size:11px;font-weight:800;color:${cur>pv?'#c5221f':'#137333'};">${cur>pv?'▲':'▼'}${Math.abs(Math.round((cur-pv)/pv*1000)/10)}%</span>`:'';
+  const kpi=`<div class="kpi-grid" style="margin-bottom:4px;">
+    <div class="kpi"><div class="kpi-label">⏱️ 每工時人事成本</div><div class="kpi-val" style="color:${cphSt.c};">$${money(last.cph)}</div><div class="kpi-yoy flat">含公司負擔 ${prev?mom(last.cph,prev.cph):''}</div><div class="kpi-yoy" style="color:${cphSt.c};">${cphSt.t}（帶 $${money(lo)}–$${money(hi)}）</div></div>
+    <div class="kpi"><div class="kpi-label">⚡ 加班佔比</div><div class="kpi-val" style="color:${otSt.c};">${last.otRatio==null?'—':last.otRatio+'%'}</div><div class="kpi-yoy flat">${last.ot!=null?`加班${last.ot}h / 總${last.hours}h`:'需薪資聚合'} ${(prev&&last.otRatio!=null&&prev.otRatio!=null)?mom(last.otRatio,prev.otRatio):''}</div><div class="kpi-yoy" style="color:${otSt.c};">${otSt.t}（目標 ≤${otTarget}%）</div></div>
+    <div class="kpi"><div class="kpi-label">💰 月總成本</div><div class="kpi-val">$${money(last.cost)}</div><div class="kpi-yoy flat">${last.ym} ${prev?mom(last.cost,prev.cost):''}</div></div>
+    <div class="kpi"><div class="kpi-label">👥 人數(正/工/店長)</div><div class="kpi-val" style="font-size:19px;">${last.head?`${last.head.full||0}/${last.head.part||0}/${last.head.manager||0}`:'—'}</div><div class="kpi-yoy flat">總工時 ${last.hours}h</div></div>
+  </div>`;
+  const tips=[];
+  if(last.otRatio!=null&&last.otRatio>otTarget){ const tH=Math.round(last.hours*otTarget/100*10)/10; const save=Math.round((last.ot-tH)*10)/10; tips.push(`⚡ 加班佔比 ${last.otRatio}% 超過目標 ${otTarget}%：降到目標約可少 <b>${save}h</b> 加班（檢視排班密度／增補人力）。`); }
+  if(last.cph>hi) tips.push(`⏱️ 每工時成本 $${money(last.cph)} 高於近期均 $${money(avg)}（+${Math.round((last.cph-avg)/avg*1000)/10}%），留意人力配置／薪資結構。`);
+  if(!tips.length) tips.push('✅ 本月每工時成本與加班佔比皆在合理範圍。');
+  const tipsHtml=`<div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:11px 13px;margin:10px 0;font-size:12.5px;line-height:1.8;">${tips.map(t=>`<div>${t}</div>`).join('')}</div>`;
+  const rows=series.map(x=>{ const st=x.cph>hi?'🔴':x.cph<lo?'🟢':'🟡'; return `<tr><td>${x.ym}</td><td>$${money(x.cost)}</td><td>${x.hours}</td><td><b>$${money(x.cph)}</b> ${st}</td><td style="${(x.otRatio!=null&&x.otRatio>otTarget)?'color:#c5221f;font-weight:800;':''}">${x.otRatio==null?'—':x.otRatio+'%'}</td></tr>`; }).join('');
+  const trend=`<div style="font-size:12px;font-weight:800;color:var(--muted);margin:6px 0 8px;">📈 月度趨勢（🟢低/🟡合理/🔴偏高，帶 $${money(lo)}–$${money(hi)}）</div><div class="scroll"><table class="tbl"><thead><tr><th>月份</th><th>總成本</th><th>總工時</th><th>每工時</th><th>加班佔比</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  el.innerHTML=kpi+tipsHtml+trend;
 }
 
 async function scanMonth(store,ym){
