@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="莉學商行">
+<link rel="apple-touch-icon" href="icon-192.svg">
+<meta name="theme-color" content="#7c3aed">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>👑 加盟主決策儀表板</title>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+<script src="firebase-init.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{--primary:#7c3aed;--primary-dark:#5b21b6;--accent:#34a853;--danger:#d93025;--warn:#e67e22;
+  --bg:#f4f6fb;--text:#1e293b;--muted:#64748b;--border:#e2e8f0;--header-h:56px;}
+html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;color:var(--text);overscroll-behavior-x:none;}
+#loadingOverlay{display:flex;position:fixed;inset:0;background:linear-gradient(135deg,#7c3aed,#5b21b6);z-index:99999;flex-direction:column;justify-content:center;align-items:center;color:#fff;transition:opacity .4s;}
+#loadingOverlay.hidden{opacity:0;pointer-events:none;}
+.spinner{width:40px;height:40px;border:4px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite;margin-bottom:16px;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.header{background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#fff;padding:0 14px;height:var(--header-h);display:flex;align-items:center;gap:10px;box-shadow:0 2px 12px rgba(124,58,237,.3);position:sticky;top:0;z-index:100;}
+.header-back{background:rgba(255,255,255,.18);border:none;color:#fff;height:34px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;padding:0 12px;white-space:nowrap;}
+.header-title{font-size:17px;font-weight:800;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.msel{background:rgba(255,255,255,.2);border:1.5px solid rgba(255,255,255,.5);color:#fff;border-radius:8px;padding:5px 8px;font-size:13px;font-weight:700;}
+.msel option{color:#000;}
+.content{padding:14px 12px 90px;max-width:680px;margin:0 auto;}
+.sec-title{font-size:13px;font-weight:900;color:var(--text);margin:20px 4px 10px;display:flex;align-items:center;gap:7px;}
+.sec-title:first-child{margin-top:4px;}
+.sec-sub{font-size:11px;color:var(--muted);font-weight:600;margin-left:auto;}
+.card{background:#fff;border-radius:14px;box-shadow:0 1px 4px rgba(0,0,0,.06);padding:15px;margin-bottom:10px;}
+.kpi-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.kpi{background:#fff;border-radius:14px;box-shadow:0 1px 4px rgba(0,0,0,.06);padding:13px 15px;}
+.kpi-label{font-size:12px;color:var(--muted);font-weight:700;margin-bottom:5px;}
+.kpi-val{font-size:22px;font-weight:900;line-height:1.1;font-variant-numeric:tabular-nums;}
+.kpi-yoy{font-size:11.5px;font-weight:800;margin-top:5px;}
+.up{color:#137333;}.down{color:#c5221f;}.flat{color:var(--muted);}
+.tbl{width:100%;border-collapse:collapse;font-size:12.5px;white-space:nowrap;}
+.tbl th{color:var(--muted);font-size:11px;font-weight:800;padding:5px 6px;text-align:right;border-bottom:1.5px solid var(--border);}
+.tbl th:first-child{text-align:left;}
+.tbl td{padding:7px 6px;text-align:right;font-weight:700;border-bottom:1px solid #f1f5f9;}
+.tbl td:first-child{text-align:left;font-weight:900;}
+.medal{font-size:13px;}
+.rank1{background:#fffbeb;}
+.dim-row{display:flex;align-items:flex-start;gap:10px;padding:9px 0;border-top:1px dashed #eef1f4;}
+.dim-row:first-child{border-top:none;}
+.dim-ic{font-size:20px;width:26px;text-align:center;}
+.dim-body{flex:1;min-width:0;}
+.dim-name{font-size:13px;font-weight:800;}
+.dim-sub{font-size:11.5px;color:var(--muted);margin-top:2px;line-height:1.5;}
+.alert{display:flex;align-items:center;gap:9px;padding:10px 12px;border-radius:10px;margin-bottom:8px;font-size:12.5px;font-weight:700;line-height:1.5;}
+.a-red{background:#fce8e6;color:#c5221f;}
+.a-warn{background:#fff3e0;color:#c0620f;}
+.a-ok{background:#e6f4ea;color:#137333;}
+.link-row{display:flex;align-items:center;gap:12px;background:#fff;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,.06);padding:13px 15px;margin-bottom:9px;cursor:pointer;}
+.link-ic{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:19px;}
+.link-t{flex:1;}
+.link-lbl{font-size:14px;font-weight:800;}
+.link-sub{font-size:11.5px;color:var(--muted);margin-top:2px;}
+.link-arr{color:#cbd5e1;font-size:18px;}
+.scroll{overflow-x:auto;overscroll-behavior-x:contain;}
+.empty{text-align:center;padding:24px;color:var(--muted);font-size:13px;}
+.note{background:#f5f3ff;border:1px solid #ddd6fe;border-radius:10px;padding:9px 12px;font-size:11.5px;line-height:1.6;color:#5b21b6;margin-top:8px;}
+</style>
+</head>
+<body>
+<div id="loadingOverlay"><div class="spinner"></div><div>載入中…</div></div>
+<div class="header">
+  <button class="header-back" onclick="window.location.href='home.html'">← 首頁</button>
+  <div class="header-title">👑 加盟主決策儀表板</div>
+  <select class="msel" id="monthSel" onchange="renderAll(this.value)"></select>
+</div>
+<div class="content" id="content"><div class="empty">載入中…</div></div>
+<script>
+let currentUser=null, appConfig={}, DATA={}, STORES=[];
+const STORE_COLORS={'美德':'#1a73e8','聯鑫':'#e67e22','錦花':'#34a853'};
+const PERF_EXCLUDE=new Set(['2026-04']); // 系統剛上線該月人事成本不完整
+const isOwner=()=>['owner','admin'].includes(currentUser?.permission);
+const money=n=>Math.round(n||0).toLocaleString('en-US');
+const n=v=>{const x=parseFloat(v);return isFinite(x)?x:0;};
+function showLoading(){document.getElementById('loadingOverlay').classList.remove('hidden');}
+function hideLoading(){document.getElementById('loadingOverlay').classList.add('hidden');}
+function simpleWeekStr(dt){const first=new Date(dt.getFullYear(),0,1);const w=Math.ceil((((dt-first)/86400000)+first.getDay()+1)/7);return `${dt.getFullYear()}-W${w<10?'0'+w:w}`;}
+function ymMinus12(ym){const[y,m]=ym.split('-');return `${+y-1}-${m}`;}
+function weeksForMonth(ym){const[y,mo]=ym.split('-').map(Number);const set=new Set();const days=new Date(y,mo,0).getDate();for(let d=1;d<=days;d++)set.add(simpleWeekStr(new Date(y,mo-1,d)));return[...set];}
+
+window.onload=async()=>{
+  showLoading();
+  const saved=localStorage.getItem('currentUser')||sessionStorage.getItem('currentUser');
+  if(!saved){location.replace('home.html');return;}
+  try{currentUser=JSON.parse(saved);}catch(e){location.replace('home.html');return;}
+  const fb=await new Promise(r=>{const u=firebase.auth().onAuthStateChanged(x=>{u();r(x);});});
+  if(!fb){localStorage.removeItem('currentUser');location.replace('home.html');return;}
+  if(!isOwner()){ document.getElementById('content').innerHTML='<div class="empty">此頁僅加盟主／管理者可用</div>'; hideLoading(); setTimeout(()=>location.replace('home.html'),1200); return; }
+  try{const s=await window.db.collection('settings').doc('globalConfig').get();if(s.exists)appConfig=s.data();}catch(e){}
+  STORES=(appConfig.stores||[]).filter(s=>s!=='人力支援');
+  await loadAll();
+  hideLoading();
+  const months=allMonths();
+  if(!months.length){ document.getElementById('content').innerHTML='<div class="empty">尚無經營資料</div>'; return; }
+  const sel=document.getElementById('monthSel');
+  sel.innerHTML=months.map(m=>`<option value="${m}">${m.split('-')[0]}年${+m.split('-')[1]}月</option>`).join('');
+  sel.value=months[months.length-1];
+  renderAll(sel.value);
+};
+
+async function loadAll(){
+  DATA={};
+  for(const s of STORES){
+    DATA[s]={pnl:{},perf:{}};
+    try{const p=await window.db.collection('stores').doc(s).collection('pnl').get();p.forEach(d=>DATA[s].pnl[d.id]=d.data());}catch(e){}
+    try{const q=await window.db.collection('stores').doc(s).collection('perfSnapshot').get();q.forEach(d=>DATA[s].perf[d.id]=d.data());}catch(e){}
+  }
+}
+function allMonths(){const set=new Set();STORES.forEach(s=>Object.keys(DATA[s].pnl||{}).forEach(k=>{if(/^\d{4}-\d{2}$/.test(k))set.add(k);}));return[...set].sort();}
+function pnlOf(s,m){return DATA[s]&&DATA[s].pnl[m];}
+function perfOf(s,m){return (DATA[s]&&!PERF_EXCLUDE.has(m))?DATA[s].perf[m]:null;}
+
+// ===== 主渲染 =====
+async function renderAll(m){
+  const el=document.getElementById('content');
+  el.innerHTML='<div class="empty">計算中…</div>';
+  // 月域掃描（合規/出勤/流動）
+  const extra={};
+  await Promise.all(STORES.map(async s=>{ extra[s]=await scanMonth(s,m); }));
+  el.innerHTML = renderOverview(m) + renderScorecard(m,extra) + renderAlerts(m,extra) + renderLinks();
+}
+
+async function scanMonth(store,ym){
+  const out={law:0, late:0, turnover:null, head:null, left:null, mgr:''};
+  // 合規：該月週次記錄有 lawOverrides(知情放行)
+  try{ for(const wk of weeksForMonth(ym)){ const wd=await window.db.collection('stores').doc(store).collection('weeks').doc(wk).get(); if(wd.exists)(wd.data().records||[]).forEach(r=>{if(r.lawOverrides&&r.lawOverrides.length)out.law++;}); } }catch(e){ out.law=null; }
+  // 出勤紀律：該月遲到/早退/缺卡筆數
+  try{ const a=await window.db.collection('stores').doc(store).collection('attendance').where('date','>=',ym+'-01').where('date','<=',ym+'-31').get(); let c=0,any=false; a.forEach(d=>{any=true;const st=d.data().status;if(st==='遲到'||st==='早退'||st==='缺卡')c++;}); out.late=any?c:null; }catch(e){ out.late=null; }
+  // 員工流動率：該月離職/調走人數 ÷ 在職
+  try{ const es=await window.db.collection('stores').doc(store).collection('employees').get(); let head=0,left=0; es.forEach(d=>{const e=d.data();const st=e.status||'';const retired=st==='離職'||st==='調走';if(!retired)head++;if(!retired&&e.role==='店長'&&!out.mgr)out.mgr=e.displayName||d.id;const eff=e.retireDate||e.transferDate||'';if(retired&&eff&&eff.slice(0,7)===ym)left++;}); out.head=head;out.left=left;out.turnover=(head+left)>0?Math.round(left/(head+left)*1000)/10:0; }catch(e){}
+  return out;
+}
+
+// ===== 三店總覽 =====
+function renderOverview(m){
+  const my=ymMinus12(m);
+  let net=0,rew=0,sur=0, netY=0,rewY=0,surY=0, rateNum=0,rateDen=0;
+  let hasPrev=false;
+  STORES.forEach(s=>{
+    const pn=pnlOf(s,m), pf=perfOf(s,m);
+    if(pn){ net+=n(pn.netSales); rew+=n(pn.operatingReward); }
+    if(pn&&pf){ sur+=n(pn.operatingReward)-n(pf.laborCost); rateNum+=n(pf.laborCost); rateDen+=n(pn.netSales); }
+    const pnY=pnlOf(s,my), pfY=perfOf(s,my);
+    if(pnY){ netY+=n(pnY.netSales); rewY+=n(pnY.operatingReward); hasPrev=true; }
+    if(pnY&&pfY){ surY+=n(pnY.operatingReward)-n(pfY.laborCost); }
+  });
+  const rate=rateDen>0?(rateNum/rateDen*100):null;
+  const yoy=(cur,prev)=>{ if(!hasPrev||!prev) return '<div class="kpi-yoy flat">—</div>'; const d=cur-prev; const p=prev?Math.round(d/Math.abs(prev)*1000)/10:0; const cls=d>0?'up':d<0?'down':'flat'; const ar=d>0?'▲':d<0?'▼':'—'; return `<div class="kpi-yoy ${cls}">${ar} ${p>0?'+':''}${p}% vs 去年同期</div>`; };
+  return `<div class="sec-title">🏪 三店總覽<span class="sec-sub">${m.split('-')[0]}年${+m.split('-')[1]}月 · 全體合計</span></div>
+  <div class="kpi-grid">
+    <div class="kpi"><div class="kpi-label">全體營業淨額</div><div class="kpi-val">${money(net)}</div>${yoy(net,netY)}</div>
+    <div class="kpi"><div class="kpi-label">全體經營報酬</div><div class="kpi-val">${money(rew)}</div>${yoy(rew,rewY)}</div>
+    <div class="kpi"><div class="kpi-label">全體門市餘裕</div><div class="kpi-val" style="color:${sur>=0?'#137333':'#c5221f'}">${money(sur)}</div>${yoy(sur,surY)}</div>
+    <div class="kpi"><div class="kpi-label">平均人事費率</div><div class="kpi-val">${rate!=null?rate.toFixed(1)+'%':'—'}</div><div class="kpi-yoy flat">人事成本÷營業淨額</div></div>
+  </div>`;
+}
+
+// ===== 店長管理力計分卡 =====
+function renderScorecard(m,extra){
+  // 四維度：每維一個主指標，跨三店排名給分(3/2/1)，加總排名
+  const rows=STORES.map(s=>{
+    const pn=pnlOf(s,m), pf=perfOf(s,m), ex=extra[s]||{};
+    const net=pn?n(pn.netSales):null, labor=pf?n(pf.laborCost):null, hours=pf?n(pf.totalHours):null, rew=pn?n(pn.operatingReward):null;
+    const pnY=pnlOf(s,ymMinus12(m));
+    return {
+      s,
+      perHr: (net!=null&&hours)? net/hours : null,           // 坪效↑
+      surplus: (rew!=null&&labor!=null)? rew-labor : null,     // 餘裕↑
+      law: ex.law,                                            // 放行↓
+      late: ex.late,                                          // 遲到缺卡↓
+      laborRate: (labor!=null&&net)? labor/net*100 : null,     // 人事費率↓(副)
+      rewYoY: (rew!=null&&pnY&&n(pnY.operatingReward))? (rew-n(pnY.operatingReward))/Math.abs(n(pnY.operatingReward))*100 : null, // 副
+      turnover: ex.turnover,                                  // 副
+    };
+  });
+  // 排名給分
+  const rankPts=(key,higher)=>{
+    const valid=rows.filter(r=>r[key]!=null);
+    const sorted=[...valid].sort((a,b)=> higher? b[key]-a[key] : a[key]-b[key]);
+    const pts={};
+    sorted.forEach((r,i)=>{ pts[r.s]= sorted.length-i; }); // 第一名=人數分
+    return pts;
+  };
+  const dims=[
+    {key:'perHr', higher:true, ic:'📐', name:'成本控管與坪效', fmt:v=>'每工時營收 $'+money(v), sub:r=>`人事費率 ${r.laborRate!=null?r.laborRate.toFixed(1)+'%':'—'}`},
+    {key:'surplus', higher:true, ic:'💰', name:'獲利達成', fmt:v=>'門市餘裕 $'+money(v), sub:r=>`報酬 YoY ${r.rewYoY!=null?(r.rewYoY>0?'+':'')+r.rewYoY.toFixed(1)+'%':'—'}`},
+    {key:'law', higher:false, ic:'⚖️', name:'合規紀律', fmt:v=>'排班知情放行 '+v+' 次', sub:r=>'次數越少越守法'},
+    {key:'late', higher:false, ic:'⏰', name:'團隊出勤紀律', fmt:v=>'遲到/早退/缺卡 '+v+' 次', sub:r=>`員工流動率 ${r.turnover!=null?r.turnover+'%':'—'}`},
+  ];
+  const total={}; STORES.forEach(s=>total[s]=0);
+  const dimPts=dims.map(d=>{ const p=rankPts(d.key,d.higher); STORES.forEach(s=>{ if(p[s]!=null) total[s]+=p[s]; }); return p; });
+  const ranked=[...STORES].sort((a,b)=>total[b]-total[a]);
+  const medalOf=(pts,s)=>{ const arr=Object.entries(pts).sort((a,b)=>b[1]-a[1]); const top=arr.length?arr[0][1]:0; const second=arr.length>1?arr[1][1]:0; if(pts[s]==null)return ''; if(pts[s]===top&&top>second)return '🥇'; if(pts[s]===top)return '🥇'; if(pts[s]===second)return '🥈'; return '🥉'; };
+
+  // 排名表
+  let head=`<div class="sec-title">👔 店長管理力計分卡<span class="sec-sub">跨三店相對排名</span></div>`;
+  let tbl=`<div class="card scroll"><table class="tbl"><thead><tr><th>門市（店長）</th>${dims.map(d=>`<th>${d.ic}</th>`).join('')}<th>總分</th><th>名次</th></tr></thead><tbody>`;
+  ranked.forEach((s,idx)=>{
+    const mgr=(extra[s]&&extra[s].mgr)||'';
+    tbl+=`<tr class="${idx===0?'rank1':''}"><td>${s}${mgr?`<div style="font-size:10.5px;color:var(--muted);font-weight:600;">${mgr}</div>`:''}</td>`;
+    dims.forEach((d,di)=>{ tbl+=`<td><span class="medal">${medalOf(dimPts[di],s)||'—'}</span></td>`; });
+    tbl+=`<td style="font-weight:900;">${total[s]}</td><td>${['🏆','2','3'][idx]||(idx+1)}</td></tr>`;
+  });
+  tbl+=`</tbody></table></div>`;
+
+  // 各店維度細節卡
+  let detail='';
+  ranked.forEach((s,idx)=>{
+    const r=rows.find(x=>x.s===s);
+    detail+=`<div class="card"><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span style="width:10px;height:10px;border-radius:50%;background:${STORE_COLORS[s]||'#888'}"></span><span style="font-size:15px;font-weight:900;">${s}</span><span style="font-size:12px;color:var(--muted);font-weight:700;">${(extra[s]&&extra[s].mgr)||''}</span><span style="margin-left:auto;font-size:12px;font-weight:800;color:var(--primary);">總分 ${total[s]}（第 ${idx+1} 名）</span></div>`;
+    dims.forEach((d,di)=>{
+      const v=r[d.key];
+      detail+=`<div class="dim-row"><div class="dim-ic">${d.ic}</div><div class="dim-body"><div class="dim-name">${d.name} <span class="medal">${medalOf(dimPts[di],s)}</span></div><div class="dim-sub">${v!=null?d.fmt(v):'<span style="color:#cbd5e1;">資料累積中</span>'}${v!=null?' · '+d.sub(r):''}</div></div></div>`;
+    });
+    detail+=`</div>`;
+  });
+  return head+tbl+`<div class="note">計分＝各維度跨三店相對排名（第1名得3分…），加總得總分。合規＝該月週次「知情放行」次數；出勤紀律來自打卡資料，剛上線資料累積中。</div>`+detail;
+}
+// ===== 決策警示 =====
+function renderAlerts(m,extra){
+  const alerts=[];
+  STORES.forEach(s=>{
+    const pn=pnlOf(s,m), pf=perfOf(s,m), ex=extra[s]||{};
+    if(pn&&pf&&n(pn.netSales)){ const rate=n(pf.laborCost)/n(pn.netSales)*100; if(rate>35) alerts.push({c:'a-red',t:`${s} 人事費率偏高 ${rate.toFixed(1)}%（>35%）`}); }
+    if(pn&&pf){ const sur=n(pn.operatingReward)-n(pf.laborCost); if(sur<0) alerts.push({c:'a-red',t:`${s} 門市餘裕為負 ${money(sur)}（報酬不足以支應人事）`}); }
+    if(pn&&n(pn.netSales)&&n(pn.badGoodsCost)){ const br=n(pn.badGoodsCost)/n(pn.netSales)*100; if(br>3) alerts.push({c:'a-warn',t:`${s} 壞品率偏高 ${br.toFixed(1)}%（>3%）`}); }
+    if(ex.law>=3) alerts.push({c:'a-warn',t:`${s} 排班知情放行 ${ex.law} 次，留意勞基法合規`});
+    if(ex.late>=5) alerts.push({c:'a-warn',t:`${s} 本月遲到/缺卡 ${ex.late} 次，關注團隊出勤`});
+  });
+  const body = alerts.length? alerts.map(a=>`<div class="alert ${a.c}">⚠️ ${a.t}</div>`).join('')
+    : `<div class="alert a-ok">✅ 本月各店無明顯警示指標</div>`;
+  return `<div class="sec-title">🚦 決策警示</div>${body}`;
+}
+
+// ===== 下鑽入口 =====
+function renderLinks(){
+  const L=(href,ic,bg,lbl,sub)=>`<div class="link-row" onclick="window.location.href='${href}'"><div class="link-ic" style="background:${bg}">${ic}</div><div class="link-t"><div class="link-lbl">${lbl}</div><div class="link-sub">${sub}</div></div><div class="link-arr">›</div></div>`;
+  return `<div class="sec-title">🔎 深入分析</div>`
+    + L('performance.html','📊','#fff3e0','經營績效專區','三店趨勢比較、月度明細、去年同期')
+    + L('analytics.html','📈','#f3e8ff','人事分析','多月人事成本、支援成本、員工時薪')
+    + L('export.html','📤','#e8f5e9','薪資匯出','Excel / PDF 薪資報表');
+}
+</script>
+</body>
+</html>

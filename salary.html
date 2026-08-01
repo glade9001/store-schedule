@@ -1236,6 +1236,8 @@ function calcEmpHolidayHours(empName) {
 }
 
 function calcTotal(rec) {
+  // 已發布月份：讀凍結快照(=員工端看到的=實際匯款)，不重算，守歷史不可變；草稿仍即時算
+  if(salaryData.status === 'published' && rec.netAmt != null) return rec.netAmt;
   return calcGross(rec) - calcDeduct(rec);
 }
 
@@ -1458,6 +1460,8 @@ function buildAttendanceInfo(rec, emp, isPartTime) {
 }
 
 function calcGross(rec) {
+  // 已發布月份：讀凍結快照(=員工端/實發一致)，不重算，守歷史不可變；草稿仍即時算
+  if(salaryData.status === 'published' && rec.grossAmt != null) return rec.grossAmt;
   // 職稱以 empList 最新為準（rec.role 可能舊）；工時/支援費即時算後交給共用純公式
   const empObj = empList.find(e => e.name === (rec.empName || rec.name || ''));
   const role = effSalaryRole(empObj, rec);
@@ -1468,7 +1472,11 @@ function calcGross(rec) {
   return SalaryCalc.grossFromParts(rec, { role, totalH, hourlySupportAmt, rph });
 }
 
-function calcDeduct(rec) { return SalaryCalc.calcDeduct(rec); }
+function calcDeduct(rec) {
+  // 已發布月份：讀凍結快照，草稿即時算
+  if(salaryData.status === 'published' && rec.deductAmt != null) return rec.deductAmt;
+  return SalaryCalc.calcDeduct(rec);
+}
 
 function printPayslip() {
   const printContent = document.getElementById('payslipPrint');
