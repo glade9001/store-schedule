@@ -1278,10 +1278,10 @@ exports.onClockPunch = onDocumentWritten(
     const token = LINE_TOKEN.value();
     const atStore = r.atStore || fixStoreName(event.params.store);
     const homeStore = r.homeStore || atStore;
-    // 店長可關閉該店打卡通知(不用打卡的店)——關了回執/異常都不發，打卡功能照常
+    // 店長可關閉該店打卡通知(不用打卡的店)：關閉時「員工自發打卡的成功回執仍發」，只不發異常/缺卡等系統主動通知
     const cfg = await db.collection("settings").doc("globalConfig").get().catch(() => null);
     const clk = (cfg && cfg.exists ? cfg.data().clockIn : {}) || {};
-    if (clk.notifyByStore && clk.notifyByStore[atStore] === false) return;
+    const notifyOn = !(clk.notifyByStore && clk.notifyByStore[atStore] === false);
     const hm = tpHM(r.deviceTs, r.ts);
     const anomaly = r.status === "遲到" || r.status === "早退";
     const note = r.status === "遲到" ? `（遲到 ${r.lateMin || ""} 分）`
@@ -1289,7 +1289,7 @@ exports.onClockPunch = onDocumentWritten(
       : r.status === "警告" ? `（遲到 ${r.lateMin || ""} 分・容許內）`
       : r.status === "到場" ? "（到場記錄）" : "";
     await notifyOneEmp(db, r.empName, homeStore, `✅ 打卡成功\n${r.type}　${hm}　@${atStore}${note}`, token);
-    if (anomaly) {
+    if (notifyOn && anomaly) {
       const dn = r.displayName || r.empName;
       const mtext = `⚠️ 出勤異常\n${dn}（${homeStore}）於 ${atStore} ${r.type} ${hm}${note}\n請至「出勤管理」查看。`;
       await notifyStoreManagers(db, atStore, mtext, token);
@@ -1519,4 +1519,87 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
 exports.serverNow = onCall({ region: "asia-east1" }, async () => {
   const nowMs = Date.now();
   return { nowMs, iso: new Date(nowMs).toISOString(), tp: new Date(nowMs + 8 * 3600000).toISOString() };
+});
+
+// 離線打卡補傳：訊號不佳時前端暫存、恢復連線後補傳。以「手機當下時間」為打卡時間，標記待店長複核。
+exports.clockPunchOffline = onCall({ region: "asia-east1", secrets: [LINE_TOKEN] }, async (request) => {
+  const auth = request.auth;
+  if (!auth) throw new HttpsError("unauthenticated", "請先登入");
+  const db = admin.firestore();
+  const userSnap = await db.collection("users").doc(auth.uid).get();
+  const user = userSnap.exists ? userSnap.data() : null;
+  if (!user || !user.empName) throw new HttpsError("permission-denied", "查無使用者");
+  const empName = user.empName, homeStore = user.store || "", perm = user.permission || "employee";
+  const cfgSnap = await db.collection("settings").doc("globalConfig").get();
+  const conf = cfgSnap.exists ? cfgSnap.data() : {};
+  const clk = conf.clockIn || {};
+  if (!canClockPerm(clk.stage || "off", perm)) throw new HttpsError("failed-precondition", "打卡功能尚未對您開放");
+  const d = request.data || {};
+  const lat = Number(d.lat), lng = Number(d.lng), type = d.type;
+  if (!isFinite(lat) || !isFinite(lng)) throw new HttpsError("invalid-argument", "缺少定位資訊");
+  if (!["上班", "下班"].includes(type)) throw new HttpsError("invalid-argument", "打卡類型錯誤");
+  const cptMs = Date.parse(d.clientPunchTime || "");
+  if (!isFinite(cptMs)) throw new HttpsError("invalid-argument", "缺少打卡時間");
+  // 複驗圍欄（座標為離線當下 GPS）
+  const geo = clk.geo || {};
+  let atStore = "", distanceM = null;
+  for (const st of Object.keys(geo)) {
+    const g = geo[st] || {};
+    if (typeof g.lat !== "number" || typeof g.lng !== "number") continue;
+    const dist = haversineM(lat, lng, g.lat, g.lng);
+    if (dist <= (g.radiusM || 120) && (atStore === "" || dist < distanceM)) { atStore = st; distanceM = Math.round(dist); }
+  }
+  if (!atStore) throw new HttpsError("failed-precondition", "打卡座標不在任何門市範圍內");
+  const nowMs = Date.now(); // 伺服器收到補傳的時間
+  const punchTp = new Date(cptMs + 8 * 3600000); // 手機打卡當下(台北)
+  const ds = punchTp.toISOString().slice(0, 10);
+  const nowMin = punchTp.getUTCHours() * 60 + punchTp.getUTCMinutes();
+  const dayName = WEEK_DAYS[(punchTp.getUTCDay() + 6) % 7];
+  const attCol = db.collection("stores").doc(atStore).collection("attendance");
+  // 去重：同型別、與現有某筆打卡時間相差 10 分內 → 視為重複，直接略過
+  const todaySnap = await attCol.where("date", "==", ds).where("empName", "==", empName).get();
+  let dup = false; todaySnap.forEach((x) => { const p = x.data(); if (p.type === type && p.tsMs && Math.abs(cptMs - p.tsMs) < 10 * 60000) dup = true; });
+  if (dup) return { ok: true, duplicated: true };
+  // 依手機時間盡力判定狀態（僅供參考，實際以店長複核為準）
+  const wk = simpleWeekStr(punchTp);
+  const wd = await db.collection("stores").doc(atStore).collection("weeks").doc(wk).get();
+  const shifts = [];
+  if (wd.exists) (wd.data().records || []).forEach((r) => {
+    if (r.day !== dayName) return;
+    const mine = (r.name === empName) || (r.supportEmp === `${homeStore}-${empName}` && r.approvalStatus === "approved");
+    if (!mine) return;
+    const m = String(r.shift || "").match(/^(\d{1,2})-(\d{1,2})$/);
+    if (m) shifts.push({ shift: r.shift, start: +m[1], end: +m[2] });
+  });
+  const tol = (clk.tolByStore && clk.tolByStore[atStore] != null) ? clk.tolByStore[atStore]
+            : (clk.lateToleranceMin != null ? clk.lateToleranceMin : 10);
+  let status = "正常", lateMin = 0, matchedShift = "";
+  if (!shifts.length) { status = "到場"; }
+  else if (type === "上班") {
+    let best = null; shifts.forEach((s) => { const dd = Math.abs(s.start * 60 - nowMin); if (!best || dd < best.d) best = { s, d: dd }; });
+    matchedShift = best.s.shift; const late = nowMin - best.s.start * 60;
+    if (late > tol) { status = "遲到"; lateMin = late; } else if (late > 0) { status = "警告"; lateMin = late; }
+  } else {
+    let best = null; shifts.forEach((s) => { let e = s.end * 60; if (s.end <= s.start) e += 1440; const dd = Math.abs(e - nowMin); if (!best || dd < best.d) best = { s, d: dd }; });
+    matchedShift = best.s.shift; let endMin = best.s.end * 60; if (best.s.end <= best.s.start) endMin += 1440; let cur = nowMin; if (best.s.end <= best.s.start && punchTp.getUTCHours() < best.s.start) cur += 1440;
+    if (cur < endMin) status = "早退";
+  }
+  const info = await resolveEmpInfo(db, empName);
+  const deviceInfo = String(d.deviceInfo || "").slice(0, 180);
+  await attCol.add({
+    empName, displayName: info.displayName, date: ds, weekday: dayName, type, atStore, homeStore,
+    lat, lng, accuracy: (typeof d.accuracy === "number" ? d.accuracy : null), distanceM,
+    shift: matchedShift, status, lateMin,
+    ts: admin.firestore.FieldValue.serverTimestamp(), tsMs: cptMs, deviceTs: new Date(cptMs).toISOString(),
+    clientTime: new Date(cptMs).toISOString(), source: "offline", needReview: true,
+    receivedTs: admin.firestore.FieldValue.serverTimestamp(), receivedDelayMs: (nowMs - cptMs),
+    deviceInfo: deviceInfo || null, punchMethod: (d.punchMethod || "GPS"),
+  });
+  const notifyOn = !(clk.notifyByStore && clk.notifyByStore[atStore] === false);
+  const hm = punchTp.toISOString().slice(11, 16);
+  if (notifyOn) {
+    const token = LINE_TOKEN.value();
+    await notifyStoreManagers(db, atStore, `📴 離線補傳待核\n${info.displayName} ${ds} ${hm} ${type} @${atStore}（手機時間），請至出勤管理核對。`, token);
+  }
+  return { ok: true, atStore, status, hm };
 });

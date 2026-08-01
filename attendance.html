@@ -100,7 +100,7 @@ function renderBar(stores){
   <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:13px;cursor:pointer;flex-wrap:wrap;">
     <input type="checkbox" id="notifyChk" ${notifyOf(curStore)?'checked':''} onchange="saveNotify(this.checked)" style="width:18px;height:18px;">
     <span style="font-weight:800;">🔔 打卡通知</span>
-    <span style="color:var(--muted);">（關閉後此店打卡回執／異常／缺卡都不發；打卡功能仍可正常使用）</span>
+    <span style="color:var(--muted);">（關閉後不發異常／缺卡通知；員工自發打卡仍會收到成功回執，打卡功能照常）</span>
   </label>
   <div id="reqs"></div><div id="sum"></div><div id="list"><div class="empty">載入中…</div></div>`;
 }
@@ -172,6 +172,15 @@ async function rejectReq(id){
     hideLoading(); await loadRequests();
   }catch(e){ hideLoading(); alert('失敗：'+e.message); }
 }
+async function approveOffline(id){
+  if(!confirm('核可這筆離線補傳的打卡？\n（確認手機時間與現場相符）')) return;
+  showLoading('核可中…');
+  try{
+    await window.db.collection('stores').doc(curStore).collection('attendance').doc(id)
+      .set({ needReview:false, reviewedBy:(currentUser.empName||''), reviewedAt:new Date().toISOString() }, {merge:true});
+    hideLoading(); await load();
+  }catch(e){ hideLoading(); alert('核可失敗：'+e.message); }
+}
 async function delPunch(id){
   if(!confirm('確定刪除這筆打卡記錄？\n（會保留刪除留痕，可追查）')) return;
   showLoading('刪除中…');
@@ -222,11 +231,16 @@ async function load(){
       const sc=r.status==='遲到'||r.status==='早退'?'s-bad':r.status==='警告'?'s-warn':r.status==='到場'?'s-visit':'s-ok';
       const st=r.status==='遲到'?`遲到 ${r.lateMin||''} 分`:r.status==='警告'?`遲到 ${r.lateMin||''} 分(容許內)`:r.status||'';
       const time=fmtT(r.deviceTs);
+      const srcTag = r.source==='manual'?'<span style="font-size:11px;color:#8a5cf6;font-weight:800;">·補登</span>'
+        : r.source==='offline'?'<span style="font-size:11px;color:#e67e22;font-weight:800;">·📴離線</span>'
+        : r.source==='system'?'<span style="font-size:11px;color:#d93025;font-weight:800;">·系統</span>':'';
+      const needRev = r.source==='offline' && r.needReview;
+      const reviewBtn = needRev?`<button onclick="approveOffline('${r.id}')" title="核可離線打卡" style="background:#e6f4ea;color:#137333;border:none;border-radius:8px;padding:5px 9px;font-weight:800;font-size:11px;cursor:pointer;margin-left:6px;">✔核可</button>`:'';
       html+=`<div class="prow">
         <span class="ptag ${tag}">${r.type}</span>
         <span style="font-weight:800;">${time}</span>
-        <span class="meta">@${r.atStore}${r.distanceM!=null?` · ${r.distanceM}m`:''}${r.shift?` · 班 ${r.shift}`:''}${r.homeStore&&r.homeStore!==r.atStore?` · 原店 ${r.homeStore}`:''}</span>
-        <span class="pstat ${sc}">${st}</span>
+        <span class="meta">@${r.atStore}${r.distanceM!=null?` · ${r.distanceM}m`:''}${r.shift?` · 班 ${r.shift}`:''}${r.homeStore&&r.homeStore!==r.atStore?` · 原店 ${r.homeStore}`:''}${srcTag}</span>
+        <span class="pstat ${needRev?'s-warn':sc}">${needRev?'離線待核':st}</span>${reviewBtn}
         <button onclick="delPunch('${r.id}')" title="刪除此筆" style="background:none;border:none;color:#cbd5e1;font-size:14px;cursor:pointer;padding:0 2px 0 8px;">🗑️</button>
       </div>`;
       if(r.note) html+=`<div class="meta" style="padding:0 0 6px 4px;">💬 ${r.note}${r.noteBy?`（${r.noteBy}）`:''}</div>`;

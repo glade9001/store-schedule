@@ -23,7 +23,8 @@ service cloud.firestore {
       allow update, delete: if request.auth != null;
       // 打卡防偽：source=="app" 的打卡「只能」由 clockPunch callable(Admin SDK 略過規則)建立；
       //          客戶端不可直接寫入假打卡。管理者補登(source=manual)、缺卡(source=system)、其他無 source 的建立照常。
-      allow create: if request.auth != null && request.resource.data.source != 'app';
+      // ⚠️ 必須用 .get('source','')：直接存取不存在的欄位會讓規則報錯而「拒絕」→ 會擋掉所有沒有 source 欄位的建立(薪資簽收/劃休/綁定…)
+      allow create: if request.auth != null && request.resource.data.get('source', '') != 'app';
     }
   }
 }
