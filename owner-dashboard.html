@@ -236,14 +236,14 @@ function renderScorecard(m,extra){
       turnover: ex.turnover,                                  // 副
     };
   });
-  // 排名給分
+  // 排名給分（同分機制：同值給同分，採競賽排名——嚴格勝過的店數越少分越高）
   const rankPts=(key,higher)=>{
     const valid=rows.filter(r=>r[key]!=null);
-    const sorted=[...valid].sort((a,b)=> higher? b[key]-a[key] : a[key]-b[key]);
-    const pts={};
-    sorted.forEach((r,i)=>{ pts[r.s]= sorted.length-i; }); // 第一名=人數分
+    const N=valid.length; const pts={};
+    valid.forEach(r=>{ const better=valid.filter(o=> higher? o[key]>r[key] : o[key]<r[key]).length; pts[r.s]=N-better; });
     return pts;
   };
+  const medalOf=(pts,s)=>{ if(pts[s]==null)return ''; const N=Object.keys(pts).length; const better=N-pts[s]; return better===0?'🥇':better===1?'🥈':'🥉'; };
   const dims=[
     {key:'perHr', higher:true, ic:'📐', name:'成本控管與坪效', fmt:v=>'每工時營收 $'+money(v), sub:r=>`人事費率 ${r.laborRate!=null?r.laborRate.toFixed(1)+'%':'—'}`},
     {key:'surplus', higher:true, ic:'💰', name:'獲利達成', fmt:v=>'門市餘裕 $'+money(v), sub:r=>`報酬 YoY ${r.rewYoY!=null?(r.rewYoY>0?'+':'')+r.rewYoY.toFixed(1)+'%':'—'}`},
@@ -252,32 +252,32 @@ function renderScorecard(m,extra){
   ];
   const total={}; STORES.forEach(s=>total[s]=0);
   const dimPts=dims.map(d=>{ const p=rankPts(d.key,d.higher); STORES.forEach(s=>{ if(p[s]!=null) total[s]+=p[s]; }); return p; });
+  const placeOf=s=>1+STORES.filter(o=>total[o]>total[s]).length; // 同總分並列同名次
   const ranked=[...STORES].sort((a,b)=>total[b]-total[a]);
-  const medalOf=(pts,s)=>{ const arr=Object.entries(pts).sort((a,b)=>b[1]-a[1]); const top=arr.length?arr[0][1]:0; const second=arr.length>1?arr[1][1]:0; if(pts[s]==null)return ''; if(pts[s]===top&&top>second)return '🥇'; if(pts[s]===top)return '🥇'; if(pts[s]===second)return '🥈'; return '🥉'; };
 
   // 排名表
   let head=`<div class="sec-title">👔 店長管理力計分卡<span class="sec-sub">跨三店相對排名</span></div>`;
   let tbl=`<div class="card scroll"><table class="tbl"><thead><tr><th>門市（店長）</th>${dims.map(d=>`<th>${d.ic}</th>`).join('')}<th>總分</th><th>名次</th></tr></thead><tbody>`;
-  ranked.forEach((s,idx)=>{
-    const mgr=(extra[s]&&extra[s].mgr)||'';
-    tbl+=`<tr class="${idx===0?'rank1':''}"><td>${s}${mgr?`<div style="font-size:10.5px;color:var(--muted);font-weight:600;">${mgr}</div>`:''}</td>`;
+  ranked.forEach((s)=>{
+    const mgr=(extra[s]&&extra[s].mgr)||''; const pl=placeOf(s);
+    tbl+=`<tr class="${pl===1?'rank1':''}"><td>${s}${mgr?`<div style="font-size:10.5px;color:var(--muted);font-weight:600;">${mgr}</div>`:''}</td>`;
     dims.forEach((d,di)=>{ tbl+=`<td><span class="medal">${medalOf(dimPts[di],s)||'—'}</span></td>`; });
-    tbl+=`<td style="font-weight:900;">${total[s]}</td><td>${['🏆','2','3'][idx]||(idx+1)}</td></tr>`;
+    tbl+=`<td style="font-weight:900;">${total[s]}</td><td>${pl===1?'🏆':pl}</td></tr>`;
   });
   tbl+=`</tbody></table></div>`;
 
   // 各店維度細節卡
   let detail='';
-  ranked.forEach((s,idx)=>{
+  ranked.forEach((s)=>{
     const r=rows.find(x=>x.s===s);
-    detail+=`<div class="card"><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span style="width:10px;height:10px;border-radius:50%;background:${STORE_COLORS[s]||'#888'}"></span><span style="font-size:15px;font-weight:900;">${s}</span><span style="font-size:12px;color:var(--muted);font-weight:700;">${(extra[s]&&extra[s].mgr)||''}</span><span style="margin-left:auto;font-size:12px;font-weight:800;color:var(--primary);">總分 ${total[s]}（第 ${idx+1} 名）</span></div>`;
+    detail+=`<div class="card"><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span style="width:10px;height:10px;border-radius:50%;background:${STORE_COLORS[s]||'#888'}"></span><span style="font-size:15px;font-weight:900;">${s}</span><span style="font-size:12px;color:var(--muted);font-weight:700;">${(extra[s]&&extra[s].mgr)||''}</span><span style="margin-left:auto;font-size:12px;font-weight:800;color:var(--primary);">總分 ${total[s]}（第 ${placeOf(s)} 名）</span></div>`;
     dims.forEach((d,di)=>{
       const v=r[d.key];
       detail+=`<div class="dim-row"><div class="dim-ic">${d.ic}</div><div class="dim-body"><div class="dim-name">${d.name} <span class="medal">${medalOf(dimPts[di],s)}</span></div><div class="dim-sub">${v!=null?d.fmt(v):'<span style="color:#cbd5e1;">資料累積中</span>'}${v!=null?' · '+d.sub(r):''}</div></div></div>`;
     });
     detail+=`</div>`;
   });
-  return head+tbl+`<div class="note">計分＝各維度跨三店相對排名（第1名得3分…），加總得總分。合規＝該月週次「知情放行」次數；出勤紀律來自打卡資料，剛上線資料累積中。</div>`+detail;
+  return head+tbl+`<div class="note">計分＝各維度跨三店相對排名（第1名得3分…），加總得總分；**同值同分、同總分並列同名次**。合規＝該月週次「知情放行」次數；出勤紀律來自打卡資料，剛上線資料累積中。</div>`+detail;
 }
 // ===== 決策警示 =====
 function renderAlerts(m,extra){
@@ -298,10 +298,11 @@ function renderAlerts(m,extra){
 // ===== 下鑽入口 =====
 function renderLinks(){
   const L=(href,ic,bg,lbl,sub)=>`<div class="link-row" onclick="window.location.href='${href}'"><div class="link-ic" style="background:${bg}">${ic}</div><div class="link-t"><div class="link-lbl">${lbl}</div><div class="link-sub">${sub}</div></div><div class="link-arr">›</div></div>`;
+  const R='?ref=owner-dashboard.html';
   return `<div class="sec-title">🔎 深入分析</div>`
-    + L('performance.html','📊','#fff3e0','經營績效專區','三店趨勢比較、月度明細、去年同期')
-    + L('analytics.html','📈','#f3e8ff','人事分析','多月人事成本、支援成本、員工時薪')
-    + L('export.html','📤','#e8f5e9','薪資匯出','Excel / PDF 薪資報表');
+    + L('performance.html'+R,'📊','#fff3e0','經營績效專區','三店趨勢比較、月度明細、去年同期')
+    + L('analytics.html'+R,'📈','#f3e8ff','人事分析','多月人事成本、支援成本、員工時薪')
+    + L('export.html'+R,'📤','#e8f5e9','薪資匯出','Excel / PDF 薪資報表');
 }
 </script>
 </body>

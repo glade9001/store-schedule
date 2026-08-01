@@ -81,7 +81,7 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
 <div id="loadingOverlay"><div class="spinner"></div><div id="loadingText">載入中…</div></div>
 
 <div class="header">
-  <button class="header-back" onclick="window.location.href='home.html'">← 首頁</button>
+  <button class="header-back" onclick="window.location.href=(new URLSearchParams(location.search).get('ref')||'home.html')">← 首頁</button>
   <div class="header-title">📊 經營績效專區</div>
   <select class="header-store" id="storeSel" onchange="onStoreChange()" style="display:none;"></select>
 </div>

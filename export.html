@@ -116,7 +116,7 @@ html,body{min-height:100%;background:var(--bg);font-family:"Noto Sans TC","PingF
 <div id="loadingOverlay"><div class="spinner"></div><div id="loadingText">載入中...</div></div>
 
 <div class="header">
-  <button class="header-back" onclick="window.location.href='home.html'">← 首頁</button>
+  <button class="header-back" onclick="window.location.href=(new URLSearchParams(location.search).get('ref')||'home.html')">← 首頁</button>
   <div class="header-title">📊 資料匯出</div>
 </div>
 
@@ -491,7 +491,7 @@ window.onload = async () => {
 (function(){
   let sx=0;
   document.addEventListener('touchstart', e=>{ sx=e.touches[0].clientX; }, {passive:true});
-  document.addEventListener('touchend',   e=>{ if(e.changedTouches[0].clientX-sx>60) window.location.href='home.html'; }, {passive:true});
+  document.addEventListener('touchend',   e=>{ if(e.changedTouches[0].clientX-sx>60) window.location.href=(new URLSearchParams(location.search).get('ref')||'home.html'); }, {passive:true});
 })();
 
 // ═══ 主匯出 ═══

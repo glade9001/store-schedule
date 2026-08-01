@@ -173,7 +173,7 @@ select.range-sel:focus{border-color:var(--primary);}
 </div>
 
 <div class="header">
-  <button class="header-back" onclick="window.location.href='home.html'">← 首頁</button>
+  <button class="header-back" onclick="window.location.href=(new URLSearchParams(location.search).get('ref')||'home.html')">← 首頁</button>
   <div class="header-title">📊 統計分析</div>
 </div>
 
@@ -1659,7 +1659,7 @@ document.addEventListener('click', e=>{ if(!e.target.closest('.export-dropdown-w
 (function(){
   let sx=0;
   document.addEventListener('touchstart', e=>{ sx=e.touches[0].clientX; }, {passive:true});
-  document.addEventListener('touchend',   e=>{ if(e.changedTouches[0].clientX-sx>60) window.location.href='home.html'; }, {passive:true});
+  document.addEventListener('touchend',   e=>{ if(e.changedTouches[0].clientX-sx>60) window.location.href=(new URLSearchParams(location.search).get('ref')||'home.html'); }, {passive:true});
 })();
 
 // ===== 匯出 =====
