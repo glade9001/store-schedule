@@ -167,7 +167,11 @@ async function load(){
       const sc=r.status==='遲到'||r.status==='早退'?'s-bad':r.status==='警告'?'s-warn':r.status==='到場'?'s-visit':r.status==='缺卡'?'s-bad':'s-ok';
       const st=r.status==='遲到'?`遲到 ${r.lateMin||''} 分`:r.status==='警告'?`遲到 ${r.lateMin||''} 分(容許內)`:r.status||'';
       const time=fmtT(r.deviceTs);
-      html+=`<div class="prow"><span class="ptag ${tag}">${r.type}</span><span style="font-weight:800;">${time}</span><span class="meta">@${r.atStore}${r.shift?` · 班 ${r.shift}`:''}</span><span class="pstat ${sc}">${st}</span></div>`;
+      const srcTag = r.source==='manual'?'<span style="font-size:11px;color:#8a5cf6;font-weight:800;"> ·補登</span>'
+        : r.source==='offline'?'<span style="font-size:11px;color:#e67e22;font-weight:800;"> ·📴離線</span>'
+        : r.source==='system'?'<span style="font-size:11px;color:#d93025;font-weight:800;"> ·系統</span>':'';
+      const needRev = r.source==='offline' && r.needReview;
+      html+=`<div class="prow"><span class="ptag ${tag}">${r.type}</span><span style="font-weight:800;">${time}</span><span class="meta">@${r.atStore}${r.shift?` · 班 ${r.shift}`:''}${srcTag}</span><span class="pstat ${needRev?'s-warn':sc}">${needRev?'離線待核':st}</span></div>`;
       html+=`<div style="display:flex;align-items:center;gap:6px;padding:0 0 6px 4px;">
         <span class="meta" style="flex:1;">${r.note?('💬 '+r.note):'<span style="color:#cbd5e1;">（可加備註說明，如忘記打卡實際時間）</span>'}</span>
         <button onclick="editNote('${r._store}','${r.id}')" style="background:#eef2ff;color:#4338ca;border:none;border-radius:6px;padding:3px 9px;font-size:11px;font-weight:800;cursor:pointer;">💬 備註</button>

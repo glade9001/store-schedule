@@ -258,6 +258,9 @@ async function doPunch(type){
   if(type==='下班'){
     const lastIn=todayPunches.filter(p=>p.type==='上班').map(p=>p.deviceTs).filter(Boolean).sort().pop();
     if(lastIn && (now-new Date(lastIn))<5*60*1000){ toast('上班後 5 分鐘內不能打下班'); return; }
+    // 也擋離線佇列裡剛打的上班（尚未補傳）
+    const qIn=offlineQueue().filter(o=>o.type==='上班').map(o=>o.clientPunchTime).filter(Boolean).sort().pop();
+    if(qIn && (now-new Date(qIn))<5*60*1000){ toast('上班後 5 分鐘內不能打下班'); return; }
   }
   showLoading('定位中…');
   // 🌟 打卡「當下」重新抓即時定位，避免在店內開頁面後走遠再打卡

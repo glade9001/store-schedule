@@ -1560,6 +1560,11 @@ exports.clockPunchOffline = onCall({ region: "asia-east1", secrets: [LINE_TOKEN]
   const todaySnap = await attCol.where("date", "==", ds).where("empName", "==", empName).get();
   let dup = false; todaySnap.forEach((x) => { const p = x.data(); if (p.type === type && p.tsMs && Math.abs(cptMs - p.tsMs) < 10 * 60000) dup = true; });
   if (dup) return { ok: true, duplicated: true };
+  // 上班後 5 分內不能下班（與線上打卡一致）；違反則略過(不入帳、不重試)
+  if (type === "下班") {
+    let lastIn = 0; todaySnap.forEach((x) => { const p = x.data(); if (p.type === "上班" && p.tsMs) lastIn = Math.max(lastIn, p.tsMs); });
+    if (lastIn && (cptMs - lastIn) < 5 * 60000) return { ok: true, skipped: "上班後5分內" };
+  }
   // 依手機時間盡力判定狀態（僅供參考，實際以店長複核為準）
   const wk = simpleWeekStr(punchTp);
   const wd = await db.collection("stores").doc(atStore).collection("weeks").doc(wk).get();
