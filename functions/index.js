@@ -661,39 +661,43 @@ async function monthOtByEmp(db, store, ym) {
 // ===== 月度聚合 doc（優先3/模組F）=====
 // 薪資發布時寫入 stores/{store}/monthly/{ym} 快照，供加盟主儀表板快速讀取（免每次掃全 weeks+salary）。
 // 守鐵則：以「已發布薪資快照」聚合；已發布月份鎖定不再變動。
+// 計算並寫入某店某月的 monthly 聚合(供 onSalaryAggregate 觸發 & backfill 共用)
+async function computeMonthlyAggregate(db, store, ym, salaryData) {
+  const num = (v) => { const x = parseFloat(v); return isNaN(x) ? 0 : x; };
+  let totalGross = 0, totalDeduct = 0, totalEr = 0;
+  const head = { full: 0, part: 0, manager: 0 };
+  for (const r of (salaryData.records || [])) {
+    totalGross += num(r.grossAmt);
+    totalDeduct += num(r.deductAmt);
+    totalEr += num(r.laborEr) + num(r.healthEr) + num(r.pensionEr);
+    const role = r.payAsPartTime ? "工讀" : (r.role || "");
+    if (role === "工讀") head.part++;
+    else if (role === "店長") head.manager++;
+    else head.full++;
+  }
+  const worked = await monthWorkedByEmp(db, store, ym);
+  let totalHours = 0, otHours = 0;
+  for (const e in worked) { totalHours += worked[e].hours; otHours += worked[e].ot; }
+  const doc = {
+    store, month: ym,
+    totalGross: Math.round(totalGross), totalDeduct: Math.round(totalDeduct),
+    totalEr: Math.round(totalEr), totalCost: Math.round(totalGross + totalEr),
+    totalHours: Math.round(totalHours * 10) / 10, otHours: Math.round(otHours * 10) / 10,
+    costPerHour: totalHours > 0 ? Math.round((totalGross + totalEr) / totalHours) : 0,
+    otRatio: totalHours > 0 ? Math.round(otHours / totalHours * 1000) / 10 : 0, // %
+    headcount: head, source: "published", updatedAt: new Date().toISOString(),
+  };
+  await db.collection("stores").doc(store).collection("monthly").doc(ym).set(doc);
+  return doc;
+}
+
 exports.onSalaryAggregate = onDocumentWritten(
   { document: "stores/{store}/salary/{month}", region: "asia-east1" },
   async (event) => {
     const before = event.data.before.exists ? event.data.before.data() : {};
     const after = event.data.after.exists ? event.data.after.data() : {};
     if (before.status === "published" || after.status !== "published") return; // 只在「剛發布」
-    const store = fixStoreName(event.params.store);
-    const ym = event.params.month;
-    const db = admin.firestore();
-    const num = (v) => { const x = parseFloat(v); return isNaN(x) ? 0 : x; };
-    let totalGross = 0, totalDeduct = 0, totalEr = 0;
-    const head = { full: 0, part: 0, manager: 0 };
-    for (const r of (after.records || [])) {
-      totalGross += num(r.grossAmt);
-      totalDeduct += num(r.deductAmt);
-      totalEr += num(r.laborEr) + num(r.healthEr) + num(r.pensionEr);
-      const role = r.payAsPartTime ? "工讀" : (r.role || "");
-      if (role === "工讀") head.part++;
-      else if (role === "店長") head.manager++;
-      else head.full++;
-    }
-    const worked = await monthWorkedByEmp(db, store, ym);
-    let totalHours = 0, otHours = 0;
-    for (const e in worked) { totalHours += worked[e].hours; otHours += worked[e].ot; }
-    await db.collection("stores").doc(store).collection("monthly").doc(ym).set({
-      store, month: ym,
-      totalGross: Math.round(totalGross), totalDeduct: Math.round(totalDeduct),
-      totalEr: Math.round(totalEr), totalCost: Math.round(totalGross + totalEr),
-      totalHours: Math.round(totalHours * 10) / 10, otHours: Math.round(otHours * 10) / 10,
-      costPerHour: totalHours > 0 ? Math.round((totalGross + totalEr) / totalHours) : 0,
-      otRatio: totalHours > 0 ? Math.round(otHours / totalHours * 1000) / 10 : 0, // %
-      headcount: head, source: "published", updatedAt: new Date().toISOString(),
-    });
+    await computeMonthlyAggregate(admin.firestore(), fixStoreName(event.params.store), event.params.month, after);
   }
 );
 
