@@ -260,8 +260,7 @@ select.range-sel:focus{border-color:var(--primary);}
     <!-- Tab 切換 -->
     <div class="tab-bar">
       <div class="tab-item active" id="tab-cost" onclick="switchTab('cost')">💰 人事成本</div>
-      <div class="tab-item" id="tab-ot" onclick="switchTab('ot')">⚡ 加班/國假</div>
-      <div class="tab-item" id="tab-anomaly" onclick="switchTab('anomaly')">⚠️ 薪資異常</div>
+      <div class="tab-item" id="tab-ot" onclick="switchTab('ot')">⚡ 加班與異常</div>
       <div class="tab-item" id="tab-hourly" onclick="switchTab('hourly')">⏱️ 員工時薪</div>
       <div class="tab-item" id="tab-compliance" onclick="switchTab('compliance')">🛡️ 合規稽核</div>
       <div class="tab-item" id="tab-weekly" onclick="switchTab('weekly')">📅 每週工時</div>
@@ -330,6 +329,20 @@ select.range-sel:focus{border-color:var(--primary);}
       <div class="export-row">
         <button class="export-btn-sm secondary" onclick="exportOtTable()">⬇️ 匯出加班/國假表</button>
       </div>
+
+      <div class="divider"></div>
+      <div class="chart-title">⚠️ 薪資異常警示</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
+        <span style="font-size:12px;font-weight:700;color:var(--text-muted);">波動閾值</span>
+        <input type="number" id="anomalyPct" value="20" min="5" max="100" step="5"
+          style="width:70px;padding:6px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;text-align:center;">
+        <span style="font-size:12px;color:var(--text-muted);">%　加班紅線(§32)</span>
+        <input type="number" id="anomalyOtH" value="46" min="1" max="200" title="每月加班紅線，黃線=紅-6、嚴重=紅+8"
+          style="width:70px;padding:6px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;text-align:center;">
+        <span style="font-size:12px;color:var(--text-muted);">h/月</span>
+        <button onclick="renderAnomalyTab()" style="padding:6px 14px;background:var(--primary);color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">套用</button>
+      </div>
+      <div id="anomalyContent"></div>
     </div>
 
     <!-- Tab: 員工時薪 -->
@@ -371,21 +384,6 @@ select.range-sel:focus{border-color:var(--primary);}
       <div class="export-row">
         <button class="export-btn-sm secondary" onclick="exportHourlyTable()">⬇️ 匯出時薪表</button>
       </div>
-    </div>
-
-    <!-- Tab: 薪資異常 -->
-    <div class="tab-content" id="panel-anomaly">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
-        <span style="font-size:12px;font-weight:700;color:var(--text-muted);">波動閾值</span>
-        <input type="number" id="anomalyPct" value="20" min="5" max="100" step="5"
-          style="width:70px;padding:6px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;text-align:center;">
-        <span style="font-size:12px;color:var(--text-muted);">%　加班紅線(§32)</span>
-        <input type="number" id="anomalyOtH" value="46" min="1" max="200" title="每月加班紅線，黃線=紅-6、嚴重=紅+8"
-          style="width:70px;padding:6px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;text-align:center;">
-        <span style="font-size:12px;color:var(--text-muted);">h/月</span>
-        <button onclick="renderAnomalyTab()" style="padding:6px 14px;background:var(--primary);color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">套用</button>
-      </div>
-      <div id="anomalyContent"></div>
     </div>
 
     <!-- Tab: 合規稽核 -->
@@ -828,11 +826,11 @@ function calcSupportAdj(empName, ym, salaryMap, supportMap, allEmps){
 
 // ===== Tab 切換 =====
 function switchTab(tab){
-  ['cost','ot','anomaly','hourly','compliance','weekly'].forEach(t=>{
+  ['cost','ot','hourly','compliance','weekly'].forEach(t=>{
     document.getElementById('tab-'+t).classList.toggle('active', t===tab);
     document.getElementById('panel-'+t).classList.toggle('active', t===tab);
   });
-  if(tab==='anomaly') renderAnomalyTab();
+  if(tab==='ot') renderAnomalyTab(); // 加班與異常同頁
   if(tab==='compliance') renderComplianceTab();
   if(tab==='weekly') renderWeeklyTab();
 }
@@ -1028,9 +1026,9 @@ function renderAll(){
   if(compTab) compTab.textContent = compCount>0 ? `🛡️ 合規稽核 (${compCount})` : '🛡️ 合規稽核';
   const alertBar = document.getElementById('anomalyAlertBar');
   if(anomalyCount > 0){
-    document.getElementById('anomalyAlertText').textContent = `本期有 ${anomalyCount} 筆薪資異常，已自動切換至異常頁`;
+    document.getElementById('anomalyAlertText').textContent = `本期有 ${anomalyCount} 筆薪資異常，已自動切換至「加班與異常」頁`;
     if(alertBar) alertBar.style.display = 'flex';
-    setTimeout(() => switchTab('anomaly'), 50);
+    setTimeout(() => switchTab('ot'), 50);
   } else {
     if(alertBar) alertBar.style.display = 'none';
   }
@@ -1624,8 +1622,7 @@ function toggleRoleChip(el, role){
 function reRenderCurrentTab(){
   const id = document.querySelector('.tab-item.active')?.id?.replace('tab-','');
   if(id==='cost') renderCostTab();
-  else if(id==='ot') renderOtTab();
-  else if(id==='anomaly') renderAnomalyTab();
+  else if(id==='ot'){ renderOtTab(); renderAnomalyTab(); }
   else if(id==='hourly') renderHourlyTab();
 }
 
@@ -1639,11 +1636,11 @@ function togglePensionCol(){
 
 // ===== B. 異常 badge & alert =====
 function updateAnomalyBadge(count){
-  const tab = document.getElementById('tab-anomaly');
+  const tab = document.getElementById('tab-ot');
   if(!tab) return;
   tab.innerHTML = count>0
-    ? `⚠️ 薪資異常 <span style="background:var(--danger);color:white;border-radius:50%;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;margin-left:3px;">${count}</span>`
-    : '⚠️ 薪資異常';
+    ? `⚡ 加班與異常 <span style="background:var(--danger);color:white;border-radius:50%;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;margin-left:3px;">${count}</span>`
+    : '⚡ 加班與異常';
 }
 function dismissAnomalyAlert(){
   const bar = document.getElementById('anomalyAlertBar');
