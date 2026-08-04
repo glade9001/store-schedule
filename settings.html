@@ -41,6 +41,10 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
 .card-title { font-size: 14px; font-weight: 900; color: var(--primary); margin-bottom: 14px; display: flex; align-items: center; gap: 6px; }
 .set-grp { font-size: 13px; font-weight: 900; color: var(--text); margin: 22px 4px 12px; padding-bottom: 7px; border-bottom: 2px solid var(--border); letter-spacing: .5px; }
 #grpOps > .set-grp:first-child { margin-top: 6px; }
+/* 折疊式設定項：收合時只顯示標題，點標題展開 */
+.set-item > .set-head { cursor: pointer; }
+.set-item:not(.set-open) > :not(.set-head) { display: none !important; }
+.set-chev { margin-left: auto; color: var(--text-muted); font-size: 13px; font-weight: 700; transition: transform .15s; }
 
 /* Menu list */
 .menu-list { background: var(--card); border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); }
@@ -102,9 +106,9 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
   <!-- ═══ 🏪 門市營運 ═══ -->
   <div id="grpOps" style="display:none;">
     <div class="set-grp">🏪 門市營運</div>
-    <div id="itemClock" style="display:none;">
-      <div class="card-title" style="padding:0 0 8px;">🕐 打卡系統
-        <span class="perm-badge perm-admin">管理者</span>
+    <div id="itemClock" class="set-item" style="display:none;">
+      <div class="card-title set-head" onclick="toggleSet(this)" style="padding:0 0 8px;">🕐 打卡系統
+        <span class="perm-badge perm-admin">管理者</span><span class="set-chev">▸</span>
       </div>
       <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px; line-height:1.6;">
         控制打卡功能開放範圍，並設定各門市 GPS 座標（打卡圍欄）。建議<b>站在店內</b>按「📍 抓當下座標」最準；半徑建議 100–150m。未開放的層級，打卡入口與出勤頁會顯示「維護中敬請期待」。
@@ -191,9 +195,9 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
   <!-- ═══ ⚙️ 系統 ═══ -->
   <div id="grpSystem" style="display:none;">
     <div class="set-grp">⚙️ 系統</div>
-    <div id="itemMaint" style="display:none;">
-      <div class="card-title" style="padding:0 0 8px;">🔧 系統維護模式
-        <span class="perm-badge perm-admin">管理者</span>
+    <div id="itemMaint" class="set-item" style="display:none;">
+      <div class="card-title set-head" onclick="toggleSet(this)" style="padding:0 0 8px;">🔧 系統維護模式
+        <span class="perm-badge perm-admin">管理者</span><span class="set-chev">▸</span>
       </div>
       <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px; line-height:1.6;">
         開啟後，<b>管理者以外</b>的使用者登入會看到「系統維護中」畫面（可登記完成後 LINE 通知、也可綁定 LINE）。<b>關閉</b>維護時，會 LINE 通知所有登記者「維護完成」。
@@ -206,9 +210,9 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
         </div>
       </label>
     </div>
-    <div id="itemLineKw" style="display:none;">
-      <div class="card-title" style="padding:16px 0 8px;">💬 LINE 群組關鍵字自動回覆
-        <span class="perm-badge perm-admin">管理者</span>
+    <div id="itemLineKw" class="set-item" style="display:none;">
+      <div class="card-title set-head" onclick="toggleSet(this)" style="padding:0 0 8px;">💬 LINE 群組關鍵字自動回覆
+        <span class="perm-badge perm-admin">管理者</span><span class="set-chev">▸</span>
       </div>
       <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px; line-height:1.6;">
         官方帳號加入門市群組後，群組訊息「<b>完全相符</b>」任一關鍵字時，自動回覆右邊內容（沒命中不出聲）。<br>
@@ -439,6 +443,13 @@ function closeModal(id) { document.getElementById(id).classList.remove('active')
 function canAdmin()   { return ['admin'].includes(currentUser?.permission); }
 function canOwner()   { return ['owner','admin'].includes(currentUser?.permission); }
 function canManager() { return ['manager','owner','admin'].includes(currentUser?.permission); }
+// 折疊式設定項：點標題展開/收合
+function toggleSet(head){
+  const item = head.closest('.set-item'); if(!item) return;
+  item.classList.toggle('set-open');
+  const chev = head.querySelector('.set-chev');
+  if(chev) chev.textContent = item.classList.contains('set-open') ? '▾' : '▸';
+}
 
 // ===== 初始化 =====
 window.onload = async () => {
