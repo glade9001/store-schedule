@@ -2173,6 +2173,8 @@ async function initApp() {
   if(sysMenuItem) sysMenuItem.style.display = canSysConfig() ? 'flex' : 'none';
   const storeConfigItem = document.getElementById('menuStoreConfig');
   if(storeConfigItem) storeConfigItem.style.display = canSchedule() ? 'flex' : 'none';
+  const rolePrevItem = document.getElementById('menuRolePreview');
+  if(rolePrevItem) rolePrevItem.style.display = (currentUser.permission === 'admin') ? 'flex' : 'none';
 
   // ✅ 班表讀取加 timeout + catch，任何錯誤都不影響整頁顯示
   await Promise.race([
