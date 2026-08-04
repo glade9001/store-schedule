@@ -906,6 +906,15 @@ async function salaryReminderDay(db, year, month) {
   }
   return 5;
 }
+// 離職者存取期限＝最後薪資發放月月底(與 auth.js 一致)：1號離職→當月底；2號+→次月底
+function resignAccessUntil(retireDate) {
+  const p = String(retireDate || "").split("-").map(Number);
+  if (p.length !== 3) return null;
+  let [y, m, d] = p;
+  if (d !== 1) { m += 1; if (m > 12) { m = 1; y += 1; } }
+  const lastDay = new Date(y, m, 0).getDate();
+  return `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+}
 exports.scheduledSalaryAckReminder = onSchedule(
   { schedule: "0 15 * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN] },
   async () => {
@@ -927,18 +936,19 @@ exports.scheduledSalaryAckReminder = onSchedule(
     const nowDay = new Date(Date.now() + 8 * 3600000).getUTCDate(); // 台北日
     const [rY, rM] = nowYM.split("-").map(Number);
     const remDay = await salaryReminderDay(db, rY, rM); // 本月發薪提醒日(5號或順延)
-    // 離職者：不再發任何 LINE
-    const resignedNames = new Set();
+    // 離職者：不再發任何 LINE；並收集資訊供「離職註記自動標」
+    const resignedInfo = {}; // empName -> {store, retireDate}
     const cfgR = await db.collection("settings").doc("globalConfig").get().catch(() => null);
     for (const st of ((cfgR && cfgR.exists ? cfgR.data().stores : []) || [])) {
       const es = await db.collection("stores").doc(st).collection("employees").get().catch(() => null);
-      if (es) es.forEach((d) => { if ((d.data() || {}).status === "離職") resignedNames.add(d.id); });
+      if (es) es.forEach((d) => { const e = d.data() || {}; if (e.status === "離職") resignedInfo[d.id] = { store: st, retireDate: e.retireDate || "" }; });
     }
     const bindSnap = await db.collection("lineBindings").get();
+    const uidByName = {}; bindSnap.forEach((d) => { const b = d.data(); if (b.empName && b.uid) uidByName[b.empName] = b.uid; });
     for (const bd of bindSnap.docs) {
       const b = bd.data();
       if (!b.uid || !b.empName || !b.lineUserId || !b.store) continue;
-      if (resignedNames.has(b.empName)) continue; // 離職者不再提醒
+      if (resignedInfo[b.empName]) continue; // 離職者不再提醒
       const disp = b.displayName || b.empName;
       for (const ym of months) {
         // 5 號發薪(遇假日順延)：ym 月薪資於「次月發薪提醒日」才提醒(cron 15:00)，提醒日前不提醒
@@ -961,6 +971,30 @@ exports.scheduledSalaryAckReminder = onSchedule(
         if (NOW - lastAt < 2 * 86400000 - 3600000) continue;
         await linePush(b.lineUserId, `💰 ${disp}，你的 ${ym} 薪資已發布但尚未「簽收」。\n請開啟 App →「查看薪水」完成簽名簽收（每 2 天提醒，簽收後即停止）。`, token);
         await remRef.set({ uid: b.uid, ym, empName: b.empName, lastAt: NOW }, { merge: true });
+      }
+    }
+
+    // 離職註記自動標：離職者「存取期限已過」仍未簽的已發布薪資 → 標「離職註記·免簽」讓簽收結案(不用再簽)
+    const todayStr = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+    for (const [name, info] of Object.entries(resignedInfo)) {
+      const until = resignAccessUntil(info.retireDate);
+      if (!until || todayStr <= until) continue; // 期限內：仍讓他自己簽
+      let uid = uidByName[name];
+      if (!uid) { const us = await db.collection("users").where("empName", "==", name).limit(1).get().catch(() => null); if (us && !us.empty) uid = us.docs[0].id; }
+      if (!uid) continue;
+      for (const ym of months) {
+        const salSnap = await db.collection("stores").doc(info.store).collection("salary").doc(ym).get().catch(() => null);
+        if (!salSnap || !salSnap.exists || (salSnap.data().status || "draft") !== "published") continue;
+        const rec = (salSnap.data().records || []).find((r) => r.empName === name);
+        if (!rec) continue;
+        const ackRef = db.collection("salaryAck").doc(`${uid}_${ym}`);
+        const ackSnap = await ackRef.get().catch(() => null);
+        if (ackSnap && ackSnap.exists && (ackSnap.data().signedPayHash || "") === (rec.payHash || "")) continue; // 已簽/已註記
+        await ackRef.set({
+          uid, empName: name, store: info.store, month: ym,
+          signedPayHash: (rec.payHash || ""), signedAt: new Date().toISOString(),
+          resignedNote: true, note: "離職註記·免簽（系統自動）",
+        }, { merge: true });
       }
     }
   }
