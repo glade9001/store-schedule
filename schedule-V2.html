@@ -3790,12 +3790,14 @@ async function onClaimStoreChange() {
     ? (appData.employees||[]).map(e=>e.name)
     : (appData.allStoresEmployees[fromStore] || []);
   emps = emps.filter(n => n && !String(n).startsWith('🆘'));
-  const busy = new Set();
-  recs.forEach(r => { if(r.day===g.day && r.name && r.shift && !_OFF_SHIFTS.includes(String(r.shift).trim())) busy.add(r.name); });
-  const free = emps.filter(n => !busy.has(n));
-  if(!free.length){ empSel.innerHTML = `<option value="">（${fromStore} 該日無可派的人）</option>`; hint.textContent='該門市當日所有人都已排班。'; return; }
-  empSel.innerHTML = free.map(n=>`<option value="${n}">${getDisplayName(n)}</option>`).join('');
-  hint.textContent = `${fromStore} ${g.day} 沒排班者共 ${free.length} 位可派。`;
+  const busyShift = {}; // 當日已排者 → 班別（分割日/跨時段支援仍可派，只提醒確認不衝突）
+  recs.forEach(r => { if(r.day===g.day && r.name && r.shift && !_OFF_SHIFTS.includes(String(r.shift).trim())) busyShift[r.name]=r.shift; });
+  if(!emps.length){ empSel.innerHTML = `<option value="">（${fromStore} 無可派員工）</option>`; hint.textContent=''; return; }
+  const freeE = emps.filter(n=>!busyShift[n]);
+  const busyE = emps.filter(n=>busyShift[n]);
+  empSel.innerHTML = freeE.map(n=>`<option value="${n}">${getDisplayName(n)}</option>`).join('')
+    + busyE.map(n=>`<option value="${n}">${getDisplayName(n)}（當日已排「${busyShift[n]}」，請確認不衝突）</option>`).join('');
+  hint.textContent = `${fromStore} ${g.day}：可派 ${freeE.length} 位未排班；另 ${busyE.length} 位當日已排班（分割日/跨時段仍可派，請自行確認時間不衝突）。`;
 }
 
 async function confirmClaimGap() {
