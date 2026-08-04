@@ -282,7 +282,28 @@ exports.lineWebhook = onRequest(
 );
 
 // ===== LINE 通知：事件推播（步驟3、4）=====
-const { onDocumentWritten } = require("firebase-functions/v2/firestore");
+const { onDocumentWritten, onDocumentCreated } = require("firebase-functions/v2/firestore");
+
+// 特休候補協商：員工寫 leaveNego 文件 → LINE 通知全體(排除候補者本人)＋店長協助換假(措辭方案A)
+exports.onLeaveNego = onDocumentCreated(
+  { document: "stores/{store}/leaveNego/{id}", region: "asia-east1", secrets: [LINE_TOKEN] },
+  async (event) => {
+    const snap = event.data; if (!snap) return;
+    const d = snap.data(); if (!d || d.notified) return;
+    const db = admin.firestore();
+    const store = fixStoreName(event.params.store);
+    const token = LINE_TOKEN.value();
+    const es = await db.collection("stores").doc(store).collection("employees").get().catch(() => null);
+    let mgr = ""; const emps = [];
+    if (es) es.forEach((x) => { const e = x.data() || {}; if (e.status === "離職" || e.status === "調走") return; emps.push(x.id); if (e.role === "店長" && !mgr) mgr = e.displayName || x.id; });
+    const p = String(d.date || "").split("-");
+    const md = p.length === 3 ? `${+p[1]}/${+p[2]}` : (d.date || "");
+    const msg = `【休假協調】\n${store}｜${md}\n當日休假人數已滿，${d.candidateName || ""} 想請特休。\n若有夥伴當天排休、方便調到別天，\n願意幫忙的請回覆店長${mgr ? " " + mgr : ""}。\n✨ 純自願、不影響任何人權益，感謝！`;
+    let sent = 0;
+    for (const emp of emps) { if (emp === d.candidateEmp) continue; try { await notifyOneEmp(db, emp, store, msg, token); sent++; } catch (e) { /* skip */ } }
+    await snap.ref.set({ notified: true, sentCount: sent, notifiedAt: new Date().toISOString() }, { merge: true });
+  }
+);
 
 // 依 empName 找 LINE 綁定（優先同 store）並推播；buildText(displayName, empName)→訊息
 // 系統維護模式：開啟時，班表相關的 LINE 通知全部暫停（避免維護/整理時狂發）

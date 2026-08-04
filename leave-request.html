@@ -349,20 +349,23 @@ let partTimeUnlimited = false;   // 工讀不受每日上限（由 config 覆寫
 let WEEKLY_OFF_LIMIT_FULL = 2;   // 正職排休每週上限（由 config 覆寫）
 let quotaHardBlock = false;      // 每日上限強制擋（達上限即無法送出排休；特補休不受限）
 
-// 目前選取日/假別是否應「強制擋」無法送出（僅排休；特休/補休不擋）
+// 目前選取日/假別是否應「強制擋」無法送出
+// 特休=法定權利，永不硬擋(候補→協商)；補休=一般劃假(比照排休，硬擋看 config)；排休另受每週上限
+// 每日名額一律「所有假別」一起計(特/補/排都佔一個人力名額)
 function isApplyBlocked(){
-  if(!applyDate || applyType!=='off') return false;
+  if(!applyDate) return false;
+  if(applyType==='annual') return false; // 特休永不硬擋
   const alive = r => !['cancelled','unfulfilled'].includes(r.status);
   const full = isFullTime();
   if(!full && partTimeUnlimited && !quotaHardBlock) return false;
-  // 每日強制擋
+  // 每日強制擋(排休/補休，quotaHardBlock 時)——計入所有假別
   if(quotaHardBlock && !(!full && partTimeUnlimited)){
     const myLimit = dailyLimits[full ? 'fullTime' : 'partTime'];
-    const usedOff = storeRequests.filter(r=>r.date===applyDate && r.type==='off' && alive(r) && isFullTimeReq(r)===full).length;
-    if(usedOff >= myLimit) return true;
+    const usedDaily = storeRequests.filter(r=>r.date===applyDate && alive(r) && isFullTimeReq(r)===full).length;
+    if(usedDaily >= myLimit) return true;
   }
-  // 每週上限（正職，本來就硬擋）
-  if(full){
+  // 每週上限只擋排休(off)；特休/補休免週上限
+  if(full && applyType==='off'){
     const used = weekReqCount[dateToWeekStr(applyDate)] || 0;
     if(used + 1 > WEEKLY_OFF_LIMIT_FULL) return true;
   }
@@ -383,8 +386,8 @@ function renderQuotaNotice(){
   const fullN = dailyLimits.fullTime ?? 2;
   const partTxt = partTimeUnlimited ? '不限' : `${dailyLimits.partTime ?? 1} 人`;
   el.innerHTML = quotaHardBlock
-    ? `<div style="margin:8px 12px;padding:10px 12px;background:#fef2f2;border:1px solid #fecaca;border-radius:10px;font-size:13px;color:#b91c1c;font-weight:700;line-height:1.6;">⛔ 每日排休上限（強制）：正職 ${fullN} 人／天、工讀 ${partTxt}／天。<br>額滿後其他人<b>無法送出</b>排休；特休／補休不受此限。</div>`
-    : `<div style="margin:8px 12px;padding:10px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;font-size:13px;color:#1d4ed8;font-weight:600;line-height:1.6;">📋 每日排休名額：正職 ${fullN} 人／天、工讀 ${partTxt}／天。額滿仍可送出（候補，先送先優先）。</div>`;
+    ? `<div style="margin:8px 12px;padding:10px 12px;background:#fef2f2;border:1px solid #fecaca;border-radius:10px;font-size:13px;color:#b91c1c;font-weight:700;line-height:1.6;">⛔ 每日名額上限（強制）：正職 ${fullN} 人／天、工讀 ${partTxt}／天（特／補／排一起計）。<br>額滿後排休／補休<b>無法送出</b>；特休為法定權利仍可送出（候補→可請店長協商）。</div>`
+    : `<div style="margin:8px 12px;padding:10px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;font-size:13px;color:#1d4ed8;font-weight:600;line-height:1.6;">📋 每日名額：正職 ${fullN} 人／天、工讀 ${partTxt}／天（特／補／排一起計）。額滿仍可送出（候補，先送先優先）；特休候補可請店長協商。</div>`;
 }
 
 // ===== 禁休模式切換 =====
@@ -1061,9 +1064,9 @@ function renderCalBody(){
     } else if((canClick || hasMyReq) && !isBlockMode) {
       onclick = `onclick="openApplyModal('${dateStr}')"`;
     }
-    // ── 每日熱度：依正職排休滿度上色，引導避開額滿日 ──
+    // ── 每日熱度：依正職滿度上色(計入所有假別)，引導避開額滿日 ──
     const _dayAll = storeRequests.filter(r=>r.date===dateStr && !['cancelled','unfulfilled'].includes(r.status));
-    const _offFull = _dayAll.filter(r=>r.type==='off' && isFullTimeReq(r)).length;
+    const _offFull = _dayAll.filter(r=>isFullTimeReq(r)).length;
     const _limitFull = dailyLimits.fullTime || 0;
     let _heat = '';
     if(_dayAll.length && !isPast){
@@ -1207,28 +1210,29 @@ function updateQuotaWarn(){
   if(!applyDate){ qWarn.style.display='none'; return; }
   const alive = r => !['cancelled','unfulfilled'].includes(r.status);
   const full = isFullTime();
-  const offAll = storeRequests.filter(r=>r.date===applyDate && alive(r)).length; // 當天在休（所有假別，顯示用）
+  // 每日名額計入「所有假別」(特/補/排都佔一個人力名額)
+  const usedDaily = storeRequests.filter(r=>r.date===applyDate && alive(r) && isFullTimeReq(r)===full).length;
+  const totalDay = storeRequests.filter(r=>r.date===applyDate && alive(r)).length;
   qWarn.style.display='block';
-  // 特休/補休是權利，不受排休名額限制，只顯示當天在休
-  if(applyType!=='off'){
-    qWarn.innerHTML = `<div class="info-box">特休/補休不受排休名額限制。當天已有 ${offAll} 人劃休。</div>`;
-    return;
-  }
-  // 排休：工讀不受上限
+  // 工讀不受每日上限
   if(!full && partTimeUnlimited){
-    qWarn.innerHTML = `<div class="info-box">工讀不受每日排休上限。當天已有 ${offAll} 人劃休。</div>`;
-    return;
+    qWarn.innerHTML = `<div class="info-box">工讀不受每日名額上限。當天已有 ${totalDay} 人劃休。</div>`;
+    syncSubmitBtn(); return;
   }
-  // 只以「排休」計入名額判定
   const myLimit = dailyLimits[full ? 'fullTime' : 'partTime'];
-  const usedOff = storeRequests.filter(r=>r.date===applyDate && r.type==='off' && alive(r) && isFullTimeReq(r)===full).length;
-  const myPos = usedOff + 1; // 送出後的順位（先送先優先）
-  if(usedOff >= myLimit){
-    qWarn.innerHTML = quotaHardBlock
-      ? `<div class="info-box danger">🚫 此日${full?'正職':'工讀'}排休名額已滿（${usedOff}/${myLimit}），已<b>強制擋</b>，無法送出排休。（特休／補休不受限）</div>`
-      : `<div class="info-box warn">⚠️ 此日${full?'正職':'工讀'}排休名額已滿（${usedOff}/${myLimit}）。你送出後為第 <b>${myPos}</b> 位＝<b>候補</b>，仍可送出，請與店長協調（先送先優先）。</div>`;
+  const myPos = usedDaily + 1; // 送出後順位（先送先優先）
+  const tLbl = applyType==='annual'?'特休':applyType==='comp'?'補休':'排休';
+  if(usedDaily >= myLimit){
+    if(applyType==='annual'){
+      // 特休法定權利：永遠可送(候補)，送出後可請店長協商
+      qWarn.innerHTML = `<div class="info-box warn">⚠️ 此日${full?'正職':'工讀'}名額已滿（${usedDaily}/${myLimit}）。特休為法定權利仍可送出＝第 <b>${myPos}</b> 位（候補）。<br>送出後可選擇「請店長協助協商」，通知夥伴看看能否換假。</div>`;
+    } else if(quotaHardBlock){
+      qWarn.innerHTML = `<div class="info-box danger">🚫 此日${full?'正職':'工讀'}名額已滿（${usedDaily}/${myLimit}），已<b>強制擋</b>，無法送出${tLbl}。</div>`;
+    } else {
+      qWarn.innerHTML = `<div class="info-box warn">⚠️ 此日${full?'正職':'工讀'}名額已滿（${usedDaily}/${myLimit}）。你送出後為第 <b>${myPos}</b> 位＝<b>候補</b>，仍可送出（先送先優先）。</div>`;
+    }
   } else {
-    qWarn.innerHTML = `<div class="info-box">此日${full?'正職':'工讀'}排休名額 ${usedOff}/${myLimit}。你送出後為第 <b>${myPos}</b> 位（在名額內）。</div>`;
+    qWarn.innerHTML = `<div class="info-box">此日${full?'正職':'工讀'}名額 ${usedDaily}/${myLimit}（含特/補/排）。你送出後為第 <b>${myPos}</b> 位（在名額內）。</div>`;
   }
   syncSubmitBtn();
 }
@@ -1258,14 +1262,19 @@ async function submitApply(){
     return;
   }
 
-  // 每日強制擋 + 每週上限（排休）— 統一由 isApplyBlocked 判定（特休/補休不受限）
-  if(applyType==='off' && isApplyBlocked()){
+  // 每日強制擋(排休/補休) + 每週上限(排休)— 統一由 isApplyBlocked 判定（特休永不擋）
+  if(isApplyBlocked()){
     const full = isFullTime();
     const myLimit = dailyLimits[full ? 'fullTime' : 'partTime'];
-    const usedOff = storeRequests.filter(r=>r.date===applyDate && r.type==='off' && !['cancelled','unfulfilled'].includes(r.status) && isFullTimeReq(r)===full).length;
-    showToast(quotaHardBlock && usedOff>=myLimit ? '🚫 此日排休名額已滿（強制擋），無法送出' : '🚫 本週排休許願已達上限');
+    const usedDaily = storeRequests.filter(r=>r.date===applyDate && !['cancelled','unfulfilled'].includes(r.status) && isFullTimeReq(r)===full).length;
+    showToast(quotaHardBlock && usedDaily>=myLimit ? '🚫 此日名額已滿（強制擋），無法送出' : '🚫 本週排休許願已達上限');
     return;
   }
+  // 記錄「特休是否為候補(當日名額已滿)」→ 送出後詢問是否請店長協商
+  const _negoFull = isFullTime();
+  const _negoUsed = storeRequests.filter(r=>r.date===applyDate && !['cancelled','unfulfilled'].includes(r.status) && isFullTimeReq(r)===_negoFull).length;
+  const _negoCandidate = applyType==='annual' && !( !_negoFull && partTimeUnlimited ) && _negoUsed >= dailyLimits[_negoFull?'fullTime':'partTime'];
+  const _negoDate = applyDate;
 
   // 餘額檢查（特補休）全日/早班/晚班皆扣 1 天
   const cost = 1;
@@ -1308,8 +1317,26 @@ async function submitApply(){
     closeModal('applyModal');
     await loadRequests();
     renderTab();
-  }catch(e){ showToast('❌ 失敗：'+e.message); }
+  }catch(e){ showToast('❌ 失敗：'+e.message); hideLoading(); return; }
   hideLoading();
+  // 特休候補 → 詢問是否請店長協助協商（通知全體看能否換假）
+  if(_negoCandidate){
+    if(confirm('此特休為候補（當日名額已滿）。\n要請店長協助協商、通知夥伴看看能否調整休假嗎？')){
+      await requestNego(_negoDate);
+    }
+  }
+}
+async function requestNego(date){
+  showLoading('送出協商請求...');
+  try{
+    // 寫協商請求文件 → Cloud Function onLeaveNego 觸發，LINE 通知全體＋店長
+    await window.db.collection('stores').doc(currentStore).collection('leaveNego').add({
+      date, candidateName:(currentUser.displayName||currentUser.empName), candidateEmp:currentUser.empName,
+      createdAt:new Date().toISOString(), notified:false
+    });
+    hideLoading();
+    showToast('✅ 已送出協商請求，將 LINE 通知夥伴協助換假');
+  }catch(e){ hideLoading(); showToast('通知失敗：'+(e.message||e)); }
 }
 
 // ===== 我的申請清單 =====
@@ -1338,11 +1365,12 @@ function renderMyList(){
 
 // 排休即時順位/候補狀態（依 createdAt live 推導 → 有人取消自動遞補）
 function offSlotStatus(r){
-  if(r.type!=='off' || !['noted','pending'].includes(r.status)) return null;
+  if(!['noted','pending'].includes(r.status)) return null;
   const alive = x => !['cancelled','unfulfilled'].includes(x.status);
   const full = isFullTimeReq(r);
   if(!full && partTimeUnlimited) return { unlimited:true };
-  const sameDay = storeRequests.filter(x=>x.date===r.date && x.type==='off' && alive(x) && isFullTimeReq(x)===full)
+  // 每日名額計入所有假別(特/補/排)，依 createdAt 先送先贏
+  const sameDay = storeRequests.filter(x=>x.date===r.date && alive(x) && isFullTimeReq(x)===full)
     .sort((a,b)=>(a.createdAt||'').localeCompare(b.createdAt||''));
   const pos = sameDay.findIndex(x=>x.id===r.id) + 1;
   const limit = dailyLimits[full?'fullTime':'partTime'];
@@ -1366,7 +1394,7 @@ function renderReqCard(r){
         <div class="req-meta">${typeLabel} ${shiftLabel}${r.note?` · ${r.note}`:''}</div>
         ${(()=>{ const s=offSlotStatus(r); if(!s) return '';
           if(s.unlimited) return `<div class="req-meta" style="color:var(--primary);">工讀不受名額限制</div>`;
-          return `<div class="req-meta" style="color:${s.within?'var(--accent)':'#e65100'};font-weight:700;">排休順位 ${s.pos}/${s.limit}｜${s.within?'✅ 在名額內':'🕓 候補中'}</div>`;
+          return `<div class="req-meta" style="color:${s.within?'var(--accent)':'#e65100'};font-weight:700;">名額順位 ${s.pos}/${s.limit}｜${s.within?'✅ 在名額內':'🕓 候補中'}</div>`;
         })()}
         ${r.managerNote?`<div class="req-meta" style="color:var(--danger);">店長備註：${r.managerNote}</div>`:''}
       </div>
