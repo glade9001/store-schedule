@@ -61,6 +61,7 @@ window.onload=async()=>{
   const saved=localStorage.getItem('currentUser')||sessionStorage.getItem('currentUser');
   if(!saved){location.replace('home.html');return;}
   try{currentUser=JSON.parse(saved);}catch(e){location.replace('home.html');return;}
+  if(currentUser && currentUser.resigned){ location.replace('my-salary.html'); return; }
   const fb=await new Promise(r=>{const u=firebase.auth().onAuthStateChanged(x=>{u();r(x);});});
   if(!fb){localStorage.removeItem('currentUser');location.replace('home.html');return;}
   try{const s=await window.db.collection('settings').doc('globalConfig').get();if(s.exists)appConfig=s.data();}catch(e){}

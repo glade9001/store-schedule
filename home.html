@@ -1407,7 +1407,7 @@ window.onload = async () => {
         } catch(e) {
           await firebase.auth().signOut();
           showLoginScreen();
-          if(e.code === 'disabled') {
+          if(e.code === 'disabled' || e.code === 'resigned-expired') {
             document.getElementById('loginError').textContent = '⛔ ' + e.message;
           }
         }
@@ -1499,6 +1499,7 @@ async function doLogin() {
       'auth/too-many-requests': '登入嘗試次數過多，請稍後再試',
       'not-linked': e.message,
       'disabled': e.message,
+      'resigned-expired': e.message,
     };
     // 已通過帳密驗證後才發生的錯誤（登入後載入階段）：顯示真正原因，方便對症下藥
     errEl.textContent = '❌ ' + (codeMap[e.code] || ('登入後載入失敗：' + (e.message || e.code || '未知錯誤')));
@@ -1524,6 +1525,8 @@ async function _afterLogin(profile, { skipPwdChange = false, showBindSuggestion 
     openModal('firstLoginInfoModal');
     return;
   }
+  // 離職受限帳號：期限內只開放「查看薪水」，其餘全鎖
+  if(profile.resigned) { showResignedHome(profile); return; }
   // 跳轉
   const redirect = localStorage.getItem('redirectAfterLogin');
   if(redirect) {
@@ -1537,6 +1540,24 @@ async function _afterLogin(profile, { skipPwdChange = false, showBindSuggestion 
   if(['manager','owner','admin'].includes(profile.permission)) {
     applyOverduePendingRoles().catch(() => {});
   }
+}
+
+// 離職受限首頁：只給查看薪水
+function showResignedHome(profile){
+  hideLoading();
+  try{ document.getElementById('loginScreen').classList.remove('active'); }catch(e){}
+  const until = profile.resignAccessUntil || '';
+  let el = document.getElementById('resignedScreen');
+  if(!el){ el = document.createElement('div'); el.id='resignedScreen'; document.body.appendChild(el); }
+  el.style.cssText='position:fixed;inset:0;z-index:99998;background:#f4f6fb;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;';
+  el.innerHTML=`
+    <div style="font-size:44px;margin-bottom:12px;">🧾</div>
+    <div style="font-size:20px;font-weight:900;color:#1e293b;margin-bottom:10px;">${profile.displayName||profile.empName||''}</div>
+    <div style="background:#fff3e0;border:1.5px solid #ffc27a;border-radius:12px;padding:12px 16px;font-size:13px;color:#c0620f;font-weight:700;line-height:1.7;max-width:360px;margin-bottom:24px;">
+      此帳號已離職，僅開放<b>查看薪資</b>。<br>存取期限至 <b>${until}</b>，逾期將無法登入。
+    </div>
+    <button onclick="window.location.href='my-salary.html'" style="width:100%;max-width:320px;padding:15px;background:var(--primary,#1a73e8);color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:800;cursor:pointer;margin-bottom:12px;">🧾 查看薪水</button>
+    <button onclick="doLogout()" style="width:100%;max-width:320px;padding:12px;background:#f1f3f4;color:#334155;border:none;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;">登出</button>`;
 }
 
 function startFirstLoginSetup() {

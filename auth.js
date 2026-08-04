@@ -5,6 +5,17 @@
 const _toEmail = id => `${String(id).toLowerCase()}@lixue.internal`;
 const _padPwd  = pwd => String(pwd || '').padEnd(6, '0'); // Firebase Auth 最低 6 碼
 
+// 離職者存取期限＝「最後一個月薪資發放月的月底」：1號離職→當月底；2號(含)以後→次月底
+// (1號離職=當月沒上班、最後薪資是上月的本月5號發；2號+=有做到當月、最後薪資次月5號發)
+function _resignAccessUntil(retireDate) {
+  const p = String(retireDate || '').split('-').map(Number);
+  if (p.length !== 3) return null;
+  let [y, m, d] = p;
+  if (d !== 1) { m += 1; if (m > 12) { m = 1; y += 1; } }
+  const lastDay = new Date(y, m, 0).getDate(); // m 為 1-based → 該月最後一天
+  return `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+}
+
 // ===== 讀取使用者 Firestore 資料並處理待生效調店 =====
 async function _loadProfile(fbUser) {
   if (!fbUser) return null;
@@ -53,6 +64,30 @@ async function _loadProfile(fbUser) {
     delete data.transferDate;
     delete data.pendingRole;
   }
+
+  // 離職存取控管：讀員工記錄，離職者僅開放到「最後薪資發放月月底」；過期→擋登入
+  // 防禦：任何讀取失敗都「不擋」正常登入（fail-open），只有明確過期才擋
+  try {
+    if (data.store && data.empName) {
+      const empSnap = await window.db.collection('stores').doc(data.store)
+        .collection('employees').doc(data.empName).get();
+      if (empSnap.exists) {
+        const e = empSnap.data();
+        if (e.status === '離職' && e.retireDate) {
+          const until = _resignAccessUntil(e.retireDate);
+          const today = new Date().toISOString().split('T')[0];
+          if (until && today > until) {
+            const err = new Error('此帳號已離職，存取期限已到（僅開放至最後薪資發放月月底）');
+            err.code = 'resigned-expired';
+            throw err;
+          }
+          data.resigned = true;             // 期限內：受限帳號(只能查看薪水)
+          data.resignAccessUntil = until;
+        }
+      }
+    }
+  } catch (e) { if (e.code === 'resigned-expired') throw e; /* 其他錯誤不擋登入 */ }
+
   return { uid: fbUser.uid, docId: fbUser.uid, ...data };
 }
 

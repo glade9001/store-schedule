@@ -735,6 +735,7 @@ window.onload = async () => {
   const saved = localStorage.getItem('currentUser') || sessionStorage.getItem('currentUser');
   if(!saved){ window.location.replace('home.html'); return; }
   try{ currentUser = JSON.parse(saved); } catch(e){ window.location.replace('home.html'); return; }
+  if(currentUser && currentUser.resigned){ window.location.replace('my-salary.html'); return; }
 
   const _fbAuth = await new Promise(r => { const u = firebase.auth().onAuthStateChanged(fb => { u(); r(fb); }); });
   if (!_fbAuth) { localStorage.removeItem('currentUser'); sessionStorage.removeItem('currentUser'); window.location.replace('home.html'); return; }
