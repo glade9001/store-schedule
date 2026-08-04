@@ -1184,6 +1184,8 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       </div>
     </div>
 
+    <button class="save-btn" onclick="previewResigned()" style="background:#c0620f; margin-bottom:14px;">🧾 預覽「離職受限」畫面（不改資料）</button>
+
     <div id="rolePreviewWarning" style="display:none; background:#fff3e0; border:1px solid #ffcc80; border-radius:10px; padding:10px 14px; font-size:12px; color:#e65100; margin-bottom:16px;">
       ⚠️ 目前以預覽模式體驗「<span id="previewRoleName"></span>」角色介面，資料為真實資料但操作權限受限。
     </div>
@@ -1542,8 +1544,8 @@ async function _afterLogin(profile, { skipPwdChange = false, showBindSuggestion 
   }
 }
 
-// 離職受限首頁：只給查看薪水
-function showResignedHome(profile){
+// 離職受限首頁：只給查看薪水（preview=true 為 admin 預覽，加返回鈕、不影響真實資料）
+function showResignedHome(profile, preview){
   hideLoading();
   try{ document.getElementById('loginScreen').classList.remove('active'); }catch(e){}
   const until = profile.resignAccessUntil || '';
@@ -1557,7 +1559,13 @@ function showResignedHome(profile){
       此帳號已離職，僅開放<b>查看薪資</b>。<br>存取期限至 <b>${until}</b>，逾期將無法登入。
     </div>
     <button onclick="window.location.href='my-salary.html'" style="width:100%;max-width:320px;padding:15px;background:var(--primary,#1a73e8);color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:800;cursor:pointer;margin-bottom:12px;">🧾 查看薪水</button>
-    <button onclick="doLogout()" style="width:100%;max-width:320px;padding:12px;background:#f1f3f4;color:#334155;border:none;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;">登出</button>`;
+    <button onclick="doLogout()" style="width:100%;max-width:320px;padding:12px;background:#f1f3f4;color:#334155;border:none;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;">登出</button>
+    ${preview?`<button onclick="document.getElementById('resignedScreen').remove()" style="width:100%;max-width:320px;padding:10px;background:none;color:#94a3b8;border:none;font-size:13px;font-weight:700;cursor:pointer;margin-top:14px;">🔙 結束預覽</button>`:''}`;
+}
+// admin 預覽離職受限畫面（純畫面、不改任何資料）
+function previewResigned(){
+  closeModal('rolePreviewModal');
+  showResignedHome({ displayName:(currentUser.displayName||currentUser.empName||''), empName:currentUser.empName, resignAccessUntil:'（預覽·範例）' }, true);
 }
 
 function startFirstLoginSetup() {
