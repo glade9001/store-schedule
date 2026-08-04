@@ -750,6 +750,10 @@ const calcOtPay = rec => {
 };
 // 計薪模式：payAsPartTime 者以工讀時薪計（職務角色不變）；主要金額仍優先讀存檔快照
 const effR = (emp, rec) => (((emp && emp.payAsPartTime) || (rec && rec.payAsPartTime)) ? '工讀' : ((emp && emp.role) || (rec && rec.role) || ''));
+// 該「記錄月」是否以工讀時薪計——以記錄本身判(歷史不可變)：工讀轉正職者，過去月份仍算工讀時薪。避免現況正職→用底薪算成 0
+function recIsPart(emp, rec){
+  return !!((emp && emp.payAsPartTime) || (rec && rec.payAsPartTime) || (rec && rec.role==='工讀') || (rec && n(rec.wage)>0 && n(rec.baseSalary)===0));
+}
 const calcGross = (rec, role) => {
   if(rec.grossAmt != null) return n(rec.grossAmt); // ✅ 讀 salary.html 存的實發快照
   if(role==='工讀'){
@@ -1508,7 +1512,7 @@ function renderHourlyTab(){
     }
     if(!rec) return;
 
-    const isPart = effR(emp, rec) === '工讀'; // 職務店長但以工讀時薪計(payAsPartTime)→無底薪，用實際時薪
+    const isPart = recIsPart(emp, rec); // 以該記錄月判身份：工讀轉正職者過去月份仍算工讀時薪(不會變 0)
     const base = n(rec.baseSalary);
     const fullAttend = n(rec.fullAttendBonus);
     const hrRate = isPart ? n(rec.wage) : (base+fullAttend)/30/8;
@@ -1517,7 +1521,9 @@ function renderHourlyTab(){
     ymList.forEach(ym=>{
       (supportMap[ym]?.[emp.name]||[]).forEach(s=>{
         const mRec = salaryMap[ym]?.[emp.name];
-        const rate = isPart ? n((mRec&&mRec.wage)||rec.wage) : ((mRec ? n(mRec.baseSalary)+n(mRec.fullAttendBonus) : base+fullAttend)/30/8);
+        // 以「支援當月」的記錄判身份與時薪
+        const mIsPart = recIsPart(emp, mRec||rec);
+        const rate = mIsPart ? n((mRec&&mRec.wage)||rec.wage) : ((mRec ? n(mRec.baseSalary)+n(mRec.fullAttendBonus) : base+fullAttend)/30/8);
         supportH = Math.round((supportH+s.hours)*10)/10;
         supportCost += Math.round(rate*s.hours);
       });
@@ -1550,14 +1556,14 @@ function renderHourlyTab(){
       const emp = allEmps.find(e=>e.name===empName);
       const rec = salaryMap[ym]?.[empName];
       supports.forEach(s=>{
-        const isPart = (emp?.role||'')==='工讀';
+        const isPart = recIsPart(emp, rec); // 以支援當月記錄判身份(工讀轉正職者過去月份仍工讀時薪)
         let hrRate;
         if(isPart){
           hrRate = n(rec?.wage||emp?.wage||0);
         } else {
           hrRate = (n(rec?.baseSalary||0)+n(rec?.fullAttendBonus||0))/30/8;
         }
-        supportRows.push({ ym, empName, role:emp?.role||'--', fromStore:s.fromStore, toStore:s.toStore, hours:s.hours, hrRate, cost:Math.round(hrRate*s.hours) });
+        supportRows.push({ ym, empName, role:(isPart?'工讀':(rec?.role||emp?.role||'--')), fromStore:s.fromStore, toStore:s.toStore, hours:s.hours, hrRate, cost:Math.round(hrRate*s.hours) });
       });
     });
   });
