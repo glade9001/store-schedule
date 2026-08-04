@@ -895,8 +895,19 @@ exports.scheduledMonthlySalaryNotify = onSchedule(
 );
 
 // ===== 薪資簽收提醒：每日檢查，對「已發布可查看但未簽收」者每 2 天 LINE 提醒一次（2026-07 起，直到簽收）=====
+// 發薪提醒日：5 號，遇週末/國定假日順延到下一個工作日(週末→週一)
+async function salaryReminderDay(db, year, month) {
+  const hs = await db.collection("settings").doc("holidays").collection("years").doc(String(year)).get().catch(() => null);
+  const holidays = (hs && hs.exists && hs.data().dates) ? hs.data().dates : {};
+  for (let day = 5; day <= 20; day++) {
+    const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const dow = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+    if (dow !== 0 && dow !== 6 && !holidays[dateStr]) return day;
+  }
+  return 5;
+}
 exports.scheduledSalaryAckReminder = onSchedule(
-  { schedule: "0 10 * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN] },
+  { schedule: "0 15 * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN] },
   async () => {
     const db = admin.firestore();
     const token = LINE_TOKEN.value();
@@ -914,16 +925,18 @@ exports.scheduledSalaryAckReminder = onSchedule(
     if (!months.length) return;
     const NOW = Date.now();
     const nowDay = new Date(Date.now() + 8 * 3600000).getUTCDate(); // 台北日
+    const [rY, rM] = nowYM.split("-").map(Number);
+    const remDay = await salaryReminderDay(db, rY, rM); // 本月發薪提醒日(5號或順延)
     const bindSnap = await db.collection("lineBindings").get();
     for (const bd of bindSnap.docs) {
       const b = bd.data();
       if (!b.uid || !b.empName || !b.lineUserId || !b.store) continue;
       const disp = b.displayName || b.empName;
       for (const ym of months) {
-        // 5 號發薪：ym 月薪資於「次月 5 號」才發，發薪日前(4號含)不提醒簽收
+        // 5 號發薪(遇假日順延)：ym 月薪資於「次月發薪提醒日」才提醒(cron 15:00)，提醒日前不提醒
         const [yy, mm2] = ym.split("-").map(Number);
         const payYM = mm2 === 12 ? `${yy + 1}-01` : `${yy}-${String(mm2 + 1).padStart(2, "0")}`;
-        if (payYM === nowYM && nowDay <= 4) continue;
+        if (payYM === nowYM && nowDay < remDay) continue;
         const salSnap = await db.collection("stores").doc(b.store).collection("salary").doc(ym).get().catch(() => null);
         if (!salSnap || !salSnap.exists) continue;
         const sd = salSnap.data();

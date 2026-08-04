@@ -1871,12 +1871,15 @@ async function checkSalaryAck(){
     const pending=[];
     const _now=new Date();
     const _nowYM=`${_now.getFullYear()}-${String(_now.getMonth()+1).padStart(2,'0')}`;
-    const _nowDay=_now.getDate();
+    const _nowDay=_now.getDate(), _nowHour=_now.getHours();
+    // 發薪提醒日：5號遇週末/國定假日順延到下一工作日；當天 15:00 後才提醒(對齊 LINE)
+    let _shol={};
+    try{ const hs=await window.db.collection('settings').doc('holidays').collection('years').doc(String(_now.getFullYear())).get(); if(hs.exists && hs.data().dates) _shol=hs.data().dates; }catch(e){}
+    let _remDay=5; for(let day=5;day<=20;day++){ const ds=`${_now.getFullYear()}-${String(_now.getMonth()+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`; const dow=new Date(_now.getFullYear(),_now.getMonth(),day).getDay(); if(dow!==0&&dow!==6&&!_shol[ds]){_remDay=day;break;} }
     for(const ym of _ackMonthsFromStart()){
-      // 5 號發薪：ym 月薪資於「次月 5 號」才發，發薪日前(4號含)不提醒簽收
       const [_yy,_mm]=ym.split('-').map(Number);
       const _payYM=_mm===12?`${_yy+1}-01`:`${_yy}-${String(_mm+1).padStart(2,'0')}`;
-      if(_payYM===_nowYM && _nowDay<=4) continue;
+      if(_payYM===_nowYM && (_nowDay<_remDay || (_nowDay===_remDay && _nowHour<15))) continue;
       // 找本人在該月「已發布」的薪資記錄（先本店，找到就停）
       let rec=null;
       for(const st of stores){
