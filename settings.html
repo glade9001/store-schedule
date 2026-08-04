@@ -39,6 +39,8 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
 /* Cards */
 .card { background: white; border-radius: var(--radius); padding: 16px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
 .card-title { font-size: 14px; font-weight: 900; color: var(--primary); margin-bottom: 14px; display: flex; align-items: center; gap: 6px; }
+.set-grp { font-size: 13px; font-weight: 900; color: var(--text); margin: 22px 4px 12px; padding-bottom: 7px; border-bottom: 2px solid var(--border); letter-spacing: .5px; }
+#grpOps > .set-grp:first-child { margin-top: 6px; }
 
 /* Menu list */
 .menu-list { background: var(--card); border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); }
@@ -97,132 +99,141 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
 
 <div class="content">
 
-  <!-- 系統基礎設定（管理者）-->
-  <div id="sectionSysConfig" style="display:none;">
-    <div class="card-title" style="padding:0 0 8px;">🏪 系統基礎設定
-      <span class="perm-badge perm-admin">管理者</span>
+  <!-- ═══ 🏪 門市營運 ═══ -->
+  <div id="grpOps" style="display:none;">
+    <div class="set-grp">🏪 門市營運</div>
+    <div id="itemClock" style="display:none;">
+      <div class="card-title" style="padding:0 0 8px;">🕐 打卡系統
+        <span class="perm-badge perm-admin">管理者</span>
+      </div>
+      <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px; line-height:1.6;">
+        控制打卡功能開放範圍，並設定各門市 GPS 座標（打卡圍欄）。建議<b>站在店內</b>按「📍 抓當下座標」最準；半徑建議 100–150m。未開放的層級，打卡入口與出勤頁會顯示「維護中敬請期待」。
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+        <span style="font-size:13px; font-weight:800; white-space:nowrap;">開放範圍</span>
+        <select id="clockStage" style="flex:1; padding:10px; border:1.5px solid var(--border); border-radius:10px; font-weight:700;">
+          <option value="off">關閉（全部顯示維護中）</option>
+          <option value="admin">僅管理者（測試用）</option>
+          <option value="manager">管理者＋店長</option>
+          <option value="all">全面開放</option>
+        </select>
+      </div>
+      <div id="clockGeoGrid"></div>
+      <button class="save-btn" style="margin-top:10px;" onclick="saveClockConfig()">💾 儲存打卡設定</button>
     </div>
-    <div class="menu-list" style="margin-bottom:16px;">
-      <div class="menu-item" onclick="openSysConfigModal()">
-        <div class="menu-item-icon" style="background:#fce8e6;">🏪</div>
-        <div class="menu-item-text">
-          <div class="menu-item-title" style="color:var(--danger);">門市管理</div>
-          <div class="menu-item-sub">新增、刪除門市</div>
+    <div id="itemShift" style="display:none;">
+      <div class="card-title" style="padding:16px 0 8px;">🔧 門市班別設定
+        <span class="perm-badge perm-manager">店長</span>
+      </div>
+      <div class="menu-list" style="margin-bottom:16px;">
+        <div class="menu-item" onclick="openStoreConfigModal()">
+          <div class="menu-item-icon" style="background:#e8f0fe;">🔧</div>
+          <div class="menu-item-text">
+            <div class="menu-item-title">班別快捷設定</div>
+            <div class="menu-item-sub">排班班別、工時、備註快捷按鈕</div>
+          </div>
+          <div class="menu-item-arrow">›</div>
         </div>
-        <div class="menu-item-arrow">›</div>
       </div>
     </div>
-    <div class="card-title" style="padding:0 0 8px;">💬 LINE 群組關鍵字自動回覆
-      <span class="perm-badge perm-admin">管理者</span>
-    </div>
-    <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px; line-height:1.6;">
-      官方帳號加入門市群組後，群組訊息「<b>完全相符</b>」任一關鍵字時，自動回覆右邊內容（沒命中不出聲）。<br>
-      一列 = <b>左邊多個關鍵字</b>（每行一個，多種說法都會觸發）→ <b>右邊一則回覆</b>。
-    </div>
-    <div style="display:flex; gap:8px; font-size:11px; font-weight:800; color:var(--text-muted); padding:0 4px 4px;">
-      <div style="flex:1;">關鍵字（每行一個）</div>
-      <div style="flex:1.5;">回覆內容</div>
-      <div style="width:32px;"></div>
-    </div>
-    <div id="kwGrid"></div>
-    <button onclick="addKwRow()" style="width:100%; margin-top:4px; padding:10px; background:#eef4ff; color:var(--primary); border:1.5px dashed var(--primary); border-radius:10px; font-size:13px; font-weight:700; cursor:pointer;">＋ 新增一列</button>
-    <button class="save-btn" style="margin-top:10px;" onclick="saveLineKeywords()">💾 儲存關鍵字</button>
-
-    <div class="card-title" style="padding:16px 0 8px;">🔧 系統維護模式
-      <span class="perm-badge perm-admin">管理者</span>
-    </div>
-    <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px; line-height:1.6;">
-      開啟後，<b>管理者以外</b>的使用者登入會看到「系統維護中」畫面（可登記完成後 LINE 通知、也可綁定 LINE）。<b>關閉</b>維護時，會 LINE 通知所有登記者「維護完成」。
-    </div>
-    <label style="display:flex; align-items:center; gap:10px; background:#fff8ee; border:1.5px solid #ffd8a8; border-radius:12px; padding:12px 14px; cursor:pointer;">
-      <input type="checkbox" id="maintenanceToggle" onchange="toggleMaintenance(this.checked)" style="width:20px; height:20px;">
-      <div style="flex:1;">
-        <div style="font-size:14px; font-weight:800; color:#c0620f;">啟用系統維護模式</div>
-        <div id="maintenanceStatus" style="font-size:12px; color:var(--text-muted);">目前：關閉</div>
+    <div id="itemStoreMgmt" style="display:none;">
+      <div class="card-title" style="padding:16px 0 8px;">🏪 門市管理
+        <span class="perm-badge perm-admin">管理者</span>
       </div>
-    </label>
-
-    <div class="card-title" style="padding:16px 0 8px;">🕐 打卡系統
-      <span class="perm-badge perm-admin">管理者</span>
-    </div>
-    <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px; line-height:1.6;">
-      控制打卡功能開放範圍，並設定各門市 GPS 座標（打卡圍欄）。建議<b>站在店內</b>按「📍 抓當下座標」最準；半徑建議 100–150m。未開放的層級，打卡入口與出勤頁會顯示「維護中敬請期待」。
-    </div>
-    <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
-      <span style="font-size:13px; font-weight:800; white-space:nowrap;">開放範圍</span>
-      <select id="clockStage" style="flex:1; padding:10px; border:1.5px solid var(--border); border-radius:10px; font-weight:700;">
-        <option value="off">關閉（全部顯示維護中）</option>
-        <option value="admin">僅管理者（測試用）</option>
-        <option value="manager">管理者＋店長</option>
-        <option value="all">全面開放</option>
-      </select>
-    </div>
-    <div id="clockGeoGrid"></div>
-    <button class="save-btn" style="margin-top:10px;" onclick="saveClockConfig()">💾 儲存打卡設定</button>
-  </div>
-
-  <!-- 國定假日管理（加盟主以上）-->
-  <div id="sectionHoliday" style="display:none;">
-    <div class="card-title" style="padding:0 0 8px;">📅 國定假日管理
-      <span class="perm-badge perm-owner">加盟主</span>
-    </div>
-    <div class="menu-list" style="margin-bottom:16px;">
-      <div class="menu-item" onclick="openHolidayModal()">
-        <div class="menu-item-icon" style="background:#fff3e0;">📅</div>
-        <div class="menu-item-text">
-          <div class="menu-item-title">國定假日設定</div>
-          <div class="menu-item-sub">每年假日新增、刪除，與排班系統同步</div>
+      <div class="menu-list" style="margin-bottom:16px;">
+        <div class="menu-item" onclick="openSysConfigModal()">
+          <div class="menu-item-icon" style="background:#fce8e6;">🏪</div>
+          <div class="menu-item-text">
+            <div class="menu-item-title" style="color:var(--danger);">門市管理</div>
+            <div class="menu-item-sub">新增、刪除門市</div>
+          </div>
+          <div class="menu-item-arrow">›</div>
         </div>
-        <div class="menu-item-arrow">›</div>
       </div>
     </div>
   </div>
 
-  <!-- 勞健保級距設定（加盟主以上）-->
-  <div id="sectionInsurance" style="display:none;">
-    <div class="card-title" style="padding:0 0 8px;">🧾 勞健保級距設定
-      <span class="perm-badge perm-owner">加盟主</span>
-    </div>
-    <div class="menu-list" style="margin-bottom:16px;">
-      <div class="menu-item" onclick="openInsuranceModal()">
-        <div class="menu-item-icon" style="background:#e8f5e9;">🧾</div>
-        <div class="menu-item-text">
-          <div class="menu-item-title" id="insuranceMenuTitle">115年度投保級距金額表</div>
-          <div class="menu-item-sub">勞保、健保、勞退費率與各級距負擔金額</div>
+  <!-- ═══ 🧾 薪資・法規 ═══ -->
+  <div id="grpPayLaw" style="display:none;">
+    <div class="set-grp">🧾 薪資・法規</div>
+    <div id="itemInsurance" style="display:none;">
+      <div class="card-title" style="padding:0 0 8px;">🧾 勞健保級距設定
+        <span class="perm-badge perm-owner">加盟主</span>
+      </div>
+      <div class="menu-list" style="margin-bottom:16px;">
+        <div class="menu-item" onclick="openInsuranceModal()">
+          <div class="menu-item-icon" style="background:#e8f5e9;">🧾</div>
+          <div class="menu-item-text">
+            <div class="menu-item-title" id="insuranceMenuTitle">115年度投保級距金額表</div>
+            <div class="menu-item-sub">勞保、健保、勞退費率與各級距負擔金額</div>
+          </div>
+          <div class="menu-item-arrow">›</div>
         </div>
-        <div class="menu-item-arrow">›</div>
+      </div>
+    </div>
+    <div id="itemHoliday" style="display:none;">
+      <div class="card-title" style="padding:16px 0 8px;">📅 國定假日管理
+        <span class="perm-badge perm-owner">加盟主</span>
+      </div>
+      <div class="menu-list" style="margin-bottom:16px;">
+        <div class="menu-item" onclick="openHolidayModal()">
+          <div class="menu-item-icon" style="background:#fff3e0;">📅</div>
+          <div class="menu-item-text">
+            <div class="menu-item-title">國定假日設定</div>
+            <div class="menu-item-sub">每年假日新增、刪除，與排班系統同步</div>
+          </div>
+          <div class="menu-item-arrow">›</div>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- 更新日誌（所有人可見）-->
-  <div id="sectionChangelog">
-    <div class="card-title" style="padding:0 0 8px;">📋 更新日誌</div>
-    <div class="menu-list" style="margin-bottom:16px;">
-      <div class="menu-item" onclick="openChangelogModal()">
-        <div class="menu-item-icon" style="background:#f3e8ff;">📋</div>
-        <div class="menu-item-text">
-          <div class="menu-item-title">系統更新紀錄</div>
-          <div class="menu-item-sub">查看歷次功能更新與修正內容</div>
-        </div>
-        <div class="menu-item-arrow">›</div>
+  <!-- ═══ ⚙️ 系統 ═══ -->
+  <div id="grpSystem" style="display:none;">
+    <div class="set-grp">⚙️ 系統</div>
+    <div id="itemMaint" style="display:none;">
+      <div class="card-title" style="padding:0 0 8px;">🔧 系統維護模式
+        <span class="perm-badge perm-admin">管理者</span>
       </div>
-    </div>
-  </div>
-
-  <!-- 門市班別設定（店長以上）-->
-  <div id="sectionStoreConfig" style="display:none;">
-    <div class="card-title" style="padding:0 0 8px;">🔧 門市班別設定
-      <span class="perm-badge perm-manager">店長</span>
-    </div>
-    <div class="menu-list" style="margin-bottom:16px;">
-      <div class="menu-item" onclick="openStoreConfigModal()">
-        <div class="menu-item-icon" style="background:#e8f0fe;">🔧</div>
-        <div class="menu-item-text">
-          <div class="menu-item-title">班別快捷設定</div>
-          <div class="menu-item-sub">排班班別、工時、備註快捷按鈕</div>
+      <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px; line-height:1.6;">
+        開啟後，<b>管理者以外</b>的使用者登入會看到「系統維護中」畫面（可登記完成後 LINE 通知、也可綁定 LINE）。<b>關閉</b>維護時，會 LINE 通知所有登記者「維護完成」。
+      </div>
+      <label style="display:flex; align-items:center; gap:10px; background:#fff8ee; border:1.5px solid #ffd8a8; border-radius:12px; padding:12px 14px; cursor:pointer;">
+        <input type="checkbox" id="maintenanceToggle" onchange="toggleMaintenance(this.checked)" style="width:20px; height:20px;">
+        <div style="flex:1;">
+          <div style="font-size:14px; font-weight:800; color:#c0620f;">啟用系統維護模式</div>
+          <div id="maintenanceStatus" style="font-size:12px; color:var(--text-muted);">目前：關閉</div>
         </div>
-        <div class="menu-item-arrow">›</div>
+      </label>
+    </div>
+    <div id="itemLineKw" style="display:none;">
+      <div class="card-title" style="padding:16px 0 8px;">💬 LINE 群組關鍵字自動回覆
+        <span class="perm-badge perm-admin">管理者</span>
+      </div>
+      <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px; line-height:1.6;">
+        官方帳號加入門市群組後，群組訊息「<b>完全相符</b>」任一關鍵字時，自動回覆右邊內容（沒命中不出聲）。<br>
+        一列 = <b>左邊多個關鍵字</b>（每行一個，多種說法都會觸發）→ <b>右邊一則回覆</b>。
+      </div>
+      <div style="display:flex; gap:8px; font-size:11px; font-weight:800; color:var(--text-muted); padding:0 4px 4px;">
+        <div style="flex:1;">關鍵字（每行一個）</div>
+        <div style="flex:1.5;">回覆內容</div>
+        <div style="width:32px;"></div>
+      </div>
+      <div id="kwGrid"></div>
+      <button onclick="addKwRow()" style="width:100%; margin-top:4px; padding:10px; background:#eef4ff; color:var(--primary); border:1.5px dashed var(--primary); border-radius:10px; font-size:13px; font-weight:700; cursor:pointer;">＋ 新增一列</button>
+      <button class="save-btn" style="margin-top:10px;" onclick="saveLineKeywords()">💾 儲存關鍵字</button>
+    </div>
+    <div id="itemChangelog">
+      <div class="card-title" style="padding:16px 0 8px;">📋 更新日誌</div>
+      <div class="menu-list" style="margin-bottom:16px;">
+        <div class="menu-item" onclick="openChangelogModal()">
+          <div class="menu-item-icon" style="background:#f3e8ff;">📋</div>
+          <div class="menu-item-text">
+            <div class="menu-item-title">系統更新紀錄</div>
+            <div class="menu-item-sub">查看歷次功能更新與修正內容</div>
+          </div>
+          <div class="menu-item-arrow">›</div>
+        </div>
       </div>
     </div>
   </div>
@@ -449,10 +460,16 @@ window.onload = async () => {
     `${currentUser.displayName || currentUser.empName || ''}<br>${PERM_LABELS[currentUser.permission] || ''} · ${currentUser.store || ''}`;
 
   // 依權限顯示區塊
-  if(canAdmin())   { document.getElementById('sectionSysConfig').style.display  = 'block'; loadLineKeywords(); loadMaintenanceState(); loadClockConfig(); }
-  if(canOwner())   document.getElementById('sectionHoliday').style.display   = 'block';
-  if(canOwner())   document.getElementById('sectionInsurance').style.display  = 'block';
-  if(canManager()) document.getElementById('sectionStoreConfig').style.display = 'block';
+  const showEl=(id,ok)=>{const el=document.getElementById(id);if(el)el.style.display=ok?'block':'none';};
+  // 各設定項依權限顯示（分類分組）
+  showEl('itemClock', canAdmin()); showEl('itemStoreMgmt', canAdmin()); showEl('itemMaint', canAdmin()); showEl('itemLineKw', canAdmin());
+  showEl('itemShift', canManager());
+  showEl('itemInsurance', canOwner()); showEl('itemHoliday', canOwner());
+  showEl('itemChangelog', true);
+  if(canAdmin()){ loadLineKeywords(); loadMaintenanceState(); loadClockConfig(); }
+  // 群組標題：該類任一項可見才顯示整組
+  [['grpOps',['itemClock','itemShift','itemStoreMgmt']],['grpPayLaw',['itemInsurance','itemHoliday']],['grpSystem',['itemMaint','itemLineKw','itemChangelog']]]
+    .forEach(([g,items])=>{ const any=items.some(id=>{const el=document.getElementById(id);return el&&el.style.display!=='none';}); showEl(g,any); });
 
   hideLoading();
 };
