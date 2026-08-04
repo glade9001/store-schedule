@@ -1853,7 +1853,14 @@ async function checkSalaryAck(){
     const myStore=currentUser.store;
     const stores=[myStore, ...((appConfig.stores||[]).filter(s=>s&&s!==myStore))].filter(Boolean);
     const pending=[];
+    const _now=new Date();
+    const _nowYM=`${_now.getFullYear()}-${String(_now.getMonth()+1).padStart(2,'0')}`;
+    const _nowDay=_now.getDate();
     for(const ym of _ackMonthsFromStart()){
+      // 5 號發薪：ym 月薪資於「次月 5 號」才發，發薪日前(4號含)不提醒簽收
+      const [_yy,_mm]=ym.split('-').map(Number);
+      const _payYM=_mm===12?`${_yy+1}-01`:`${_yy}-${String(_mm+1).padStart(2,'0')}`;
+      if(_payYM===_nowYM && _nowDay<=4) continue;
       // 找本人在該月「已發布」的薪資記錄（先本店，找到就停）
       let rec=null;
       for(const st of stores){

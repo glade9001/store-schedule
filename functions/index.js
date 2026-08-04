@@ -913,12 +913,17 @@ exports.scheduledSalaryAckReminder = onSchedule(
       } }
     if (!months.length) return;
     const NOW = Date.now();
+    const nowDay = new Date(Date.now() + 8 * 3600000).getUTCDate(); // 台北日
     const bindSnap = await db.collection("lineBindings").get();
     for (const bd of bindSnap.docs) {
       const b = bd.data();
       if (!b.uid || !b.empName || !b.lineUserId || !b.store) continue;
       const disp = b.displayName || b.empName;
       for (const ym of months) {
+        // 5 號發薪：ym 月薪資於「次月 5 號」才發，發薪日前(4號含)不提醒簽收
+        const [yy, mm2] = ym.split("-").map(Number);
+        const payYM = mm2 === 12 ? `${yy + 1}-01` : `${yy}-${String(mm2 + 1).padStart(2, "0")}`;
+        if (payYM === nowYM && nowDay <= 4) continue;
         const salSnap = await db.collection("stores").doc(b.store).collection("salary").doc(ym).get().catch(() => null);
         if (!salSnap || !salSnap.exists) continue;
         const sd = salSnap.data();
@@ -1097,15 +1102,30 @@ exports.onPnlSubmitted = onDocumentWritten(
 );
 
 // 每日 09:00：當期(上個月)未輸入且今天≥7號 → 提醒該店店長，直到完成為止
+// 經營績效發送日推算：從1號起數工作日(跳週六日+國定假日)，第3個工作天的「隔一個日曆天」= 發送日(當月起才提醒)
+async function pnlSendDay(db, year, month) {
+  const hs = await db.collection("settings").doc("holidays").collection("years").doc(String(year)).get().catch(() => null);
+  const holidays = (hs && hs.exists && hs.data().dates) ? hs.data().dates : {};
+  let count = 0;
+  for (let day = 1; day <= 40; day++) {
+    const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const dow = new Date(Date.UTC(year, month - 1, day)).getUTCDay(); // 0=日..6=六
+    if (dow === 0 || dow === 6 || holidays[dateStr]) continue; // 週末/國定假日不算工作日
+    count++;
+    if (count === 3) return day + 1; // 第3個工作天的隔一個日曆天
+  }
+  return 4;
+}
 exports.scheduledPnlReminder = onSchedule(
   { schedule: "0 9 * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN] },
   async () => {
     const now = new Date(Date.now() + 8 * 3600000); // 台北
-    if(now.getUTCDate() < 7) return; // 7 號起才提醒
+    const db = admin.firestore();
+    const sendDay = await pnlSendDay(db, now.getUTCFullYear(), now.getUTCMonth() + 1);
+    if(now.getUTCDate() < sendDay) return; // 依工作日推算的發送日起才提醒
     const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)); d.setUTCMonth(d.getUTCMonth() - 1);
     const dueMonth = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`; // 上個月
     if(dueMonth < "2025-07") return;
-    const db = admin.firestore();
     const token = LINE_TOKEN.value();
     const stores = await getAllStores(db);
     for(const store of stores){
