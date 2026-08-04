@@ -927,10 +927,18 @@ exports.scheduledSalaryAckReminder = onSchedule(
     const nowDay = new Date(Date.now() + 8 * 3600000).getUTCDate(); // 台北日
     const [rY, rM] = nowYM.split("-").map(Number);
     const remDay = await salaryReminderDay(db, rY, rM); // 本月發薪提醒日(5號或順延)
+    // 離職者：不再發任何 LINE
+    const resignedNames = new Set();
+    const cfgR = await db.collection("settings").doc("globalConfig").get().catch(() => null);
+    for (const st of ((cfgR && cfgR.exists ? cfgR.data().stores : []) || [])) {
+      const es = await db.collection("stores").doc(st).collection("employees").get().catch(() => null);
+      if (es) es.forEach((d) => { if ((d.data() || {}).status === "離職") resignedNames.add(d.id); });
+    }
     const bindSnap = await db.collection("lineBindings").get();
     for (const bd of bindSnap.docs) {
       const b = bd.data();
       if (!b.uid || !b.empName || !b.lineUserId || !b.store) continue;
+      if (resignedNames.has(b.empName)) continue; // 離職者不再提醒
       const disp = b.displayName || b.empName;
       for (const ym of months) {
         // 5 號發薪(遇假日順延)：ym 月薪資於「次月發薪提醒日」才提醒(cron 15:00)，提醒日前不提醒
