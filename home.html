@@ -1725,6 +1725,18 @@ function _ackMonthsFromStart(){
   for(let i=0;i<60;i++){ const ym=`${y}-${String(m).padStart(2,'0')}`; if(ym>=cur) break; out.push(ym); m++; if(m>12){m=1;y++;} }
   return out;
 }
+// 經營績效發送日推算(對齊 functions pnlSendDay)：從1號數工作日(跳週末+國定假日)，第3工作天隔一日曆天=公司提供報表日
+function pnlSendDayClient(year, month, holidays){
+  let count=0;
+  for(let day=1; day<=40; day++){
+    const dateStr=`${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    const dow=new Date(year, month-1, day).getDay(); // 0=日..6=六（本機=台北）
+    if(dow===0||dow===6||holidays[dateStr]) continue;
+    count++;
+    if(count===3) return day+1;
+  }
+  return 4;
+}
 // 經營績效待輸入提醒（店長以上）：本店在 2025/07~上月 有未輸入者 → 顯示橫幅
 async function checkPnlPending(){
   try{
@@ -1735,7 +1747,11 @@ async function checkPnlPending(){
     const d = new Date(now.getFullYear(), now.getMonth(), 1); d.setMonth(d.getMonth()-1); // 上個月
     const months=[]; let cy=d.getFullYear(), cm=d.getMonth()+1;
     while(cy>2025 || (cy===2025 && cm>=7)){ months.push(`${cy}-${String(cm).padStart(2,'0')}`); cm--; if(cm<1){cm=12;cy--;} }
-    if(now.getDate()<4 && months.length) months.shift(); // 上月資料公司 4 號後才發，4 號前先不算
+    // 上月資料在「公司提供報表日的隔天」後才算待輸入(對齊 LINE 排程 provideDay+1)
+    let _holidays={};
+    try{ const hs=await window.db.collection('settings').doc('holidays').collection('years').doc(String(now.getFullYear())).get(); if(hs.exists && hs.data().dates) _holidays=hs.data().dates; }catch(e){}
+    const _provideDay=pnlSendDayClient(now.getFullYear(), now.getMonth()+1, _holidays);
+    if(now.getDate() < _provideDay+1 && months.length) months.shift();
     if(!months.length) return;
     const snap = await window.db.collection('stores').doc(store).collection('pnl').get();
     const have = new Set(); snap.forEach(x=>have.add(x.id));
