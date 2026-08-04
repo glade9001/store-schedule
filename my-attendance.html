@@ -176,6 +176,10 @@ async function load(){
         <span class="meta" style="flex:1;">${r.note?('💬 '+r.note):'<span style="color:#cbd5e1;">（可加備註說明，如忘記打卡實際時間）</span>'}</span>
         <button onclick="editNote('${r._store}','${r.id}')" style="background:#eef2ff;color:#4338ca;border:none;border-radius:6px;padding:3px 9px;font-size:11px;font-weight:800;cursor:pointer;">💬 備註</button>
       </div>`;
+      if(r.otStatus==='pending') html+=`<div class="meta" style="padding:0 0 6px 4px;color:#c0620f;">📝 加班申請待店長審核：${r.otContent||''}</div>`;
+      else if(r.otStatus==='approved') html+=`<div class="meta" style="padding:0 0 6px 4px;color:#137333;font-weight:700;">✅ 加班已核准（計工時）</div>`;
+      else if(r.otStatus==='rejected') html+=`<div class="meta" style="padding:0 0 6px 4px;color:#94a3b8;">❌ 加班未准${r.otReason?'：'+r.otReason:''}（不計工時）</div>`;
+      else if(r.otStatus==='private') html+=`<div class="meta" style="padding:0 0 6px 4px;color:#64748b;">🅿️ 到場／私事・不計工時</div>`;
     });
     html+=`</div>`;
   });

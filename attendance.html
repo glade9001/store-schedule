@@ -303,7 +303,32 @@ function punchRow(r, showEmp){
   </div>`;
   if(r.note) h+=`<div class="meta" style="padding:0 0 6px 4px;">💬 ${r.note}${r.noteBy?`（${r.noteBy}）`:''}</div>`;
   if(r.editReason||r.voidReason) h+=`<div class="meta" style="padding:0 0 6px 4px;color:#8a5cf6;">✏️ ${voided?'註銷':'修改'}原因：${r.voidReason||r.editReason}${(r.voidedBy||r.editedBy)?`（${r.voidedBy||r.editedBy}）`:''}${(r.origTs&&!voided)?` · 原時間 ${fmtT(r.origTs)}`:''}</div>`;
+  if(!voided && r.otStatus){
+    if(r.otStatus==='pending') h+=`<div style="padding:2px 0 8px 4px;font-size:12px;color:#c0620f;line-height:1.6;">📝 加班申請待審：<b>${r.otContent||'—'}</b> <button onclick="approveOt('${r.id}')" style="background:#e6f4ea;color:#137333;border:none;border-radius:8px;padding:4px 10px;font-weight:800;font-size:11px;cursor:pointer;margin-left:4px;">✔同意</button><button onclick="rejectOt('${r.id}')" style="background:#fce8e6;color:#c5221f;border:none;border-radius:8px;padding:4px 10px;font-weight:800;font-size:11px;cursor:pointer;margin-left:4px;">✕否</button></div>`;
+    else if(r.otStatus==='approved') h+=`<div class="meta" style="padding:0 0 6px 4px;color:#137333;font-weight:700;">✅ 加班已核准（計工時）${r.otContent?'：'+r.otContent:''}</div>`;
+    else if(r.otStatus==='rejected') h+=`<div class="meta" style="padding:0 0 6px 4px;color:#94a3b8;">❌ 加班未准${r.otReason?'：'+r.otReason:''}（不計工時）</div>`;
+    else if(r.otStatus==='private') h+=`<div class="meta" style="padding:0 0 6px 4px;color:#64748b;">🅿️ 到場／私事・不計工時</div>`;
+  }
   return h;
+}
+async function approveOt(id){
+  if(!confirm('同意這筆加班？\n（會計入有效工時，並請記得到排班表調整班別）')) return;
+  showLoading('處理中…');
+  try{
+    await window.db.collection('stores').doc(curStore).collection('attendance').doc(id)
+      .set({ otStatus:'approved', otReviewedBy:(currentUser.empName||''), otReviewedAt:new Date().toISOString() },{merge:true});
+    hideLoading(); alert('✅ 已核准加班，請記得到排班表調整班別'); await load();
+  }catch(e){ hideLoading(); alert('失敗：'+e.message); }
+}
+async function rejectOt(id){
+  const reason=prompt('未准原因（會存檔，員工可在「我的出勤」看到）：\n例：非必要加班／未事先報備／時段誤打','');
+  if(reason===null) return;
+  showLoading('處理中…');
+  try{
+    await window.db.collection('stores').doc(curStore).collection('attendance').doc(id)
+      .set({ otStatus:'rejected', otReason:reason, otReviewedBy:(currentUser.empName||''), otReviewedAt:new Date().toISOString() },{merge:true});
+    hideLoading(); await load();
+  }catch(e){ hideLoading(); alert('失敗：'+e.message); }
 }
 function calcHours(recs){
   const pts=recs.filter(r=>(r.type==='上班'||r.type==='下班') && r.status!=='缺卡' && !r.voided)
@@ -353,7 +378,7 @@ async function loadDay(){
 async function loadMonth(){
   const list=document.getElementById('list'); list.innerHTML='<div class="empty">載入中…</div>';
   let recs=[]; try{ recs=await fetchMonth(); }catch(e){ list.innerHTML=`<div class="empty">讀取失敗：${e.message}</div>`; return; }
-  const anoms=recs.filter(r=>isAnomRec(r) || (r.source==='offline'&&r.needReview&&!r.voided)).sort((a,b)=>(a.date+(a.deviceTs||'')).localeCompare(b.date+(b.deviceTs||'')));
+  const anoms=recs.filter(r=>isAnomRec(r) || (r.source==='offline'&&r.needReview&&!r.voided) || (r.otStatus==='pending'&&!r.voided)).sort((a,b)=>(a.date+(a.deviceTs||'')).localeCompare(b.date+(b.deviceTs||'')));
   const cnt=t=>anoms.filter(r=>r.status===t).length;
   document.getElementById('sum').innerHTML=`<div class="sumbar">
     <div class="chip"><div class="chip-n" style="color:${anoms.length?'var(--danger)':'var(--text)'}">${anoms.length}</div><div class="chip-l">本月待處理</div></div>

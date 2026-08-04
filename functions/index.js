@@ -1320,6 +1320,11 @@ exports.onClockPunch = onDocumentWritten(
       await notifyStoreManagers(db, atStore, mtext, token);
       if (homeStore && homeStore !== atStore) await notifyStoreManagers(db, homeStore, mtext, token);
     }
+    // 加班申請一律通知店長審核(不受打卡通知開關影響——這是核決流程)
+    if (r.otIntent === "apply") {
+      const dn = r.displayName || r.empName;
+      await notifyStoreManagers(db, atStore, `📝 加班申請待審核\n${dn}（${homeStore}）${r.type} ${hm} @${atStore}\n事由：${r.otContent || "—"}\n請至「出勤管理」審核，同意後記得調整排班表。`, token);
+    }
   }
 );
 
@@ -1553,6 +1558,8 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
   const clientMs = d.clientTime ? Date.parse(d.clientTime) : (typeof d.clientMs === "number" ? d.clientMs : NaN);
   const timeSkewMs = isFinite(clientMs) ? (nowMs - clientMs) : null;
   const deviceInfo = String(d.deviceInfo || "").slice(0, 180);
+  // 加班事前防呆：非排班時段打卡的意向(apply=申請加班待審／private=到場私事不計工時)
+  const otIntent = (d.otIntent === "apply" || d.otIntent === "private") ? d.otIntent : null;
   await attCol.add({
     empName, displayName: info.displayName, date: ds, weekday: dayName, type, atStore, homeStore,
     lat, lng, accuracy: (typeof d.accuracy === "number" ? d.accuracy : null), distanceM,
@@ -1560,6 +1567,8 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
     ts: admin.firestore.FieldValue.serverTimestamp(), tsMs: nowMs, deviceTs, source: "app",
     clientTime: (isFinite(clientMs) ? new Date(clientMs).toISOString() : null), timeSkewMs,
     deviceInfo: deviceInfo || null, punchMethod: (d.punchMethod || "GPS"),
+    otIntent, otContent: otIntent === "apply" ? String(d.otContent || "").slice(0, 300) : "",
+    otStatus: otIntent === "apply" ? "pending" : (otIntent === "private" ? "private" : null),
   });
   return { ok: true, atStore, distanceM, status, lateMin, hm: nowTp.toISOString().slice(11, 16) };
 });

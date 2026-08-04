@@ -64,6 +64,21 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
 </div>
 <div class="wrap" id="wrap"></div>
 <div id="toast"></div>
+<div id="otModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9500;align-items:center;justify-content:center;padding:18px;">
+  <div style="background:#fff;border-radius:16px;max-width:400px;width:100%;padding:20px;">
+    <div style="font-size:17px;font-weight:900;margin-bottom:8px;">⏰ 非排班時段打卡</div>
+    <div id="otMsg" style="font-size:13px;color:#475569;line-height:1.7;margin-bottom:6px;"></div>
+    <div style="font-size:13px;color:#475569;line-height:1.7;margin-bottom:14px;">是否要<b>申請加班</b>？<br>若只是提早到店或處理私事，請選「否」（記為到場，<b>不計工時</b>）。</div>
+    <div id="otContentRow" style="display:none;margin-bottom:12px;">
+      <label style="display:block;font-size:12px;font-weight:700;margin-bottom:5px;">加班內容／事由（必填）</label>
+      <textarea id="otContent" rows="3" placeholder="例：主管交辦盤點、支援出餐尖峰…" style="width:100%;padding:10px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;font-family:inherit;resize:vertical;"></textarea>
+      <div style="font-size:11px;color:#94a3b8;margin-top:6px;line-height:1.5;">送出後需<b>店長審核</b>；同意才計入工時，並請店長調整排班表。</div>
+    </div>
+    <button id="otApplyBtn" onclick="otChooseApply()" style="width:100%;padding:12px;background:var(--primary);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;cursor:pointer;margin-bottom:8px;">📝 我要申請加班</button>
+    <button onclick="otChoosePrivate()" style="width:100%;padding:11px;background:#f1f5f9;color:#334155;border:none;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;margin-bottom:8px;">否，僅到場／私事（不計工時）</button>
+    <button onclick="otCancel()" style="width:100%;padding:9px;background:none;color:#94a3b8;border:none;font-size:13px;font-weight:700;cursor:pointer;">取消打卡</button>
+  </div>
+</div>
 <script>
 let currentUser=null, appConfig={}, geoCfg={}, myGeo=null, atStore='', distanceM=null, todayShifts=[], todayPunches=[], locating=false, isBound=true, carriedOpenIn=null;
 let serverOffset=0, clockTimer=null; // 伺服器校時：serverOffset = 伺服器時間 − 本機時間
@@ -248,6 +263,45 @@ function render(){
   tickClock();
 }
 
+// 判斷打卡是否落在「非排班時段」(無排班／上班早>30分／下班晚>30分)
+function offSchedule(type, nowMin, shifts){
+  if(!shifts || !shifts.length) return {off:true, reason:'no-shift'};
+  if(type==='上班'){
+    const minStart=Math.min(...shifts.map(s=>s.start*60));
+    if(nowMin < minStart-30) return {off:true, reason:'early'};
+  }else{
+    const maxEnd=Math.max(...shifts.map(s=>{ let e=s.end*60; if(s.end<=s.start)e+=1440; return e; }));
+    const cur = nowMin < 360 ? nowMin+1440 : nowMin; // 凌晨視為跨日延伸
+    if(cur > maxEnd+30) return {off:true, reason:'late'};
+  }
+  return {off:false};
+}
+// 加班/私事詢問 modal（Promise：回傳 {intent:'apply',content} / {intent:'private'} / null 取消）
+let _otResolve=null;
+function otPrompt(reason){
+  return new Promise(resolve=>{
+    _otResolve=resolve;
+    const msg = reason==='no-shift'?'你目前在此門市沒有排班。'
+      : reason==='early'?'你比排班開始時間提早超過 30 分鐘。'
+      : '你已超過排班結束時間 30 分鐘以上。';
+    document.getElementById('otMsg').textContent='⏰ 目前非排班時段：'+msg;
+    document.getElementById('otContent').value='';
+    document.getElementById('otContentRow').style.display='none';
+    document.getElementById('otApplyBtn').textContent='📝 我要申請加班';
+    document.getElementById('otModal').style.display='flex';
+  });
+}
+function otChooseApply(){
+  const row=document.getElementById('otContentRow');
+  if(row.style.display==='none'){ row.style.display='block'; document.getElementById('otApplyBtn').textContent='送出加班申請'; document.getElementById('otContent').focus(); return; }
+  const c=document.getElementById('otContent').value.trim();
+  if(!c){ toast('請填寫加班內容/事由'); return; }
+  _otDone({intent:'apply', content:c});
+}
+function otChoosePrivate(){ _otDone({intent:'private'}); }
+function otCancel(){ _otDone(null); }
+function _otDone(v){ document.getElementById('otModal').style.display='none'; const r=_otResolve; _otResolve=null; if(r) r(v); }
+
 async function doPunch(type){
   if(!atStore){ toast('不在門市範圍內'); return; }
   // 防抖：同類型 10 分鐘內只成功一次
@@ -269,19 +323,30 @@ async function doPunch(type){
   catch(e){ hideLoading(); toast('定位失敗：'+(e.message||e)); return; }
   myGeo=fg.geo; atStore=fg.store; distanceM=fg.dist;
   if(!atStore){ hideLoading(); render(); toast('目前不在門市範圍內，無法打卡'); return; }
+  // 🌟 加班事前防呆：打卡落在非排班時段(無排班／上班早>30分／下班晚>30分) → 詢問加班或私事
+  let otIntent=null, otContent='';
+  const nd=new Date(serverNowMs()+8*3600000); const nowMin=nd.getUTCHours()*60+nd.getUTCMinutes();
+  const os=offSchedule(type, nowMin, todayShifts);
+  if(os.off){
+    hideLoading();
+    const choice=await otPrompt(os.reason);
+    if(choice===null) return; // 取消
+    otIntent=choice.intent; otContent=choice.content||'';
+  }
   showLoading('打卡中…');
   // 🌟 交由後端 callable 權威判定（伺服器時間＋複驗圍欄＋狀態），前端只送座標
   try{
     const fn=firebase.app().functions('asia-east1').httpsCallable('clockPunch');
     const res=await fn({ lat:myGeo.lat, lng:myGeo.lng, accuracy:myGeo.acc, type,
-      clientTime:new Date().toISOString(), deviceInfo:navigator.userAgent, punchMethod:'GPS' });
+      clientTime:new Date().toISOString(), deviceInfo:navigator.userAgent, punchMethod:'GPS', otIntent, otContent });
     const r=res.data||{};
     hideLoading();
     const msg = r.status==='遲到'?`⚠️ ${type}打卡成功（遲到 ${r.lateMin} 分）`
       : r.status==='早退'?`⚠️ ${type}打卡成功（早退）`
       : r.status==='警告'?`${type}打卡成功（遲到 ${r.lateMin} 分，容許內）`
       : `✅ ${type}打卡成功`;
-    toast(`${msg}　${r.hm||''} @${r.atStore||atStore}`);
+    const otTail = otIntent==='apply'?'\n📝 已送出加班申請，待店長審核（同意才計工時）':otIntent==='private'?'\n🅿️ 已記為到場・不計工時':'';
+    toast(`${msg}　${r.hm||''} @${r.atStore||atStore}${otTail}`);
     await loadToday(); render();
   }catch(e){
     hideLoading();
