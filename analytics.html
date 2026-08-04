@@ -1363,7 +1363,7 @@ function renderOtTab(){
     const color = storeColors[r.emp.store];
     return `<tr>
       <td><span class="store-badge" style="background:${color};">${r.emp.store}</span></td>
-      <td><strong>${r.emp.name}</strong></td>
+      <td><strong>${dispName(r.emp.name)}</strong></td>
       <td>${r.emp.role||'--'}</td>
       <td class="num">${r.totOtH}h</td>
       <td class="num">$${comma(r.totOtAmt)}</td>
@@ -1381,7 +1381,7 @@ function renderOtTab(){
       return `<div class="m-card">
         <div class="m-card-hd">
           <span class="store-badge" style="background:${color};">${r.emp.store}</span>
-          <strong style="font-size:13px;">${r.emp.name}</strong>
+          <strong style="font-size:13px;">${dispName(r.emp.name)}</strong>
           <span style="font-size:11px;color:var(--text-muted);">${r.emp.role||'--'}</span>
         </div>
         <div class="m-card-main">$${comma(r.total)}</div>
@@ -1532,7 +1532,7 @@ function renderHourlyTab(){
         const color = storeColors[r.emp.store];
         return `<tr>
           <td><span class="store-badge" style="background:${color};">${r.emp.store}</span></td>
-          <td><strong>${r.emp.name}</strong></td>
+          <td><strong>${dispName(r.emp.name)}</strong></td>
           <td>${r.emp.role||'--'}${r.isPart?'<span style="color:#e67e22;font-size:11px;"> (工讀計)</span>':''}</td>
           <td class="num">${r.isPart?'—':'$'+comma(r.base)}</td>
           <td class="num">${r.isPart?'—':'$'+comma(r.fullAttend)}</td>
@@ -1570,7 +1570,7 @@ function renderHourlyTab(){
         const tc = storeColors[r.toStore]||'#888';
         return `<tr>
           <td>${r.ym.replace(/^(\d+)-0?(\d+)$/,'$1年$2月')}</td>
-          <td><strong>${r.empName}</strong><br><span style="font-size:10px;color:var(--text-muted);">${r.role}</span></td>
+          <td><strong>${dispName(r.empName)}</strong><br><span style="font-size:10px;color:var(--text-muted);">${r.role}</span></td>
           <td><span class="store-badge" style="background:${fc};">${r.fromStore}</span></td>
           <td><span class="store-badge" style="background:${tc};">${r.toStore}</span></td>
           <td class="num">${r.hours}h</td>
@@ -1708,11 +1708,11 @@ window.showCostDetail = function(store, ym, type) {
     total = d.erDetails.reduce((s,r)=>s+r.er,0);
   } else if(type==='in'){
     title = '被支援費用明細';
-    rows = d.inDetails.map(r=>`<div class="detail-row"><div><span>${r.empName}</span><span class="detail-row-label" style="margin-left:6px;">來自 ${r.fromStore}</span></div><div style="text-align:right;"><div style="font-size:11px;color:var(--text-muted);">$${comma(r.hrRate)}/h × ${r.hours}h</div><div>$${comma(r.amt)}</div></div></div>`);
+    rows = d.inDetails.map(r=>`<div class="detail-row"><div><span>${dispName(r.empName)}</span><span class="detail-row-label" style="margin-left:6px;">來自 ${r.fromStore}</span></div><div style="text-align:right;"><div style="font-size:11px;color:var(--text-muted);">$${comma(r.hrRate)}/h × ${r.hours}h</div><div>$${comma(r.amt)}</div></div></div>`);
     total = d.inDetails.reduce((s,r)=>s+r.amt,0);
   } else if(type==='out'){
     title = '支援別人明細';
-    rows = d.outDetails.map(r=>`<div class="detail-row"><div><span>${r.empName}</span><span class="detail-row-label" style="margin-left:6px;">→ ${r.toStore}</span></div><div style="text-align:right;"><div style="font-size:11px;color:var(--text-muted);">$${comma(r.hrRate)}/h × ${r.hours}h</div><div>$${comma(r.amt)}</div></div></div>`);
+    rows = d.outDetails.map(r=>`<div class="detail-row"><div><span>${dispName(r.empName)}</span><span class="detail-row-label" style="margin-left:6px;">→ ${r.toStore}</span></div><div style="text-align:right;"><div style="font-size:11px;color:var(--text-muted);">$${comma(r.hrRate)}/h × ${r.hours}h</div><div>$${comma(r.amt)}</div></div></div>`);
     total = d.outDetails.reduce((s,r)=>s+r.amt,0);
   }
 
