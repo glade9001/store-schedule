@@ -330,12 +330,22 @@ async function rejectOt(id){
     hideLoading(); await load();
   }catch(e){ hideLoading(); alert('失敗：'+e.message); }
 }
+// 有效工時：以排班時數為基準(超時封頂)、核准加班才加、到場/私事不計；跨日自動接續
+function schedHours(sh){ const m=String(sh||'').match(/^(\d{1,2})-(\d{1,2})$/); if(!m)return 0; let a=+m[1],b=+m[2]; if(b<=a)b+=24; return b-a; }
 function calcHours(recs){
   const pts=recs.filter(r=>(r.type==='上班'||r.type==='下班') && r.status!=='缺卡' && !r.voided)
-    .map(r=>({type:r.type,t:(typeof r.tsMs==='number'?r.tsMs:Date.parse(r.deviceTs||r.date||''))}))
+    .map(r=>({type:r.type,t:(typeof r.tsMs==='number'?r.tsMs:Date.parse(r.deviceTs||r.date||'')),shift:r.shift||'',ot:r.otStatus||null}))
     .filter(r=>isFinite(r.t)).sort((a,b)=>a.t-b.t);
-  let ms=0,open=null; pts.forEach(p=>{ if(p.type==='上班')open=p.t; else if(open!=null){ if(p.t>open)ms+=p.t-open; open=null; } });
-  return ms/3600000;
+  let hours=0,open=null;
+  pts.forEach(p=>{
+    if(p.type==='上班')open=p;
+    else if(open){
+      const actual=(p.t-open.t)/3600000;
+      if(actual>0){ const otA=open.ot==='approved'||p.ot==='approved'; const sc=schedHours(open.shift||p.shift); hours+= sc>0?(otA?actual:Math.min(actual,sc)):(otA?actual:0); }
+      open=null;
+    }
+  });
+  return hours;
 }
 function dayHdr(dt){ const [y,m,d]=dt.split('-'); const wd=['日','一','二','三','四','五','六'][new Date(+y,+m-1,+d).getDay()]; return `${+m}/${+d}（${wd}）`; }
 async function fetchMonth(){ // 讀當月整店打卡
