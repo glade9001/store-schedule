@@ -1491,7 +1491,6 @@ function triggerAutoSave() {
 // （B 店支援/審核透過交易寫 supportEmp 到本店待補格；A 店整包存檔不可把它蓋回舊值）
 async function saveWeekRecordsMerged(store, weekStr, localRecords, extra) {
   const docRef = window.db.collection('stores').doc(store).collection('weeks').doc(weekStr);
-  const rank = r => ((r && r.approvalStatus === 'approved') ? 2 : ((r && r.supportEmp) ? 1 : 0)); // 開放<待審<已成立
   try {
     await window.db.runTransaction(async (tx) => {
       const snap = await tx.get(docRef);
@@ -1499,8 +1498,11 @@ async function saveWeekRecordsMerged(store, weekStr, localRecords, extra) {
       const merged = (localRecords || []).map(r => {
         if(!String(r.name || '').startsWith('🆘待補')) return r; // 只保護待補格
         const d = dbRecs.find(x => x.name === r.name && x.day === r.day);
-        // DB 的跨店狀態較新(別店剛支援/同意) → 保留 DB 的 supportEmp/approvalStatus/claimedBy，不讓本次存檔倒退
-        if(d && rank(d) > rank(r)) return { ...r, supportEmp: d.supportEmp || '', approvalStatus: d.approvalStatus || '', claimedBy: d.claimedBy || '' };
+        if(!d) return r;
+        // 以 supportUpdatedAt 判新舊：DB 的跨店異動較新(別店剛支援/同意) → 保留 DB，不讓過時存檔倒退；
+        // 但本地較新(含店長刻意「取消支援/改成無」) → 採用本地，讓取消能生效。無時間戳(舊資料)→採用本地。
+        const dt = d.supportUpdatedAt || '', rt = r.supportUpdatedAt || '';
+        if(dt && dt > rt) return { ...r, supportEmp: d.supportEmp || '', approvalStatus: d.approvalStatus || '', claimedBy: d.claimedBy || '', supportUpdatedAt: dt };
         return r;
       });
       tx.set(docRef, { records: merged, ...(extra || {}) }, { merge: true });
@@ -3214,6 +3216,8 @@ async function applyShift() {
     currentCell.dataset.approval = (_newSupport && _newSupport===_prevSupport && _prevApproval==='approved')
       ? 'approved'
       : (_newSupport ? 'pending' : '');
+    // 支援指派/取消有變動 → 蓋時間戳，讓合併存檔知道這是「較新的刻意異動」(含取消改成無)，不被 DB 舊值倒退
+    if(_newSupport !== _prevSupport) currentCell.dataset.supportat = new Date().toISOString();
   } else {
     currentCell.dataset.loc=document.getElementById('modalLocation').value;
     if(document.getElementById('clearReqWrap').style.display!=='none' && document.getElementById('clearReqCheck').checked) {
@@ -3353,7 +3357,7 @@ function applyPaintToCell(btn, eIdx) {
   // 局部更新記憶體
   const week=document.getElementById('weekSelector').value;
   const idx=appData.records.findIndex(r=>r.name===btn.dataset.emp&&r.day===btn.dataset.day&&r.week===week);
-  const data={ week, day:btn.dataset.day, name:btn.dataset.emp, shift:btn.dataset.shift||'', location:btn.dataset.loc||'本店', note:btn.dataset.note||'', actualHours:parseFloat(btn.dataset.hours||0), isOT:btn.dataset.ot==='true', isHourly:btn.dataset.hourly==='true', supportEmp:btn.dataset.support||'', approvalStatus:btn.dataset.approval||'', requestOff:btn.dataset.reqoff==='true', lawOverrides: btn.dataset.lawoverrides ? JSON.parse(btn.dataset.lawoverrides) : [] };
+  const data={ week, day:btn.dataset.day, name:btn.dataset.emp, shift:btn.dataset.shift||'', location:btn.dataset.loc||'本店', note:btn.dataset.note||'', actualHours:parseFloat(btn.dataset.hours||0), isOT:btn.dataset.ot==='true', isHourly:btn.dataset.hourly==='true', supportEmp:btn.dataset.support||'', approvalStatus:btn.dataset.approval||'', supportUpdatedAt:btn.dataset.supportat||'', requestOff:btn.dataset.reqoff==='true', lawOverrides: btn.dataset.lawoverrides ? JSON.parse(btn.dataset.lawoverrides) : [] };
   const hasData=btn.dataset.shift||btn.dataset.note||btn.dataset.ot==='true'||btn.dataset.support||btn.dataset.reqoff==='true';
   if(hasData) { if(idx!==-1) appData.records[idx]=data; else appData.records.push(data); }
   else { if(idx!==-1) appData.records.splice(idx,1); }
@@ -3604,7 +3608,7 @@ function syncUIToMemory() {
     // ✅ 以「格子自己的週」為準（非全域 selector），避免換週瞬間把畫面資料標成新週而覆蓋他週
     const week=btn.dataset.week||selWeek;
     const idx=appData.records.findIndex(r=>r.name===btn.dataset.emp&&r.day===btn.dataset.day&&r.week===week);
-    const data={ week, day:btn.dataset.day, name:btn.dataset.emp, shift:btn.dataset.shift||'', location:btn.dataset.loc||'本店', note:btn.dataset.note||'', actualHours:parseFloat(btn.dataset.hours||0), isOT:btn.dataset.ot==='true', isHourly:btn.dataset.hourly==='true', supportEmp:btn.dataset.support||'', approvalStatus:btn.dataset.approval||'', requestOff:btn.dataset.reqoff==='true', lawOverrides: btn.dataset.lawoverrides ? JSON.parse(btn.dataset.lawoverrides) : [] };
+    const data={ week, day:btn.dataset.day, name:btn.dataset.emp, shift:btn.dataset.shift||'', location:btn.dataset.loc||'本店', note:btn.dataset.note||'', actualHours:parseFloat(btn.dataset.hours||0), isOT:btn.dataset.ot==='true', isHourly:btn.dataset.hourly==='true', supportEmp:btn.dataset.support||'', approvalStatus:btn.dataset.approval||'', supportUpdatedAt:btn.dataset.supportat||'', requestOff:btn.dataset.reqoff==='true', lawOverrides: btn.dataset.lawoverrides ? JSON.parse(btn.dataset.lawoverrides) : [] };
     const hasData=btn.dataset.shift||btn.dataset.note||btn.dataset.ot==='true'||btn.dataset.support||btn.dataset.reqoff==='true';
     if(hasData) { if(idx!==-1) appData.records[idx]=data; else appData.records.push(data); }
     else { if(idx!==-1) appData.records.splice(idx,1); }
@@ -3815,6 +3819,7 @@ async function confirmClaimGap() {
       records[idx].supportEmp = `${fromStore}-${emp}`;
       records[idx].approvalStatus = 'approved';
       records[idx].claimedBy = fromStore; // 供 onSupportRequest 發「已被支援」通知給缺工店
+      records[idx].supportUpdatedAt = new Date().toISOString(); // 跨店異動時間戳，供合併存檔判新舊
       tx.update(docRef,{ records });
       claimed=true;
     });
