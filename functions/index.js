@@ -1502,55 +1502,60 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
     const lastIn = Math.max(0, ...punches.filter((p) => p.type === "上班").map((p) => p.tsMs || 0));
     if (lastIn && (nowMs - lastIn) < 5 * 60000) throw new HttpsError("failed-precondition", "上班後 5 分鐘內不能打下班");
   }
-  // 今日班別(本店/支援)
+  // 排班候選(昨/今/明三天，換算絕對時間) → 依排班表、跨日、視窗比對，並決定歸班日 shiftDate
   const wk = simpleWeekStr(nowTp);
   const dayName = WEEK_DAYS[(nowTp.getUTCDay() + 6) % 7];
   const wd = await db.collection("stores").doc(atStore).collection("weeks").doc(wk).get();
-  const shifts = [];
-  if (wd.exists) (wd.data().records || []).forEach((r) => {
-    if (r.day !== dayName) return;
-    const mine = (r.name === empName) || (r.supportEmp === `${homeStore}-${empName}` && r.approvalStatus === "approved");
-    if (!mine) return;
-    const m = String(r.shift || "").match(/^(\d{1,2})-(\d{1,2})$/);
-    if (m) shifts.push({ shift: r.shift, start: +m[1], end: +m[2] });
-  });
+  const dayShifts = async (tpDate) => {
+    const wkk = simpleWeekStr(tpDate);
+    const dn = WEEK_DAYS[(tpDate.getUTCDay() + 6) % 7];
+    const dss = tpDate.toISOString().slice(0, 10);
+    const wdd = (wkk === wk) ? wd : await db.collection("stores").doc(atStore).collection("weeks").doc(wkk).get().catch(() => null);
+    const out = [];
+    if (wdd && wdd.exists) (wdd.data().records || []).forEach((r) => {
+      if (r.day !== dn) return;
+      const mine = (r.name === empName) || (r.supportEmp === `${homeStore}-${empName}` && r.approvalStatus === "approved");
+      if (!mine) return;
+      const m = String(r.shift || "").match(/^(\d{1,2})-(\d{1,2})$/);
+      if (!m) return;
+      const a = +m[1], b = +m[2], dur = (b <= a ? b + 24 : b) - a;
+      const startMs = Date.parse(`${dss}T${String(a).padStart(2, "0")}:00:00+08:00`);
+      out.push({ shift: r.shift, shiftDate: dss, startMs, endMs: startMs + dur * 3600000 });
+    });
+    return out;
+  };
+  const cand = [...await dayShifts(new Date(nowMs + 8 * 3600000 - 86400000)), ...await dayShifts(nowTp), ...await dayShifts(new Date(nowMs + 8 * 3600000 + 86400000))];
   const tol = (clk.tolByStore && clk.tolByStore[atStore] != null) ? clk.tolByStore[atStore]
             : (clk.lateToleranceMin != null ? clk.lateToleranceMin : 10);
-  let status = "正常", lateMin = 0, matchedShift = "";
-  // 跨日夜班：下班若屬「昨天的懸空夜班」(下班落在今天凌晨)，優先用昨天夜班判定，避免拿今天班表誤判早退
-  let night = null;
-  if (type === "下班") {
-    const yTp = new Date(nowMs + 8 * 3600000 - 86400000);
-    const dsY = yTp.toISOString().slice(0, 10);
-    const yName = WEEK_DAYS[(yTp.getUTCDay() + 6) % 7];
-    const wkY = simpleWeekStr(yTp);
-    const ySnap = await attCol.where("date", "==", dsY).where("empName", "==", empName).get();
-    let yin = 0, yout = 0; ySnap.forEach((x) => { const p = x.data(); if (p.type === "上班") yin++; else if (p.type === "下班") yout++; });
-    if (yin > yout) { // 昨天有未配對的上班
-      const wdY = (wkY === wk) ? wd : await db.collection("stores").doc(atStore).collection("weeks").doc(wkY).get();
-      if (wdY.exists) (wdY.data().records || []).forEach((r) => {
-        if (r.day !== yName) return;
-        const mine = (r.name === empName) || (r.supportEmp === `${homeStore}-${empName}` && r.approvalStatus === "approved");
-        if (!mine) return;
-        const m = String(r.shift || "").match(/^(\d{1,2})-(\d{1,2})$/);
-        if (m && +m[2] <= +m[1]) night = { shift: r.shift, end: +m[2] }; // 跨日班(end<=start)
-      });
+  let status = "正常", lateMin = 0, matchedShift = "", shiftDate = ds;
+  if (type === "上班") {
+    // 視窗：排班起點前 1 小時 ~ 後 4 小時，取最近的班
+    const win = cand.filter((c) => nowMs >= c.startMs - 3600000 && nowMs <= c.startMs + 4 * 3600000);
+    if (win.length) {
+      win.sort((x, y) => Math.abs(nowMs - x.startMs) - Math.abs(nowMs - y.startMs));
+      const s = win[0]; matchedShift = s.shift; shiftDate = s.shiftDate;
+      const late = Math.round((nowMs - s.startMs) / 60000);
+      if (late > tol) { status = "遲到"; lateMin = late; } else if (late > 0) { status = "警告"; lateMin = late; }
+    } else { status = "到場"; }
+  } else { // 下班：優先配對「最近的未配對上班」→ 歸同一班(shiftDate)、以其排班結束判早退
+    let openIn = null;
+    const dsY = new Date(nowMs + 8 * 3600000 - 86400000).toISOString().slice(0, 10);
+    for (const dd of [ds, dsY]) {
+      const sn = await attCol.where("date", "==", dd).where("empName", "==", empName).get();
+      const ps = []; sn.forEach((x) => ps.push(x.data()));
+      const ins = ps.filter((p) => p.type === "上班").sort((a, b) => (b.tsMs || 0) - (a.tsMs || 0));
+      if (ins.length > ps.filter((p) => p.type === "下班").length) { openIn = ins[0]; break; }
     }
-  }
-  if (night) {
-    matchedShift = night.shift;
-    const endMin = night.end * 60 + 1440, cur = nowMin + 1440; // 下班在隔天(今天)的時間軸
-    if (cur < endMin) status = "早退";
-  } else if (!shifts.length) {
-    status = "到場"; // 無排班的打卡 → 自動歸類「到場」(未來薪資整併分類用)，仍是上班/下班
-  } else if (type === "上班") {
-    let best = null; shifts.forEach((s) => { const dd = Math.abs(s.start * 60 - nowMin); if (!best || dd < best.d) best = { s, d: dd }; });
-    const s = best.s; matchedShift = s.shift; const late = nowMin - s.start * 60;
-    if (late > tol) { status = "遲到"; lateMin = late; } else if (late > 0) { status = "警告"; lateMin = late; }
-  } else if (type === "下班") {
-    let best = null; shifts.forEach((s) => { let e = s.end * 60; if (s.end <= s.start) e += 1440; const dd = Math.abs(e - nowMin); if (!best || dd < best.d) best = { s, d: dd }; });
-    const s = best.s; matchedShift = s.shift; let endMin = s.end * 60; if (s.end <= s.start) endMin += 1440; let cur = nowMin; if (s.end <= s.start && nowTp.getUTCHours() < s.start) cur += 1440;
-    if (cur < endMin) status = "早退";
+    if (openIn) {
+      shiftDate = openIn.shiftDate || openIn.date || ds;
+      matchedShift = openIn.shift || "";
+      if (!matchedShift) { status = "到場"; }
+      else { const s = cand.find((c) => c.shift === matchedShift && c.shiftDate === shiftDate); if (s && nowMs < s.endMs) status = "早退"; }
+    } else {
+      const win = cand.filter((c) => nowMs >= c.endMs - 4 * 3600000 && nowMs <= c.endMs + 3600000);
+      if (win.length) { win.sort((x, y) => Math.abs(nowMs - x.endMs) - Math.abs(nowMs - y.endMs)); const s = win[0]; matchedShift = s.shift; shiftDate = s.shiftDate; if (nowMs < s.endMs) status = "早退"; }
+      else { status = "到場"; }
+    }
   }
   const info = await resolveEmpInfo(db, empName);
   const deviceTs = new Date(nowMs).toISOString();
@@ -1561,7 +1566,7 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
   // 加班事前防呆：非排班時段打卡的意向(apply=申請加班待審／private=到場私事不計工時)
   const otIntent = (d.otIntent === "apply" || d.otIntent === "private") ? d.otIntent : null;
   await attCol.add({
-    empName, displayName: info.displayName, date: ds, weekday: dayName, type, atStore, homeStore,
+    empName, displayName: info.displayName, date: ds, shiftDate, weekday: dayName, type, atStore, homeStore,
     lat, lng, accuracy: (typeof d.accuracy === "number" ? d.accuracy : null), distanceM,
     shift: matchedShift, status, lateMin,
     ts: admin.firestore.FieldValue.serverTimestamp(), tsMs: nowMs, deviceTs, source: "app",

@@ -122,9 +122,10 @@ function renderBar(){
   const dateCtrl = viewMode==='day'
     ? `<input type="date" id="dateSel" value="${curDate}" onchange="curDate=this.value;load();">`
     : `<input type="month" id="monthSel" value="${curDate.slice(0,7)}" onchange="curDate=this.value+'-01';load();">`;
-  const empCtrl = viewMode==='emp'
-    ? `<select id="empSel" onchange="curEmp=this.value;load();">${(storeEmps.length?storeEmps:[curEmp]).map(e=>`<option value="${e}"${e===curEmp?' selected':''}>${e||'（載入中）'}</option>`).join('')}</select>`
-    : '';
+  const empOpts = storeEmps.length
+    ? storeEmps.map(e=>`<option value="${e.name}"${e.name===curEmp?' selected':''}>${e.dn}</option>`).join('')
+    : `<option>${curEmp||'（載入中）'}</option>`;
+  const empCtrl = viewMode==='emp' ? `<select id="empSel" onchange="curEmp=this.value;load();">${empOpts}</select>` : '';
   const mbtn=(m,l)=>`<button onclick="setMode('${m}')" style="flex:1;padding:8px 4px;border:1.5px solid ${viewMode===m?'var(--primary)':'var(--border)'};background:${viewMode===m?'var(--primary)':'#fff'};color:${viewMode===m?'#fff':'var(--text)'};border-radius:9px;font-size:12.5px;font-weight:800;cursor:pointer;">${l}</button>`;
   const tolVal = tolOf(curStore);
   const settings = viewMode==='day' ? `
@@ -148,14 +149,16 @@ function renderBar(){
 }
 async function setMode(m){
   viewMode=m;
-  if(m==='emp'){ if(!storeEmps.length) await loadStoreEmps(); if(!curEmp) curEmp=storeEmps[0]||''; }
+  if(m==='emp'){ if(!storeEmps.length) await loadStoreEmps(); if(!curEmp) curEmp=(storeEmps[0]&&storeEmps[0].name)||''; }
   renderBar(); load();
 }
 async function loadStoreEmps(){
   try{ const s=await window.db.collection('stores').doc(curStore).collection('employees').get();
-    storeEmps=[]; s.forEach(d=>{ const e=d.data()||{}; if(e.status!=='離職'&&e.status!=='調走') storeEmps.push(d.id); }); storeEmps.sort();
+    storeEmps=[]; s.forEach(d=>{ const e=d.data()||{}; if(e.status!=='離職'&&e.status!=='調走') storeEmps.push({name:d.id, dn:e.displayName||d.id}); });
+    storeEmps.sort((a,b)=>a.dn.localeCompare(b.dn,'zh-Hant'));
   }catch(e){ storeEmps=[]; }
 }
+function empDisplay(name){ const e=storeEmps.find(x=>x.name===name); return e?e.dn:name; }
 
 function tolOf(store){ const c=appConfig.clockIn||{}; const t=(c.tolByStore||{})[store]; return t!=null?t:(c.lateToleranceMin!=null?c.lateToleranceMin:10); }
 function notifyOf(store){ const c=appConfig.clockIn||{}; return (c.notifyByStore||{})[store]!==false; }
@@ -348,9 +351,12 @@ function calcHours(recs){
   return hours;
 }
 function dayHdr(dt){ const [y,m,d]=dt.split('-'); const wd=['日','一','二','三','四','五','六'][new Date(+y,+m-1,+d).getDay()]; return `${+m}/${+d}（${wd}）`; }
-async function fetchMonth(){ // 讀當月整店打卡
-  const ym=curDate.slice(0,7);
-  const snap=await window.db.collection('stores').doc(curStore).collection('attendance').where('date','>=',ym+'-01').where('date','<=',ym+'-31').get();
+function addDays(ds,n){ const d=new Date(ds+'T00:00:00'); d.setDate(d.getDate()+n); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+const gd=r=>r.shiftDate||r.date; // 歸班日（跨日夜班下班歸到上班那天）
+async function fetchMonth(){ // 讀當月整店打卡（多讀次月1號以接住月底夜班的隔日下班）
+  const ym=curDate.slice(0,7); const [y,m]=ym.split('-').map(Number);
+  const nextFirst=`${m===12?y+1:y}-${String(m===12?1:m+1).padStart(2,'0')}-01`;
+  const snap=await window.db.collection('stores').doc(curStore).collection('attendance').where('date','>=',ym+'-01').where('date','<=',nextFirst).get();
   const recs=[]; snap.forEach(d=>recs.push({id:d.id,...d.data()})); return recs;
 }
 async function load(){
@@ -364,8 +370,10 @@ async function load(){
 async function loadDay(){
   const list=document.getElementById('list'); if(list) list.innerHTML='<div class="empty">載入中…</div>';
   let recs=[];
-  try{ const snap=await window.db.collection('stores').doc(curStore).collection('attendance').where('date','==',curDate).get(); snap.forEach(d=>recs.push({id:d.id,...d.data()})); }
-  catch(e){ if(list) list.innerHTML=`<div class="empty">讀取失敗：${e.message}</div>`; return; }
+  try{ // 讀當天+隔天，依歸班日(shiftDate)過濾，讓跨日夜班整段顯示在開始日
+    const snap=await window.db.collection('stores').doc(curStore).collection('attendance').where('date','>=',curDate).where('date','<=',addDays(curDate,1)).get();
+    snap.forEach(d=>{ const r={id:d.id,...d.data()}; if(gd(r)===curDate) recs.push(r); });
+  }catch(e){ if(list) list.innerHTML=`<div class="empty">讀取失敗：${e.message}</div>`; return; }
   recs.sort((a,b)=>(a.deviceTs||'').localeCompare(b.deviceTs||''));
   const anomalies=recs.filter(isAnomRec).length, visits=recs.filter(r=>r.status==='到場').length, emps=[...new Set(recs.map(r=>r.empName))];
   document.getElementById('sum').innerHTML=`<div class="sumbar">
@@ -387,8 +395,9 @@ async function loadDay(){
 }
 async function loadMonth(){
   const list=document.getElementById('list'); list.innerHTML='<div class="empty">載入中…</div>';
-  let recs=[]; try{ recs=await fetchMonth(); }catch(e){ list.innerHTML=`<div class="empty">讀取失敗：${e.message}</div>`; return; }
-  const anoms=recs.filter(r=>isAnomRec(r) || (r.source==='offline'&&r.needReview&&!r.voided) || (r.otStatus==='pending'&&!r.voided)).sort((a,b)=>(a.date+(a.deviceTs||'')).localeCompare(b.date+(b.deviceTs||'')));
+  const ym=curDate.slice(0,7);
+  let recs=[]; try{ recs=(await fetchMonth()).filter(r=>String(gd(r)).startsWith(ym)); }catch(e){ list.innerHTML=`<div class="empty">讀取失敗：${e.message}</div>`; return; }
+  const anoms=recs.filter(r=>isAnomRec(r) || (r.source==='offline'&&r.needReview&&!r.voided) || (r.otStatus==='pending'&&!r.voided)).sort((a,b)=>(gd(a)+(a.deviceTs||'')).localeCompare(gd(b)+(b.deviceTs||'')));
   const cnt=t=>anoms.filter(r=>r.status===t).length;
   document.getElementById('sum').innerHTML=`<div class="sumbar">
     <div class="chip"><div class="chip-n" style="color:${anoms.length?'var(--danger)':'var(--text)'}">${anoms.length}</div><div class="chip-l">本月待處理</div></div>
@@ -397,7 +406,7 @@ async function loadMonth(){
     <div class="chip"><div class="chip-n">${cnt('缺卡')}</div><div class="chip-l">缺卡</div></div>
   </div>`;
   if(!anoms.length){ list.innerHTML='<div class="empty">🎉 本月無待處理異常</div>'; return; }
-  const byDate={}; anoms.forEach(r=>{ (byDate[r.date]=byDate[r.date]||[]).push(r); });
+  const byDate={}; anoms.forEach(r=>{ const k=gd(r); (byDate[k]=byDate[k]||[]).push(r); });
   let html='';
   Object.keys(byDate).sort().forEach(dt=>{
     html+=`<div class="card"><div class="emp-name">${dayHdr(dt)}</div>`;
@@ -410,15 +419,16 @@ async function loadEmp(){
   const list=document.getElementById('list');
   if(!curEmp){ document.getElementById('sum').innerHTML=''; list.innerHTML='<div class="empty">請選擇員工</div>'; return; }
   list.innerHTML='<div class="empty">載入中…</div>';
+  const ym=curDate.slice(0,7);
   let all=[]; try{ all=await fetchMonth(); }catch(e){ list.innerHTML=`<div class="empty">讀取失敗：${e.message}</div>`; return; }
-  const recs=all.filter(r=>r.empName===curEmp);
+  const recs=all.filter(r=>r.empName===curEmp && String(gd(r)).startsWith(ym));
   const hours=calcHours(recs), anom=recs.filter(isAnomRec).length;
   document.getElementById('sum').innerHTML=`<div class="sumbar">
     <div class="chip"><div class="chip-n" style="color:#137333">${hours.toFixed(1)}</div><div class="chip-l">本月有效工時(h)</div></div>
     <div class="chip"><div class="chip-n" style="color:${anom?'var(--danger)':'var(--text)'}">${anom}</div><div class="chip-l">異常筆數</div></div>
   </div>`;
   if(!recs.length){ list.innerHTML='<div class="empty">本月無打卡記錄</div>'; return; }
-  const byDate={}; recs.forEach(r=>{ (byDate[r.date]=byDate[r.date]||[]).push(r); });
+  const byDate={}; recs.forEach(r=>{ const k=gd(r); (byDate[k]=byDate[k]||[]).push(r); });
   let html='';
   Object.keys(byDate).sort().forEach(dt=>{
     html+=`<div class="card"><div class="emp-name">${dayHdr(dt)}</div>`;

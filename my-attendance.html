@@ -136,7 +136,7 @@ async function load(){
         window.db.collection('stores').doc(st).collection('attendance').where('empName','==',me).get().catch(()=>null),
         window.db.collection('stores').doc(st).collection('attendanceRequests').where('empName','==',me).get().catch(()=>null)
       ]);
-      if(aSnap) aSnap.forEach(d=>{ const r=d.data(); if(String(r.date||'').startsWith(curMonth)) recs.push({id:d.id,_store:st,...r}); });
+      if(aSnap) aSnap.forEach(d=>{ const r={id:d.id,_store:st,...d.data()}; if(String(r.shiftDate||r.date||'').startsWith(curMonth)) recs.push(r); });
       if(rSnap) rSnap.forEach(d=>reqs.push({id:d.id,_store:st,...d.data()}));
     }));
   }catch(e){ if(list) list.innerHTML=`<div class="empty">讀取失敗：${e.message}</div>`; return; }
@@ -154,7 +154,7 @@ async function load(){
   if(!recs.length){ if(list) list.innerHTML=reqHtml+'<div class="empty">這個月尚無打卡紀錄</div>'; return; }
   recs.sort((a,b)=>(b.deviceTs||b.date||'').localeCompare(a.deviceTs||a.date||''));
   const byDate={};
-  recs.forEach(r=>{ (byDate[r.date]=byDate[r.date]||[]).push(r); });
+  recs.forEach(r=>{ const k=r.shiftDate||r.date; (byDate[k]=byDate[k]||[]).push(r); });
   const dates=Object.keys(byDate).sort().reverse();
   let html='';
   dates.forEach(dt=>{

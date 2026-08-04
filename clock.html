@@ -80,7 +80,8 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
   </div>
 </div>
 <script>
-let currentUser=null, appConfig={}, geoCfg={}, myGeo=null, atStore='', distanceM=null, todayShifts=[], todayPunches=[], locating=false, isBound=true, carriedOpenIn=null;
+let currentUser=null, appConfig={}, geoCfg={}, myGeo=null, atStore='', distanceM=null, todayShifts=[], todayPunches=[], locating=false, isBound=true, carriedOpenIn=null, candShifts=[];
+function weekStrOf(d){ const first=new Date(d.getFullYear(),0,1); const w=Math.ceil((((d-first)/86400000)+first.getDay()+1)/7); return `${d.getFullYear()}-W${w<10?'0'+w:w}`; }
 let serverOffset=0, clockTimer=null; // 伺服器校時：serverOffset = 伺服器時間 − 本機時間
 async function syncServerTime(){
   try{ const fn=firebase.app().functions('asia-east1').httpsCallable('serverNow');
@@ -205,6 +206,25 @@ async function loadToday(){
       });
     }
   }catch(e){}
+  // 3日候選班(絕對時間)供加班防呆視窗比對，對齊後端(避免 00:00 班/夜班誤跳加班)
+  candShifts=[];
+  try{
+    for(const off of [-1,0,1]){
+      const dt=new Date(Date.now()+off*86400000);
+      const dss=`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+      const wdd=await window.db.collection('stores').doc(atStore).collection('weeks').doc(weekStrOf(dt)).get();
+      const dn=DAYS[(dt.getDay()+6)%7];
+      if(wdd.exists)(wdd.data().records||[]).forEach(r=>{
+        if(r.day!==dn) return;
+        const mine=(r.name===currentUser.empName)||(r.supportEmp===`${currentUser.store}-${currentUser.empName}`&&r.approvalStatus==='approved');
+        if(!mine) return;
+        const m=String(r.shift||'').match(/^(\d{1,2})-(\d{1,2})$/); if(!m) return;
+        const a=+m[1],b=+m[2],dur=(b<=a?b+24:b)-a;
+        const startMs=new Date(`${dss}T${String(a).padStart(2,'0')}:00:00+08:00`).getTime();
+        candShifts.push({shift:r.shift,shiftDate:dss,startMs,endMs:startMs+dur*3600000});
+      });
+    }
+  }catch(e){}
 }
 
 // 依「最後一次打卡」決定下一步，只有上班/下班（可重複多段：兩頭班/跨店連班）。
@@ -263,18 +283,28 @@ function render(){
   tickClock();
 }
 
-// 判斷打卡是否落在「非排班時段」(無排班／上班早>30分／下班晚>30分)
-function offSchedule(type, nowMin, shifts){
-  if(!shifts || !shifts.length) return {off:true, reason:'no-shift'};
+// 依排班表(3日候選、絕對時間、視窗前1h後4h)判斷是否非排班時段，對齊後端
+function offSchedule(type, nowMs){
+  if(!candShifts.length) return {off:true, reason:'no-shift'};
   if(type==='上班'){
-    const minStart=Math.min(...shifts.map(s=>s.start*60));
-    if(nowMin < minStart-30) return {off:true, reason:'early'};
-  }else{
-    const maxEnd=Math.max(...shifts.map(s=>{ let e=s.end*60; if(s.end<=s.start)e+=1440; return e; }));
-    const cur = nowMin < 360 ? nowMin+1440 : nowMin; // 凌晨視為跨日延伸
-    if(cur > maxEnd+30) return {off:true, reason:'late'};
+    const win=candShifts.filter(c=> nowMs>=c.startMs-3600000 && nowMs<=c.startMs+4*3600000);
+    if(win.length){
+      win.sort((x,y)=>Math.abs(nowMs-x.startMs)-Math.abs(nowMs-y.startMs));
+      const diff=(nowMs-win[0].startMs)/60000; // 負=提早
+      return diff < -30 ? {off:true, reason:'early'} : {off:false};
+    }
+    const upcoming=candShifts.some(c=>c.startMs>nowMs && c.startMs-nowMs<=8*3600000);
+    return {off:true, reason: upcoming?'early':'no-shift'};
+  } else {
+    const win=candShifts.filter(c=> nowMs>=c.endMs-4*3600000 && nowMs<=c.endMs+3600000);
+    if(win.length){
+      win.sort((x,y)=>Math.abs(nowMs-x.endMs)-Math.abs(nowMs-y.endMs));
+      const diff=(nowMs-win[0].endMs)/60000; // 正=晚
+      return diff > 30 ? {off:true, reason:'late'} : {off:false};
+    }
+    const recent=candShifts.some(c=>c.endMs<nowMs && nowMs-c.endMs<=8*3600000);
+    return {off:true, reason: recent?'late':'no-shift'};
   }
-  return {off:false};
 }
 // 加班/私事詢問 modal（Promise：回傳 {intent:'apply',content} / {intent:'private'} / null 取消）
 let _otResolve=null;
@@ -325,8 +355,7 @@ async function doPunch(type){
   if(!atStore){ hideLoading(); render(); toast('目前不在門市範圍內，無法打卡'); return; }
   // 🌟 加班事前防呆：打卡落在非排班時段(無排班／上班早>30分／下班晚>30分) → 詢問加班或私事
   let otIntent=null, otContent='';
-  const nd=new Date(serverNowMs()+8*3600000); const nowMin=nd.getUTCHours()*60+nd.getUTCMinutes();
-  const os=offSchedule(type, nowMin, todayShifts);
+  const os=offSchedule(type, serverNowMs());
   if(os.off){
     hideLoading();
     const choice=await otPrompt(os.reason);
