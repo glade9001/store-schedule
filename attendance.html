@@ -85,7 +85,7 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
   </div>
 </div>
 <script>
-let currentUser=null, appConfig={}, curStore='', curDate='';
+let currentUser=null, appConfig={}, curStore='', curDate='', viewMode='day', curEmp='', storeEmps=[], STORES=[];
 const isAdminOwner=()=>['owner','admin'].includes(currentUser?.permission);
 function showLoading(t){document.getElementById('loadingText').textContent=t||'載入中…';document.getElementById('loadingOverlay').classList.remove('hidden');}
 function hideLoading(){document.getElementById('loadingOverlay').classList.add('hidden');}
@@ -108,23 +108,27 @@ window.onload=async()=>{
     hideLoading(); return;
   }
   curDate=todayStr();
-  const stores=(appConfig.stores||[]).filter(s=>s!=='人力支援');
-  curStore = isAdminOwner()? (stores[0]||currentUser.store||'') : (currentUser.store||'');
-  renderBar(stores);
+  STORES=(appConfig.stores||[]).filter(s=>s!=='人力支援');
+  curStore = isAdminOwner()? (STORES[0]||currentUser.store||'') : (currentUser.store||'');
+  renderBar();
   await load();
   hideLoading();
 };
 
-function renderBar(stores){
+function renderBar(){
   const storeSel = isAdminOwner()
-    ? `<select id="storeSel" onchange="curStore=this.value;load();">${stores.map(s=>`<option value="${s}"${s===curStore?' selected':''}>${s}</option>`).join('')}</select>`
+    ? `<select id="storeSel" onchange="curStore=this.value;storeEmps=[];curEmp='';load();">${STORES.map(s=>`<option value="${s}"${s===curStore?' selected':''}>${s}</option>`).join('')}</select>`
     : `<span style="padding:9px 10px;font-weight:800;">${curStore}</span>`;
+  const dateCtrl = viewMode==='day'
+    ? `<input type="date" id="dateSel" value="${curDate}" onchange="curDate=this.value;load();">`
+    : `<input type="month" id="monthSel" value="${curDate.slice(0,7)}" onchange="curDate=this.value+'-01';load();">`;
+  const empCtrl = viewMode==='emp'
+    ? `<select id="empSel" onchange="curEmp=this.value;load();">${(storeEmps.length?storeEmps:[curEmp]).map(e=>`<option value="${e}"${e===curEmp?' selected':''}>${e||'（載入中）'}</option>`).join('')}</select>`
+    : '';
+  const mbtn=(m,l)=>`<button onclick="setMode('${m}')" style="flex:1;padding:8px 4px;border:1.5px solid ${viewMode===m?'var(--primary)':'var(--border)'};background:${viewMode===m?'var(--primary)':'#fff'};color:${viewMode===m?'#fff':'var(--text)'};border-radius:9px;font-size:12.5px;font-weight:800;cursor:pointer;">${l}</button>`;
   const tolVal = tolOf(curStore);
-  document.getElementById('wrap').innerHTML = `<div class="bar">
-    ${storeSel}
-    <input type="date" id="dateSel" value="${curDate}" onchange="curDate=this.value;load();">
-  </div>
-  <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:13px;flex-wrap:wrap;">
+  const settings = viewMode==='day' ? `
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:13px;flex-wrap:wrap;">
     <span style="font-weight:800;">⏱️ 遲到容許值</span>
     <input type="number" id="tolInput" min="0" max="60" value="${tolVal}" style="width:66px;padding:8px;border:1.5px solid var(--border);border-radius:8px;font-weight:700;">
     <span>分（含以內顯示警告但算正常）</span>
@@ -134,8 +138,23 @@ function renderBar(stores){
     <input type="checkbox" id="notifyChk" ${notifyOf(curStore)?'checked':''} onchange="saveNotify(this.checked)" style="width:18px;height:18px;">
     <span style="font-weight:800;">🔔 打卡通知</span>
     <span style="color:var(--muted);">（關閉後不發異常／缺卡通知；員工自發打卡仍會收到成功回執，打卡功能照常）</span>
-  </label>
+  </label>` : '';
+  document.getElementById('wrap').innerHTML = `<div class="bar">
+    ${storeSel}${dateCtrl}${empCtrl}
+  </div>
+  <div style="display:flex;gap:6px;margin-bottom:12px;">${mbtn('day','📅 單日')}${mbtn('month','⚠️ 本月異常')}${mbtn('emp','👤 員工月表')}</div>
+  ${settings}
   <div id="reqs"></div><div id="sum"></div><div id="list"><div class="empty">載入中…</div></div>`;
+}
+async function setMode(m){
+  viewMode=m;
+  if(m==='emp'){ if(!storeEmps.length) await loadStoreEmps(); if(!curEmp) curEmp=storeEmps[0]||''; }
+  renderBar(); load();
+}
+async function loadStoreEmps(){
+  try{ const s=await window.db.collection('stores').doc(curStore).collection('employees').get();
+    storeEmps=[]; s.forEach(d=>{ const e=d.data()||{}; if(e.status!=='離職'&&e.status!=='調走') storeEmps.push(d.id); }); storeEmps.sort();
+  }catch(e){ storeEmps=[]; }
 }
 
 function tolOf(store){ const c=appConfig.clockIn||{}; const t=(c.tolByStore||{})[store]; return t!=null?t:(c.lateToleranceMin!=null?c.lateToleranceMin:10); }
@@ -259,64 +278,119 @@ async function applyEditPunch(){
     hideLoading(); closeEditPunch(); await load();
   }catch(e){ hideLoading(); alert('失敗：'+e.message); }
 }
+const isAnomRec=r=>['遲到','早退','缺卡'].includes(r.status) && !r.voided;
+// 單筆打卡列（day/月/員工月表共用；showEmp 時前綴員工名）
+function punchRow(r, showEmp){
+  const tag=r.type==='上班'?'tag-in':r.type==='下班'?'tag-out':'tag-visit';
+  const anom=isAnomRec(r), voided=!!r.voided;
+  const sc=anom?'s-bad':r.status==='警告'?'s-warn':r.status==='到場'?'s-visit':'s-ok';
+  const st=r.status==='遲到'?`遲到 ${r.lateMin||''} 分`:r.status==='警告'?`遲到 ${r.lateMin||''} 分(容許內)`:r.status==='缺卡'?(r.note||'缺卡'):r.status||'';
+  const time=fmtT(r.deviceTs);
+  const srcTag = r.origTs?'<span style="font-size:11px;color:#8a5cf6;font-weight:800;">·已修改</span>'
+    : r.source==='manual'?'<span style="font-size:11px;color:#8a5cf6;font-weight:800;">·補登</span>'
+    : r.source==='offline'?'<span style="font-size:11px;color:#e67e22;font-weight:800;">·📴離線</span>'
+    : r.source==='system'?'<span style="font-size:11px;color:#d93025;font-weight:800;">·系統</span>':'';
+  const needRev = r.source==='offline' && r.needReview;
+  const reviewBtn = needRev?`<button onclick="approveOffline('${r.id}')" title="核可離線打卡" style="background:#e6f4ea;color:#137333;border:none;border-radius:8px;padding:5px 9px;font-weight:800;font-size:11px;cursor:pointer;margin-left:6px;">✔核可</button>`:'';
+  const editBtn=`<button onclick="openEditPunch('${r.id}')" title="修改／註銷（需填原因，保留原始紀錄）" style="background:#eef2ff;color:#4338ca;border:none;border-radius:8px;padding:5px 9px;font-weight:800;font-size:11px;cursor:pointer;margin-left:6px;">✏️</button>`;
+  const rowStyle=voided?'opacity:.55;text-decoration:line-through;':anom?'border-left:3px solid var(--danger);padding-left:8px;background:#fff5f5;border-radius:6px;':'';
+  const empLbl=showEmp?`<span style="font-weight:800;min-width:52px;">${r.displayName||r.empName}</span>`:'';
+  let h=`<div class="prow" style="${rowStyle}">${empLbl}
+    <span class="ptag ${tag}">${r.type}</span>
+    <span style="font-weight:800;">${time}</span>
+    <span class="meta">@${r.atStore}${r.distanceM!=null?` · ${r.distanceM}m`:''}${r.shift?` · 班 ${r.shift}`:''}${r.homeStore&&r.homeStore!==r.atStore?` · 原店 ${r.homeStore}`:''}${srcTag}${voided?' · <span style="color:var(--danger);font-weight:800;">已註銷</span>':''}</span>
+    <span class="pstat ${needRev?'s-warn':sc}">${needRev?'離線待核':(anom?'⚠️ '+st:st)}</span>${reviewBtn}${voided?'':editBtn}
+  </div>`;
+  if(r.note) h+=`<div class="meta" style="padding:0 0 6px 4px;">💬 ${r.note}${r.noteBy?`（${r.noteBy}）`:''}</div>`;
+  if(r.editReason||r.voidReason) h+=`<div class="meta" style="padding:0 0 6px 4px;color:#8a5cf6;">✏️ ${voided?'註銷':'修改'}原因：${r.voidReason||r.editReason}${(r.voidedBy||r.editedBy)?`（${r.voidedBy||r.editedBy}）`:''}${(r.origTs&&!voided)?` · 原時間 ${fmtT(r.origTs)}`:''}</div>`;
+  return h;
+}
+function calcHours(recs){
+  const pts=recs.filter(r=>(r.type==='上班'||r.type==='下班') && r.status!=='缺卡' && !r.voided)
+    .map(r=>({type:r.type,t:(typeof r.tsMs==='number'?r.tsMs:Date.parse(r.deviceTs||r.date||''))}))
+    .filter(r=>isFinite(r.t)).sort((a,b)=>a.t-b.t);
+  let ms=0,open=null; pts.forEach(p=>{ if(p.type==='上班')open=p.t; else if(open!=null){ if(p.t>open)ms+=p.t-open; open=null; } });
+  return ms/3600000;
+}
+function dayHdr(dt){ const [y,m,d]=dt.split('-'); const wd=['日','一','二','三','四','五','六'][new Date(+y,+m-1,+d).getDay()]; return `${+m}/${+d}（${wd}）`; }
+async function fetchMonth(){ // 讀當月整店打卡
+  const ym=curDate.slice(0,7);
+  const snap=await window.db.collection('stores').doc(curStore).collection('attendance').where('date','>=',ym+'-01').where('date','<=',ym+'-31').get();
+  const recs=[]; snap.forEach(d=>recs.push({id:d.id,...d.data()})); return recs;
+}
 async function load(){
   loadRequests();
   const tolEl=document.getElementById('tolInput'); if(tolEl) tolEl.value=tolOf(curStore);
   const nfEl=document.getElementById('notifyChk'); if(nfEl) nfEl.checked=notifyOf(curStore);
+  if(viewMode==='month') return loadMonth();
+  if(viewMode==='emp') return loadEmp();
+  return loadDay();
+}
+async function loadDay(){
   const list=document.getElementById('list'); if(list) list.innerHTML='<div class="empty">載入中…</div>';
   let recs=[];
-  try{
-    const snap=await window.db.collection('stores').doc(curStore).collection('attendance').where('date','==',curDate).get();
-    snap.forEach(d=>recs.push({id:d.id,...d.data()}));
-  }catch(e){ if(list) list.innerHTML=`<div class="empty">讀取失敗：${e.message}</div>`; return; }
+  try{ const snap=await window.db.collection('stores').doc(curStore).collection('attendance').where('date','==',curDate).get(); snap.forEach(d=>recs.push({id:d.id,...d.data()})); }
+  catch(e){ if(list) list.innerHTML=`<div class="empty">讀取失敗：${e.message}</div>`; return; }
   recs.sort((a,b)=>(a.deviceTs||'').localeCompare(b.deviceTs||''));
-  // 統計
-  const anomalies=recs.filter(r=>['遲到','早退','缺卡'].includes(r.status) && !r.voided).length;
-  const visits=recs.filter(r=>r.status==='到場').length;
-  const emps=[...new Set(recs.map(r=>r.empName))];
-  const sum=document.getElementById('sum');
-  if(sum) sum.innerHTML=`<div class="sumbar">
+  const anomalies=recs.filter(isAnomRec).length, visits=recs.filter(r=>r.status==='到場').length, emps=[...new Set(recs.map(r=>r.empName))];
+  document.getElementById('sum').innerHTML=`<div class="sumbar">
     <div class="chip"><div class="chip-n">${emps.length}</div><div class="chip-l">有打卡人數</div></div>
     <div class="chip"><div class="chip-n" style="color:${anomalies?'var(--danger)':'var(--text)'}">${anomalies}</div><div class="chip-l">遲到/早退/缺卡</div></div>
     <div class="chip"><div class="chip-n" style="color:${visits?'var(--primary)':'var(--text)'}">${visits}</div><div class="chip-l">到場記錄</div></div>
   </div>`;
   if(!recs.length){ if(list) list.innerHTML='<div class="empty">這天尚無打卡記錄</div>'; return; }
-  // 依員工分組
-  const byEmp={};
-  recs.forEach(r=>{ (byEmp[r.empName]=byEmp[r.empName]||[]).push(r); });
+  const byEmp={}; recs.forEach(r=>{ (byEmp[r.empName]=byEmp[r.empName]||[]).push(r); });
   let html='';
-  const isAnom=r=>['遲到','早退','缺卡'].includes(r.status) && !r.voided;
   Object.entries(byEmp).forEach(([emp,list2])=>{
-    const dn=list2[0].displayName||emp;
-    const anomCnt=list2.filter(isAnom).length;
+    const dn=list2[0].displayName||emp; const anomCnt=list2.filter(isAnomRec).length;
     const anomChip=anomCnt?` <span style="background:var(--danger);color:#fff;border-radius:8px;padding:2px 8px;font-size:11px;font-weight:800;">⚠️ ${anomCnt} 筆異常</span>`:'';
     html+=`<div class="card"><div class="emp-name">${dn}${anomChip}</div>`;
-    list2.forEach(r=>{
-      const tag=r.type==='上班'?'tag-in':r.type==='下班'?'tag-out':'tag-visit';
-      const anom=isAnom(r), voided=!!r.voided;
-      const sc=anom?'s-bad':r.status==='警告'?'s-warn':r.status==='到場'?'s-visit':'s-ok';
-      const st=r.status==='遲到'?`遲到 ${r.lateMin||''} 分`:r.status==='警告'?`遲到 ${r.lateMin||''} 分(容許內)`:r.status==='缺卡'?(r.note||'缺卡'):r.status||'';
-      const time=fmtT(r.deviceTs);
-      const srcTag = r.origTs?'<span style="font-size:11px;color:#8a5cf6;font-weight:800;">·已修改</span>'
-        : r.source==='manual'?'<span style="font-size:11px;color:#8a5cf6;font-weight:800;">·補登</span>'
-        : r.source==='offline'?'<span style="font-size:11px;color:#e67e22;font-weight:800;">·📴離線</span>'
-        : r.source==='system'?'<span style="font-size:11px;color:#d93025;font-weight:800;">·系統</span>':'';
-      const needRev = r.source==='offline' && r.needReview;
-      const reviewBtn = needRev?`<button onclick="approveOffline('${r.id}')" title="核可離線打卡" style="background:#e6f4ea;color:#137333;border:none;border-radius:8px;padding:5px 9px;font-weight:800;font-size:11px;cursor:pointer;margin-left:6px;">✔核可</button>`:'';
-      const editBtn=`<button onclick="openEditPunch('${r.id}')" title="修改／註銷（需填原因，保留原始紀錄）" style="background:#eef2ff;color:#4338ca;border:none;border-radius:8px;padding:5px 9px;font-weight:800;font-size:11px;cursor:pointer;margin-left:6px;">✏️</button>`;
-      const rowStyle=voided?'opacity:.55;text-decoration:line-through;':anom?'border-left:3px solid var(--danger);padding-left:8px;background:#fff5f5;border-radius:6px;':'';
-      html+=`<div class="prow" style="${rowStyle}">
-        <span class="ptag ${tag}">${r.type}</span>
-        <span style="font-weight:800;">${time}</span>
-        <span class="meta">@${r.atStore}${r.distanceM!=null?` · ${r.distanceM}m`:''}${r.shift?` · 班 ${r.shift}`:''}${r.homeStore&&r.homeStore!==r.atStore?` · 原店 ${r.homeStore}`:''}${srcTag}${voided?' · <span style="color:var(--danger);font-weight:800;">已註銷</span>':''}</span>
-        <span class="pstat ${needRev?'s-warn':sc}">${needRev?'離線待核':(anom?'⚠️ '+st:st)}</span>${reviewBtn}${editBtn}
-      </div>`;
-      if(r.note) html+=`<div class="meta" style="padding:0 0 6px 4px;">💬 ${r.note}${r.noteBy?`（${r.noteBy}）`:''}</div>`;
-      if(r.editReason||r.voidReason) html+=`<div class="meta" style="padding:0 0 6px 4px;color:#8a5cf6;">✏️ ${voided?'註銷':'修改'}原因：${r.voidReason||r.editReason}${(r.voidedBy||r.editedBy)?`（${r.voidedBy||r.editedBy}）`:''}${(r.origTs&&!voided)?` · 原時間 ${fmtT(r.origTs)}`:''}</div>`;
-    });
+    list2.forEach(r=>{ html+=punchRow(r,false); });
     html+=`</div>`;
   });
   if(list) list.innerHTML=html;
+}
+async function loadMonth(){
+  const list=document.getElementById('list'); list.innerHTML='<div class="empty">載入中…</div>';
+  let recs=[]; try{ recs=await fetchMonth(); }catch(e){ list.innerHTML=`<div class="empty">讀取失敗：${e.message}</div>`; return; }
+  const anoms=recs.filter(r=>isAnomRec(r) || (r.source==='offline'&&r.needReview&&!r.voided)).sort((a,b)=>(a.date+(a.deviceTs||'')).localeCompare(b.date+(b.deviceTs||'')));
+  const cnt=t=>anoms.filter(r=>r.status===t).length;
+  document.getElementById('sum').innerHTML=`<div class="sumbar">
+    <div class="chip"><div class="chip-n" style="color:${anoms.length?'var(--danger)':'var(--text)'}">${anoms.length}</div><div class="chip-l">本月待處理</div></div>
+    <div class="chip"><div class="chip-n">${cnt('遲到')}</div><div class="chip-l">遲到</div></div>
+    <div class="chip"><div class="chip-n">${cnt('早退')}</div><div class="chip-l">早退</div></div>
+    <div class="chip"><div class="chip-n">${cnt('缺卡')}</div><div class="chip-l">缺卡</div></div>
+  </div>`;
+  if(!anoms.length){ list.innerHTML='<div class="empty">🎉 本月無待處理異常</div>'; return; }
+  const byDate={}; anoms.forEach(r=>{ (byDate[r.date]=byDate[r.date]||[]).push(r); });
+  let html='';
+  Object.keys(byDate).sort().forEach(dt=>{
+    html+=`<div class="card"><div class="emp-name">${dayHdr(dt)}</div>`;
+    byDate[dt].sort((a,b)=>(a.deviceTs||'').localeCompare(b.deviceTs||'')).forEach(r=>{ html+=punchRow(r,true); });
+    html+=`</div>`;
+  });
+  list.innerHTML=html;
+}
+async function loadEmp(){
+  const list=document.getElementById('list');
+  if(!curEmp){ document.getElementById('sum').innerHTML=''; list.innerHTML='<div class="empty">請選擇員工</div>'; return; }
+  list.innerHTML='<div class="empty">載入中…</div>';
+  let all=[]; try{ all=await fetchMonth(); }catch(e){ list.innerHTML=`<div class="empty">讀取失敗：${e.message}</div>`; return; }
+  const recs=all.filter(r=>r.empName===curEmp);
+  const hours=calcHours(recs), anom=recs.filter(isAnomRec).length;
+  document.getElementById('sum').innerHTML=`<div class="sumbar">
+    <div class="chip"><div class="chip-n" style="color:#137333">${hours.toFixed(1)}</div><div class="chip-l">本月有效工時(h)</div></div>
+    <div class="chip"><div class="chip-n" style="color:${anom?'var(--danger)':'var(--text)'}">${anom}</div><div class="chip-l">異常筆數</div></div>
+  </div>`;
+  if(!recs.length){ list.innerHTML='<div class="empty">本月無打卡記錄</div>'; return; }
+  const byDate={}; recs.forEach(r=>{ (byDate[r.date]=byDate[r.date]||[]).push(r); });
+  let html='';
+  Object.keys(byDate).sort().forEach(dt=>{
+    html+=`<div class="card"><div class="emp-name">${dayHdr(dt)}</div>`;
+    byDate[dt].sort((a,b)=>(a.deviceTs||'').localeCompare(b.deviceTs||'')).forEach(r=>{ html+=punchRow(r,false); });
+    html+=`</div>`;
+  });
+  list.innerHTML=html;
 }
 </script>
 </body>
