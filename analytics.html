@@ -314,7 +314,7 @@ select.range-sel:focus{border-color:var(--primary);}
         <table class="data-table" id="tableOtDetail">
           <thead>
             <tr>
-              <th>門市</th><th>姓名</th><th>身份</th>
+              <th>月份</th><th>門市</th><th>姓名</th><th>身份</th>
               <th class="num">加班時數</th>
               <th class="num">加班費</th>
               <th class="num">國假時數</th>
@@ -1339,29 +1339,29 @@ function renderOtTab(){
 
   const empOtRows = [];
   fEmps.forEach(emp=>{
-    let totOtH=0, totOtAmt=0, totHolH=0, totHolAmt=0;
+    // 每月一列（分析多月時看得出是哪個月）
     ymList.forEach(ym=>{
       if(!isEmpActiveInMonth(emp,ym)) return;
       const rec = salaryMap[ym]?.[emp.name];
       if(!rec) return;
-      totOtH  += n(rec.otHours);
-      totOtAmt += calcOtPay(rec);
-      totHolH += n(rec.holidayHours);
-      totHolAmt += emp.role==='工讀'?Math.round(n(rec.wage)*n(rec.holidayHours)):n(rec.holidayOtPay);
+      const otH=n(rec.otHours), otAmt=calcOtPay(rec);
+      const holH=n(rec.holidayHours), holAmt=emp.role==='工讀'?Math.round(n(rec.wage)*holH):n(rec.holidayOtPay);
+      if(otAmt>0||holAmt>0)
+        empOtRows.push({ emp, ym, totOtH:otH, totOtAmt:otAmt, totHolH:holH, totHolAmt:holAmt, total:otAmt+holAmt });
     });
-    if(totOtAmt>0||totHolAmt>0)
-      empOtRows.push({ emp, totOtH, totOtAmt, totHolH, totHolAmt, total:totOtAmt+totHolAmt });
   });
-  empOtRows.sort((a,b)=>b.total-a.total);
+  // 月份新到舊；同月依合計高到低
+  empOtRows.sort((a,b)=> a.ym!==b.ym ? b.ym.localeCompare(a.ym) : b.total-a.total);
 
   const tbody = document.getElementById('tbodyOtDetail');
   if(!empOtRows.length){
-    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">本區間無加班/國假費用記錄</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-state">本區間無加班/國假費用記錄</td></tr>';
     return;
   }
   tbody.innerHTML = empOtRows.map(r=>{
     const color = storeColors[r.emp.store];
     return `<tr>
+      <td style="white-space:nowrap;font-weight:700;">${r.ym.slice(0,4)}/${r.ym.slice(5)}</td>
       <td><span class="store-badge" style="background:${color};">${r.emp.store}</span></td>
       <td><strong>${dispName(r.emp.name)}</strong></td>
       <td>${r.emp.role||'--'}</td>
@@ -1380,6 +1380,7 @@ function renderOtTab(){
       const color = storeColors[r.emp.store]||'#1a73e8';
       return `<div class="m-card">
         <div class="m-card-hd">
+          <span class="store-badge" style="background:#64748b;">${r.ym.slice(0,4)}/${r.ym.slice(5)}</span>
           <span class="store-badge" style="background:${color};">${r.emp.store}</span>
           <strong style="font-size:13px;">${dispName(r.emp.name)}</strong>
           <span style="font-size:11px;color:var(--text-muted);">${r.emp.role||'--'}</span>
