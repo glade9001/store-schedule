@@ -423,8 +423,11 @@ const calcOtPay = rec => {
   return Math.ceil(rate*mult*n(rec.otHours));
 };
 
+// 以記錄本身判是否工讀計(payAsPartTime店長如楷岳、或工讀、或有時薪無底薪)——不依現況角色，守歷史不可變
+const isPartRec = rec => !!(rec && (rec.payAsPartTime || rec.role==='工讀' || (n(rec.wage)>0 && n(rec.baseSalary)===0)));
 const calcGross = (rec, role) => {
-  if(role==='工讀') {
+  if(rec && rec.grossAmt != null) return n(rec.grossAmt); // 已發布快照(=實發)優先
+  if(isPartRec(rec) || role==='工讀') {
     const w=n(rec.wage), h=n(rec.hours||0);
     return Math.max(0,
       Math.round(w*h)+Math.round(w*n(rec.holidayHours))+
@@ -444,13 +447,15 @@ const calcGross = (rec, role) => {
 };
 
 const calcDeduct = rec =>
-  n(rec.laborInsurance)+n(rec.healthInsurance)+
-  n(rec.dependentInsurance)+n(rec.laborPension)+n(rec.otherDeduction);
+  (rec && rec.deductAmt != null) ? n(rec.deductAmt) :
+  (n(rec.laborInsurance)+n(rec.healthInsurance)+
+   n(rec.dependentInsurance)+n(rec.laborPension)+n(rec.otherDeduction));
 
-const calcNet = (rec, role) => calcGross(rec,role)-calcDeduct(rec);
+const calcNet = (rec, role) =>
+  (rec && rec.netAmt != null) ? n(rec.netAmt) : (calcGross(rec,role)-calcDeduct(rec));
 
 const calcCompPension = (rec, role) =>
-  role==='工讀' ? 0 : Math.round((n(rec.baseSalary)+n(rec.fullAttendBonus))*0.06);
+  (isPartRec(rec) || role==='工讀') ? 0 : Math.round((n(rec.baseSalary)+n(rec.fullAttendBonus))*0.06);
 
 const calcRealCost = (rec, role) => calcNet(rec,role)+calcCompPension(rec,role);
 
@@ -589,7 +594,7 @@ async function startExport() {
               (logSnap.data().records||[]).forEach(r=>{
                 if(!typeMap[r.type]) return;
                 leaveLogAll.push({
-                  empName:emp.name, store:emp.store, role:emp.role||'',
+                  empName:emp.displayName||emp.name, store:emp.store, role:emp.role||'',
                   date:r.date||ym2+'-01', typeKey:r.type,
                   typeLabel:typeMap[r.type].label, cat:typeMap[r.type].cat,
                   days:r.days||0, note:r.note||'', savedBy:r.savedBy||''
@@ -719,7 +724,7 @@ function buildSummarySheet(allEmps,salaryRecMap,leaveStatMap,compStatMap,batchMa
     if(days<=90&&remain>0){
       hasWarn=true;
       const status=days<=30?'🔴 緊急':days<=60?'🟠 警示':'🟡 注意';
-      rows.push([emp.name,emp.store,remain+'天',exp,days+'天後',status]);
+      rows.push([emp.displayName||emp.name,emp.store,remain+'天',exp,days+'天後',status]);
     }
   });
   if(!hasWarn) rows.push(['（近90天無到期警示）']);
@@ -733,7 +738,7 @@ function buildSummarySheet(allEmps,salaryRecMap,leaveStatMap,compStatMap,batchMa
     if(!shouldGrantThisMonth(emp.startDate,ym)) return;
     hasGrant=true;
     const granted=checkAnnualGranted(emp.name,batchMap,year);
-    rows.push([emp.name,emp.store,toROC(emp.startDate),granted?'✅ 已發放':'⚠️ 尚未發放']);
+    rows.push([emp.displayName||emp.name,emp.store,toROC(emp.startDate),granted?'✅ 已發放':'⚠️ 尚未發放']);
   });
   if(!hasGrant) rows.push(['（本月無週年日員工）']);
   rows.push([]);
@@ -747,7 +752,7 @@ function buildSummarySheet(allEmps,salaryRecMap,leaveStatMap,compStatMap,batchMa
     const remain=Math.max(0,n(cd.earned)-n(cd.used));
     if(remain>5){
       hasComp=true;
-      rows.push([emp.name,emp.store,remain+'天','建議儘速安排補休或折現']);
+      rows.push([emp.displayName||emp.name,emp.store,remain+'天','建議儘速安排補休或折現']);
     }
   });
   if(!hasComp) rows.push(['（無補休餘額偏高員工）']);
@@ -1003,9 +1008,9 @@ function buildSalarySheet(allEmps,salaryRecMap,stores,ym){
 // 單一員工薪資列
 function buildSalaryRow(seq,emp,rec,NC){
   const row=new Array(NC).fill('');
-  row[0]=seq; row[1]=emp.store; row[2]=emp.name; row[3]=emp.role||'';
+  row[0]=seq; row[1]=emp.store; row[2]=emp.displayName||emp.name; row[3]=(emp.role||'')+(isPartRec(rec)&&emp.role!=='工讀'?'(工讀計)':'');
   if(!rec) return row;
-  const isPart=emp.role==='工讀';
+  const isPart=isPartRec(rec); // 楷岳等 payAsPartTime 店長走工讀欄位(時薪/工時)
   const mgmt=['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+n(rec[k]),0);
   const rph=isPart?0:calcHourlyRate(rec);
   const late=isPart?0:Math.round(rph/60*n(rec.lateMinutes));
@@ -1131,7 +1136,7 @@ async function startPdfPreview() {
               (logSnap.data().records||[]).forEach(r => {
                 if(!typeMap[r.type]) return;
                 leaveLogAll.push({
-                  empName:emp.name, store:emp.store, role:emp.role||'',
+                  empName:emp.displayName||emp.name, store:emp.store, role:emp.role||'',
                   date:r.date||ym2+'-01', typeLabel:typeMap[r.type],
                   cat: r.type.startsWith('annual') ? 'annual' : 'comp',
                   days:r.days||0, note:r.note||''
@@ -1202,7 +1207,7 @@ function buildPdfHtml(allEmps, salaryRecMap, leaveStatMap, compStatMap, batchMap
     const exp   = getAnnualExpire(emp.name,batchMap,year);
     const days  = daysUntilExpire(exp);
     if(days<=90 && remain>0)
-      warnList.push({ name:emp.name, store:emp.store, remain, exp, days,
+      warnList.push({ name:emp.displayName||emp.name, store:emp.store, remain, exp, days,
         cls: days<=30?'warn-red':days<=60?'warn-orange':'warn-yellow',
         badge: days<=30?'badge-red':days<=60?'badge-orange':'badge-blue',
         label: days<=30?'🔴 緊急':days<=60?'🟠 警示':'🟡 注意' });
@@ -1273,7 +1278,7 @@ function buildPdfHtml(allEmps, salaryRecMap, leaveStatMap, compStatMap, batchMap
           ${grantList.map(e=>{
             const granted = checkAnnualGranted(e.name,batchMap,year);
             return `<tr>
-              <td style="font-weight:700;">${e.name}</td><td>${e.store}</td>
+              <td style="font-weight:700;">${e.displayName||e.name}</td><td>${e.store}</td>
               <td>${toROC(e.startDate)}</td>
               <td><span class="${granted?'badge-green':'badge-red'}">${granted?'✅ 已發放':'⚠️ 尚未發放'}</span></td>
             </tr>`;
@@ -1288,7 +1293,7 @@ function buildPdfHtml(allEmps, salaryRecMap, leaveStatMap, compStatMap, batchMap
           ${compWarnList.map(e=>{
             const cd=compStatMap[e.name]||{};
             const rem=Math.max(0,n(cd.earned)-n(cd.used));
-            return `<tr><td style="font-weight:700;">${e.name}</td><td>${e.store}</td><td style="color:#ea580c;font-weight:700;">${rem}天</td><td>建議儘速安排補休或折現</td></tr>`;
+            return `<tr><td style="font-weight:700;">${e.displayName||e.name}</td><td>${e.store}</td><td style="color:#ea580c;font-weight:700;">${rem}天</td><td>建議儘速安排補休或折現</td></tr>`;
           }).join('')}
         </table>
       </div>` : ''}
@@ -1314,7 +1319,7 @@ function buildPdfHtml(allEmps, salaryRecMap, leaveStatMap, compStatMap, batchMap
     const hrs=n(rec.hours||0);
     return `<tr ${i%2===1?'style="background:#f8fafc;"':''}>
       <td>${i+1}</td><td style="font-weight:700;">${emp.store}</td>
-      <td style="font-weight:800;">${emp.name}</td>
+      <td style="font-weight:800;">${emp.displayName||emp.name}</td>
       <td><span class="${emp.role==='工讀'?'badge-blue':emp.role==='店長'?'badge-red':'badge-green'}">${emp.role||''}</span></td>
       <td>${toROC(emp.startDate)}</td>
       <td>${calcSeniority(emp.startDate)}</td>
@@ -1375,7 +1380,7 @@ function buildPdfHtml(allEmps, salaryRecMap, leaveStatMap, compStatMap, batchMap
     const exp   = emp.role!=='工讀' ? getAnnualExpire(emp.name,batchMap,year) : '--';
     return `<tr ${i%2===1?'style="background:#f8fafc;"':''}>
       <td>${i+1}</td><td>${emp.store}</td>
-      <td style="font-weight:700;">${emp.name}</td>
+      <td style="font-weight:700;">${emp.displayName||emp.name}</td>
       <td>${emp.role||''}</td>
       <td>${annD}</td><td>${usedA}</td>
       <td style="font-weight:700;color:${remA>0?'#1a73e8':'#64748b'};">${remA}</td>
@@ -1433,11 +1438,11 @@ function buildSalaryPageHtml(allEmps, salaryRecMap, stores, ym, year, month, mod
       let sGross=0,sNet=0,sPension=0;
       emps.forEach((emp,i)=>{
         const rec=salaryRecMap[emp.name];
-        if(!rec){sRows+=`<tr><td>${emp.name}</td><td colspan="4" style="color:#94a3b8;">無薪資記錄</td></tr>`;return;}
+        if(!rec){sRows+=`<tr><td>${emp.displayName||emp.name}</td><td colspan="4" style="color:#94a3b8;">無薪資記錄</td></tr>`;return;}
         const gross=calcGross(rec,emp.role),net=calcNet(rec,emp.role),comp=calcCompPension(rec,emp.role);
         sGross+=gross;sNet+=net;sPension+=comp;
         sRows+=`<tr style="${i%2===1?'background:#f8fafc':''}">
-          <td style="font-weight:800;text-align:left;">${emp.name}</td>
+          <td style="font-weight:800;text-align:left;">${emp.displayName||emp.name}</td>
           <td style="text-align:right;">$${comma(gross)}</td>
           <td style="text-align:right;font-weight:700;color:#16a34a;">$${comma(net)}</td>
           <td style="text-align:right;">$${comma(comp)||'-'}</td>
@@ -1493,14 +1498,14 @@ function buildSalaryPageHtml(allEmps, salaryRecMap, stores, ym, year, month, mod
       salRows+=`<tr class="section-header"><td colspan="21">── ${store} 正職/店長 ──</td></tr>`;
       fulls.forEach((emp,i) => {
         const rec=salaryRecMap[emp.name];
-        if(!rec){salRows+=`<tr><td>${emp.name}</td><td colspan="20" style="color:#94a3b8;">無薪資記錄</td></tr>`;return;}
+        if(!rec){salRows+=`<tr><td>${emp.displayName||emp.name}</td><td colspan="20" style="color:#94a3b8;">無薪資記錄</td></tr>`;return;}
         const mgmt=['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+n(rec[k]),0);
         const rph=calcHourlyRate(rec),late=Math.round(rph/60*n(rec.lateMinutes));
         const otPay=calcOtPay(rec),gross=calcGross(rec,emp.role);
         const deduct=calcDeduct(rec),net=gross-deduct,comp=calcCompPension(rec,emp.role);
         sGross+=gross;sNet+=net;sPension+=comp;
         salRows+=`<tr style="${i%2===1?'background:#f8fafc':''}">
-          <td style="font-weight:800;">${emp.name}</td>
+          <td style="font-weight:800;">${emp.displayName||emp.name}</td>
           <td style="text-align:right;">$${comma(n(rec.baseSalary))}</td>
           <td style="text-align:right;">$${comma(n(rec.fullAttendBonus))}</td>
           <td style="text-align:right;">${mgmt?`$${comma(mgmt)}`:'-'}</td>
@@ -1528,12 +1533,12 @@ function buildSalaryPageHtml(allEmps, salaryRecMap, stores, ym, year, month, mod
       salRows+=`<tr class="section-header"><td colspan="21">── ${store} 工讀生 ──</td></tr>`;
       parts.forEach((emp,i) => {
         const rec=salaryRecMap[emp.name];
-        if(!rec){salRows+=`<tr><td>${emp.name}</td><td colspan="20" style="color:#94a3b8;">無薪資記錄</td></tr>`;return;}
+        if(!rec){salRows+=`<tr><td>${emp.displayName||emp.name}</td><td colspan="20" style="color:#94a3b8;">無薪資記錄</td></tr>`;return;}
         const wage=n(rec.wage),hrs=n(rec.hours||0);
         const gross=calcGross(rec,emp.role),deduct=calcDeduct(rec),net=gross-deduct;
         sGross+=gross;sNet+=net;
         salRows+=`<tr style="${i%2===1?'background:#f8fafc':''}">
-          <td style="font-weight:800;">${emp.name}</td>
+          <td style="font-weight:800;">${emp.displayName||emp.name}</td>
           <td style="text-align:right;">$${wage}/hr×${hrs}h</td>
           <td colspan="6" style="text-align:center;color:#94a3b8;">（工讀生）</td>
           <td style="text-align:right;">${n(rec.holidayHours)?`${n(rec.holidayHours)}h`:'-'}</td>
