@@ -1121,8 +1121,8 @@ exports.scheduledPnlReminder = onSchedule(
   async () => {
     const now = new Date(Date.now() + 8 * 3600000); // 台北
     const db = admin.firestore();
-    const sendDay = await pnlSendDay(db, now.getUTCFullYear(), now.getUTCMonth() + 1);
-    if(now.getUTCDate() < sendDay) return; // 依工作日推算的發送日起才提醒
+    const provideDay = await pnlSendDay(db, now.getUTCFullYear(), now.getUTCMonth() + 1); // 公司提供報表日
+    if(now.getUTCDate() < provideDay + 1) return; // 收到報表「隔天」09:00 才開始要求輸入
     const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)); d.setUTCMonth(d.getUTCMonth() - 1);
     const dueMonth = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`; // 上個月
     if(dueMonth < "2025-07") return;
