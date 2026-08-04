@@ -1491,7 +1491,31 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
   const tol = (clk.tolByStore && clk.tolByStore[atStore] != null) ? clk.tolByStore[atStore]
             : (clk.lateToleranceMin != null ? clk.lateToleranceMin : 10);
   let status = "正常", lateMin = 0, matchedShift = "";
-  if (!shifts.length) {
+  // 跨日夜班：下班若屬「昨天的懸空夜班」(下班落在今天凌晨)，優先用昨天夜班判定，避免拿今天班表誤判早退
+  let night = null;
+  if (type === "下班") {
+    const yTp = new Date(nowMs + 8 * 3600000 - 86400000);
+    const dsY = yTp.toISOString().slice(0, 10);
+    const yName = WEEK_DAYS[(yTp.getUTCDay() + 6) % 7];
+    const wkY = simpleWeekStr(yTp);
+    const ySnap = await attCol.where("date", "==", dsY).where("empName", "==", empName).get();
+    let yin = 0, yout = 0; ySnap.forEach((x) => { const p = x.data(); if (p.type === "上班") yin++; else if (p.type === "下班") yout++; });
+    if (yin > yout) { // 昨天有未配對的上班
+      const wdY = (wkY === wk) ? wd : await db.collection("stores").doc(atStore).collection("weeks").doc(wkY).get();
+      if (wdY.exists) (wdY.data().records || []).forEach((r) => {
+        if (r.day !== yName) return;
+        const mine = (r.name === empName) || (r.supportEmp === `${homeStore}-${empName}` && r.approvalStatus === "approved");
+        if (!mine) return;
+        const m = String(r.shift || "").match(/^(\d{1,2})-(\d{1,2})$/);
+        if (m && +m[2] <= +m[1]) night = { shift: r.shift, end: +m[2] }; // 跨日班(end<=start)
+      });
+    }
+  }
+  if (night) {
+    matchedShift = night.shift;
+    const endMin = night.end * 60 + 1440, cur = nowMin + 1440; // 下班在隔天(今天)的時間軸
+    if (cur < endMin) status = "早退";
+  } else if (!shifts.length) {
     status = "到場"; // 無排班的打卡 → 自動歸類「到場」(未來薪資整併分類用)，仍是上班/下班
   } else if (type === "上班") {
     let best = null; shifts.forEach((s) => { const dd = Math.abs(s.start * 60 - nowMin); if (!best || dd < best.d) best = { s, d: dd }; });

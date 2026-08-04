@@ -51,6 +51,34 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
   <div class="header-title">🗂️ 出勤管理</div>
 </div>
 <div class="wrap" id="wrap"></div>
+<!-- 修改／註銷 打卡 modal -->
+<div id="editModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;align-items:center;justify-content:center;padding:16px;">
+  <div style="background:#fff;border-radius:16px;max-width:420px;width:100%;padding:18px;max-height:90vh;overflow:auto;">
+    <div style="font-size:16px;font-weight:900;margin-bottom:4px;">✏️ 修改／註銷打卡</div>
+    <div id="editInfo" style="font-size:12.5px;color:#64748b;margin-bottom:12px;line-height:1.6;"></div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;">
+      <label style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px;border:1.5px solid var(--border);border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;"><input type="radio" name="editAct" value="edit" checked onchange="editActChange()"> 修改時間</label>
+      <label style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px;border:1.5px solid var(--border);border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;"><input type="radio" name="editAct" value="void" onchange="editActChange()"> 註銷此筆</label>
+    </div>
+    <div id="editTimeRow" style="margin-bottom:12px;">
+      <label style="display:block;font-size:12px;font-weight:700;margin-bottom:5px;">更正後時間</label>
+      <input type="time" id="editTime" style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:10px;font-size:16px;font-weight:700;">
+    </div>
+    <div style="font-size:12px;font-weight:700;margin-bottom:6px;">原因（必填，法規要求留存備查）</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">
+      <button type="button" onclick="pickReason('代為補登')" style="background:#f1f5f9;border:none;border-radius:20px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;">代為補登</button>
+      <button type="button" onclick="pickReason('忘記打卡')" style="background:#f1f5f9;border:none;border-radius:20px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;">忘記打卡</button>
+      <button type="button" onclick="pickReason('打卡時間錯誤')" style="background:#f1f5f9;border:none;border-radius:20px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;">打卡時間錯誤</button>
+      <button type="button" onclick="pickReason('裝置/定位問題')" style="background:#f1f5f9;border:none;border-radius:20px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;">裝置/定位問題</button>
+    </div>
+    <input type="text" id="editReason" placeholder="輸入或點選上方原因" style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:10px;font-size:14px;font-weight:600;">
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button onclick="closeEditPunch()" style="flex:1;padding:11px;background:#f1f3f4;border:none;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;">取消</button>
+      <button id="editApplyBtn" onclick="applyEditPunch()" style="flex:1;padding:11px;background:var(--primary);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;">確認修改</button>
+    </div>
+    <div style="font-size:11px;color:#94a3b8;margin-top:10px;line-height:1.5;">⚖️ 依勞基法，打卡紀錄不可直接刪除。修改／註銷皆保留原始時間並記錄操作者、原因與時間備查。</div>
+  </div>
+</div>
 <script>
 let currentUser=null, appConfig={}, curStore='', curDate='';
 const isAdminOwner=()=>['owner','admin'].includes(currentUser?.permission);
@@ -181,21 +209,46 @@ async function approveOffline(id){
     hideLoading(); await load();
   }catch(e){ hideLoading(); alert('核可失敗：'+e.message); }
 }
-async function delPunch(id){
-  if(!confirm('確定刪除這筆打卡記錄？\n（會保留刪除留痕，可追查）')) return;
-  showLoading('刪除中…');
+// 修改／註銷（勞基法：不可直接刪除竄改；一律保留原始時間＋強制原因＋editLog 留痕備查）
+let _editId=null, _editRec=null;
+async function openEditPunch(id){
+  const ref=window.db.collection('stores').doc(curStore).collection('attendance').doc(id);
+  let snap; try{ snap=await ref.get(); }catch(e){ alert('讀取失敗：'+e.message); return; }
+  if(!snap.exists){ alert('找不到這筆紀錄'); return; }
+  _editId=id; _editRec=snap.data();
+  document.getElementById('editInfo').innerHTML=`${_editRec.displayName||_editRec.empName}　${_editRec.date}　<b>${_editRec.type}</b>　原打卡時間 <b>${fmtT(_editRec.origTs||_editRec.deviceTs)}</b>`;
+  document.querySelector('input[name=editAct][value=edit]').checked=true;
+  document.getElementById('editTime').value=fmtT(_editRec.deviceTs);
+  document.getElementById('editReason').value='';
+  editActChange();
+  document.getElementById('editModal').style.display='flex';
+}
+function editActChange(){ const act=document.querySelector('input[name=editAct]:checked').value; document.getElementById('editTimeRow').style.display=act==='edit'?'block':'none'; document.getElementById('editApplyBtn').textContent=act==='void'?'確認註銷':'確認修改'; }
+function pickReason(t){ document.getElementById('editReason').value=t; }
+function closeEditPunch(){ document.getElementById('editModal').style.display='none'; _editId=null; _editRec=null; }
+async function applyEditPunch(){
+  const reason=document.getElementById('editReason').value.trim();
+  if(!reason){ alert('請填寫修改／註銷原因（法規要求留存備查）'); return; }
+  const act=document.querySelector('input[name=editAct]:checked').value;
+  const ref=window.db.collection('stores').doc(curStore).collection('attendance').doc(_editId);
+  const now=new Date().toISOString(), by=(currentUser.empName||currentUser.displayName||'');
+  const AU=firebase.firestore.FieldValue.arrayUnion;
+  showLoading('處理中…');
   try{
-    const ref=window.db.collection('stores').doc(curStore).collection('attendance').doc(id);
-    const snap=await ref.get();
-    if(snap.exists){
-      await window.db.collection('stores').doc(curStore).collection('attendanceDeleteLog').add({
-        ...snap.data(), source:'delete-log', origId:id, origType:snap.data().type||'',
-        deletedBy:(currentUser.empName||currentUser.displayName||''), deletedAt:new Date().toISOString()
-      });
-      await ref.delete();
+    if(act==='void'){
+      await ref.set({ voided:true, voidReason:reason, voidedBy:by, voidedAt:now,
+        editLog:AU({at:now, by, action:'註銷', reason}) }, {merge:true});
+    }else{
+      const tv=document.getElementById('editTime').value;
+      if(!tv){ hideLoading(); alert('請選擇更正後時間'); return; }
+      const [hh,mm]=tv.split(':');
+      const nd=new Date(`${_editRec.date}T${hh}:${mm}:00+08:00`);
+      const orig=_editRec.origTs||_editRec.deviceTs||''; // 首次修改才鎖原始時間，之後保留最初值
+      await ref.set({ deviceTs:nd.toISOString(), tsMs:nd.getTime(), origTs:orig, editedBy:by, editReason:reason, editedAt:now, source:'manual',
+        editLog:AU({at:now, by, action:'修改時間', from:fmtT(_editRec.deviceTs), to:tv, reason}) }, {merge:true});
     }
-    hideLoading(); await load();
-  }catch(e){ hideLoading(); alert('刪除失敗：'+e.message); }
+    hideLoading(); closeEditPunch(); await load();
+  }catch(e){ hideLoading(); alert('失敗：'+e.message); }
 }
 async function load(){
   loadRequests();
@@ -209,13 +262,13 @@ async function load(){
   }catch(e){ if(list) list.innerHTML=`<div class="empty">讀取失敗：${e.message}</div>`; return; }
   recs.sort((a,b)=>(a.deviceTs||'').localeCompare(b.deviceTs||''));
   // 統計
-  const anomalies=recs.filter(r=>['遲到','早退'].includes(r.status)).length;
+  const anomalies=recs.filter(r=>['遲到','早退','缺卡'].includes(r.status) && !r.voided).length;
   const visits=recs.filter(r=>r.status==='到場').length;
   const emps=[...new Set(recs.map(r=>r.empName))];
   const sum=document.getElementById('sum');
   if(sum) sum.innerHTML=`<div class="sumbar">
     <div class="chip"><div class="chip-n">${emps.length}</div><div class="chip-l">有打卡人數</div></div>
-    <div class="chip"><div class="chip-n" style="color:${anomalies?'var(--danger)':'var(--text)'}">${anomalies}</div><div class="chip-l">遲到/早退</div></div>
+    <div class="chip"><div class="chip-n" style="color:${anomalies?'var(--danger)':'var(--text)'}">${anomalies}</div><div class="chip-l">遲到/早退/缺卡</div></div>
     <div class="chip"><div class="chip-n" style="color:${visits?'var(--primary)':'var(--text)'}">${visits}</div><div class="chip-l">到場記錄</div></div>
   </div>`;
   if(!recs.length){ if(list) list.innerHTML='<div class="empty">這天尚無打卡記錄</div>'; return; }
@@ -223,27 +276,34 @@ async function load(){
   const byEmp={};
   recs.forEach(r=>{ (byEmp[r.empName]=byEmp[r.empName]||[]).push(r); });
   let html='';
+  const isAnom=r=>['遲到','早退','缺卡'].includes(r.status) && !r.voided;
   Object.entries(byEmp).forEach(([emp,list2])=>{
     const dn=list2[0].displayName||emp;
-    html+=`<div class="card"><div class="emp-name">${dn}</div>`;
+    const anomCnt=list2.filter(isAnom).length;
+    const anomChip=anomCnt?` <span style="background:var(--danger);color:#fff;border-radius:8px;padding:2px 8px;font-size:11px;font-weight:800;">⚠️ ${anomCnt} 筆異常</span>`:'';
+    html+=`<div class="card"><div class="emp-name">${dn}${anomChip}</div>`;
     list2.forEach(r=>{
       const tag=r.type==='上班'?'tag-in':r.type==='下班'?'tag-out':'tag-visit';
-      const sc=r.status==='遲到'||r.status==='早退'?'s-bad':r.status==='警告'?'s-warn':r.status==='到場'?'s-visit':'s-ok';
-      const st=r.status==='遲到'?`遲到 ${r.lateMin||''} 分`:r.status==='警告'?`遲到 ${r.lateMin||''} 分(容許內)`:r.status||'';
+      const anom=isAnom(r), voided=!!r.voided;
+      const sc=anom?'s-bad':r.status==='警告'?'s-warn':r.status==='到場'?'s-visit':'s-ok';
+      const st=r.status==='遲到'?`遲到 ${r.lateMin||''} 分`:r.status==='警告'?`遲到 ${r.lateMin||''} 分(容許內)`:r.status==='缺卡'?(r.note||'缺卡'):r.status||'';
       const time=fmtT(r.deviceTs);
-      const srcTag = r.source==='manual'?'<span style="font-size:11px;color:#8a5cf6;font-weight:800;">·補登</span>'
+      const srcTag = r.origTs?'<span style="font-size:11px;color:#8a5cf6;font-weight:800;">·已修改</span>'
+        : r.source==='manual'?'<span style="font-size:11px;color:#8a5cf6;font-weight:800;">·補登</span>'
         : r.source==='offline'?'<span style="font-size:11px;color:#e67e22;font-weight:800;">·📴離線</span>'
         : r.source==='system'?'<span style="font-size:11px;color:#d93025;font-weight:800;">·系統</span>':'';
       const needRev = r.source==='offline' && r.needReview;
       const reviewBtn = needRev?`<button onclick="approveOffline('${r.id}')" title="核可離線打卡" style="background:#e6f4ea;color:#137333;border:none;border-radius:8px;padding:5px 9px;font-weight:800;font-size:11px;cursor:pointer;margin-left:6px;">✔核可</button>`:'';
-      html+=`<div class="prow">
+      const editBtn=`<button onclick="openEditPunch('${r.id}')" title="修改／註銷（需填原因，保留原始紀錄）" style="background:#eef2ff;color:#4338ca;border:none;border-radius:8px;padding:5px 9px;font-weight:800;font-size:11px;cursor:pointer;margin-left:6px;">✏️</button>`;
+      const rowStyle=voided?'opacity:.55;text-decoration:line-through;':anom?'border-left:3px solid var(--danger);padding-left:8px;background:#fff5f5;border-radius:6px;':'';
+      html+=`<div class="prow" style="${rowStyle}">
         <span class="ptag ${tag}">${r.type}</span>
         <span style="font-weight:800;">${time}</span>
-        <span class="meta">@${r.atStore}${r.distanceM!=null?` · ${r.distanceM}m`:''}${r.shift?` · 班 ${r.shift}`:''}${r.homeStore&&r.homeStore!==r.atStore?` · 原店 ${r.homeStore}`:''}${srcTag}</span>
-        <span class="pstat ${needRev?'s-warn':sc}">${needRev?'離線待核':st}</span>${reviewBtn}
-        <button onclick="delPunch('${r.id}')" title="刪除此筆" style="background:none;border:none;color:#cbd5e1;font-size:14px;cursor:pointer;padding:0 2px 0 8px;">🗑️</button>
+        <span class="meta">@${r.atStore}${r.distanceM!=null?` · ${r.distanceM}m`:''}${r.shift?` · 班 ${r.shift}`:''}${r.homeStore&&r.homeStore!==r.atStore?` · 原店 ${r.homeStore}`:''}${srcTag}${voided?' · <span style="color:var(--danger);font-weight:800;">已註銷</span>':''}</span>
+        <span class="pstat ${needRev?'s-warn':sc}">${needRev?'離線待核':(anom?'⚠️ '+st:st)}</span>${reviewBtn}${editBtn}
       </div>`;
       if(r.note) html+=`<div class="meta" style="padding:0 0 6px 4px;">💬 ${r.note}${r.noteBy?`（${r.noteBy}）`:''}</div>`;
+      if(r.editReason||r.voidReason) html+=`<div class="meta" style="padding:0 0 6px 4px;color:#8a5cf6;">✏️ ${voided?'註銷':'修改'}原因：${r.voidReason||r.editReason}${(r.voidedBy||r.editedBy)?`（${r.voidedBy||r.editedBy}）`:''}${(r.origTs&&!voided)?` · 原時間 ${fmtT(r.origTs)}`:''}</div>`;
     });
     html+=`</div>`;
   });
