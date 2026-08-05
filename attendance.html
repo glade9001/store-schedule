@@ -61,6 +61,10 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
       <label style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px;border:1.5px solid var(--border);border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;"><input type="radio" name="editAct" value="void" onchange="editActChange()"> 註銷此筆</label>
     </div>
     <div id="editTimeRow" style="margin-bottom:12px;">
+      <label style="display:block;font-size:12px;font-weight:700;margin-bottom:5px;">打卡類型（可更正，如夜班誤判上班→改下班）</label>
+      <select id="editType" style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:10px;font-size:14px;font-weight:700;margin-bottom:10px;">
+        <option value="上班">上班</option><option value="下班">下班</option>
+      </select>
       <label style="display:block;font-size:12px;font-weight:700;margin-bottom:5px;">更正後時間</label>
       <input type="time" id="editTime" style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:10px;font-size:16px;font-weight:700;">
       <label style="display:block;font-size:12px;font-weight:700;margin:10px 0 5px;">狀態（可一併更正，如跨日班誤判早退→改正常）</label>
@@ -246,6 +250,7 @@ async function openEditPunch(id){
   document.getElementById('editInfo').innerHTML=`${_editRec.displayName||_editRec.empName}　${_editRec.date}　<b>${_editRec.type}</b>　原打卡時間 <b>${fmtT(_editRec.origTs||_editRec.deviceTs)}</b>`;
   document.querySelector('input[name=editAct][value=edit]').checked=true;
   document.getElementById('editTime').value=fmtT(_editRec.deviceTs);
+  document.getElementById('editType').value=(_editRec.type==='下班')?'下班':'上班';
   document.getElementById('editStatus').value=_editRec.status||'正常';
   document.getElementById('editReason').value='';
   editActChange();
@@ -273,8 +278,10 @@ async function applyEditPunch(){
       const nd=new Date(`${_editRec.date}T${hh}:${mm}:00+08:00`);
       const orig=_editRec.origTs||_editRec.deviceTs||''; // 首次修改才鎖原始時間，之後保留最初值
       const ns=document.getElementById('editStatus').value;
+      const nt=document.getElementById('editType').value;
       const upd={ deviceTs:nd.toISOString(), tsMs:nd.getTime(), origTs:orig, editedBy:by, editReason:reason, editedAt:now, source:'manual',
-        editLog:AU({at:now, by, action:'修改', from:`${fmtT(_editRec.deviceTs)}/${_editRec.status||''}`, to:`${tv}/${ns}`, reason}) };
+        editLog:AU({at:now, by, action:'修改', from:`${_editRec.type||''}/${fmtT(_editRec.deviceTs)}/${_editRec.status||''}`, to:`${nt}/${tv}/${ns}`, reason}) };
+      if(nt!==_editRec.type){ upd.type=nt; if(!_editRec.origType) upd.origType=_editRec.type||''; }
       if(ns!==_editRec.status){ upd.status=ns; if(!['遲到','早退','警告'].includes(ns)) upd.lateMin=0; if(!_editRec.origStatus) upd.origStatus=_editRec.status||''; }
       await ref.set(upd, {merge:true});
     }
