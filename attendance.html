@@ -134,6 +134,15 @@ function renderBar(){
   const empCtrl = viewMode==='emp' ? `<select id="empSel" onchange="curEmp=this.value;load();">${empOpts}</select>` : '';
   const mbtn=(m,l)=>`<button onclick="setMode('${m}')" style="flex:1;padding:8px 4px;border:1.5px solid ${viewMode===m?'var(--primary)':'var(--border)'};background:${viewMode===m?'var(--primary)':'#fff'};color:${viewMode===m?'#fff':'var(--text)'};border-radius:9px;font-size:12.5px;font-weight:800;cursor:pointer;">${l}</button>`;
   const tolVal = tolOf(curStore);
+  const stage=(appConfig.clockIn||{}).stage||'off';
+  const enOn = ((appConfig.clockIn||{}).enabledByStore||{})[curStore]===true;
+  // 單店打卡開關：僅在全域「全面開放(all)」時才出現，由店長決定本店是否啟用
+  const enableToggle = (viewMode==='day' && stage==='all') ? `
+  <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:13px;cursor:pointer;flex-wrap:wrap;background:#f0f9ff;border:1.5px solid #bae6fd;border-radius:10px;padding:10px 12px;">
+    <input type="checkbox" id="clockEnChk" ${enOn?'checked':''} onchange="saveClockEnabled(this.checked)" style="width:18px;height:18px;">
+    <span style="font-weight:800;">✅ 開啟「${curStore}」打卡功能</span>
+    <span style="color:var(--muted);">（未開啟時，本店員工的打卡與出勤入口顯示「維護中」）</span>
+  </label>` : '';
   const settings = viewMode==='day' ? `
   <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:13px;flex-wrap:wrap;">
     <span style="font-weight:800;">⏱️ 遲到容許值</span>
@@ -150,7 +159,7 @@ function renderBar(){
     ${storeSel}${dateCtrl}${empCtrl}
   </div>
   <div style="display:flex;gap:6px;margin-bottom:12px;">${mbtn('day','📅 單日')}${mbtn('month','⚠️ 本月異常')}${mbtn('emp','👤 員工月表')}</div>
-  ${settings}
+  ${enableToggle}${settings}
   <div id="reqs"></div><div id="sum"></div><div id="list"><div class="empty">載入中…</div></div>`;
 }
 async function setMode(m){
@@ -174,6 +183,14 @@ async function saveNotify(on){
     await window.db.collection('settings').doc('globalConfig').update({['clockIn.notifyByStore.'+curStore]: !!on});
     appConfig.clockIn=appConfig.clockIn||{}; appConfig.clockIn.notifyByStore=appConfig.clockIn.notifyByStore||{}; appConfig.clockIn.notifyByStore[curStore]=!!on;
     hideLoading(); alert(`✅ 已${on?'開啟':'關閉'}「${curStore}」打卡通知`);
+  }catch(e){ hideLoading(); alert('儲存失敗：'+e.message); }
+}
+async function saveClockEnabled(on){
+  showLoading('儲存中…');
+  try{
+    await window.db.collection('settings').doc('globalConfig').update({['clockIn.enabledByStore.'+curStore]: !!on});
+    appConfig.clockIn=appConfig.clockIn||{}; appConfig.clockIn.enabledByStore=appConfig.clockIn.enabledByStore||{}; appConfig.clockIn.enabledByStore[curStore]=!!on;
+    hideLoading(); alert(`✅ 已${on?'開啟':'關閉'}「${curStore}」打卡功能${on?'':'（本店員工打卡/出勤入口將顯示維護中）'}`);
   }catch(e){ hideLoading(); alert('儲存失敗：'+e.message); }
 }
 async function saveTol(){

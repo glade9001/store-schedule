@@ -743,13 +743,13 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
         </div>
       </div>
 
-      <div onclick="window.location.href='clock.html'" style="background:linear-gradient(135deg,#34a853,#1e7e34);border-radius:16px;padding:16px 18px;margin-bottom:12px;display:flex;align-items:center;gap:14px;cursor:pointer;box-shadow:0 3px 12px rgba(52,168,83,.3);">
+      <div id="homeClockCard" onclick="window.location.href='clock.html'" style="background:linear-gradient(135deg,#34a853,#1e7e34);border-radius:16px;padding:16px 18px;margin-bottom:12px;display:flex;align-items:center;gap:14px;cursor:pointer;box-shadow:0 3px 12px rgba(52,168,83,.3);">
         <div style="font-size:32px;line-height:1;">🕐</div>
         <div style="flex:1;">
           <div style="font-size:18px;font-weight:900;color:#ffffff;">上下班打卡</div>
-          <div style="font-size:12.5px;color:rgba(255,255,255,.92);margin-top:2px;">記得打卡，並誠實於現場打卡 🙏</div>
+          <div id="homeClockSub" style="font-size:12.5px;color:rgba(255,255,255,.92);margin-top:2px;">記得打卡，並誠實於現場打卡 🙏</div>
         </div>
-        <div style="font-size:22px;color:rgba(255,255,255,.85);">›</div>
+        <div id="homeClockArrow" style="font-size:22px;color:rgba(255,255,255,.85);">›</div>
       </div>
 
       <div id="announceBannerWrap" style="display:none; margin-bottom:10px;">
@@ -2124,6 +2124,25 @@ async function initApp() {
   showLoading('載入個人資料中...');
   const storeLabel = currentUser.store || '全門市';
   const dName = currentUser.displayName || currentUser.empName || '使用者';
+
+  // 打卡卡呈現：功能未啟用(off)→整卡隱藏；已啟用但對此人尚未開放(層級未到 或 全面開放下本店未勾選)→變灰標「尚未開放」不可點；正常→綠色可點
+  try{
+    const clk=(appConfig.clockIn)||{}; const stage=clk.stage||'off';
+    const okPerm = stage==='all' || (stage==='manager' && ['manager','owner','admin'].includes(currentUser.permission)) || (stage==='admin' && currentUser.permission==='admin');
+    const storeOn = stage!=='all' || ((clk.enabledByStore||{})[currentUser.store]===true);
+    const cc=document.getElementById('homeClockCard');
+    if(cc){
+      if(stage==='off'){ cc.style.display='none'; }
+      else if(okPerm && storeOn){ cc.style.display=''; }
+      else {
+        cc.style.display='';
+        cc.onclick=null; cc.removeAttribute('onclick'); cc.style.cursor='default';
+        cc.style.background='linear-gradient(135deg,#9ca3af,#6b7280)'; cc.style.boxShadow='none';
+        const sub=document.getElementById('homeClockSub'); if(sub) sub.textContent='尚未開放';
+        const arr=document.getElementById('homeClockArrow'); if(arr) arr.style.display='none';
+      }
+    }
+  }catch(e){}
 
   // ✅ 讀取門市 displayNameMap（設定 sheet 和待處理清單都需要）
   displayNameMap = {};

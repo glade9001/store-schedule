@@ -1377,6 +1377,10 @@ function canClockPerm(stage, perm) {
   if (stage === "admin") return perm === "admin";
   return false;
 }
+// 單店打卡開關：全面開放(all)時，本店需店長在出勤管理勾選啟用；其餘階段不受此限(依 stage 判定)
+function storeClockOn(clk, store) {
+  return (clk && clk.stage === "all") ? (((clk.enabledByStore) || {})[store] === true) : true;
+}
 // 單一員工通知：只查該員工的綁定(省讀取，不像 notifyEmployees 讀全表)
 async function notifyOneEmp(db, empName, store, text, token) {
   if (!empName) return;
@@ -1468,6 +1472,7 @@ exports.scheduledMissingClock = onSchedule(
     const dayName = WEEK_DAYS[(nowTp.getUTCDay() + 6) % 7];
     const notifyBy = conf.clockIn.notifyByStore || {};
     for (const store of stores) {
+      if (!storeClockOn(conf.clockIn || {}, store)) continue; // 全面開放下本店未開啟打卡 → 不判缺卡
       if (notifyBy[store] === false) continue; // 該店關閉打卡通知 → 不判缺卡
       const wd = await db.collection("stores").doc(store).collection("weeks").doc(wk).get().catch(() => null);
       if (!wd || !wd.exists) continue;
@@ -1560,6 +1565,76 @@ exports.scheduledMissingClock = onSchedule(
   }
 );
 
+// 打卡提醒（員工自行開啟）：依排班時間，上班前 X 分鐘 / 下班時間 LINE 提醒打卡。
+// 偏好存 clockRemindPrefs/{empName} = {inBefore:分鐘(0=關), outRemind:bool}。每 5 分跑一次，5 分視窗+去重。
+exports.scheduledClockRemind = onSchedule(
+  { schedule: "*/5 * * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN] },
+  async () => {
+    const db = admin.firestore();
+    if (await maintenanceOn(db)) return;
+    const cfg = await db.collection("settings").doc("globalConfig").get().catch(() => null);
+    const conf = cfg && cfg.exists ? cfg.data() : {};
+    const stage = conf.clockIn && conf.clockIn.stage;
+    if (!stage || stage === "off") return;
+    const prefsSnap = await db.collection("clockRemindPrefs").get().catch(() => null);
+    if (!prefsSnap || prefsSnap.empty) return; // 沒人開提醒 → 早退省讀取
+    const prefs = {}; prefsSnap.forEach((d) => { prefs[d.id] = d.data() || {}; });
+    const stores = (conf.stores || []).filter((s) => s !== "人力支援");
+    const token = LINE_TOKEN.value();
+    const nowMs = Date.now();
+    const nowTp = new Date(nowMs + 8 * 3600000);
+    const ds = nowTp.toISOString().slice(0, 10);
+    const wk = simpleWeekStr(nowTp);
+    const dayName = WEEK_DAYS[(nowTp.getUTCDay() + 6) % 7];
+    const WIN = 5 * 60000; // cron 週期＝視窗長度
+    for (const store of stores) {
+      if (!storeClockOn(conf.clockIn || {}, store)) continue; // 全面開放下本店未開啟打卡 → 不提醒
+      const wd = await db.collection("stores").doc(store).collection("weeks").doc(wk).get().catch(() => null);
+      if (!wd || !wd.exists) continue;
+      const recs = (wd.data().records || []).filter((r) => r.day === dayName && /^\d{1,2}-\d{1,2}$/.test(String(r.shift || "")) && !String(r.location || "").startsWith("支援"));
+      if (!recs.length) continue;
+      const esSnap = await db.collection("stores").doc(store).collection("employees").get().catch(() => null);
+      const statusMap = {}; if (esSnap) esSnap.forEach((d) => { const e = d.data() || {}; statusMap[d.id] = { status: e.status || "", eff: e.retireDate || e.transferDate || "" }; });
+      let attSnap = null;
+      for (const r of recs) {
+        const isSupport = r.supportEmp && r.approvalStatus === "approved";
+        const emp = (r.name && !String(r.name).startsWith("🆘")) ? r.name : (isSupport ? r.supportEmp.slice(r.supportEmp.indexOf("-") + 1) : "");
+        if (!emp) continue;
+        const pref = prefs[emp];
+        if (!pref || (!(Number(pref.inBefore) > 0) && !pref.outRemind)) continue;
+        const sInfo = statusMap[emp] || {};
+        if (!isSupport && ["離職", "調走"].includes(sInfo.status) && (!sInfo.eff || ds >= sInfo.eff)) continue;
+        const homeStore = isSupport ? r.supportEmp.slice(0, r.supportEmp.indexOf("-")) : store;
+        const info = await resolveEmpInfo(db, emp);
+        if (!canClockPerm(stage, info.permission)) continue;
+        const m = String(r.shift).match(/^(\d{1,2})-(\d{1,2})$/);
+        const a = +m[1], b = +m[2], dur = (b <= a ? b + 24 : b) - a;
+        const startMs = Date.parse(`${ds}T${String(a).padStart(2, "0")}:00:00+08:00`);
+        const endMs = startMs + dur * 3600000;
+        const inBefore = Number(pref.inBefore) || 0;
+        const wantIn = inBefore > 0 && nowMs >= startMs - inBefore * 60000 && nowMs < startMs - inBefore * 60000 + WIN;
+        const wantOut = !!pref.outRemind && nowMs >= endMs && nowMs < endMs + WIN;
+        if (!wantIn && !wantOut) continue;
+        // 讀今日該店打卡（延後到確定有人要提醒才讀）
+        if (!attSnap) { attSnap = []; const s = await db.collection("stores").doc(store).collection("attendance").where("date", "==", ds).get().catch(() => null); if (s) s.forEach((d) => attSnap.push(d.data())); }
+        const empPunches = attSnap.filter((p) => p.empName === emp);
+        const hasIn = empPunches.some((p) => p.type === "上班");
+        const hasOut = empPunches.some((p) => p.type === "下班");
+        const send = async (kind, msg) => {
+          const flagId = ("remind_" + ds + "_" + emp + "_" + r.shift + "_" + kind).replace(/[^\w一-龥]/g, "_");
+          const fref = db.collection("stores").doc(store).collection("clockRemindLog").doc(flagId);
+          const ex = await fref.get().catch(() => null);
+          if (ex && ex.exists) return;
+          await fref.set({ empName: emp, date: ds, shift: r.shift, kind, ts: admin.firestore.FieldValue.serverTimestamp() });
+          await notifyOneEmp(db, emp, homeStore, msg, token);
+        };
+        if (wantIn && !hasIn) await send("in", `⏰ 上班打卡提醒\n你今天在 ${store} 的班別 ${r.shift} 即將開始（${inBefore} 分鐘後），記得到店打卡上班。`);
+        if (wantOut && hasIn && !hasOut) await send("out", `⏰ 下班打卡提醒\n你今天在 ${store} 的班別 ${r.shift} 已到下班時間，記得打卡下班。`);
+      }
+    }
+  }
+);
+
 // ============ 打卡 callable（伺服器權威：時間/圍欄/狀態全後端判定）============
 exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
   const auth = request.auth;
@@ -1587,6 +1662,7 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
     if (dist <= (g.radiusM || 120) && (atStore === "" || dist < distanceM)) { atStore = st; distanceM = Math.round(dist); }
   }
   if (!atStore) throw new HttpsError("failed-precondition", "不在任何門市範圍內，無法打卡");
+  if (!storeClockOn(clk, atStore)) throw new HttpsError("failed-precondition", "此門市打卡功能尚未開啟");
   // 伺服器時間(台北)
   const nowMs = Date.now();
   const nowTp = new Date(nowMs + 8 * 3600000);
@@ -1714,6 +1790,7 @@ exports.clockPunchOffline = onCall({ region: "asia-east1", secrets: [LINE_TOKEN]
     if (dist <= (g.radiusM || 120) && (atStore === "" || dist < distanceM)) { atStore = st; distanceM = Math.round(dist); }
   }
   if (!atStore) throw new HttpsError("failed-precondition", "打卡座標不在任何門市範圍內");
+  if (!storeClockOn(clk, atStore)) throw new HttpsError("failed-precondition", "此門市打卡功能尚未開啟");
   const nowMs = Date.now(); // 伺服器收到補傳的時間
   const punchTp = new Date(cptMs + 8 * 3600000); // 手機打卡當下(台北)
   const ds = punchTp.toISOString().slice(0, 10);

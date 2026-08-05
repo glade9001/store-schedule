@@ -100,7 +100,7 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
   </div>
 </div>
 <script>
-let currentUser=null, appConfig={}, geoCfg={}, myGeo=null, atStore='', distanceM=null, todayShifts=[], todayPunches=[], locating=false, isBound=true, carriedOpenIn=null, candShifts=[], openPunch=null;
+let currentUser=null, appConfig={}, geoCfg={}, myGeo=null, atStore='', distanceM=null, todayShifts=[], todayPunches=[], locating=false, isBound=true, carriedOpenIn=null, candShifts=[], openPunch=null, remindPref={inBefore:0,outRemind:false};
 function weekStrOf(d){ const first=new Date(d.getFullYear(),0,1); const w=Math.ceil((((d-first)/86400000)+first.getDay()+1)/7); return `${d.getFullYear()}-W${w<10?'0'+w:w}`; }
 let serverOffset=0, clockTimer=null; // 伺服器校時：serverOffset = 伺服器時間 − 本機時間
 async function syncServerTime(){
@@ -136,7 +136,10 @@ window.onload=async()=>{
   if(!fb){localStorage.removeItem('currentUser');location.replace('home.html');return;}
   try{const s=await window.db.collection('settings').doc('globalConfig').get();if(s.exists)appConfig=s.data();}catch(e){}
   const clk=appConfig.clockIn||{}; geoCfg=clk.geo||{};
-  if(!canClock(clk.stage||'off', currentUser.permission)){
+  const stage=clk.stage||'off';
+  // 全面開放(all)時，本店打卡是否啟用由店長於出勤管理勾選；未啟用→維護中
+  const storeOn = stage!=='all' || ((clk.enabledByStore||{})[currentUser.store]===true);
+  if(!canClock(stage, currentUser.permission) || !storeOn){
     hideLoading();
     document.getElementById('wrap').innerHTML=`<div class="card maint"><div class="maint-icon">🚧</div><div class="maint-title">維護中敬請期待</div><div class="maint-sub">打卡功能尚未對您開放，請稍候。</div></div>`;
     return;
@@ -146,6 +149,8 @@ window.onload=async()=>{
     if(currentUser.uid){ const bs=await window.db.collection('lineBindings').doc(currentUser.uid).get(); isBound=bs.exists; }
     else { const qq=await window.db.collection('lineBindings').where('empName','==',currentUser.empName).limit(1).get(); isBound=!qq.empty; }
   }catch(e){}
+  // 讀打卡提醒偏好
+  try{ const rp=await window.db.collection('clockRemindPrefs').doc(currentUser.empName).get(); if(rp.exists){ const d=rp.data()||{}; remindPref={inBefore:Number(d.inBefore)||0, outRemind:!!d.outRemind}; } }catch(e){}
   await syncServerTime();
   hideLoading();
   render();
@@ -261,6 +266,20 @@ function nextAction(){
 function nearestShiftByStart(nowMin){ let best=null; todayShifts.forEach(s=>{const d=Math.abs(s.start*60-nowMin);if(!best||d<best.d)best={s,d};}); return best?best.s:null; }
 function nearestShiftByEnd(nowMin){ let best=null; todayShifts.forEach(s=>{let e=s.end*60;if(s.end<=s.start)e+=1440;const d=Math.abs(e-nowMin);if(!best||d<best.d)best={s,d};}); return best?best.s:null; }
 
+// 打卡提醒偏好：寫 clockRemindPrefs/{empName}，排程 cron 依排班時間發 LINE
+async function saveRemindPref(){
+  const on=document.getElementById('remIn').checked;
+  let x=parseInt(document.getElementById('remInMin').value,10); if(!(x>0))x=10; if(x>30)x=30;
+  document.getElementById('remInMin').value=x;
+  const outR=document.getElementById('remOut').checked;
+  remindPref={inBefore:on?x:0, outRemind:outR};
+  try{
+    await window.db.collection('clockRemindPrefs').doc(currentUser.empName).set({
+      empName:currentUser.empName, store:currentUser.store||'', inBefore:remindPref.inBefore, outRemind:outR, updatedAt:new Date().toISOString()
+    },{merge:true});
+    toast('✅ 打卡提醒設定已儲存'+(!isBound?'（記得綁定 LINE 才收得到）':''));
+  }catch(e){ toast('儲存失敗：'+e.message); }
+}
 // 補登／修改申請（同 my-attendance：寫 attendanceRequests、店長審核）
 function openReqModal(){
   const stores=(appConfig.stores||[]).filter(s=>s!=='人力支援');
@@ -331,6 +350,18 @@ function render(){
   <div class="card" style="display:flex;gap:8px;padding:12px;">
     <button onclick="window.location.href='my-attendance.html'" style="flex:1;padding:11px;background:#eef2ff;color:#4338ca;border:none;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;">📋 我的出勤</button>
     <button onclick="openReqModal()" style="flex:1;padding:11px;background:#fff7ed;color:#c2410c;border:1.5px solid #fed7aa;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;">📝 補登／修改</button>
+  </div>
+  <div class="card" style="padding:14px;">
+    <div style="font-size:13px;font-weight:800;color:var(--text-muted);margin-bottom:10px;">🔔 打卡提醒（依你的排班時間 LINE 通知）</div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;margin-bottom:10px;flex-wrap:wrap;">
+      <input type="checkbox" id="remIn" ${remindPref.inBefore>0?'checked':''} onchange="saveRemindPref()" style="width:18px;height:18px;">
+      上班前 <input type="number" id="remInMin" min="1" max="30" value="${remindPref.inBefore>0?remindPref.inBefore:10}" onchange="saveRemindPref()" style="width:56px;padding:5px;border:1.5px solid var(--border);border-radius:6px;text-align:center;font-weight:800;"> 分鐘提醒上班打卡
+    </label>
+    <label style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;">
+      <input type="checkbox" id="remOut" ${remindPref.outRemind?'checked':''} onchange="saveRemindPref()" style="width:18px;height:18px;">
+      下班時間提醒下班打卡
+    </label>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:8px;line-height:1.5;">※ 上班前分鐘數上限 30 分。需綁定 LINE 才收得到；未排班的日子不提醒。</div>
   </div>
   ${todayPunches.length?`<div class="card"><div style="font-size:13px;font-weight:800;color:var(--text-muted);margin-bottom:8px;">今日打卡</div>${plist}</div>`:''}`;
   tickClock();
