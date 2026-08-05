@@ -89,7 +89,7 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
   </div>
 </div>
 <script>
-let currentUser=null, appConfig={}, curStore='', curDate='', viewMode='day', curEmp='', storeEmps=[], STORES=[];
+let currentUser=null, appConfig={}, curStore='', curDate='', viewMode='day', curEmp='', storeEmps=[], STORES=[], dispMap={};
 const isAdminOwner=()=>['owner','admin'].includes(currentUser?.permission);
 function showLoading(t){document.getElementById('loadingText').textContent=t||'載入中…';document.getElementById('loadingOverlay').classList.remove('hidden');}
 function hideLoading(){document.getElementById('loadingOverlay').classList.add('hidden');}
@@ -106,6 +106,8 @@ window.onload=async()=>{
   if(!fb){localStorage.removeItem('currentUser');location.replace('home.html');return;}
   if(!['manager','owner','admin'].includes(currentUser.permission)){ document.getElementById('wrap').innerHTML='<div class="card maint">僅店長以上可用</div>'; hideLoading(); return; }
   try{const s=await window.db.collection('settings').doc('globalConfig').get();if(s.exists)appConfig=s.data();}catch(e){}
+  // app 顯示名權威對照（account.empName → displayName）；打卡紀錄自帶的 displayName 可能為舊值或缺漏
+  try{const acc=await window.db.collection('account').get();acc.forEach(d=>{const a=d.data();if(a.empName&&a.displayName)dispMap[a.empName]=a.displayName;});}catch(e){}
   const stage=(appConfig.clockIn||{}).stage||'off';
   if(!canClock(stage,currentUser.permission)){
     document.getElementById('wrap').innerHTML='<div class="card maint"><div style="font-size:52px;margin-bottom:14px;">🚧</div><div style="font-size:20px;font-weight:900;margin-bottom:8px;">維護中敬請期待</div><div style="color:var(--text-muted);">出勤管理尚未對您開放。</div></div>';
@@ -158,11 +160,11 @@ async function setMode(m){
 }
 async function loadStoreEmps(){
   try{ const s=await window.db.collection('stores').doc(curStore).collection('employees').get();
-    storeEmps=[]; s.forEach(d=>{ const e=d.data()||{}; if(e.status!=='離職'&&e.status!=='調走') storeEmps.push({name:d.id, dn:e.displayName||d.id}); });
+    storeEmps=[]; s.forEach(d=>{ const e=d.data()||{}; if(e.status!=='離職'&&e.status!=='調走') storeEmps.push({name:d.id, dn:dispMap[d.id]||e.displayName||d.id}); });
     storeEmps.sort((a,b)=>a.dn.localeCompare(b.dn,'zh-Hant'));
   }catch(e){ storeEmps=[]; }
 }
-function empDisplay(name){ const e=storeEmps.find(x=>x.name===name); return e?e.dn:name; }
+function empDisplay(name){ return dispMap[name] || (storeEmps.find(x=>x.name===name)||{}).dn || name; }
 
 function tolOf(store){ const c=appConfig.clockIn||{}; const t=(c.tolByStore||{})[store]; return t!=null?t:(c.lateToleranceMin!=null?c.lateToleranceMin:10); }
 function notifyOf(store){ const c=appConfig.clockIn||{}; return (c.notifyByStore||{})[store]!==false; }
@@ -194,7 +196,7 @@ async function loadRequests(){
   if(!reqs.length){ box.innerHTML=''; return; }
   box.innerHTML=`<div class="card" style="border:1.5px solid #ffd8a8;background:#fff8ee;"><div style="font-size:14px;font-weight:900;color:#c0620f;margin-bottom:8px;">📝 待審核申請（${reqs.length}）</div>`+
     reqs.map(r=>`<div style="border-top:1px dashed #f0d9b0;padding:8px 0;">
-      <div style="font-size:14px;font-weight:800;">${r.displayName||r.empName}　<span style="color:var(--text-muted);font-weight:600;font-size:13px;">${r.targetDate} ${r.punchType} ${r.requestedTime}</span></div>
+      <div style="font-size:14px;font-weight:800;">${empDisplay(r.empName)}　<span style="color:var(--text-muted);font-weight:600;font-size:13px;">${r.targetDate} ${r.punchType} ${r.requestedTime}</span></div>
       <div class="meta" style="margin:2px 0;">原因：${r.reason||'—'}${r.homeStore&&r.homeStore!==r.atStore?` · 原店 ${r.homeStore}`:''}</div>
       <div style="display:flex;gap:8px;margin-top:6px;">
         <button onclick="approveReq('${r.id}')" style="flex:1;padding:8px;background:#e6f4ea;color:#137333;border:none;border-radius:8px;font-weight:800;cursor:pointer;">✅ 核准</button>
@@ -247,7 +249,7 @@ async function openEditPunch(id){
   let snap; try{ snap=await ref.get(); }catch(e){ alert('讀取失敗：'+e.message); return; }
   if(!snap.exists){ alert('找不到這筆紀錄'); return; }
   _editId=id; _editRec=snap.data();
-  document.getElementById('editInfo').innerHTML=`${_editRec.displayName||_editRec.empName}　${_editRec.date}　<b>${_editRec.type}</b>　原打卡時間 <b>${fmtT(_editRec.origTs||_editRec.deviceTs)}</b>`;
+  document.getElementById('editInfo').innerHTML=`${empDisplay(_editRec.empName)}　${_editRec.date}　<b>${_editRec.type}</b>　原打卡時間 <b>${fmtT(_editRec.origTs||_editRec.deviceTs)}</b>`;
   document.querySelector('input[name=editAct][value=edit]').checked=true;
   document.getElementById('editTime').value=fmtT(_editRec.deviceTs);
   document.getElementById('editType').value=(_editRec.type==='下班')?'下班':'上班';
@@ -304,7 +306,7 @@ function punchRow(r, showEmp){
   const reviewBtn = needRev?`<button onclick="approveOffline('${r.id}')" title="核可離線打卡" style="background:#e6f4ea;color:#137333;border:none;border-radius:8px;padding:5px 9px;font-weight:800;font-size:11px;cursor:pointer;margin-left:6px;">✔核可</button>`:'';
   const editBtn=`<button onclick="openEditPunch('${r.id}')" title="修改／註銷（需填原因，保留原始紀錄）" style="background:#eef2ff;color:#4338ca;border:none;border-radius:8px;padding:5px 9px;font-weight:800;font-size:11px;cursor:pointer;margin-left:6px;">✏️</button>`;
   const rowStyle=voided?'opacity:.55;text-decoration:line-through;':anom?'border-left:3px solid var(--danger);padding-left:8px;background:#fff5f5;border-radius:6px;':'';
-  const empLbl=showEmp?`<span style="font-weight:800;min-width:52px;">${r.displayName||r.empName}</span>`:'';
+  const empLbl=showEmp?`<span style="font-weight:800;min-width:52px;">${empDisplay(r.empName)}</span>`:'';
   let h=`<div class="prow" style="${rowStyle}">${empLbl}
     <span class="ptag ${tag}">${r.type}</span>
     <span style="font-weight:800;">${time}</span>
@@ -392,7 +394,7 @@ async function loadDay(){
   const byEmp={}; recs.forEach(r=>{ (byEmp[r.empName]=byEmp[r.empName]||[]).push(r); });
   let html='';
   Object.entries(byEmp).forEach(([emp,list2])=>{
-    const dn=list2[0].displayName||emp; const anomCnt=list2.filter(isAnomRec).length;
+    const dn=empDisplay(emp); const anomCnt=list2.filter(isAnomRec).length;
     const anomChip=anomCnt?` <span style="background:var(--danger);color:#fff;border-radius:8px;padding:2px 8px;font-size:11px;font-weight:800;">⚠️ ${anomCnt} 筆異常</span>`:'';
     html+=`<div class="card"><div class="emp-name">${dn}${anomChip}</div>`;
     list2.forEach(r=>{ html+=punchRow(r,false); });
