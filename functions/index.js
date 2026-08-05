@@ -1634,15 +1634,17 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
       const late = Math.round((nowMs - s.startMs) / 60000);
       if (late > tol) { status = "遲到"; lateMin = late; } else if (late > 0) { status = "警告"; lateMin = late; }
     } else { status = "到場"; }
-  } else { // 下班：優先配對「最近的未配對上班」→ 歸同一班(shiftDate)、以其排班結束判早退
-    let openIn = null;
+  } else { // 下班：跨日時間序列配對，找尚未打下班的上班 → 歸同一班(shiftDate)、以其排班結束判早退
+    // 不能用同日筆數判斷：連續夜班時同一日曆日會同時含「收前晚班」+「開當晚班」使筆數打平而漏配。
     const dsY = new Date(nowMs + 8 * 3600000 - 86400000).toISOString().slice(0, 10);
-    for (const dd of [ds, dsY]) {
+    const seq = [];
+    for (const dd of [dsY, ds]) {
       const sn = await attCol.where("date", "==", dd).where("empName", "==", empName).get();
-      const ps = []; sn.forEach((x) => ps.push(x.data()));
-      const ins = ps.filter((p) => p.type === "上班").sort((a, b) => (b.tsMs || 0) - (a.tsMs || 0));
-      if (ins.length > ps.filter((p) => p.type === "下班").length) { openIn = ins[0]; break; }
+      sn.forEach((x) => { const p = x.data(); if (p.type === "上班" || p.type === "下班") seq.push(p); });
     }
+    seq.sort((a, b) => (a.tsMs || 0) - (b.tsMs || 0));
+    const stack = []; seq.forEach((p) => { if (p.type === "上班") stack.push(p); else stack.pop(); });
+    const openIn = stack.length ? stack[stack.length - 1] : null;
     if (openIn) {
       shiftDate = openIn.shiftDate || openIn.date || ds;
       matchedShift = openIn.shift || "";

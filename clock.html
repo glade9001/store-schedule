@@ -80,7 +80,7 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
   </div>
 </div>
 <script>
-let currentUser=null, appConfig={}, geoCfg={}, myGeo=null, atStore='', distanceM=null, todayShifts=[], todayPunches=[], locating=false, isBound=true, carriedOpenIn=null, candShifts=[];
+let currentUser=null, appConfig={}, geoCfg={}, myGeo=null, atStore='', distanceM=null, todayShifts=[], todayPunches=[], locating=false, isBound=true, carriedOpenIn=null, candShifts=[], openPunch=null;
 function weekStrOf(d){ const first=new Date(d.getFullYear(),0,1); const w=Math.ceil((((d-first)/86400000)+first.getDay()+1)/7); return `${d.getFullYear()}-W${w<10?'0'+w:w}`; }
 let serverOffset=0, clockTimer=null; // 伺服器校時：serverOffset = 伺服器時間 − 本機時間
 async function syncServerTime(){
@@ -180,17 +180,21 @@ async function loadToday(){
     snap.forEach(d=>todayPunches.push({id:d.id,...d.data()}));
     todayPunches.sort((a,b)=>(a.deviceTs||'').localeCompare(b.deviceTs||''));
   }catch(e){}
-  // 跨日班(夜班)：昨天的上班若還沒打下班(下班落在今天)，今天要能補打下班而非誤成上班
-  carriedOpenIn=null;
+  // 跨日班(夜班)：用「昨日+今日」時間序列配對找出尚未打下班的上班。
+  // 不能用同一日曆日的上/下班筆數判斷——連續夜班時，同一日曆日會同時含「收前一晚的班」+「開當晚的班」而筆數打平，導致誤判(邱韋誠 8/4：00:39下班收8/3班 + 16:00上班開8/4班 → 1:1 打平)。
+  carriedOpenIn=null; openPunch=null;
   try{
     const y=new Date(Date.now()-86400000);
     const dsY=`${y.getFullYear()}-${String(y.getMonth()+1).padStart(2,'0')}-${String(y.getDate()).padStart(2,'0')}`;
     const ys=await window.db.collection('stores').doc(atStore).collection('attendance')
       .where('date','==',dsY).where('empName','==',currentUser.empName).get();
     const yp=[]; ys.forEach(d=>yp.push(d.data()));
-    const yin=yp.filter(p=>p.type==='上班').length, yout=yp.filter(p=>p.type==='下班').length;
-    const tin=todayPunches.filter(p=>p.type==='上班').length, tout=todayPunches.filter(p=>p.type==='下班').length;
-    if(yin>yout && tin===0 && tout===0) carriedOpenIn={date:dsY}; // 昨日有未配對上班、今天尚未打卡
+    const ts=p=>(p.tsMs||Date.parse(p.deviceTs||'')||0);
+    const seq=[...yp, ...todayPunches].filter(p=>p.type==='上班'||p.type==='下班').sort((a,b)=>ts(a)-ts(b));
+    const stack=[]; // 依序配對：上班入堆、下班出堆；剩下的堆頂即尚未打下班的上班
+    seq.forEach(p=>{ if(p.type==='上班') stack.push(p); else stack.pop(); });
+    openPunch = stack.length ? stack[stack.length-1] : null;
+    if(openPunch && (openPunch.date||'')===dsY) carriedOpenIn={date:dsY}; // 未收的上班屬昨日 → 跨日補打下班提醒
   }catch(e){}
   // 今日在 atStore 的排班（本店班 or 支援班；兩頭班會有多筆）
   try{
@@ -231,9 +235,8 @@ async function loadToday(){
 // 依「最後一次打卡」決定下一步，只有上班/下班（可重複多段：兩頭班/跨店連班）。
 // 沒排班的打卡由後端自動歸類為「到場」，不做成按鈕。
 function nextAction(){
-  const ins=todayPunches.filter(p=>p.type==='上班').length, outs=todayPunches.filter(p=>p.type==='下班').length;
-  if(carriedOpenIn && ins===0 && outs===0) return '下班'; // 昨日跨日班補打下班
-  return ins>outs ? '下班' : '上班';
+  // 依「昨日+今日時間序列配對」結果：尚有未打下班的上班(含跨日夜班) → 下班；否則 上班
+  return openPunch ? '下班' : '上班';
 }
 function nearestShiftByStart(nowMin){ let best=null; todayShifts.forEach(s=>{const d=Math.abs(s.start*60-nowMin);if(!best||d<best.d)best={s,d};}); return best?best.s:null; }
 function nearestShiftByEnd(nowMin){ let best=null; todayShifts.forEach(s=>{let e=s.end*60;if(s.end<=s.start)e+=1440;const d=Math.abs(e-nowMin);if(!best||d<best.d)best={s,d};}); return best?best.s:null; }
