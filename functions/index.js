@@ -1507,7 +1507,8 @@ exports.scheduledMissingClock = onSchedule(
         await flagRef.set({
           empName: emp, displayName: dn, date: ds, type: "缺卡", atStore: store, homeStore,
           shift: sh.shift, status: "缺卡", note: missWhat, source: "system",
-          ts: admin.firestore.FieldValue.serverTimestamp(), deviceTs: new Date().toISOString(),
+          // 缺卡＝沒有打卡時間：不寫 deviceTs/tsMs(否則出勤表會顯示成像有打卡的掃描時間)；等手動補卡才有真時間
+          ts: admin.firestore.FieldValue.serverTimestamp(), deviceTs: null, tsMs: null,
         });
         await notifyOneEmp(db, emp, homeStore, `🔴 缺卡提醒\n你 ${ds} 在 ${store} 的班別 ${sh.shift} ${missWhat}，如有出勤請盡快申請補登。`, token);
         await notifyStoreManagers(db, store, `🔴 缺卡\n${dn} ${ds} ${store} 班別 ${sh.shift} ${missWhat}。`, token);
@@ -1548,7 +1549,8 @@ exports.scheduledMissingClock = onSchedule(
           await flagRef.set({
             empName: emp, displayName: dn, date: dsY, type: "缺卡", atStore: store, homeStore,
             shift: sh.shift, status: "缺卡", note: missWhat + "(跨日班)", source: "system",
-            ts: admin.firestore.FieldValue.serverTimestamp(), deviceTs: new Date().toISOString(),
+            // 缺卡＝沒有打卡時間：不寫 deviceTs/tsMs；等手動補卡才有真時間
+            ts: admin.firestore.FieldValue.serverTimestamp(), deviceTs: null, tsMs: null,
           });
           await notifyOneEmp(db, emp, homeStore, `🔴 缺卡提醒\n你 ${dsY} 在 ${store} 的跨日班別 ${sh.shift} ${missWhat}，如有出勤請盡快申請補登。`, token);
           await notifyStoreManagers(db, store, `🔴 缺卡\n${dn} ${dsY} ${store} 跨日班別 ${sh.shift} ${missWhat}。`, token);
