@@ -79,6 +79,26 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
     <button onclick="otCancel()" style="width:100%;padding:9px;background:none;color:#94a3b8;border:none;font-size:13px;font-weight:700;cursor:pointer;">取消打卡</button>
   </div>
 </div>
+<div id="reqModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9500;align-items:center;justify-content:center;padding:18px;">
+  <div style="background:#fff;border-radius:16px;max-width:400px;width:100%;padding:20px;max-height:90vh;overflow:auto;">
+    <div style="font-size:17px;font-weight:900;margin-bottom:6px;">📝 補登／修改打卡申請</div>
+    <div style="font-size:12px;color:#64748b;margin-bottom:12px;line-height:1.7;">忘記打卡、被誤判遲到／缺卡→填正確時間送出。需<b>店長審核</b>（結果 LINE 通知你）。該日已有同類打卡＝申請<b>修改時間</b>；沒有＝<b>補登</b>。</div>
+    <label style="font-size:13px;font-weight:700;">門市</label>
+    <select id="rqStore" style="width:100%;padding:9px;border:1.5px solid #e2e8f0;border-radius:8px;margin:4px 0 10px;"></select>
+    <label style="font-size:13px;font-weight:700;">日期</label>
+    <input type="date" id="rqDate" style="width:100%;padding:9px;border:1.5px solid #e2e8f0;border-radius:8px;margin:4px 0 10px;">
+    <label style="font-size:13px;font-weight:700;">打卡類型</label>
+    <select id="rqType" style="width:100%;padding:9px;border:1.5px solid #e2e8f0;border-radius:8px;margin:4px 0 10px;"><option>上班</option><option>下班</option></select>
+    <label style="font-size:13px;font-weight:700;">正確時間</label>
+    <input type="time" id="rqTime" style="width:100%;padding:9px;border:1.5px solid #e2e8f0;border-radius:8px;margin:4px 0 10px;">
+    <label style="font-size:13px;font-weight:700;">原因</label>
+    <textarea id="rqReason" rows="2" placeholder="例：忘記打卡被判遲到，實際 09:00 上班" style="width:100%;padding:9px;border:1.5px solid #e2e8f0;border-radius:8px;margin:4px 0 12px;font-family:inherit;"></textarea>
+    <div style="display:flex;gap:8px;">
+      <button onclick="document.getElementById('reqModal').style.display='none'" style="flex:1;padding:11px;background:#eef1f4;border:none;border-radius:10px;font-weight:700;cursor:pointer;">取消</button>
+      <button onclick="submitReq()" style="flex:1;padding:11px;background:var(--primary);color:#fff;border:none;border-radius:10px;font-weight:800;cursor:pointer;">送出申請</button>
+    </div>
+  </div>
+</div>
 <script>
 let currentUser=null, appConfig={}, geoCfg={}, myGeo=null, atStore='', distanceM=null, todayShifts=[], todayPunches=[], locating=false, isBound=true, carriedOpenIn=null, candShifts=[], openPunch=null;
 function weekStrOf(d){ const first=new Date(d.getFullYear(),0,1); const w=Math.ceil((((d-first)/86400000)+first.getDay()+1)/7); return `${d.getFullYear()}-W${w<10?'0'+w:w}`; }
@@ -241,6 +261,31 @@ function nextAction(){
 function nearestShiftByStart(nowMin){ let best=null; todayShifts.forEach(s=>{const d=Math.abs(s.start*60-nowMin);if(!best||d<best.d)best={s,d};}); return best?best.s:null; }
 function nearestShiftByEnd(nowMin){ let best=null; todayShifts.forEach(s=>{let e=s.end*60;if(s.end<=s.start)e+=1440;const d=Math.abs(e-nowMin);if(!best||d<best.d)best={s,d};}); return best?best.s:null; }
 
+// 補登／修改申請（同 my-attendance：寫 attendanceRequests、店長審核）
+function openReqModal(){
+  const stores=(appConfig.stores||[]).filter(s=>s!=='人力支援');
+  document.getElementById('rqStore').innerHTML=stores.map(s=>`<option value="${s}"${s===(atStore||currentUser.store)?' selected':''}>${s}</option>`).join('');
+  document.getElementById('rqDate').value=new Date().toISOString().slice(0,10);
+  document.getElementById('rqTime').value=''; document.getElementById('rqReason').value='';
+  document.getElementById('reqModal').style.display='flex';
+}
+async function submitReq(){
+  const st=document.getElementById('rqStore').value;
+  const targetDate=document.getElementById('rqDate').value;
+  const punchType=document.getElementById('rqType').value;
+  const requestedTime=document.getElementById('rqTime').value;
+  const reason=document.getElementById('rqReason').value.trim();
+  if(!st||!targetDate||!requestedTime){ toast('請填門市、日期、時間'); return; }
+  try{
+    await window.db.collection('stores').doc(st).collection('attendanceRequests').add({
+      empName:currentUser.empName, displayName:currentUser.displayName||currentUser.empName,
+      homeStore:currentUser.store||'', atStore:st, type:'補登/修改', targetDate, punchType, requestedTime,
+      reason, status:'pending', createdAt:new Date().toISOString(), createdBy:currentUser.empName
+    });
+    document.getElementById('reqModal').style.display='none';
+    toast('✅ 已送出，等店長審核（結果 LINE 通知你）');
+  }catch(e){ toast('送出失敗：'+e.message); }
+}
 function render(){
   const wrap=document.getElementById('wrap');
   const d=new Date();
@@ -282,6 +327,10 @@ function render(){
     <div class="sub">${currentUser.displayName||currentUser.empName}（${currentUser.store||''}）</div>
     ${loc}${shiftLine}${btn}
     <div style="text-align:center;margin-top:10px;"><button onclick="locate()" style="background:none;border:none;color:var(--primary);font-size:13px;font-weight:700;cursor:pointer;">🔄 重新定位</button></div>
+  </div>
+  <div class="card" style="display:flex;gap:8px;padding:12px;">
+    <button onclick="window.location.href='my-attendance.html'" style="flex:1;padding:11px;background:#eef2ff;color:#4338ca;border:none;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;">📋 我的出勤</button>
+    <button onclick="openReqModal()" style="flex:1;padding:11px;background:#fff7ed;color:#c2410c;border:1.5px solid #fed7aa;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;">📝 補登／修改</button>
   </div>
   ${todayPunches.length?`<div class="card"><div style="font-size:13px;font-weight:800;color:var(--text-muted);margin-bottom:8px;">今日打卡</div>${plist}</div>`:''}`;
   tickClock();
