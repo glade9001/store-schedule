@@ -66,8 +66,10 @@ window.onload=async()=>{
   if(!fb){localStorage.removeItem('currentUser');location.replace('home.html');return;}
   try{const s=await window.db.collection('settings').doc('globalConfig').get();if(s.exists)appConfig=s.data();}catch(e){}
   const stage=(appConfig.clockIn||{}).stage||'off';
-  if(!canClock(stage,currentUser.permission)){
-    document.getElementById('wrap').innerHTML='<div class="daycard maint"><div style="font-size:52px;margin-bottom:14px;">🚧</div><div style="font-size:20px;font-weight:900;margin-bottom:8px;">維護中敬請期待</div><div style="color:var(--text-muted);">打卡功能尚未對您開放。</div></div>';
+  // 全面開放(all)時，本店未由店長勾選啟用 → 我的出勤同樣顯示尚未開放
+  const storeOn = stage!=='all' || (((appConfig.clockIn||{}).enabledByStore||{})[currentUser.store]===true);
+  if(!canClock(stage,currentUser.permission) || !storeOn){
+    document.getElementById('wrap').innerHTML='<div class="daycard maint"><div style="font-size:52px;margin-bottom:14px;">🚧</div><div style="font-size:20px;font-weight:900;margin-bottom:8px;">尚未開放</div><div style="color:var(--text-muted);">本店打卡功能尚未開啟。</div></div>';
     hideLoading(); return;
   }
   curMonth=curYm();
