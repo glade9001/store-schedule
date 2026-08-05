@@ -4025,18 +4025,24 @@ function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, al
         );
       }
 
-      // 跨店支援(新模型)：本店員工當天去他店支援，本店多為休。
-      // 顯示比照舊 loc 格式 → 班別(黑,大)在上排、「支援X」(紅,小)在下排；蓋掉本店的「休」。
-      const effShift = supportOut ? (supportOut.shift || '') : shift;
-      const effIsOT  = supportOut ? (supportOut.isOT === true) : (rec.isOT === true);
-      const effH     = supportOut ? parseFloat(supportOut.actualHours || 0) : h;
+      // 跨店支援顯示，比照螢幕版區分兩種情境：
+      //  (a) 整日外派(本店休/無班) → 用對方店班別當主文字(黑,大) + 紅「支援X」(舊 loc 格式)、備註取對方店
+      //  (b) 本店有主班 + 同日又去他店支援 → 主班保留當主文字 + 藍「支援X 班別」徽章(勿用支援班覆蓋本店主班)
+      const homeHasShift = !!(shift && shift !== '排休' && shift !== '指休' && !recIsSupportOut);
+      const isFullDaySupport = !!supportOut && !homeHasShift && !recIsSupportOut;
+      const alsoSupport = !!supportOut && homeHasShift;
+      const effShift = isFullDaySupport ? (supportOut.shift || '') : shift;
+      const effIsOT  = isFullDaySupport ? (supportOut.isOT === true) : (rec.isOT === true);
+      const effH     = isFullDaySupport ? parseFloat(supportOut.actualHours || 0) : h;
+      const effNote  = isFullDaySupport ? (supportOut.note || '') : note;
 
       // 附加資訊（由上到下堆疊）；產圖不顯示時數
       const subs = [];
       if (supportName && isApproved) subs.push({ t: supportName, c:'#1a73e8', s:20 });
       if (loc) subs.push({ t: loc, c:'#c0392b', s:18 });
-      if (supportOut) subs.push({ t:`支援${supportOut._store}`, c:'#c0392b', s:18 });
-      if (note) subs.push({ t: note, c:'#0077aa', s:16 });
+      if (isFullDaySupport) subs.push({ t:`支援${supportOut._store}`, c:'#c0392b', s:18 });
+      if (alsoSupport) subs.push({ t:`支援${supportOut._store} ${supportOut.shift || ''}`.trim(), c:'#0369a1', s:16 });
+      if (effNote) subs.push({ t: effNote, c:'#0077aa', s:16 });
 
       // 班別主文字 Y：有附加行時整體往上挪
       const shiftY = subs.length ? midY - 6 - (subs.length - 1) * 6 : midY;
