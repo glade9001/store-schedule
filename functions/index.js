@@ -341,18 +341,38 @@ function weekMondayDate(wStr) {
   d.setDate(d.getDate() + (day <= 4 ? 1 - day : 8 - day));
   return d;
 }
-// 某人某週的班表 map：day → 顯示字串（休 或 時段）
-function weekShiftMap(records, empName) {
-  const map = {};
+// 某人某週的班表 map：day → 顯示字串（休 或 時段）；supportOut：{day:{store,shift}} 去他店支援的日子
+function weekShiftMap(records, empName, supportOut) {
+  const map = {}; const so = supportOut || {};
   for (const dn of WEEK_DAYS) {
     const r = (records || []).find((x) => x && x.name === empName && x.day === dn && x.shift && String(x.shift).trim() && !x.requestOff);
-    map[dn] = r ? String(r.shift).replace(/,/g, "、") + (r.location && r.location !== "本店" ? `（${r.location}）` : "") : "休";
+    if (r) map[dn] = String(r.shift).replace(/,/g, "、") + (r.location && r.location !== "本店" ? `（${r.location}）` : "");
+    else if (so[dn]) map[dn] = `支援${so[dn].store} ${so[dn].shift}`; // 去他店支援(本店無班)→顯示支援，不再誤標「休」
+    else map[dn] = "休";
   }
   return map;
 }
-function weekScheduleText(records, empName, wStr) {
+// 掃其他門市當週待補格，找「本店員工去他店支援(approved)」→ {empName:{day:{store,shift}}}
+async function supportOutByEmp(db, homeStore, weekStr) {
+  const out = {};
+  const cfg = await db.collection("settings").doc("globalConfig").get().catch(() => null);
+  const stores = ((cfg && cfg.exists ? cfg.data().stores : []) || []).filter((s) => s && s !== homeStore && s !== "人力支援");
+  const pre = `${homeStore}-`;
+  for (const st of stores) {
+    const wd = await db.collection("stores").doc(st).collection("weeks").doc(weekStr).get().catch(() => null);
+    if (!wd || !wd.exists) continue;
+    (wd.data().records || []).forEach((r) => {
+      if (r && r.approvalStatus === "approved" && typeof r.supportEmp === "string" && r.supportEmp.startsWith(pre) && r.shift) {
+        const emp = r.supportEmp.slice(pre.length);
+        (out[emp] = out[emp] || {})[r.day] = { store: st, shift: r.shift };
+      }
+    });
+  }
+  return out;
+}
+function weekScheduleText(records, empName, wStr, supportOut) {
   const mon = weekMondayDate(wStr);
-  const map = weekShiftMap(records, empName);
+  const map = weekShiftMap(records, empName, supportOut);
   return WEEK_DAYS.map((dn, i) => {
     const x = new Date(mon); x.setDate(mon.getDate() + i);
     return `${WEEK_LABELS[i]} ${x.getMonth() + 1}/${x.getDate()}　${map[dn]}`;
@@ -515,9 +535,10 @@ exports.onSchedulePublished = onDocumentWritten(
     const records = after.records || [];
     const db = admin.firestore();
     const empNames = await getActiveEmpNames(db, store);
+    const so = await supportOutByEmp(db, store, weekStr); // 跨店支援出去的日子
     await notifyEmployees(
       db, empNames, store,
-      (name, emp) => `🗓️ ${name}，${store} ${label} 班表已發布\n\n${weekScheduleText(records, emp, weekStr)}\n\n詳情請至 App 查看`,
+      (name, emp) => `🗓️ ${name}，${store} ${label} 班表已發布\n\n${weekScheduleText(records, emp, weekStr, so[emp])}\n\n詳情請至 App 查看`,
       LINE_TOKEN.value()
     );
   }
@@ -563,9 +584,10 @@ async function flushScheduleQueueEntry(db, store, weekStr, baseRecs, token) {
     if (JSON.stringify(weekShiftMap(baseRecs, emp)) !== JSON.stringify(weekShiftMap(curRecs, emp))) changed.push(emp);
   }
   if (!changed.length) return { sent: 0 };
+  const so = await supportOutByEmp(db, store, weekStr);
   await notifyEmployees(
     db, changed, store,
-    (name, emp) => `🔔 ${name}，${store} ${label} 班表有異動\n\n${weekScheduleText(curRecs, emp, weekStr)}\n\n請至 App 確認最新班表`,
+    (name, emp) => `🔔 ${name}，${store} ${label} 班表有異動\n\n${weekScheduleText(curRecs, emp, weekStr, so[emp])}\n\n請至 App 確認最新班表`,
     token
   );
   return { sent: changed.length };
