@@ -140,8 +140,8 @@ function renderBar(){
   const enableToggle = (viewMode==='day' && stage==='all') ? `
   <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:13px;cursor:pointer;flex-wrap:wrap;background:#f0f9ff;border:1.5px solid #bae6fd;border-radius:10px;padding:10px 12px;">
     <input type="checkbox" id="clockEnChk" ${enOn?'checked':''} onchange="saveClockEnabled(this.checked)" style="width:18px;height:18px;">
-    <span style="font-weight:800;">✅ 開啟「${curStore}」打卡功能</span>
-    <span style="color:var(--muted);">（未開啟時，本店員工的打卡與出勤入口顯示「維護中」）</span>
+    <span style="font-weight:800;">✅ 開啟本店打卡功能</span>
+    <span style="color:var(--muted);">（未開啟時，本店員工的打卡與出勤入口顯示「尚未開放」）</span>
   </label>` : '';
   const settings = viewMode==='day' ? `
   <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:13px;flex-wrap:wrap;">
@@ -389,6 +389,7 @@ async function load(){
   loadRequests();
   const tolEl=document.getElementById('tolInput'); if(tolEl) tolEl.value=tolOf(curStore);
   const nfEl=document.getElementById('notifyChk'); if(nfEl) nfEl.checked=notifyOf(curStore);
+  const enEl=document.getElementById('clockEnChk'); if(enEl) enEl.checked=(((appConfig.clockIn||{}).enabledByStore||{})[curStore]===true);
   if(viewMode==='month') return loadMonth();
   if(viewMode==='emp') return loadEmp();
   return loadDay();
