@@ -1773,13 +1773,16 @@ exports.shareMonthlyReview = onCall({ region: "asia-east1", secrets: [LINE_TOKEN
   const shareToken = String((request.data || {}).shareToken || "");
   if (!/^\d{4}-\d{2}$/.test(ym) || !shareToken) throw new HttpsError("invalid-argument", "參數錯誤");
   const url = `https://store-schedule-3b056.web.app/review.html?t=${shareToken}`;
-  // 收件人：各店店長 + 加盟主
+  // 合格收件人：各店店長 + 加盟主（伺服器權威，只有這些人可被指定）
   const stores = (await getAllStores(db)).filter((s) => s !== "人力支援");
-  const recips = [];
+  let recips = [];
   for (const s of stores) {
     const es = await db.collection("stores").doc(s).collection("employees").get().catch(() => null);
     if (es) es.forEach((d) => { const e = d.data() || {}; if (["店長", "加盟主"].includes(e.role) && !["離職", "調走"].includes(e.status || "")) recips.push({ emp: d.id, store: s }); });
   }
+  // 指定對象（複選）→ 只發給勾選且合格者；未指定→全部合格者
+  const wanted = Array.isArray((request.data || {}).recipients) ? request.data.recipients.map(String) : [];
+  if (wanted.length) recips = recips.filter((r) => wanted.includes(r.emp));
   const token = LINE_TOKEN.value();
   const [yy, mm] = ym.split("-");
   const msg = `📋 ${yy}年${+mm}月 三店營運檢討\n\n加盟主已發布本月營運檢討報告，請點連結查看完整數據與檢討：\n${url}\n\n（此連結 3 天後自動失效）`;

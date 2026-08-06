@@ -379,7 +379,7 @@ function renderReview(m, review){
   const canEdit=isOwner();
   const btns=canEdit?`<span style="margin-left:auto;display:flex;gap:6px;">
     <button class="mini-btn" onclick="openReviewEdit('${m}')">✏️ ${text?'編輯':'撰寫'}</button>
-    ${text?`<button class="mini-btn" style="background:#e0f2fe;color:#0369a1;" onclick="shareReview('${m}')">🔗 分享(3天)</button>`:''}
+    ${text?`<button class="mini-btn" style="background:#e0f2fe;color:#0369a1;" onclick="openShareModal('${m}')">🔗 分享(3天)</button>`:''}
   </span>`:'';
   const body=text?`<div class="review-body">${mdToHtml(text)}</div><div style="font-size:10.5px;color:var(--muted);margin-top:10px;">最後更新：${review.updatedByName||review.updatedBy||''} ${String(review.updatedAt||'').slice(0,16).replace('T',' ')}</div>`
     :`<div class="empty">本月檢討尚未填寫${canEdit?'（點右上「撰寫」）':''}</div>`;
@@ -426,11 +426,55 @@ function reviewSnapshot(m){
   });
   return { overview:{ net, rew, sur:hasLabor?sur:null, rate:rateDen>0?rateNum/rateDen*100:null, salesYoY:hasPrev?(net-netY):null }, stores };
 }
-async function shareReview(m){
+let _shareM=null;
+async function openShareModal(m){
   let text='';
   try{ const rd=await window.db.collection('monthlyReviews').doc(m).get(); if(rd.exists) text=rd.data().text||''; }catch(e){}
   if(!text){ alert('本月尚無檢討內容，請先撰寫'); return; }
-  if(!confirm(`要把 ${m} 營運檢討透過 LINE 發送給各店長與加盟主嗎？\n\n將附上完整報告連結（3 天後自動失效）。`)) return;
+  showLoading();
+  const disp={};
+  try{ const acc=await window.db.collection('account').get(); acc.forEach(d=>{const a=d.data();if(a.empName&&a.displayName)disp[a.empName]=a.displayName;}); }catch(e){}
+  const recs=[];
+  for(const s of STORES){
+    try{ const es=await window.db.collection('stores').doc(s).collection('employees').get();
+      es.forEach(d=>{ const e=d.data()||{}; if(['店長','加盟主'].includes(e.role)&&!['離職','調走'].includes(e.status||'')) recs.push({emp:d.id,store:s,role:e.role,name:disp[d.id]||e.displayName||d.id}); });
+    }catch(e){}
+  }
+  hideLoading();
+  const seen=new Set(); const list=recs.filter(r=>{ if(seen.has(r.emp)) return false; seen.add(r.emp); return true; });
+  if(!list.length){ alert('查無可傳送的店長／加盟主'); return; }
+  _shareM=m;
+  const items=list.map(r=>`<label style="display:flex;align-items:center;gap:9px;padding:9px 4px;border-bottom:1px solid #f1f5f9;cursor:pointer;">
+    <input type="checkbox" class="shareChk" data-emp="${esc(r.emp)}" checked style="width:18px;height:18px;">
+    <span style="flex:1;font-weight:700;">${esc(r.name)} <span style="font-size:11px;color:#64748b;font-weight:600;">${r.role}·${esc(r.store)}</span></span>
+  </label>`).join('');
+  const ov=document.createElement('div'); ov.id='shareOverlay';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9600;display:flex;align-items:center;justify-content:center;padding:14px;';
+  ov.innerHTML=`<div style="background:#fff;border-radius:16px;max-width:420px;width:100%;max-height:90vh;overflow:auto;padding:18px;">
+    <div style="font-size:16px;font-weight:900;margin-bottom:4px;">🔗 分享 ${m} 營運檢討</div>
+    <div style="font-size:12px;color:#64748b;margin-bottom:10px;line-height:1.6;">勾選要收到 LINE 通知的對象（連結 3 天後自動失效）。</div>
+    <label style="display:flex;align-items:center;gap:9px;padding:8px 4px;border-bottom:2px solid #e2e8f0;cursor:pointer;font-weight:800;">
+      <input type="checkbox" id="shareAll" checked onchange="document.querySelectorAll('.shareChk').forEach(c=>c.checked=this.checked)" style="width:18px;height:18px;"> 全選
+    </label>
+    <div style="max-height:44vh;overflow:auto;">${items}</div>
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button onclick="closeShareModal()" style="flex:1;padding:11px;background:#eef1f4;border:none;border-radius:10px;font-weight:700;cursor:pointer;">取消</button>
+      <button onclick="doShare()" style="flex:1;padding:11px;background:var(--primary,#e67e22);color:#fff;border:none;border-radius:10px;font-weight:800;cursor:pointer;">透過 LINE 發送</button>
+    </div></div>`;
+  ov.onclick=e=>{ if(e.target===ov) closeShareModal(); };
+  document.body.appendChild(ov);
+}
+function closeShareModal(){ const el=document.getElementById('shareOverlay'); if(el) el.remove(); }
+function doShare(){
+  const emps=[...document.querySelectorAll('.shareChk')].filter(c=>c.checked).map(c=>c.dataset.emp);
+  if(!emps.length){ alert('請至少選擇一位對象'); return; }
+  closeShareModal();
+  shareReview(_shareM, emps);
+}
+async function shareReview(m, recipients){
+  let text='';
+  try{ const rd=await window.db.collection('monthlyReviews').doc(m).get(); if(rd.exists) text=rd.data().text||''; }catch(e){}
+  if(!text){ alert('本月尚無檢討內容，請先撰寫'); return; }
   const token=(window.crypto&&crypto.randomUUID)?crypto.randomUUID().replace(/-/g,''):(Date.now().toString(36)+Math.random().toString(36).slice(2,12));
   const snap=reviewSnapshot(m);
   const expiresAt=firebase.firestore.Timestamp.fromMillis(Date.now()+3*86400000);
@@ -439,7 +483,7 @@ async function shareReview(m){
     await window.db.collection('sharedReviews').doc(token).set({ ym:m, text, overview:snap.overview, stores:snap.stores,
       createdBy:(currentUser.empName||''), createdByName:(currentUser.displayName||currentUser.empName||''), createdAt:new Date().toISOString(), expiresAt });
     const fn=firebase.app().functions('asia-east1').httpsCallable('shareMonthlyReview');
-    const res=await fn({ ym:m, shareToken:token });
+    const res=await fn({ ym:m, shareToken:token, recipients:(recipients||[]) });
     const cnt=(res&&res.data&&res.data.count)||0;
     const url=location.origin+'/review.html?t='+token;
     try{ await navigator.clipboard.writeText(url); }catch(e){}
