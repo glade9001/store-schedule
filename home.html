@@ -3530,7 +3530,7 @@ updateNetworkStatus(); // 初始執行一次
 <script>
 if('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/store-schedule/sw.js')
+    navigator.serviceWorker.register('sw.js')
       .then(reg => {
         console.log('[PWA] Service Worker 已註冊');
         reg.addEventListener('updatefound', () => {

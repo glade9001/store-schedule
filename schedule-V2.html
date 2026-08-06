@@ -4155,7 +4155,7 @@ function exportImage() {
 <script>
 if('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/store-schedule/sw.js')
+    navigator.serviceWorker.register('sw.js')
       .then(reg => {
         console.log('[PWA] Service Worker 已註冊');
         // 有新版本時提示用戶

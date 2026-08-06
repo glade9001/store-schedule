@@ -1,17 +1,17 @@
 // ===== 莉學商行 Service Worker =====
 // 策略：HTML 永遠走網路，靜態資源才快取
 
-const CACHE_NAME = 'lixue-static-v9';
+const CACHE_NAME = 'lixue-static-v10';
 
-// 快取靜態資源（圖示、manifest、共用 JS）
+// 快取靜態資源（相對於 sw.js 位置，故 web.app 與 github.io 皆適用）
 const STATIC_ASSETS = [
-  '/store-schedule/icon-192.svg',
-  '/store-schedule/icon-512.svg',
-  '/store-schedule/manifest.json',
-  '/store-schedule/firebase-init.js',
-  '/store-schedule/auth.js',
-  '/store-schedule/utils.js',
-  '/store-schedule/salary-calc.js',
+  'icon-192.svg',
+  'icon-512.svg',
+  'manifest.json',
+  'firebase-init.js',
+  'auth.js',
+  'utils.js',
+  'salary-calc.js',
 ];
 
 // ===== 安裝 =====
