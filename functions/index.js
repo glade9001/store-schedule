@@ -1772,7 +1772,10 @@ exports.shareMonthlyReview = onCall({ region: "asia-east1", secrets: [LINE_TOKEN
   const ym = String((request.data || {}).ym || "");
   const shareToken = String((request.data || {}).shareToken || "");
   if (!/^\d{4}-\d{2}$/.test(ym) || !shareToken) throw new HttpsError("invalid-argument", "參數錯誤");
-  const url = `https://store-schedule-3b056.web.app/review.html?t=${shareToken}`;
+  // 連結網域跟著「管理者當下開的網站」走（github.io / 未來 web.app 皆可），遷移零修改；限白名單防偽造
+  let base = String((request.data || {}).baseUrl || "");
+  if (!/^https:\/\/(glade9001\.github\.io\/store-schedule\/|store-schedule-3b056\.web\.app\/)/.test(base)) base = "https://glade9001.github.io/store-schedule/";
+  const url = `${base}review.html?t=${shareToken}`;
   // 合格收件人：各店店長 + 加盟主（伺服器權威，只有這些人可被指定）
   const stores = (await getAllStores(db)).filter((s) => s !== "人力支援");
   let recips = [];

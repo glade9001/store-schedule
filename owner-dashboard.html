@@ -482,10 +482,11 @@ async function shareReview(m, recipients){
   try{
     await window.db.collection('sharedReviews').doc(token).set({ ym:m, text, overview:snap.overview, stores:snap.stores,
       createdBy:(currentUser.empName||''), createdByName:(currentUser.displayName||currentUser.empName||''), createdAt:new Date().toISOString(), expiresAt });
+    const base=location.href.replace(/[^/]*(\?.*)?(#.*)?$/,''); // 當前頁所在目錄(跟著網域)
     const fn=firebase.app().functions('asia-east1').httpsCallable('shareMonthlyReview');
-    const res=await fn({ ym:m, shareToken:token, recipients:(recipients||[]) });
+    const res=await fn({ ym:m, shareToken:token, recipients:(recipients||[]), baseUrl:base });
     const cnt=(res&&res.data&&res.data.count)||0;
-    const url=location.origin+'/review.html?t='+token;
+    const url=base+'review.html?t='+token;
     try{ await navigator.clipboard.writeText(url); }catch(e){}
     hideLoading();
     alert(`✅ 已透過 LINE 發送給 ${cnt} 位店長／加盟主。\n\n連結（3 天有效，已複製到剪貼簿）：\n${url}`);
