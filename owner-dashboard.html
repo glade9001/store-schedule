@@ -213,7 +213,7 @@ function renderOverview(m){
   <div class="kpi-grid">
     <div class="kpi"><div class="kpi-label">全體營業淨額</div><div class="kpi-val">${money(net)}</div>${yoy(net,netY)}</div>
     <div class="kpi"><div class="kpi-label">全體經營報酬</div><div class="kpi-val">${money(rew)}</div>${yoy(rew,rewY)}</div>
-    <div class="kpi"><div class="kpi-label">全體門市餘裕</div><div class="kpi-val" style="color:${sur>=0?'#137333':'#c5221f'}">${money(sur)}</div>${yoy(sur,surY)}</div>
+    <div class="kpi"><div class="kpi-label">全體門市餘裕<span style="font-weight:600;color:var(--muted);">(含支援)</span></div><div class="kpi-val" style="color:${sur>=0?'#137333':'#c5221f'}">${money(sur)}</div>${yoy(sur,surY)}</div>
     <div class="kpi"><div class="kpi-label">平均人事費率</div><div class="kpi-val">${rate!=null?rate.toFixed(1)+'%':'—'}</div><div class="kpi-yoy flat">人事成本÷營業淨額</div></div>
   </div>`;
 }
@@ -266,7 +266,7 @@ function renderScorecard(m,extra){
   const ranked=[...STORES].sort((a,b)=>total[b]-total[a]);
 
   // 排名表
-  let head=`<div class="sec-title">👔 店長管理力計分卡<span class="sec-sub">同期成長＋正規化＋絕對值加權</span></div>`;
+  let head=`<div class="sec-title">👔 店長管理力計分卡<span class="sec-sub">同期成長＋正規化＋絕對值加權</span><button onclick="openScoreHelp()" style="margin-left:auto;background:#eef2ff;color:#4338ca;border:none;border-radius:8px;padding:5px 11px;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;">ℹ️ 指標說明</button></div>`;
   let tbl=`<div class="card scroll"><table class="tbl"><thead><tr><th>門市（店長）</th>${dims.map(d=>`<th>${d.ic}</th>`).join('')}<th>總分</th><th>名次</th></tr></thead><tbody>`;
   ranked.forEach((s)=>{
     const mgr=(extra[s]&&extra[s].mgr)||''; const pl=placeOf(s);
@@ -305,6 +305,44 @@ function renderAlerts(m,extra){
   return `<div class="sec-title">🚦 決策警示</div>${body}`;
 }
 
+// ===== 指標與計分說明（給加盟主） =====
+function closeScoreHelp(){ const el=document.getElementById('scoreHelpOverlay'); if(el) el.remove(); }
+function openScoreHelp(){
+  closeScoreHelp();
+  const item=(ic,name,desc)=>`<div style="display:flex;gap:9px;padding:9px 0;border-bottom:1px solid #f1f5f9;"><div style="font-size:18px;line-height:1.4;">${ic}</div><div style="flex:1;"><div style="font-weight:800;font-size:13.5px;margin-bottom:2px;">${name}</div><div style="font-size:12px;color:#475569;line-height:1.65;">${desc}</div></div></div>`;
+  const wt=(label,w,why)=>`<div style="display:flex;gap:8px;padding:6px 0;font-size:12px;"><div style="min-width:118px;font-weight:800;">${label}</div><div style="min-width:44px;font-weight:900;color:#4338ca;">×${w}</div><div style="flex:1;color:#475569;line-height:1.6;">${why}</div></div>`;
+  const html=`
+  <div style="font-size:17px;font-weight:900;margin-bottom:4px;">👔 計分卡指標說明</div>
+  <div style="font-size:12px;color:#64748b;margin-bottom:12px;line-height:1.6;">超商是<b>薄利、高週轉</b>的生意，人事是最大可控成本。三間店規模／客層天生不同，所以計分<b>不直接比絕對業績</b>，而是綜合三種視角，讓比較對店長公平。</div>
+
+  <div style="font-weight:900;font-size:13px;color:#4338ca;margin:6px 0 2px;">📌 各指標代表什麼</div>
+  ${item('📈','業績成長（營收 YoY）','本月營收 vs <b>去年同月</b>的成長率。用「同月比同月」同時消除門市規模差異與淡旺季，衡量店長把生意做大的能力。')}
+  ${item('📉','人事費率改善（同期）','人事費率 vs 去年同月降了多少（pt＝百分點）。費率雖可比，但各店有結構基準（營業時數／坪數／客層／工資），用「自己跟去年比」才公平反映店長「把人用得更省」的功力。')}
+  ${item('📐','人事費率水準','人事成本 ÷ 營業淨額。每做 100 元生意花多少在人事——超商最關鍵的成本指標，越低越有效率。此為正規化比率，可直接跨店比。')}
+  ${item('💰','門市餘裕（含支援）','經營報酬 −「含支援調整的實際人事成本」＝門市替加盟主真正留下的錢。<b>負值代表報酬不足以支應人力</b>。此為「管理帳」：把跨店支援的成本算到實際幹活的店。')}
+  ${item('🏭','每工時營收（坪效）','營業淨額 ÷ 總工時。每 1 個人力工時創造多少營收，衡量人力效率。')}
+  ${item('⚖️','合規紀律','排班觸犯勞基法軟性規則、店長「知情放行」的次數。越少越守法、勞檢風險越低。')}
+  ${item('⏰','團隊出勤紀律（每人）','遲到／早退／缺卡 ÷ 人數。反映團隊管理；用「每人」正規化，避免大店因人多而吃虧。')}
+
+  <div style="font-weight:900;font-size:13px;color:#4338ca;margin:14px 0 2px;">⚖️ 權重為什麼是這些數字</div>
+  <div style="font-size:12px;color:#475569;margin-bottom:6px;line-height:1.6;">計分＝各維度跨三店排名（第1名3分/2/1）× 權重後加總。權重原則：<b>越能公平反映「店長真本事」的指標，權重越高</b>。</div>
+  ${wt('同期改善型',1.0,'業績成長、人事費率改善——都是「自己跟去年比」，剔除門市天生條件，最能衡量店長功力 → 權重最高。')}
+  ${wt('紀律型',0.75,'合規、出勤是管理基本盤，重要但非營運成敗核心 → 中等。')}
+  ${wt('正規化水準',0.6,'人事費率水準可跨店比，但仍含結構基準差異 → 略降。')}
+  ${wt('絕對貢獻',0.6+' / '+0.4,'門市餘裕(×0.6)、坪效(×0.4)是絕對金額，大店天生占優、會偏袒規模；納入是因「實際賺多少」對加盟主有意義，但壓低權重避免主導。')}
+
+  <div style="font-weight:900;font-size:13px;color:#4338ca;margin:14px 0 2px;">🧾 補充：門市餘裕的兩種帳</div>
+  <div style="font-size:12px;color:#475569;line-height:1.65;"><b>管理帳（目前採用）</b>：報酬 − 含支援調整的人力成本，反映該店「實際消耗」多少人力，評效率最準。<br><b>現金帳</b>：報酬 − 本店自付薪資，反映帳戶實際流出。<br>兩者差在「跨店支援成本算給誰」。目前主數字用管理帳並標「含支援」。</div>
+
+  <div style="font-size:11px;color:#94a3b8;margin-top:12px;line-height:1.6;">＊缺去年同期或打卡資料的維度顯示「資料累積中」不計分；「人事費率改善」需去年同期人事成本，系統 2025 年尚無人事資料，將於資料累積後啟用。權重可依加盟主偏好調整。</div>
+  <button onclick="closeScoreHelp()" style="width:100%;margin-top:14px;padding:11px;background:var(--primary,#e67e22);color:#fff;border:none;border-radius:10px;font-weight:800;font-size:14px;cursor:pointer;">我了解了</button>`;
+  const ov=document.createElement('div');
+  ov.id='scoreHelpOverlay';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9600;display:flex;align-items:center;justify-content:center;padding:16px;';
+  ov.onclick=(e)=>{ if(e.target===ov) closeScoreHelp(); };
+  ov.innerHTML=`<div style="background:#fff;border-radius:16px;max-width:440px;width:100%;max-height:88vh;overflow:auto;padding:20px;">${html}</div>`;
+  document.body.appendChild(ov);
+}
 // ===== 下鑽入口 =====
 function renderLinks(){
   const L=(href,ic,bg,lbl,sub)=>`<div class="link-row" onclick="window.location.href='${href}'"><div class="link-ic" style="background:${bg}">${ic}</div><div class="link-t"><div class="link-lbl">${lbl}</div><div class="link-sub">${sub}</div></div><div class="link-arr">›</div></div>`;
