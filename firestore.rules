@@ -15,6 +15,12 @@ service cloud.firestore {
       allow read, write: if request.auth != null;
     }
 
+    // ── sharedReviews：營運檢討分享快照，公開讀但「僅在到期前」（過期後資料庫直接擋讀）──
+    // 建立/覆寫由 catch-all(登入即可)處理；此處額外開放「未登入公開讀取」給分享連結對象。
+    match /sharedReviews/{token} {
+      allow read: if request.time < resource.data.expiresAt;
+    }
+
     // ── 其他所有集合：登入即可讀寫 ───────────────────────
     // 涵蓋 settings, stores(含 weeks/salary/employees/attendance/attendanceRequests…),
     //      leaves/comp/leaveBatches/leaveLog/annualUsage/compUsage, lineBindings…

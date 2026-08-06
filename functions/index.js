@@ -1761,6 +1761,37 @@ exports.serverNow = onCall({ region: "asia-east1" }, async () => {
   return { nowMs, iso: new Date(nowMs).toISOString(), tp: new Date(nowMs + 8 * 3600000).toISOString() };
 });
 
+// 分享本月營運檢討：管理者按分享→LINE 通知各店店長＋加盟主，附 3 天有效連結(sharedReviews 前端已建)。
+exports.shareMonthlyReview = onCall({ region: "asia-east1", secrets: [LINE_TOKEN] }, async (request) => {
+  const auth = request.auth;
+  if (!auth) throw new HttpsError("unauthenticated", "請先登入");
+  const db = admin.firestore();
+  const uSnap = await db.collection("users").doc(auth.uid).get();
+  const perm = uSnap.exists ? (uSnap.data().permission || "") : "";
+  if (!["admin", "owner"].includes(perm)) throw new HttpsError("permission-denied", "僅加盟主／管理者可分享");
+  const ym = String((request.data || {}).ym || "");
+  const shareToken = String((request.data || {}).shareToken || "");
+  if (!/^\d{4}-\d{2}$/.test(ym) || !shareToken) throw new HttpsError("invalid-argument", "參數錯誤");
+  const url = `https://store-schedule-3b056.web.app/review.html?t=${shareToken}`;
+  // 收件人：各店店長 + 加盟主
+  const stores = (await getAllStores(db)).filter((s) => s !== "人力支援");
+  const recips = [];
+  for (const s of stores) {
+    const es = await db.collection("stores").doc(s).collection("employees").get().catch(() => null);
+    if (es) es.forEach((d) => { const e = d.data() || {}; if (["店長", "加盟主"].includes(e.role) && !["離職", "調走"].includes(e.status || "")) recips.push({ emp: d.id, store: s }); });
+  }
+  const token = LINE_TOKEN.value();
+  const [yy, mm] = ym.split("-");
+  const msg = `📋 ${yy}年${+mm}月 三店營運檢討\n\n加盟主已發布本月營運檢討報告，請點連結查看完整數據與檢討：\n${url}\n\n（此連結 3 天後自動失效）`;
+  const sent = [], seen = new Set();
+  for (const r of recips) {
+    if (seen.has(r.emp)) continue; seen.add(r.emp);
+    await notifyOneEmp(db, r.emp, r.store, msg, token);
+    sent.push(r.emp);
+  }
+  return { ok: true, count: sent.length };
+});
+
 // 離線打卡補傳：訊號不佳時前端暫存、恢復連線後補傳。以「手機當下時間」為打卡時間，標記待店長複核。
 exports.clockPunchOffline = onCall({ region: "asia-east1", secrets: [LINE_TOKEN] }, async (request) => {
   const auth = request.auth;

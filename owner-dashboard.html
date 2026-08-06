@@ -12,6 +12,7 @@
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-functions.js"></script>
 <script src="firebase-init.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
@@ -28,7 +29,7 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
 .msel{background:rgba(255,255,255,.2);border:1.5px solid rgba(255,255,255,.5);color:#fff;border-radius:8px;padding:5px 8px;font-size:13px;font-weight:700;}
 .msel option{color:#000;}
 .content{padding:14px 12px 90px;max-width:680px;margin:0 auto;}
-.sec-title{font-size:13px;font-weight:900;color:var(--text);margin:20px 4px 10px;display:flex;align-items:center;gap:7px;}
+.sec-title{font-size:13px;font-weight:900;color:var(--text);margin:20px 4px 10px;display:flex;align-items:center;gap:7px;flex-wrap:wrap;}
 .sec-title:first-child{margin-top:4px;}
 .sec-sub{font-size:11px;color:var(--muted);font-weight:600;margin-left:auto;}
 .card{background:#fff;border-radius:14px;box-shadow:0 1px 4px rgba(0,0,0,.06);padding:15px;margin-bottom:10px;}
@@ -64,6 +65,15 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
 .scroll{overflow-x:auto;overscroll-behavior-x:contain;}
 .empty{text-align:center;padding:24px;color:var(--muted);font-size:13px;}
 .note{background:#f5f3ff;border:1px solid #ddd6fe;border-radius:10px;padding:9px 12px;font-size:11.5px;line-height:1.6;color:#5b21b6;margin-top:8px;}
+.review-body h2{font-size:16px;font-weight:900;margin:14px 0 6px;}
+.review-body h3{font-size:14px;font-weight:900;margin:12px 0 5px;}
+.review-body h4{font-size:13px;font-weight:800;margin:9px 0 4px;}
+.review-body p{font-size:13px;line-height:1.75;margin:5px 0;color:#334155;}
+.review-body ul{margin:5px 0 5px 18px;}
+.review-body li{font-size:13px;line-height:1.7;color:#334155;}
+.review-body hr{border:none;border-top:1px dashed #e2e8f0;margin:12px 0;}
+.review-body b{color:#0f172a;}
+.mini-btn{background:#eef2ff;color:#4338ca;border:none;border-radius:8px;padding:5px 10px;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;}
 </style>
 </head>
 <body>
@@ -81,6 +91,23 @@ const PERF_EXCLUDE=new Set(['2026-04']); // 系統剛上線該月人事成本不
 const isOwner=()=>['owner','admin'].includes(currentUser?.permission);
 const money=n=>Math.round(n||0).toLocaleString('en-US');
 const n=v=>{const x=parseFloat(v);return isFinite(x)?x:0;};
+// 輕量 Markdown → HTML（先跳脫 HTML 再套用，安全）：# ## ### 標題、- 項目、--- 分隔線、**粗體**
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function mdToHtml(md){
+  const inl=t=>t.replace(/\*\*(.+?)\*\*/g,'<b>$1</b>');
+  let html='',inList=false; const closeList=()=>{if(inList){html+='</ul>';inList=false;}};
+  esc(md).split(/\r?\n/).forEach(raw=>{
+    const line=raw.replace(/\s+$/,'');
+    if(/^###\s+/.test(line)){closeList();html+=`<h4>${inl(line.replace(/^###\s+/,''))}</h4>`;}
+    else if(/^##\s+/.test(line)){closeList();html+=`<h3>${inl(line.replace(/^##\s+/,''))}</h3>`;}
+    else if(/^#\s+/.test(line)){closeList();html+=`<h2>${inl(line.replace(/^#\s+/,''))}</h2>`;}
+    else if(/^[-*]\s+/.test(line)){if(!inList){html+='<ul>';inList=true;}html+=`<li>${inl(line.replace(/^[-*]\s+/,''))}</li>`;}
+    else if(/^---+$/.test(line)){closeList();html+='<hr>';}
+    else if(line===''){closeList();}
+    else{closeList();html+=`<p>${inl(line)}</p>`;}
+  });
+  closeList(); return html;
+}
 function showLoading(){document.getElementById('loadingOverlay').classList.remove('hidden');}
 function hideLoading(){document.getElementById('loadingOverlay').classList.add('hidden');}
 function simpleWeekStr(dt){const first=new Date(dt.getFullYear(),0,1);const w=Math.ceil((((dt-first)/86400000)+first.getDay()+1)/7);return `${dt.getFullYear()}-W${w<10?'0'+w:w}`;}
@@ -127,7 +154,9 @@ async function renderAll(m){
   // 月域掃描（合規/出勤/流動）
   const extra={};
   await Promise.all(STORES.map(async s=>{ extra[s]=await scanMonth(s,m); }));
-  el.innerHTML = renderOverview(m) + renderScorecard(m,extra) + renderHealthSection() + renderAlerts(m,extra) + renderLinks();
+  let review=null;
+  try{ const rd=await window.db.collection('monthlyReviews').doc(m).get(); if(rd.exists) review=rd.data(); }catch(e){}
+  el.innerHTML = renderOverview(m) + renderScorecard(m,extra) + renderHealthSection() + renderAlerts(m,extra) + renderReview(m,review) + renderLinks();
   renderStoreHealth();
 }
 
@@ -266,7 +295,7 @@ function renderScorecard(m,extra){
   const ranked=[...STORES].sort((a,b)=>total[b]-total[a]);
 
   // 排名表
-  let head=`<div class="sec-title">👔 店長管理力計分卡<span class="sec-sub">同期成長＋正規化＋絕對值加權</span><button onclick="openScoreHelp()" style="margin-left:auto;background:#eef2ff;color:#4338ca;border:none;border-radius:8px;padding:5px 11px;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;">ℹ️ 指標說明</button></div>`;
+  let head=`<div class="sec-title">👔 店長管理力計分卡<button onclick="openScoreHelp()" style="background:#4338ca;color:#fff;border:none;border-radius:8px;padding:5px 11px;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;">ℹ️ 指標說明</button><span class="sec-sub">同期成長＋正規化＋絕對值加權</span></div>`;
   let tbl=`<div class="card scroll"><table class="tbl"><thead><tr><th>門市（店長）</th>${dims.map(d=>`<th>${d.ic}</th>`).join('')}<th>總分</th><th>名次</th></tr></thead><tbody>`;
   ranked.forEach((s)=>{
     const mgr=(extra[s]&&extra[s].mgr)||''; const pl=placeOf(s);
@@ -342,6 +371,81 @@ function openScoreHelp(){
   ov.onclick=(e)=>{ if(e.target===ov) closeScoreHelp(); };
   ov.innerHTML=`<div style="background:#fff;border-radius:16px;max-width:440px;width:100%;max-height:88vh;overflow:auto;padding:20px;">${html}</div>`;
   document.body.appendChild(ov);
+}
+// ===== 本月營運檢討（管理者手寫 Markdown；可產生 3 天有效的分享連結）=====
+let _reviewEditM=null;
+function renderReview(m, review){
+  const text=(review&&review.text)?review.text:'';
+  const canEdit=isOwner();
+  const btns=canEdit?`<span style="margin-left:auto;display:flex;gap:6px;">
+    <button class="mini-btn" onclick="openReviewEdit('${m}')">✏️ ${text?'編輯':'撰寫'}</button>
+    ${text?`<button class="mini-btn" style="background:#e0f2fe;color:#0369a1;" onclick="shareReview('${m}')">🔗 分享(3天)</button>`:''}
+  </span>`:'';
+  const body=text?`<div class="review-body">${mdToHtml(text)}</div><div style="font-size:10.5px;color:var(--muted);margin-top:10px;">最後更新：${review.updatedByName||review.updatedBy||''} ${String(review.updatedAt||'').slice(0,16).replace('T',' ')}</div>`
+    :`<div class="empty">本月檢討尚未填寫${canEdit?'（點右上「撰寫」）':''}</div>`;
+  return `<div class="sec-title">📋 本月營運檢討<span class="sec-sub">${m.split('-')[0]}年${+m.split('-')[1]}月</span>${btns}</div><div class="card">${body}</div>`;
+}
+async function openReviewEdit(m){
+  _reviewEditM=m; let cur='';
+  try{ const rd=await window.db.collection('monthlyReviews').doc(m).get(); if(rd.exists) cur=rd.data().text||''; }catch(e){}
+  const ov=document.createElement('div'); ov.id='reviewEditOverlay';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9600;display:flex;align-items:center;justify-content:center;padding:14px;';
+  ov.innerHTML=`<div style="background:#fff;border-radius:16px;max-width:560px;width:100%;max-height:92vh;overflow:auto;padding:18px;">
+    <div style="font-size:16px;font-weight:900;margin-bottom:4px;">✏️ ${m} 營運檢討</div>
+    <div style="font-size:11.5px;color:#64748b;margin-bottom:10px;line-height:1.6;">支援 Markdown：<code># 大標</code>／<code>## 中標</code>／<code>### 小標</code>／<code>- 項目</code>／<code>**粗體**</code>／<code>---</code> 分隔線。可直接貼上寫好的檢討。</div>
+    <textarea id="reviewText" style="width:100%;height:46vh;padding:11px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:13px;font-family:inherit;line-height:1.7;resize:vertical;">${esc(cur)}</textarea>
+    <div style="display:flex;gap:8px;margin-top:12px;">
+      <button onclick="closeReviewEdit()" style="flex:1;padding:11px;background:#eef1f4;border:none;border-radius:10px;font-weight:700;cursor:pointer;">取消</button>
+      <button onclick="saveReview()" style="flex:1;padding:11px;background:var(--primary,#e67e22);color:#fff;border:none;border-radius:10px;font-weight:800;cursor:pointer;">儲存</button>
+    </div></div>`;
+  ov.onclick=e=>{ if(e.target===ov) closeReviewEdit(); };
+  document.body.appendChild(ov);
+}
+function closeReviewEdit(){ const el=document.getElementById('reviewEditOverlay'); if(el) el.remove(); }
+async function saveReview(){
+  const m=_reviewEditM, text=document.getElementById('reviewText').value;
+  try{
+    await window.db.collection('monthlyReviews').doc(m).set({ ym:m, text,
+      updatedBy:(currentUser.empName||''), updatedByName:(currentUser.displayName||currentUser.empName||''), updatedAt:new Date().toISOString() },{merge:true});
+    closeReviewEdit(); renderAll(m);
+  }catch(e){ alert('儲存失敗：'+e.message); }
+}
+function reviewSnapshot(m){
+  const my=ymMinus12(m);
+  let net=0,rew=0,sur=0,rateNum=0,rateDen=0,netY=0,hasLabor=false,hasPrev=false;
+  const stores=STORES.map(s=>{
+    const pn=pnlOf(s,m), pf=perfOf(s,m), pnY=pnlOf(s,my);
+    const netS=pn?n(pn.netSales):null, labor=pf?n(pf.laborCost):null, hrs=pf?n(pf.totalHours):null, rewS=pn?n(pn.operatingReward):null;
+    if(pn){ net+=n(pn.netSales); rew+=n(pn.operatingReward); }
+    if(pn&&pf){ sur+=n(pn.operatingReward)-n(pf.laborCost); rateNum+=n(pf.laborCost); rateDen+=n(pn.netSales); hasLabor=true; }
+    if(pnY){ netY+=n(pnY.netSales); hasPrev=true; }
+    return { s, netSales:netS, salesYoY:(netS!=null&&pnY&&n(pnY.netSales))?(netS-n(pnY.netSales)):null,
+      grossMargin:pn?n(pn.grossMargin):null, laborRate:(labor!=null&&netS)?labor/netS*100:null,
+      perHr:(netS!=null&&hrs)?Math.round(netS/hrs):null, netBad:pn?(n(pn.badGoodsCost)-n(pn.badGoodsSubsidy)):null,
+      invResult:(pn&&pn.invResult!=null)?n(pn.invResult):null, surplus:(rewS!=null&&labor!=null)?rewS-labor:null };
+  });
+  return { overview:{ net, rew, sur:hasLabor?sur:null, rate:rateDen>0?rateNum/rateDen*100:null, salesYoY:hasPrev?(net-netY):null }, stores };
+}
+async function shareReview(m){
+  let text='';
+  try{ const rd=await window.db.collection('monthlyReviews').doc(m).get(); if(rd.exists) text=rd.data().text||''; }catch(e){}
+  if(!text){ alert('本月尚無檢討內容，請先撰寫'); return; }
+  if(!confirm(`要把 ${m} 營運檢討透過 LINE 發送給各店長與加盟主嗎？\n\n將附上完整報告連結（3 天後自動失效）。`)) return;
+  const token=(window.crypto&&crypto.randomUUID)?crypto.randomUUID().replace(/-/g,''):(Date.now().toString(36)+Math.random().toString(36).slice(2,12));
+  const snap=reviewSnapshot(m);
+  const expiresAt=firebase.firestore.Timestamp.fromMillis(Date.now()+3*86400000);
+  showLoading();
+  try{
+    await window.db.collection('sharedReviews').doc(token).set({ ym:m, text, overview:snap.overview, stores:snap.stores,
+      createdBy:(currentUser.empName||''), createdByName:(currentUser.displayName||currentUser.empName||''), createdAt:new Date().toISOString(), expiresAt });
+    const fn=firebase.app().functions('asia-east1').httpsCallable('shareMonthlyReview');
+    const res=await fn({ ym:m, shareToken:token });
+    const cnt=(res&&res.data&&res.data.count)||0;
+    const url=location.origin+'/review.html?t='+token;
+    try{ await navigator.clipboard.writeText(url); }catch(e){}
+    hideLoading();
+    alert(`✅ 已透過 LINE 發送給 ${cnt} 位店長／加盟主。\n\n連結（3 天有效，已複製到剪貼簿）：\n${url}`);
+  }catch(e){ hideLoading(); alert('分享失敗：'+e.message); }
 }
 // ===== 下鑽入口 =====
 function renderLinks(){
