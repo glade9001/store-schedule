@@ -225,15 +225,18 @@ function renderScorecard(m,extra){
     const pn=pnlOf(s,m), pf=perfOf(s,m), ex=extra[s]||{};
     const net=pn?n(pn.netSales):null, labor=pf?n(pf.laborCost):null, hours=pf?n(pf.totalHours):null, rew=pn?n(pn.operatingReward):null;
     const pnY=pnlOf(s,ymMinus12(m));
+    const netY=pnY?n(pnY.netSales):null, rewY=pnY?n(pnY.operatingReward):null;
+    const head=ex.head||null;
     return {
-      s,
-      perHr: (net!=null&&hours)? net/hours : null,           // 坪效↑
-      surplus: (rew!=null&&labor!=null)? rew-labor : null,     // 餘裕↑
-      law: ex.law,                                            // 放行↓
-      late: ex.late,                                          // 遲到缺卡↓
-      laborRate: (labor!=null&&net)? labor/net*100 : null,     // 人事費率↓(副)
-      rewYoY: (rew!=null&&pnY&&n(pnY.operatingReward))? (rew-n(pnY.operatingReward))/Math.abs(n(pnY.operatingReward))*100 : null, // 副
-      turnover: ex.turnover,                                  // 副
+      s, net,
+      perHr: (net!=null&&hours)? net/hours : null,                                  // 副：每工時營收
+      surplus: (rew!=null&&labor!=null)? rew-labor : null,                          // 副：門市餘裕
+      laborRate: (labor!=null&&net)? labor/net*100 : null,                          // 主：人事費率(正規化，可直接比較)↓
+      salesYoY: (net!=null&&netY)? (net-netY)/Math.abs(netY)*100 : null,            // 主：業績同期成長率↑
+      rewYoY: (rew!=null&&rewY)? (rew-rewY)/Math.abs(rewY)*100 : null,              // 副：報酬同期成長率
+      law: ex.law,                                                                  // 主：知情放行↓
+      late: ex.late, head, turnover: ex.turnover,
+      lateRate: (ex.late!=null&&head)? ex.late/head : null,                         // 主：每人出勤異常↓(正規化)
     };
   });
   // 排名給分（同分機制：同值給同分，採競賽排名——嚴格勝過的店數越少分越高）
@@ -245,10 +248,10 @@ function renderScorecard(m,extra){
   };
   const medalOf=(pts,s)=>{ if(pts[s]==null)return ''; const N=Object.keys(pts).length; const better=N-pts[s]; return better===0?'🥇':better===1?'🥈':'🥉'; };
   const dims=[
-    {key:'perHr', higher:true, ic:'📐', name:'成本控管與坪效', fmt:v=>'每工時營收 $'+money(v), sub:r=>`人事費率 ${r.laborRate!=null?r.laborRate.toFixed(1)+'%':'—'}`},
-    {key:'surplus', higher:true, ic:'💰', name:'獲利達成', fmt:v=>'門市餘裕 $'+money(v), sub:r=>`報酬 YoY ${r.rewYoY!=null?(r.rewYoY>0?'+':'')+r.rewYoY.toFixed(1)+'%':'—'}`},
+    {key:'salesYoY', higher:true, ic:'📈', name:'業績成長（同期比較）', fmt:v=>`營收 YoY ${v>0?'+':''}${v.toFixed(1)}%`, sub:r=>`本月營收 $${r.net!=null?money(r.net):'—'}｜報酬YoY ${r.rewYoY!=null?(r.rewYoY>0?'+':'')+r.rewYoY.toFixed(1)+'%':'—'}｜餘裕 $${r.surplus!=null?money(r.surplus):'—'}`},
+    {key:'laborRate', higher:false, ic:'📐', name:'人事效率（可直接比較）', fmt:v=>`人事費率 ${v.toFixed(1)}%`, sub:r=>`每工時營收 $${r.perHr!=null?money(r.perHr):'—'}`},
     {key:'law', higher:false, ic:'⚖️', name:'合規紀律', fmt:v=>'排班知情放行 '+v+' 次', sub:r=>'次數越少越守法'},
-    {key:'late', higher:false, ic:'⏰', name:'團隊出勤紀律', fmt:v=>'遲到/早退/缺卡 '+v+' 次', sub:r=>`員工流動率 ${r.turnover!=null?r.turnover+'%':'—'}`},
+    {key:'lateRate', higher:false, ic:'⏰', name:'團隊出勤紀律（每人）', fmt:v=>`出勤異常 ${v.toFixed(2)} 次/人`, sub:r=>`遲到/早退/缺卡 ${r.late!=null?r.late:'—'} 次 · ${r.head||'—'} 人｜流動率 ${r.turnover!=null?r.turnover+'%':'—'}`},
   ];
   const total={}; STORES.forEach(s=>total[s]=0);
   const dimPts=dims.map(d=>{ const p=rankPts(d.key,d.higher); STORES.forEach(s=>{ if(p[s]!=null) total[s]+=p[s]; }); return p; });
@@ -256,7 +259,7 @@ function renderScorecard(m,extra){
   const ranked=[...STORES].sort((a,b)=>total[b]-total[a]);
 
   // 排名表
-  let head=`<div class="sec-title">👔 店長管理力計分卡<span class="sec-sub">跨三店相對排名</span></div>`;
+  let head=`<div class="sec-title">👔 店長管理力計分卡<span class="sec-sub">同期成長＋正規化指標．跨三店排名</span></div>`;
   let tbl=`<div class="card scroll"><table class="tbl"><thead><tr><th>門市（店長）</th>${dims.map(d=>`<th>${d.ic}</th>`).join('')}<th>總分</th><th>名次</th></tr></thead><tbody>`;
   ranked.forEach((s)=>{
     const mgr=(extra[s]&&extra[s].mgr)||''; const pl=placeOf(s);
@@ -277,7 +280,7 @@ function renderScorecard(m,extra){
     });
     detail+=`</div>`;
   });
-  return head+tbl+`<div class="note">計分＝各維度跨三店相對排名（第1名得3分…），加總得總分；**同值同分、同總分並列同名次**。合規＝該月週次「知情放行」次數；出勤紀律來自打卡資料，剛上線資料累積中。</div>`+detail;
+  return head+tbl+`<div class="note">因三店規模/客層不同，<b>不直接比絕對業績</b>：<b>業績成長</b>用「營收去年同期(YoY)成長率」自己跟自己比；<b>人事費率</b>是正規化比率、可直接跨店比較；<b>出勤紀律</b>用「每人異常次數」正規化。計分＝各維度跨三店相對排名（第1名得3分…）加總，<b>同值同分、同總分並列同名次</b>。缺去年同期或打卡資料者顯示「資料累積中」，該維度不計分。</div>`+detail;
 }
 // ===== 決策警示 =====
 function renderAlerts(m,extra){
