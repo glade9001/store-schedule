@@ -10,10 +10,10 @@ permissions:
   pages: write
   id-token: write
 
-# 允許同時只有一個部署，但不取消進行中的（避免互相 cancel）
+# 同時只有一個部署，新部署自動取消進行中的（最新為準，避免殭屍 run 卡住並發鎖堵塞後續）
 concurrency:
   group: pages
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   deploy:
