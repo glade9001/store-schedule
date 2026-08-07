@@ -126,9 +126,9 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
     <div class="field"><label>門市電費 <span class="unit">元（含在經營報酬內）</span></label><input type="number" id="fElec" inputmode="numeric"></div>
     <div class="field"><label>雜支 <span class="unit">元（含在經營報酬內）</span></label><input type="number" id="fMisc" inputmode="numeric"></div>
     <div class="field">
-      <label>每日交班現金短溢 <span class="unit">元（本月合計，直接填短少金額；本月為溢出請勾下方）</span></label>
+      <label>每日交班現金短少 <span class="unit">元（費用類，正數＝短少為成本，本月合計；若為溢餘請勾下方）</span></label>
       <input type="number" id="fCash" inputmode="numeric" placeholder="例：短少 500 就填 500，無則填 0">
-      <div class="chk-row"><label><input type="checkbox" id="fCashOver"> 本月為現金溢出（改記正值）</label></div>
+      <div class="chk-row"><label><input type="checkbox" id="fCashOver"> 本月為現金溢餘（現金多出，抵減成本）</label></div>
     </div>
     <div class="field"><label>經營報酬 <span class="unit">元</span></label><input type="number" id="fReward" inputmode="numeric"></div>
     <button class="btn-primary" onclick="saveMonth()">儲存並比較</button>
@@ -245,7 +245,7 @@ function openEdit(m){
   document.getElementById('fElec').value=d.elecCost??'';
   document.getElementById('fMisc').value=d.miscCost??'';
   document.getElementById('fCash').value=(d.cashDiff==null)?'':Math.abs(d.cashDiff);
-  document.getElementById('fCashOver').checked=(d.cashDiff||0)>0;
+  document.getElementById('fCashOver').checked=(d.cashDiff||0)<0; // 負=溢餘
   document.getElementById('fReward').value=d.operatingReward??'';
   document.getElementById('fNoStk').checked=!!d.noStocktake;
   document.getElementById('fInvGain').checked=(d.invResult||0)>0;
@@ -280,10 +280,10 @@ async function saveMonth(){
   let invResult=0, invAmt=num('fInv');
   if(noStocktake){ invResult=null; }
   else { invAmt=invAmt||0; invResult=isGain?Math.abs(invAmt):-Math.abs(invAmt); }
-  // 現金短溢：填金額，負=短少(預設)、勾溢出則正
+  // 現金短少：費用類，正=短少(預設，損失)、勾溢餘則負(抵減)
   const cashOver=document.getElementById('fCashOver').checked;
   const cashAmt=num('fCash');
-  const cashDiff=(cashAmt==null)?null:(cashOver?Math.abs(cashAmt):-Math.abs(cashAmt));
+  const cashDiff=(cashAmt==null)?null:(cashOver?-Math.abs(cashAmt):Math.abs(cashAmt));
   // 必填檢查（盤損可為 0/無盤點）
   if([netSales,grossMargin,badGoodsCost,elecCost,miscCost,cashDiff,operatingReward].some(v=>v===null)){
     toast('請完整填寫營業淨額/毛利率/壞品/電費/雜支/現金短溢/經營報酬'); return;
@@ -344,7 +344,7 @@ async function showComparison(m){
   rows.push(`<div class="cmp-row"><div class="cmp-metric">毛利 ${cur.grossMargin}%</div>${upDown(cur.grossMargin,prev?.grossMargin,'%',true,v=>v.toFixed(2))}</div>`);
   rows.push(`<div class="cmp-row"><div class="cmp-metric">門市電費 ${money(cur.elecCost)}元</div>${upDown(cur.elecCost,prev?.elecCost,'元',false,money)}</div>`);
   rows.push(`<div class="cmp-row"><div class="cmp-metric">雜支 ${money(cur.miscCost)}元</div>${upDown(cur.miscCost,prev?.miscCost,'元',false,money)}</div>`);
-  rows.push(`<div class="cmp-row"><div class="cmp-metric">現金短溢 ${money(cur.cashDiff)}元${cur.cashDiff<0?'（短少）':cur.cashDiff>0?'（溢出）':''}</div>${neutralDelta(cur.cashDiff,prev?.cashDiff,'元',money)}</div>`);
+  rows.push(`<div class="cmp-row"><div class="cmp-metric">現金短少 ${money(cur.cashDiff)}元${cur.cashDiff>0?'（短少）':cur.cashDiff<0?'（溢餘）':''}</div>${neutralDelta(cur.cashDiff,prev?.cashDiff,'元',money)}</div>`);
   rows.push(`<div class="cmp-row"><div class="cmp-metric">經營報酬 ${money(cur.operatingReward)}元</div>${upDown(cur.operatingReward,prev?.operatingReward,'元',true,money)}</div>`);
   document.getElementById('cmpBox').innerHTML=`<div class="cmp"><div class="cmp-title">${curStore} ${m.split('-')[0]}年${parseInt(m.split('-')[1])}月 經營績效</div>${rows.join('')}</div>`;
 }
@@ -511,8 +511,8 @@ function renderAnalysis(){
     +chart('壞品（元）','badGoodsCost',money,'#c5221f','')
     +chart('門市電費（元）','elecCost',money,'#0891b2','')
     +chart('雜支（元）','miscCost',money,'#7c3aed','')
-    +chart('現金短溢（元，負＝短少）','cashDiff',money,'#c0620f','')
-    +`<div class="chart-card"><div class="chart-title">淨損耗（壞品＋盤損＋現金短少，元，越低越好）</div>${lineChart(pts.map(p=>({label:lbl(p.m),value:p.d?((p.d.badGoodsCost||0)-(p.d.invResult||0)-(p.d.cashDiff||0)):null})),{fmt:money,color:'#b91c1c'})}</div>`
+    +chart('現金短少（元，正＝短少為成本）','cashDiff',money,'#c0620f','')
+    +`<div class="chart-card"><div class="chart-title">淨損耗（壞品＋盤損＋現金短少，元，越低越好）</div>${lineChart(pts.map(p=>({label:lbl(p.m),value:p.d?((p.d.badGoodsCost||0)-(p.d.invResult||0)+(p.d.cashDiff||0)):null})),{fmt:money,color:'#b91c1c'})}</div>`
     +`<div style="font-size:12px;color:var(--text-muted);font-weight:700;margin:8px 4px 8px;">📈 人力效率（含支援，需該月薪資已結算，2026/5 起；2026/4 系統剛上線不列入）</div>`
     +derived('人事費率（人事成本÷營業淨額 %，越低越好）','#9334e6',(pf,pn)=>pf.laborCost/pn.netSales*100,v=>v.toFixed(1),'%')
     +derived('每工時營收（營業淨額÷總工時，元/h）','#0891b2',(pf,pn)=>pf.totalHours?pn.netSales/pf.totalHours:null,v=>Math.round(v).toLocaleString('en-US'),'')
@@ -541,8 +541,8 @@ const METRICS={
   badGoodsCost:{t:'壞品(元)',fmt:money,get:(pn,pf)=>pn?pn.badGoodsCost:null,agg:'sum'},
   elecCost:{t:'門市電費(元)',fmt:money,get:(pn,pf)=>pn?pn.elecCost:null,agg:'sum'},
   miscCost:{t:'雜支(元)',fmt:money,get:(pn,pf)=>pn?pn.miscCost:null,agg:'sum'},
-  cashDiff:{t:'現金短溢(元)',fmt:money,get:(pn,pf)=>pn?pn.cashDiff:null,agg:'sum'},
-  netLoss:{t:'淨損耗(元)',fmt:money,get:(pn,pf)=>pn?((pn.badGoodsCost||0)-(pn.invResult||0)-(pn.cashDiff||0)):null,agg:'sum'},
+  cashDiff:{t:'現金短少(元)',fmt:money,get:(pn,pf)=>pn?pn.cashDiff:null,agg:'sum'},
+  netLoss:{t:'淨損耗(元)',fmt:money,get:(pn,pf)=>pn?((pn.badGoodsCost||0)-(pn.invResult||0)+(pn.cashDiff||0)):null,agg:'sum'},
   laborRate:{t:'人事費率(%)',fmt:v=>v.toFixed(1),get:(pn,pf)=>(pn&&pf&&pn.netSales)?pf.laborCost/pn.netSales*100:null},
   revPerHour:{t:'每工時營收',fmt:money,get:(pn,pf)=>(pn&&pf&&pf.totalHours)?pn.netSales/pf.totalHours:null},
   surplus:{t:'門市餘裕(報酬−人事)',fmt:money,get:(pn,pf)=>(pn&&pf)?pn.operatingReward-pf.laborCost:null,agg:'sum'}

@@ -260,7 +260,7 @@ function renderScorecard(m,extra){
     const rateY=(laborY!=null&&netY)? laborY/netY*100 : null;
     // 淨損耗率 =（壞品 − 盤損 − 現金短溢）÷ 營收；盤損/現金短溢帶負號＝損失，正負自帶
     let lossRate=null;
-    if(pn && net){ lossRate=(n(pn.badGoodsCost) - n(pn.invResult) - n(pn.cashDiff))/net*100; }
+    if(pn && net){ lossRate=(n(pn.badGoodsCost) - n(pn.invResult) + n(pn.cashDiff))/net*100; }
     return {
       s, net, rew, head, turnover:ex.turnover, late:ex.late, law:ex.law,
       perHr:(net!=null&&hours)? net/hours : null,
@@ -416,7 +416,7 @@ function reviewSnapshot(m){
     if(pnY){ netY+=n(pnY.netSales); hasPrev=true; }
     return { s, netSales:netS, salesYoY:(netS!=null&&pnY&&n(pnY.netSales))?(netS-n(pnY.netSales)):null,
       grossMargin:pn?n(pn.grossMargin):null, laborRate:(labor!=null&&netS)?labor/netS*100:null,
-      perHr:(netS!=null&&hrs)?Math.round(netS/hrs):null, netBad:pn?(n(pn.badGoodsCost)-n(pn.invResult)-n(pn.cashDiff)):null,
+      perHr:(netS!=null&&hrs)?Math.round(netS/hrs):null, netBad:pn?(n(pn.badGoodsCost)-n(pn.invResult)+n(pn.cashDiff)):null,
       invResult:(pn&&pn.invResult!=null)?n(pn.invResult):null, surplus:(rewS!=null&&labor!=null)?rewS-labor:null };
   });
   return { overview:{ net, rew, sur:hasLabor?sur:null, rate:rateDen>0?rateNum/rateDen*100:null, salesYoY:hasPrev?(net-netY):null }, stores };

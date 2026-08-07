@@ -1147,7 +1147,7 @@ function buildPnlText(store, month, cur, prev){
   L.push(`毛利 ${cur.grossMargin}%`, upDown(cur.grossMargin, prev && prev.grossMargin, "%", true, v => v.toFixed(2)), "");
   L.push(`門市電費 ${pnlMoney(cur.elecCost)}元`, upDown(cur.elecCost, prev && prev.elecCost, "元", false, pnlMoney), "");
   L.push(`雜支 ${pnlMoney(cur.miscCost)}元`, upDown(cur.miscCost, prev && prev.miscCost, "元", false, pnlMoney), "");
-  const cashLabel = `現金短溢 ${pnlMoney(cur.cashDiff)}元${cur.cashDiff < 0 ? "（短少）" : cur.cashDiff > 0 ? "（溢出）" : ""}`;
+  const cashLabel = `現金短少 ${pnlMoney(cur.cashDiff)}元${cur.cashDiff > 0 ? "（短少）" : cur.cashDiff < 0 ? "（溢餘）" : ""}`;
   let cashCmp;
   if(!prev || prev.cashDiff == null) cashCmp = "（同期無資料）";
   else { const d = cur.cashDiff - prev.cashDiff; cashCmp = `（較同期${d >= 0 ? "增加" : "減少"} ${pnlMoney(Math.abs(d))}元）`; }
