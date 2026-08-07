@@ -128,13 +128,8 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
     <div class="field"><label>門市電費 <span class="unit">元（含在經營報酬內）</span></label><input type="number" id="fElec" inputmode="numeric"></div>
     <div class="field"><label>雜支 <span class="unit">元（含在經營報酬內）</span></label><input type="number" id="fMisc" inputmode="numeric"></div>
     <div class="field">
-      <label>每日交班現金結算 <span class="unit">本月合計，選狀態＋填正金額（不用管正負）</span></label>
-      <div class="chk-row" style="gap:14px;flex-wrap:wrap;">
-        <label><input type="radio" name="cashType" value="short" onchange="onCashChange()"> 短少（少了，費用）</label>
-        <label><input type="radio" name="cashType" value="over" onchange="onCashChange()"> 溢餘（多了）</label>
-        <label><input type="radio" name="cashType" value="none" onchange="onCashChange()"> 無差異</label>
-      </div>
-      <input type="number" id="fCash" inputmode="numeric" placeholder="填正金額，例：500" oninput="onCashChange()">
+      <label>現金短溢 <span class="unit">照損益表「管銷費用」那個數字直接填（含負號）：正＝短少、負＝溢餘</span></label>
+      <input type="number" id="fCash" inputmode="numeric" placeholder="例：損益表寫 500 填 500、寫 -600 填 -600、無填 0" oninput="onCashChange()">
       <div id="cashPreview" style="font-size:12px;font-weight:800;margin-top:5px;"></div>
     </div>
     <div class="field"><label>經營報酬 <span class="unit">元</span></label><input type="number" id="fReward" inputmode="numeric"></div>
@@ -244,12 +239,10 @@ function onInvChange(){
   else { p.textContent=`→ 本月盤盈 ${money(amt)} 元（收益，抵減損耗）`; p.style.color='#137333'; }
 }
 function onCashChange(){
-  const t=radioVal('cashType'); const inp=document.getElementById('fCash'); const amt=Math.abs(num('fCash')||0);
-  inp.disabled=(t==='none'); if(t==='none') inp.value='';
-  const p=document.getElementById('cashPreview');
-  if(t==='none'){ p.textContent='→ 本月無短溢'; p.style.color='#64748b'; }
-  else if(t==='short'){ p.textContent=`→ 本月現金短少 ${money(amt)} 元（費用，計入損耗）`; p.style.color='#c5221f'; }
-  else { p.textContent=`→ 本月現金溢餘 ${money(amt)} 元（抵減成本）`; p.style.color='#137333'; }
+  const v=num('fCash'); const p=document.getElementById('cashPreview');
+  if(v==null||v===0){ p.textContent='→ 本月無短溢'; p.style.color='#64748b'; }
+  else if(v>0){ p.textContent=`→ 本月現金短少 ${money(v)} 元（費用，計入損耗）`; p.style.color='#c5221f'; }
+  else { p.textContent=`→ 本月現金溢餘 ${money(-v)} 元（抵減成本）`; p.style.color='#137333'; }
 }
 
 function openEdit(m){
@@ -266,10 +259,8 @@ function openEdit(m){
   const invT=(d.noStocktake||d.invResult==null)?'none':((d.invResult>0)?'gain':'loss');
   document.querySelector(`input[name="invType"][value="${invT}"]`).checked=true;
   document.getElementById('fInv').value=(invT==='none')?'':Math.abs(d.invResult);
-  // 現金結算 radio（正=短少、負=溢餘、0/未填=無差異）
-  const cashT=(d.cashDiff==null)?'none':(d.cashDiff>0?'short':d.cashDiff<0?'over':'none');
-  document.querySelector(`input[name="cashType"][value="${cashT}"]`).checked=true;
-  document.getElementById('fCash').value=(cashT==='none')?'':Math.abs(d.cashDiff);
+  // 現金短溢：直接顯示含負號的數字（正=短少、負=溢餘），照損益表
+  document.getElementById('fCash').value=(d.cashDiff==null)?'':d.cashDiff;
   onInvChange(); onCashChange();
   document.getElementById('cmpBox').innerHTML='';
   if(pnlCache[m]) viewMode(m); else editMode();   // 已輸入→檢視；待輸入→直接編輯
@@ -301,14 +292,11 @@ async function saveMonth(){
   let invResult;
   if(noStocktake){ invResult=null; }
   else { const a=Math.abs(num('fInv')||0); invResult=(invType==='gain')?a:-a; }
-  // 現金結算：狀態選擇→符號(短少=正/溢餘=負/無差異=0)
-  const cashType=radioVal('cashType');
-  let cashDiff;
-  if(cashType==='none'){ cashDiff=0; }
-  else { const a=Math.abs(num('fCash')||0); cashDiff=(cashType==='short')?a:-a; }
+  // 現金短溢：照損益表數字直接填(含負號，正=短少/負=溢餘)，未填視為 0
+  let cashDiff=num('fCash'); if(cashDiff==null) cashDiff=0;
   // 必填檢查
-  if([netSales,grossMargin,badGoodsCost,elecCost,miscCost,operatingReward].some(v=>v===null) || !invType || !cashType){
-    toast('請完整填寫營業淨額/毛利率/壞品/電費/雜支/經營報酬，並選盤點與現金結算狀態'); return;
+  if([netSales,grossMargin,badGoodsCost,elecCost,miscCost,operatingReward].some(v=>v===null) || !invType){
+    toast('請完整填寫營業淨額/毛利率/壞品/電費/雜支/經營報酬，並選盤點狀態'); return;
   }
   showLoading('儲存中…');
   const rec={ store:curStore, month:editMonth, netSales, grossMargin, badGoodsCost, elecCost, miscCost, cashDiff,
