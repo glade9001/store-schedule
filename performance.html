@@ -115,20 +115,27 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
     <div class="field"><label>營業淨額 <span class="unit">元</span></label><input type="number" id="fNetSales" inputmode="numeric"></div>
     <div class="field"><label>壞品（成本）<span class="unit">元</span></label><input type="number" id="fBad" inputmode="numeric"></div>
     <div class="field">
-      <label>盤損 <span class="unit">元（直接填金額即可，系統自動帶入負向；盤盈請勾下方）</span></label>
-      <input type="number" id="fInv" inputmode="numeric" placeholder="例：7751">
-      <div class="chk-row">
-        <label><input type="checkbox" id="fInvGain" onchange="onInvToggle()"> 本月為盤盈（改記正值）</label>
-        <label><input type="checkbox" id="fNoStk" onchange="onInvToggle()"> 本月無盤點</label>
+      <label>盤點結果 <span class="unit">選狀態＋填正金額，系統自動判定正負</span></label>
+      <div class="chk-row" style="gap:14px;flex-wrap:wrap;">
+        <label><input type="radio" name="invType" value="loss" onchange="onInvChange()"> 盤損（少了）</label>
+        <label><input type="radio" name="invType" value="gain" onchange="onInvChange()"> 盤盈（多了）</label>
+        <label><input type="radio" name="invType" value="none" onchange="onInvChange()"> 本月無盤點</label>
       </div>
+      <input type="number" id="fInv" inputmode="numeric" placeholder="填正金額，例：7751" oninput="onInvChange()">
+      <div id="invPreview" style="font-size:12px;font-weight:800;margin-top:5px;"></div>
     </div>
     <div class="field"><label>毛利率 <span class="unit">% （例：29.32）</span></label><input type="number" id="fGross" step="0.01" inputmode="decimal"></div>
     <div class="field"><label>門市電費 <span class="unit">元（含在經營報酬內）</span></label><input type="number" id="fElec" inputmode="numeric"></div>
     <div class="field"><label>雜支 <span class="unit">元（含在經營報酬內）</span></label><input type="number" id="fMisc" inputmode="numeric"></div>
     <div class="field">
-      <label>每日交班現金短少 <span class="unit">元（費用類，正數＝短少為成本，本月合計；若為溢餘請勾下方）</span></label>
-      <input type="number" id="fCash" inputmode="numeric" placeholder="例：短少 500 就填 500，無則填 0">
-      <div class="chk-row"><label><input type="checkbox" id="fCashOver"> 本月為現金溢餘（現金多出，抵減成本）</label></div>
+      <label>每日交班現金結算 <span class="unit">本月合計，選狀態＋填正金額（不用管正負）</span></label>
+      <div class="chk-row" style="gap:14px;flex-wrap:wrap;">
+        <label><input type="radio" name="cashType" value="short" onchange="onCashChange()"> 短少（少了，費用）</label>
+        <label><input type="radio" name="cashType" value="over" onchange="onCashChange()"> 溢餘（多了）</label>
+        <label><input type="radio" name="cashType" value="none" onchange="onCashChange()"> 無差異</label>
+      </div>
+      <input type="number" id="fCash" inputmode="numeric" placeholder="填正金額，例：500" oninput="onCashChange()">
+      <div id="cashPreview" style="font-size:12px;font-weight:800;margin-top:5px;"></div>
     </div>
     <div class="field"><label>經營報酬 <span class="unit">元</span></label><input type="number" id="fReward" inputmode="numeric"></div>
     <button class="btn-primary" onclick="saveMonth()">儲存並比較</button>
@@ -227,12 +234,22 @@ function monCard(m,done){
   </div>`;
 }
 
-function onInvToggle(){
-  const noStk=document.getElementById('fNoStk').checked;
-  const gain=document.getElementById('fInvGain');
-  const inv=document.getElementById('fInv');
-  if(noStk){ gain.checked=false; gain.disabled=true; inv.value=''; inv.disabled=true; }
-  else { gain.disabled=false; inv.disabled=false; }
+function radioVal(name){ const el=document.querySelector(`input[name="${name}"]:checked`); return el?el.value:''; }
+function onInvChange(){
+  const t=radioVal('invType'); const inv=document.getElementById('fInv'); const amt=Math.abs(num('fInv')||0);
+  inv.disabled=(t==='none'); if(t==='none') inv.value='';
+  const p=document.getElementById('invPreview');
+  if(t==='none'){ p.textContent='→ 本月無盤點'; p.style.color='#64748b'; }
+  else if(t==='loss'){ p.textContent=`→ 本月盤損 ${money(amt)} 元（損失，計入損耗）`; p.style.color='#c5221f'; }
+  else { p.textContent=`→ 本月盤盈 ${money(amt)} 元（收益，抵減損耗）`; p.style.color='#137333'; }
+}
+function onCashChange(){
+  const t=radioVal('cashType'); const inp=document.getElementById('fCash'); const amt=Math.abs(num('fCash')||0);
+  inp.disabled=(t==='none'); if(t==='none') inp.value='';
+  const p=document.getElementById('cashPreview');
+  if(t==='none'){ p.textContent='→ 本月無短溢'; p.style.color='#64748b'; }
+  else if(t==='short'){ p.textContent=`→ 本月現金短少 ${money(amt)} 元（費用，計入損耗）`; p.style.color='#c5221f'; }
+  else { p.textContent=`→ 本月現金溢餘 ${money(amt)} 元（抵減成本）`; p.style.color='#137333'; }
 }
 
 function openEdit(m){
@@ -244,13 +261,16 @@ function openEdit(m){
   document.getElementById('fBad').value=d.badGoodsCost??'';
   document.getElementById('fElec').value=d.elecCost??'';
   document.getElementById('fMisc').value=d.miscCost??'';
-  document.getElementById('fCash').value=(d.cashDiff==null)?'':Math.abs(d.cashDiff);
-  document.getElementById('fCashOver').checked=(d.cashDiff||0)<0; // 負=溢餘
   document.getElementById('fReward').value=d.operatingReward??'';
-  document.getElementById('fNoStk').checked=!!d.noStocktake;
-  document.getElementById('fInvGain').checked=(d.invResult||0)>0;
-  document.getElementById('fInv').value=(d.noStocktake||d.invResult==null)?'':Math.abs(d.invResult);
-  onInvToggle();
+  // 盤點結果 radio
+  const invT=(d.noStocktake||d.invResult==null)?'none':((d.invResult>0)?'gain':'loss');
+  document.querySelector(`input[name="invType"][value="${invT}"]`).checked=true;
+  document.getElementById('fInv').value=(invT==='none')?'':Math.abs(d.invResult);
+  // 現金結算 radio（正=短少、負=溢餘、0/未填=無差異）
+  const cashT=(d.cashDiff==null)?'none':(d.cashDiff>0?'short':d.cashDiff<0?'over':'none');
+  document.querySelector(`input[name="cashType"][value="${cashT}"]`).checked=true;
+  document.getElementById('fCash').value=(cashT==='none')?'':Math.abs(d.cashDiff);
+  onInvChange(); onCashChange();
   document.getElementById('cmpBox').innerHTML='';
   if(pnlCache[m]) viewMode(m); else editMode();   // 已輸入→檢視；待輸入→直接編輯
   document.getElementById('editOverlay').classList.add('show');
@@ -275,18 +295,20 @@ const num=id=>{const v=parseFloat(document.getElementById(id).value);return isNa
 async function saveMonth(){
   const netSales=num('fNetSales'), grossMargin=num('fGross'), badGoodsCost=num('fBad'),
         elecCost=num('fElec'), miscCost=num('fMisc'), operatingReward=num('fReward');
-  const noStocktake=document.getElementById('fNoStk').checked;
-  const isGain=document.getElementById('fInvGain').checked;
-  let invResult=0, invAmt=num('fInv');
+  // 盤點結果：狀態選擇→符號(盤損=負/盤盈=正/無盤點=null)
+  const invType=radioVal('invType');
+  const noStocktake=(invType==='none');
+  let invResult;
   if(noStocktake){ invResult=null; }
-  else { invAmt=invAmt||0; invResult=isGain?Math.abs(invAmt):-Math.abs(invAmt); }
-  // 現金短少：費用類，正=短少(預設，損失)、勾溢餘則負(抵減)
-  const cashOver=document.getElementById('fCashOver').checked;
-  const cashAmt=num('fCash');
-  const cashDiff=(cashAmt==null)?null:(cashOver?-Math.abs(cashAmt):Math.abs(cashAmt));
-  // 必填檢查（盤損可為 0/無盤點）
-  if([netSales,grossMargin,badGoodsCost,elecCost,miscCost,cashDiff,operatingReward].some(v=>v===null)){
-    toast('請完整填寫營業淨額/毛利率/壞品/電費/雜支/現金短溢/經營報酬'); return;
+  else { const a=Math.abs(num('fInv')||0); invResult=(invType==='gain')?a:-a; }
+  // 現金結算：狀態選擇→符號(短少=正/溢餘=負/無差異=0)
+  const cashType=radioVal('cashType');
+  let cashDiff;
+  if(cashType==='none'){ cashDiff=0; }
+  else { const a=Math.abs(num('fCash')||0); cashDiff=(cashType==='short')?a:-a; }
+  // 必填檢查
+  if([netSales,grossMargin,badGoodsCost,elecCost,miscCost,operatingReward].some(v=>v===null) || !invType || !cashType){
+    toast('請完整填寫營業淨額/毛利率/壞品/電費/雜支/經營報酬，並選盤點與現金結算狀態'); return;
   }
   showLoading('儲存中…');
   const rec={ store:curStore, month:editMonth, netSales, grossMargin, badGoodsCost, elecCost, miscCost, cashDiff,
