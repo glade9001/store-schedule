@@ -344,10 +344,11 @@ function weekMondayDate(wStr) {
 // 某人某週的班表 map：day → 顯示字串（休 或 時段）；supportOut：{day:{store,shift}} 去他店支援的日子
 function weekShiftMap(records, empName, supportOut) {
   const map = {}; const so = supportOut || {};
+  const noteOf = (nt) => nt ? `　📝${String(nt).replace(/\s+/g, " ").trim()}` : "";
   for (const dn of WEEK_DAYS) {
     const r = (records || []).find((x) => x && x.name === empName && x.day === dn && x.shift && String(x.shift).trim() && !x.requestOff);
-    if (r) map[dn] = String(r.shift).replace(/,/g, "、") + (r.location && r.location !== "本店" ? `（${r.location}）` : "");
-    else if (so[dn]) map[dn] = `支援${so[dn].store} ${so[dn].shift}`; // 去他店支援(本店無班)→顯示支援，不再誤標「休」
+    if (r) map[dn] = String(r.shift).replace(/,/g, "、") + (r.location && r.location !== "本店" ? `（${r.location}）` : "") + noteOf(r.note);
+    else if (so[dn]) map[dn] = `支援${so[dn].store} ${so[dn].shift}` + noteOf(so[dn].note); // 去他店支援(本店無班)→顯示支援，不再誤標「休」
     else map[dn] = "休";
   }
   return map;
@@ -364,7 +365,7 @@ async function supportOutByEmp(db, homeStore, weekStr) {
     (wd.data().records || []).forEach((r) => {
       if (r && r.approvalStatus === "approved" && typeof r.supportEmp === "string" && r.supportEmp.startsWith(pre) && r.shift) {
         const emp = r.supportEmp.slice(pre.length);
-        (out[emp] = out[emp] || {})[r.day] = { store: st, shift: r.shift };
+        (out[emp] = out[emp] || {})[r.day] = { store: st, shift: r.shift, note: r.note || "" };
       }
     });
   }
