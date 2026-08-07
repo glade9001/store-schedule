@@ -887,9 +887,10 @@ exports.scheduledAutoPublishNotify = onSchedule(
       if (wSnap.exists && wSnap.data().published === true) continue; // 已手動發布 → onSchedulePublished 已通知
       const records = wSnap.exists ? (wSnap.data().records || []) : [];
       const empNames = await getActiveEmpNames(db, store);
+      const so = await supportOutByEmp(db, store, nextWeek); // 跨店支援：本店員工去他店支援 → 顯示支援而非「休」
       await notifyEmployees(
         db, empNames, store,
-        (name, emp) => `🗓️ ${name}，${store} ${label} 班表已發布\n\n${weekScheduleText(records, emp, nextWeek)}\n\n詳情請至 App 查看`,
+        (name, emp) => `🗓️ ${name}，${store} ${label} 班表已發布\n\n${weekScheduleText(records, emp, nextWeek, so[emp])}\n\n詳情請至 App 查看`,
         token
       );
     }
@@ -1072,9 +1073,10 @@ exports.flushScheduleNotify = onCall(
     const curRecs = wkSnap.data().records || [];
     const label = weekRangeLabel(weekStr);
     const empNames = await getActiveEmpNames(db, store);
+    const so = await supportOutByEmp(db, store, weekStr); // 跨店支援：顯示支援而非「休」
     await notifyEmployees(
       db, empNames, store,
-      (name, emp) => `🔔 ${name}，${store} ${label} 班表有異動\n\n${weekScheduleText(curRecs, emp, weekStr)}\n\n請至 App 確認最新班表`,
+      (name, emp) => `🔔 ${name}，${store} ${label} 班表有異動\n\n${weekScheduleText(curRecs, emp, weekStr, so[emp])}\n\n請至 App 確認最新班表`,
       token
     );
     return { ok: true, sent: empNames.length };
