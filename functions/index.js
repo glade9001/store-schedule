@@ -1118,7 +1118,7 @@ function pnlMoney(n){ return Math.round(n || 0).toLocaleString("en-US"); }
 function pnlPrevYM(month){ const [y, m] = month.split("-"); return `${parseInt(y) - 1}-${m}`; }
 function pnlSig(d){
   if(!d) return "";
-  return [d.netSales, d.badGoodsCost, d.invResult, d.noStocktake ? 1 : 0, d.grossMargin, d.badGoodsSubsidy, d.operatingReward]
+  return [d.netSales, d.badGoodsCost, d.invResult, d.noStocktake ? 1 : 0, d.grossMargin, d.elecCost, d.miscCost, d.cashDiff, d.operatingReward]
     .map(v => (v == null ? "" : v)).join("|");
 }
 function pnlInvLabel(d){
@@ -1145,10 +1145,13 @@ function buildPnlText(store, month, cur, prev){
   else invCmp = upDown(cur.invResult, prev.invResult, "元", true, pnlMoney);
   L.push(pnlInvLabel(cur), invCmp, "");
   L.push(`毛利 ${cur.grossMargin}%`, upDown(cur.grossMargin, prev && prev.grossMargin, "%", true, v => v.toFixed(2)), "");
-  let subCmp;
-  if(!prev || prev.badGoodsSubsidy == null) subCmp = "（同期無資料）";
-  else { const d = cur.badGoodsSubsidy - prev.badGoodsSubsidy; subCmp = `（較同期${d >= 0 ? "增加" : "減少"} ${pnlMoney(Math.abs(d))}元）`; }
-  L.push(`壞品補貼 ${pnlMoney(cur.badGoodsSubsidy)}元`, subCmp, "");
+  L.push(`門市電費 ${pnlMoney(cur.elecCost)}元`, upDown(cur.elecCost, prev && prev.elecCost, "元", false, pnlMoney), "");
+  L.push(`雜支 ${pnlMoney(cur.miscCost)}元`, upDown(cur.miscCost, prev && prev.miscCost, "元", false, pnlMoney), "");
+  const cashLabel = `現金短溢 ${pnlMoney(cur.cashDiff)}元${cur.cashDiff < 0 ? "（短少）" : cur.cashDiff > 0 ? "（溢出）" : ""}`;
+  let cashCmp;
+  if(!prev || prev.cashDiff == null) cashCmp = "（同期無資料）";
+  else { const d = cur.cashDiff - prev.cashDiff; cashCmp = `（較同期${d >= 0 ? "增加" : "減少"} ${pnlMoney(Math.abs(d))}元）`; }
+  L.push(cashLabel, cashCmp, "");
   L.push(`經營報酬 ${pnlMoney(cur.operatingReward)}元`, upDown(cur.operatingReward, prev && prev.operatingReward, "元", true, pnlMoney));
   return L.join("\n");
 }
@@ -1170,7 +1173,7 @@ exports.onPnlSubmitted = onDocumentWritten(
     const before = event.data.before.exists ? event.data.before.data() : null;
     const after = event.data.after.exists ? event.data.after.data() : null;
     if(!after) return; // 刪除不通知
-    if([after.netSales, after.badGoodsCost, after.grossMargin, after.badGoodsSubsidy, after.operatingReward].some(v => v == null)) return; // 必填不齊 → 不發
+    if([after.netSales, after.badGoodsCost, after.grossMargin, after.elecCost, after.miscCost, after.cashDiff, after.operatingReward].some(v => v == null)) return; // 必填不齊(含新欄位) → 不發；舊月份補填後才會通知
     if(pnlSig(before) === pnlSig(after)) return; // 內容沒變(只動 submittedAt 等) → 不重複發
     const store = fixStoreName(event.params.store);
     const month = event.params.month;

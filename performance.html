@@ -123,7 +123,13 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
       </div>
     </div>
     <div class="field"><label>毛利率 <span class="unit">% （例：29.32）</span></label><input type="number" id="fGross" step="0.01" inputmode="decimal"></div>
-    <div class="field"><label>壞品補貼 <span class="unit">元（含在經營報酬內）</span></label><input type="number" id="fSubsidy" inputmode="numeric"></div>
+    <div class="field"><label>門市電費 <span class="unit">元（含在經營報酬內）</span></label><input type="number" id="fElec" inputmode="numeric"></div>
+    <div class="field"><label>雜支 <span class="unit">元（含在經營報酬內）</span></label><input type="number" id="fMisc" inputmode="numeric"></div>
+    <div class="field">
+      <label>每日交班現金短溢 <span class="unit">元（本月合計，直接填短少金額；本月為溢出請勾下方）</span></label>
+      <input type="number" id="fCash" inputmode="numeric" placeholder="例：短少 500 就填 500，無則填 0">
+      <div class="chk-row"><label><input type="checkbox" id="fCashOver"> 本月為現金溢出（改記正值）</label></div>
+    </div>
     <div class="field"><label>經營報酬 <span class="unit">元</span></label><input type="number" id="fReward" inputmode="numeric"></div>
     <button class="btn-primary" onclick="saveMonth()">儲存並比較</button>
     </div>
@@ -236,7 +242,10 @@ function openEdit(m){
   document.getElementById('fNetSales').value=d.netSales??'';
   document.getElementById('fGross').value=d.grossMargin??'';
   document.getElementById('fBad').value=d.badGoodsCost??'';
-  document.getElementById('fSubsidy').value=d.badGoodsSubsidy??'';
+  document.getElementById('fElec').value=d.elecCost??'';
+  document.getElementById('fMisc').value=d.miscCost??'';
+  document.getElementById('fCash').value=(d.cashDiff==null)?'':Math.abs(d.cashDiff);
+  document.getElementById('fCashOver').checked=(d.cashDiff||0)>0;
   document.getElementById('fReward').value=d.operatingReward??'';
   document.getElementById('fNoStk').checked=!!d.noStocktake;
   document.getElementById('fInvGain').checked=(d.invResult||0)>0;
@@ -265,19 +274,23 @@ const num=id=>{const v=parseFloat(document.getElementById(id).value);return isNa
 
 async function saveMonth(){
   const netSales=num('fNetSales'), grossMargin=num('fGross'), badGoodsCost=num('fBad'),
-        badGoodsSubsidy=num('fSubsidy'), operatingReward=num('fReward');
+        elecCost=num('fElec'), miscCost=num('fMisc'), operatingReward=num('fReward');
   const noStocktake=document.getElementById('fNoStk').checked;
   const isGain=document.getElementById('fInvGain').checked;
   let invResult=0, invAmt=num('fInv');
   if(noStocktake){ invResult=null; }
   else { invAmt=invAmt||0; invResult=isGain?Math.abs(invAmt):-Math.abs(invAmt); }
+  // 現金短溢：填金額，負=短少(預設)、勾溢出則正
+  const cashOver=document.getElementById('fCashOver').checked;
+  const cashAmt=num('fCash');
+  const cashDiff=(cashAmt==null)?null:(cashOver?Math.abs(cashAmt):-Math.abs(cashAmt));
   // 必填檢查（盤損可為 0/無盤點）
-  if([netSales,grossMargin,badGoodsCost,badGoodsSubsidy,operatingReward].some(v=>v===null)){
-    toast('請完整填寫營業淨額/毛利率/壞品/壞品補貼/經營報酬'); return;
+  if([netSales,grossMargin,badGoodsCost,elecCost,miscCost,cashDiff,operatingReward].some(v=>v===null)){
+    toast('請完整填寫營業淨額/毛利率/壞品/電費/雜支/現金短溢/經營報酬'); return;
   }
   showLoading('儲存中…');
-  const rec={ store:curStore, month:editMonth, netSales, grossMargin, badGoodsCost, badGoodsSubsidy,
-    operatingReward, invResult, noStocktake,
+  const rec={ store:curStore, month:editMonth, netSales, grossMargin, badGoodsCost, elecCost, miscCost, cashDiff,
+    operatingReward, invResult, noStocktake, badGoodsSubsidy: firebase.firestore.FieldValue.delete(),
     submittedBy:currentUser.empName||'', submittedByName:(currentUser.displayName||currentUser.empName||''),
     submittedAt:new Date().toISOString(), updatedAt:new Date().toISOString() };
   try{
@@ -329,7 +342,9 @@ async function showComparison(m){
   else invCmp=upDown(cur.invResult,prev.invResult,'元',true,money);
   rows.push(`<div class="cmp-row"><div class="cmp-metric">${fmtInv(cur)}</div>${invCmp}</div>`);
   rows.push(`<div class="cmp-row"><div class="cmp-metric">毛利 ${cur.grossMargin}%</div>${upDown(cur.grossMargin,prev?.grossMargin,'%',true,v=>v.toFixed(2))}</div>`);
-  rows.push(`<div class="cmp-row"><div class="cmp-metric">壞品補貼 ${money(cur.badGoodsSubsidy)}元</div>${neutralDelta(cur.badGoodsSubsidy,prev?.badGoodsSubsidy,'元',money)}</div>`);
+  rows.push(`<div class="cmp-row"><div class="cmp-metric">門市電費 ${money(cur.elecCost)}元</div>${upDown(cur.elecCost,prev?.elecCost,'元',false,money)}</div>`);
+  rows.push(`<div class="cmp-row"><div class="cmp-metric">雜支 ${money(cur.miscCost)}元</div>${upDown(cur.miscCost,prev?.miscCost,'元',false,money)}</div>`);
+  rows.push(`<div class="cmp-row"><div class="cmp-metric">現金短溢 ${money(cur.cashDiff)}元${cur.cashDiff<0?'（短少）':cur.cashDiff>0?'（溢出）':''}</div>${neutralDelta(cur.cashDiff,prev?.cashDiff,'元',money)}</div>`);
   rows.push(`<div class="cmp-row"><div class="cmp-metric">經營報酬 ${money(cur.operatingReward)}元</div>${upDown(cur.operatingReward,prev?.operatingReward,'元',true,money)}</div>`);
   document.getElementById('cmpBox').innerHTML=`<div class="cmp"><div class="cmp-title">${curStore} ${m.split('-')[0]}年${parseInt(m.split('-')[1])}月 經營績效</div>${rows.join('')}</div>`;
 }

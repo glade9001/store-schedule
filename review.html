@@ -102,9 +102,9 @@ function fmtYoY(cur){ if(cur==null) return '<span style="color:#94a3b8;">—</sp
     </tr>`;
   });
   const tbl=`<div class="scroll"><table>
-    <thead><tr><th>門市</th><th>營業淨額</th><th>營收YoY</th><th>毛利率</th><th>人事費率</th><th>每工時營收</th><th>淨壞品</th><th>盤損</th><th>門市餘裕</th></tr></thead>
+    <thead><tr><th>門市</th><th>營業淨額</th><th>營收YoY</th><th>毛利率</th><th>人事費率</th><th>每工時營收</th><th>淨損耗</th><th>盤損</th><th>門市餘裕</th></tr></thead>
     <tbody>${rows}</tbody></table></div>
-    <div style="font-size:10.5px;color:#94a3b8;margin-top:6px;">淨壞品＝壞品−補貼；盤損負值為損失；門市餘裕＝經營報酬−含支援調整的人事成本。</div>`;
+    <div style="font-size:10.5px;color:#94a3b8;margin-top:6px;">淨損耗＝壞品−盤損−現金短溢（含損耗全項）；盤損負值為損失；門市餘裕＝經營報酬−含支援調整的人事成本（未扣稅/水電/租金）。</div>`;
 
   const expStr=exp?new Date(exp).toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'';
   document.getElementById('wrap').innerHTML=`
