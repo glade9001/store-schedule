@@ -503,7 +503,8 @@ async function doPunch(type){
     if(win.length){
       const s=win[0], lateMin=(nm-s.startMs)/60000, ci=appConfig.clockIn||{};
       const tol=(ci.tolByStore&&ci.tolByStore[atStore]!=null)?ci.tolByStore[atStore]:(ci.lateToleranceMin!=null?ci.lateToleranceMin:10);
-      if(lateMin>tol){
+      // 只在「遲到但容許值內(警告區)」提示忘打卡；超過容許值＝真遲到，不遞台階，只能手動補登
+      if(lateMin>0 && lateMin<=tol){
         hideLoading();
         const defT=new Date(s.startMs).toLocaleTimeString('zh-TW',{hour12:false,hour:'2-digit',minute:'2-digit'});
         const fc=await forgotPrompt(Math.round(lateMin), defT);
