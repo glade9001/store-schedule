@@ -336,7 +336,7 @@ function punchRow(r, showEmp){
     if(r.otStatus==='pending') h+=`<div style="padding:2px 0 8px 4px;font-size:12px;color:#c0620f;line-height:1.6;">📝 加班申請待審：<b>${r.otContent||'—'}</b> <button onclick="approveOt('${r.id}')" style="background:#e6f4ea;color:#137333;border:none;border-radius:8px;padding:4px 10px;font-weight:800;font-size:11px;cursor:pointer;margin-left:4px;">✔同意</button><button onclick="rejectOt('${r.id}')" style="background:#fce8e6;color:#c5221f;border:none;border-radius:8px;padding:4px 10px;font-weight:800;font-size:11px;cursor:pointer;margin-left:4px;">✕否</button></div>`;
     else if(r.otStatus==='approved') h+=`<div class="meta" style="padding:0 0 6px 4px;color:#137333;font-weight:700;">✅ 加班已核准（計工時）${r.otContent?'：'+r.otContent:''}</div>`;
     else if(r.otStatus==='rejected') h+=`<div class="meta" style="padding:0 0 6px 4px;color:#94a3b8;">❌ 加班未准${r.otReason?'：'+r.otReason:''}（不計工時）</div>`;
-    else if(r.otStatus==='private') h+=`<div class="meta" style="padding:0 0 6px 4px;color:#64748b;">🅿️ 到場／私事・不計工時</div>`;
+    else if(r.otStatus==='private') h+=`<div class="meta" style="padding:0 0 6px 4px;color:#64748b;">🅿️ 不計工時（非加班／私事）${r.otContent?`・${r.otContent}`:''}</div>`;
   }
   return h;
 }

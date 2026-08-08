@@ -182,7 +182,7 @@ async function load(){
       if(r.otStatus==='pending') html+=`<div class="meta" style="padding:0 0 6px 4px;color:#c0620f;">📝 加班申請待店長審核：${r.otContent||''}</div>`;
       else if(r.otStatus==='approved') html+=`<div class="meta" style="padding:0 0 6px 4px;color:#137333;font-weight:700;">✅ 加班已核准（計工時）</div>`;
       else if(r.otStatus==='rejected') html+=`<div class="meta" style="padding:0 0 6px 4px;color:#94a3b8;">❌ 加班未准${r.otReason?'：'+r.otReason:''}（不計工時）</div>`;
-      else if(r.otStatus==='private') html+=`<div class="meta" style="padding:0 0 6px 4px;color:#64748b;">🅿️ 到場／私事・不計工時</div>`;
+      else if(r.otStatus==='private') html+=`<div class="meta" style="padding:0 0 6px 4px;color:#64748b;">🅿️ 不計工時（非加班／私事）${r.otContent?`・${r.otContent}`:''}</div>`;
     });
     html+=`</div>`;
   });

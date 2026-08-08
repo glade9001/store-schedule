@@ -68,14 +68,14 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
   <div style="background:#fff;border-radius:16px;max-width:400px;width:100%;padding:20px;">
     <div style="font-size:17px;font-weight:900;margin-bottom:8px;">⏰ 非排班時段打卡</div>
     <div id="otMsg" style="font-size:13px;color:#475569;line-height:1.7;margin-bottom:6px;"></div>
-    <div style="font-size:13px;color:#475569;line-height:1.7;margin-bottom:14px;">是否要<b>申請加班</b>？<br>若只是提早到店或處理私事，請選「否」（記為到場，<b>不計工時</b>）。</div>
+    <div id="otHint" style="font-size:13px;color:#475569;line-height:1.7;margin-bottom:14px;"></div>
     <div id="otContentRow" style="display:none;margin-bottom:12px;">
       <label style="display:block;font-size:12px;font-weight:700;margin-bottom:5px;">加班內容／事由（必填）</label>
       <textarea id="otContent" rows="3" placeholder="例：主管交辦盤點、支援出餐尖峰…" style="width:100%;padding:10px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;font-family:inherit;resize:vertical;"></textarea>
       <div style="font-size:11px;color:#94a3b8;margin-top:6px;line-height:1.5;">送出後需<b>店長審核</b>；同意才計入工時，並請店長調整排班表。</div>
     </div>
     <button id="otApplyBtn" onclick="otChooseApply()" style="width:100%;padding:12px;background:var(--primary);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;cursor:pointer;margin-bottom:8px;">📝 我要申請加班</button>
-    <button onclick="otChoosePrivate()" style="width:100%;padding:11px;background:#f1f5f9;color:#334155;border:none;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;margin-bottom:8px;">否，僅到場／私事（不計工時）</button>
+    <button id="otPrivateBtn" onclick="otChoosePrivate()" style="width:100%;padding:11px;background:#f1f5f9;color:#334155;border:none;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;margin-bottom:8px;">否，僅到場／私事（不計工時）</button>
     <button onclick="otCancel()" style="width:100%;padding:9px;background:none;color:#94a3b8;border:none;font-size:13px;font-weight:700;cursor:pointer;">取消打卡</button>
   </div>
 </div>
@@ -90,7 +90,7 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
       <div style="font-size:11px;color:#94a3b8;margin-top:6px;line-height:1.5;">送出後由<b>店長核對</b>，同意才更正時間；原打卡時間會保留備查。</div>
     </div>
     <button id="fgYesBtn" onclick="fgChooseForgot()" style="width:100%;padding:12px;background:var(--primary);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;cursor:pointer;margin-bottom:8px;">是，我忘了打卡（填實際時間）</button>
-    <button onclick="fgChooseLate()" style="width:100%;padding:11px;background:#f1f5f9;color:#334155;border:none;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;margin-bottom:8px;">否，我確實是遲到</button>
+    <button onclick="fgChooseLate()" style="width:100%;padding:11px;background:#f1f5f9;color:#334155;border:none;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;margin-bottom:8px;">否，照常打卡</button>
     <button onclick="fgCancel()" style="width:100%;padding:9px;background:none;color:#94a3b8;border:none;font-size:13px;font-weight:700;cursor:pointer;">取消打卡</button>
   </div>
 </div>
@@ -377,6 +377,7 @@ function render(){
     <button onclick="window.location.href='my-attendance.html'" style="flex:1;padding:11px;background:#eef2ff;color:#4338ca;border:none;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;">📋 我的出勤</button>
     <button onclick="openReqModal()" style="flex:1;padding:11px;background:#fff7ed;color:#c2410c;border:1.5px solid #fed7aa;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;">📝 補登／修改</button>
   </div>
+  <div style="font-size:11.5px;color:var(--text-muted);line-height:1.75;padding:0 8px 10px;">💡 <b>還在店裡忘了打</b>：先照常打卡（留定位），時間要更正就順手送修改申請；<b>已離店／缺卡／要改別天</b>：走補登／修改申請。兩者都由店長審核。</div>
   <div class="card" style="padding:14px;">
     <div style="font-size:13px;font-weight:800;color:var(--text-muted);margin-bottom:10px;">🔔 打卡提醒（依你的排班時間 LINE 通知）</div>
     <label style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;margin-bottom:10px;flex-wrap:wrap;">
@@ -418,9 +419,11 @@ function offSchedule(type, nowMs){
 }
 // 加班/私事詢問 modal（Promise：回傳 {intent:'apply',content} / {intent:'private'} / null 取消）
 let _otResolve=null;
+let _otReason=null;
 function otPrompt(reason){
   return new Promise(resolve=>{
-    _otResolve=resolve;
+    _otResolve=resolve; _otReason=reason;
+    const isAdmin=(currentUser.permission==='admin');
     const msg = reason==='no-shift'?'你目前在此門市沒有排班。'
       : reason==='early'?'你比排班開始時間提早超過 30 分鐘。'
       : '你已超過排班結束時間 30 分鐘以上。';
@@ -428,6 +431,17 @@ function otPrompt(reason){
     document.getElementById('otContent').value='';
     document.getElementById('otContentRow').style.display='none';
     document.getElementById('otApplyBtn').textContent='📝 我要申請加班';
+    // private 按鈕：下班晚打(非加班·私事/忘記)全員可用；上班/未排班「到場」只給 admin
+    const pv=document.getElementById('otPrivateBtn');
+    const showPriv = (reason==='late') || isAdmin;
+    pv.style.display = showPriv ? '' : 'none';
+    pv.textContent = (reason==='late') ? '否，非加班：私事或忘記才晚打（不計工時）' : '否，僅到場／私事（不計工時）';
+    // 提示文字
+    document.getElementById('otHint').innerHTML = (reason==='late')
+      ? '剛才是<b>工作(加班)</b>嗎？是→申請加班(待審)。<br>若只是<b>私事或忘了打卡才晚打</b>、實際工作到下班時間為止，請選「非加班」（<b>不計工時</b>，保留下班紀錄）。'
+      : isAdmin
+        ? '是否要<b>申請加班</b>？<br>若只是巡店到場或處理私事，請選「到場」（<b>不計工時</b>）。'
+        : '要<b>申請加班</b>嗎？<br>若不是要上班，請選「取消打卡」。';
     document.getElementById('otModal').style.display='flex';
   });
 }
@@ -438,7 +452,7 @@ function otChooseApply(){
   if(!c){ toast('請填寫加班內容/事由'); return; }
   _otDone({intent:'apply', content:c});
 }
-function otChoosePrivate(){ _otDone({intent:'private'}); }
+function otChoosePrivate(){ _otDone({intent:'private', content: _otReason==='late' ? '員工聲明：私事或忘記才晚打，非加班（實際工作至下班時間為止）' : ''}); }
 function otCancel(){ _otDone(null); }
 function _otDone(v){ document.getElementById('otModal').style.display='none'; const r=_otResolve; _otResolve=null; if(r) r(v); }
 
@@ -525,7 +539,7 @@ async function doPunch(type){
       : r.status==='早退'?`⚠️ ${type}打卡成功（早退）`
       : r.status==='警告'?`${type}打卡成功（遲到 ${r.lateMin} 分，容許內）`
       : `✅ ${type}打卡成功`;
-    const otTail = otIntent==='apply'?'\n📝 已送出加班申請，待店長審核（同意才計工時）':otIntent==='private'?'\n🅿️ 已記為到場・不計工時':'';
+    const otTail = otIntent==='apply'?'\n📝 已送出加班申請，待店長審核（同意才計工時）':otIntent==='private'?'\n🅿️ 已記為不計工時（非加班）':'';
     let fgTail='';
     if(forgotClaim){
       try{

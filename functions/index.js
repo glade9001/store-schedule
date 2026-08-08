@@ -1746,8 +1746,10 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
   const clientMs = d.clientTime ? Date.parse(d.clientTime) : (typeof d.clientMs === "number" ? d.clientMs : NaN);
   const timeSkewMs = isFinite(clientMs) ? (nowMs - clientMs) : null;
   const deviceInfo = String(d.deviceInfo || "").slice(0, 180);
-  // 加班事前防呆：非排班時段打卡的意向(apply=申請加班待審／private=到場私事不計工時)
-  const otIntent = (d.otIntent === "apply" || d.otIntent === "private") ? d.otIntent : null;
+  // 加班事前防呆：非排班時段打卡的意向(apply=申請加班待審／private=不計工時)
+  // private 分兩種用途：①上班/未排班「到場」→只保留給 admin(巡店)；②下班晚打「非加班·私事/忘記」→開放全員(有下班紀錄但不計工時、避免勞基法加班疑慮)。
+  // 因此 private 僅在「admin」或「下班」時採用；一般員工的上班 private 一律忽略成正常打卡。
+  const otIntent = (d.otIntent === "apply" || (d.otIntent === "private" && (perm === "admin" || type === "下班"))) ? d.otIntent : null;
   await attCol.add({
     empName, displayName: info.displayName, date: ds, shiftDate, weekday: dayName, type, atStore, homeStore,
     lat, lng, accuracy: (typeof d.accuracy === "number" ? d.accuracy : null), distanceM,
@@ -1755,7 +1757,7 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
     ts: admin.firestore.FieldValue.serverTimestamp(), tsMs: nowMs, deviceTs, source: "app",
     clientTime: (isFinite(clientMs) ? new Date(clientMs).toISOString() : null), timeSkewMs,
     deviceInfo: deviceInfo || null, punchMethod: (d.punchMethod || "GPS"),
-    otIntent, otContent: otIntent === "apply" ? String(d.otContent || "").slice(0, 300) : "",
+    otIntent, otContent: otIntent ? String(d.otContent || "").slice(0, 300) : "",
     otStatus: otIntent === "apply" ? "pending" : (otIntent === "private" ? "private" : null),
   });
   return { ok: true, atStore, distanceM, status, lateMin, hm: nowTp.toISOString().slice(11, 16) };
