@@ -2914,6 +2914,23 @@ async function loadPendingItems() {
           storePending.push({ type:'薪資提醒', desc:`${ym.replace('-','年')}月薪資尚未送出`, link:'salary.html', color:'var(--warn)' });
         }
 
+        // ===== 出勤待審核（補登/修改申請、加班待審、離線待核）=====
+        try {
+          const [reqSnap, otSnap, offSnap] = await Promise.all([
+            window.db.collection('stores').doc(store).collection('attendanceRequests').where('status','==','pending').get().catch(()=>null),
+            window.db.collection('stores').doc(store).collection('attendance').where('otStatus','==','pending').get().catch(()=>null),
+            window.db.collection('stores').doc(store).collection('attendance').where('needReview','==',true).get().catch(()=>null),
+          ]);
+          const nReq = reqSnap ? reqSnap.size : 0;
+          const nOt  = otSnap ? otSnap.docs.filter(d=>!d.data().voided).length : 0;
+          const nOff = offSnap ? offSnap.docs.filter(d=>!d.data().voided).length : 0;
+          const tot = nReq + nOt + nOff;
+          if(tot > 0){
+            const parts=[]; if(nReq)parts.push(`補登/修改 ${nReq}`); if(nOt)parts.push(`加班 ${nOt}`); if(nOff)parts.push(`離線待核 ${nOff}`);
+            storePending.push({ type:'出勤待審核', desc:`${store}｜出勤待審 ${tot} 件（${parts.join('、')}）`, link:'attendance.html', color:'var(--danger)' });
+          }
+        } catch(e){}
+
         // ===== 特休 / 補休 週年提醒與到期提醒 =====
         if(empSnap) {
           const emps = [];

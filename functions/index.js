@@ -1521,7 +1521,7 @@ exports.scheduledMissingClock = onSchedule(
           // 缺卡＝沒有打卡時間：不寫 deviceTs/tsMs(否則出勤表會顯示成像有打卡的掃描時間)；等手動補卡才有真時間
           ts: admin.firestore.FieldValue.serverTimestamp(), deviceTs: null, tsMs: null,
         });
-        await notifyOneEmp(db, emp, homeStore, `🔴 缺卡提醒\n你 ${ds} 在 ${store} 的班別 ${sh.shift} ${missWhat}，如有出勤請盡快申請補登。`, token);
+        await notifyOneEmp(db, emp, homeStore, `🔴 缺卡提醒\n你 ${ds} 在 ${store} 的班別 ${sh.shift} ${missWhat}，如有出勤請盡快申請補登。\n\n👉 立即補登：https://glade9001.github.io/store-schedule/my-attendance.html`, token);
         await notifyStoreManagers(db, store, `🔴 缺卡\n${dn} ${ds} ${store} 班別 ${sh.shift} ${missWhat}。`, token);
       }
 
@@ -1563,7 +1563,7 @@ exports.scheduledMissingClock = onSchedule(
             // 缺卡＝沒有打卡時間：不寫 deviceTs/tsMs；等手動補卡才有真時間
             ts: admin.firestore.FieldValue.serverTimestamp(), deviceTs: null, tsMs: null,
           });
-          await notifyOneEmp(db, emp, homeStore, `🔴 缺卡提醒\n你 ${dsY} 在 ${store} 的跨日班別 ${sh.shift} ${missWhat}，如有出勤請盡快申請補登。`, token);
+          await notifyOneEmp(db, emp, homeStore, `🔴 缺卡提醒\n你 ${dsY} 在 ${store} 的跨日班別 ${sh.shift} ${missWhat}，如有出勤請盡快申請補登。\n\n👉 立即補登：https://glade9001.github.io/store-schedule/my-attendance.html`, token);
           await notifyStoreManagers(db, store, `🔴 缺卡\n${dn} ${dsY} ${store} 跨日班別 ${sh.shift} ${missWhat}。`, token);
         }
       }

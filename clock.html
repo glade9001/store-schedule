@@ -79,6 +79,21 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
     <button onclick="otCancel()" style="width:100%;padding:9px;background:none;color:#94a3b8;border:none;font-size:13px;font-weight:700;cursor:pointer;">取消打卡</button>
   </div>
 </div>
+<div id="forgotModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9500;align-items:center;justify-content:center;padding:18px;">
+  <div style="background:#fff;border-radius:16px;max-width:400px;width:100%;padding:20px;">
+    <div style="font-size:17px;font-weight:900;margin-bottom:8px;">🕐 你比班別開始時間晚了</div>
+    <div id="fgMsg" style="font-size:13px;color:#475569;line-height:1.7;margin-bottom:12px;"></div>
+    <div style="font-size:13px;color:#475569;line-height:1.7;margin-bottom:12px;">是不是<b>準時上班、只是忘了打卡</b>？<br>若是，請填你<b>實際上班時間</b>，系統會照常記下這次打卡（含定位），並把你填的時間<b>送店長核對更正</b>。</div>
+    <div id="fgRow" style="display:none;margin-bottom:12px;">
+      <label style="display:block;font-size:12px;font-weight:700;margin-bottom:5px;">實際上班時間</label>
+      <input type="time" id="fgTime" style="width:100%;padding:10px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:15px;">
+      <div style="font-size:11px;color:#94a3b8;margin-top:6px;line-height:1.5;">送出後由<b>店長核對</b>，同意才更正時間；原打卡時間會保留備查。</div>
+    </div>
+    <button id="fgYesBtn" onclick="fgChooseForgot()" style="width:100%;padding:12px;background:var(--primary);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;cursor:pointer;margin-bottom:8px;">是，我忘了打卡（填實際時間）</button>
+    <button onclick="fgChooseLate()" style="width:100%;padding:11px;background:#f1f5f9;color:#334155;border:none;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;margin-bottom:8px;">否，我確實是遲到</button>
+    <button onclick="fgCancel()" style="width:100%;padding:9px;background:none;color:#94a3b8;border:none;font-size:13px;font-weight:700;cursor:pointer;">取消打卡</button>
+  </div>
+</div>
 <div id="reqModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9500;align-items:center;justify-content:center;padding:18px;">
   <div style="background:#fff;border-radius:16px;max-width:400px;width:100%;padding:20px;max-height:90vh;overflow:auto;">
     <div style="font-size:17px;font-weight:900;margin-bottom:6px;">📝 補登／修改打卡申請</div>
@@ -339,7 +354,18 @@ function render(){
   const openIn = todayPunches.filter(p=>p.type==='上班').length > todayPunches.filter(p=>p.type==='下班').length;
   const openWarn = (openIn||carriedOpenIn) ? `<div style="background:#fff3e0;border:1.5px solid #ffc27a;border-radius:12px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;"><span style="font-size:20px;">⏰</span><div style="flex:1;font-size:12.5px;font-weight:700;color:#c0620f;line-height:1.5;">你有一筆上班尚未打下班${carriedOpenIn?`（${carriedOpenIn.date} 跨日班）`:''}，記得補打下班</div></div>` : '';
   const bindWarn = !isBound ? `<div onclick="window.location.href='home.html'" style="background:#fff3e0;border:1.5px solid #ffc27a;border-radius:12px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;cursor:pointer;"><span style="font-size:20px;">🔔</span><div style="flex:1;font-size:12.5px;font-weight:700;color:#c0620f;line-height:1.5;">你尚未綁定 LINE，打卡結果與異常通知收不到<br>點此前往首頁綁定 LINE</div><span style="color:#c0620f;font-size:18px;">›</span></div>` : '';
-  wrap.innerHTML=offBanner+openWarn+bindWarn+`<div class="card">
+  // A2 今日狀態醒目提醒：有排班卻還沒打上班卡
+  let a2Warn='';
+  { const hasInToday=todayPunches.some(p=>p.type==='上班');
+    const todayCand=candShifts.filter(c=>c.shiftDate===todayStr()).sort((a,b)=>a.startMs-b.startMs);
+    if(!openPunch && !carriedOpenIn && !hasInToday && todayCand.length){
+      const up=todayCand.find(c=>Date.now()<=c.startMs+4*3600000)||todayCand[0];
+      a2Warn = (Date.now()>=up.startMs)
+        ? `<div style="background:#fce8e6;border:1.5px solid #f5a3a3;border-radius:12px;padding:11px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;"><span style="font-size:22px;">⚠️</span><div style="flex:1;font-size:13.5px;font-weight:900;color:#c5221f;line-height:1.5;">你今天 ${up.shift} 的班已開始，還沒打上班卡！<br><span style="font-size:11.5px;font-weight:700;">請盡快打卡；若準時上班只是忘了打，打卡時可填實際時間</span></div></div>`
+        : `<div style="background:#e8f0fe;border:1.5px solid #a8c7fa;border-radius:12px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;"><span style="font-size:20px;">🕐</span><div style="flex:1;font-size:13px;font-weight:800;color:#1a56c4;line-height:1.5;">今天 ${up.shift} 上班，記得準時打卡</div></div>`;
+    }
+  }
+  wrap.innerHTML=a2Warn+offBanner+openWarn+bindWarn+`<div class="card">
     <div class="today">${dateLine}</div>
     <div id="srvClock" style="text-align:center;font-size:34px;font-weight:900;letter-spacing:1px;color:var(--primary);font-variant-numeric:tabular-nums;margin:2px 0 2px;">🕐 --:--:--</div>
     <div style="text-align:center;font-size:11px;color:var(--text-muted);margin-bottom:8px;">以伺服器時間為準</div>
@@ -416,6 +442,29 @@ function otChoosePrivate(){ _otDone({intent:'private'}); }
 function otCancel(){ _otDone(null); }
 function _otDone(v){ document.getElementById('otModal').style.display='none'; const r=_otResolve; _otResolve=null; if(r) r(v); }
 
+// B1 忘記打卡一鍵（遲到上班 → 問是否忘打卡，員工自填實際時間，送店長核對）
+let _fgResolve=null;
+function forgotPrompt(lateMin, defTime){
+  return new Promise(resolve=>{
+    _fgResolve=resolve;
+    document.getElementById('fgMsg').textContent=`目前已超過班別開始時間約 ${lateMin} 分鐘。`;
+    document.getElementById('fgTime').value=defTime||'';
+    document.getElementById('fgRow').style.display='none';
+    document.getElementById('fgYesBtn').textContent='是，我忘了打卡（填實際時間）';
+    document.getElementById('forgotModal').style.display='flex';
+  });
+}
+function fgChooseForgot(){
+  const row=document.getElementById('fgRow');
+  if(row.style.display==='none'){ row.style.display='block'; document.getElementById('fgYesBtn').textContent='送出核對'; document.getElementById('fgTime').focus(); return; }
+  const t=document.getElementById('fgTime').value;
+  if(!t){ toast('請填實際上班時間'); return; }
+  _fgDone({forgot:true, time:t});
+}
+function fgChooseLate(){ _fgDone({forgot:false}); }
+function fgCancel(){ _fgDone(null); }
+function _fgDone(v){ document.getElementById('forgotModal').style.display='none'; const r=_fgResolve; _fgResolve=null; if(r) r(v); }
+
 async function doPunch(type){
   if(!atStore){ toast('不在門市範圍內'); return; }
   // 防抖：同類型 10 分鐘內只成功一次
@@ -446,6 +495,23 @@ async function doPunch(type){
     if(choice===null) return; // 取消
     otIntent=choice.intent; otContent=choice.content||'';
   }
+  // B1 遲到上班 → 問是否忘記打卡（照常記真實打卡，另送實際時間給店長核對）
+  let forgotClaim=null;
+  if(!os.off && type==='上班'){
+    const nm=serverNowMs();
+    const win=candShifts.filter(c=> nm>=c.startMs-3600000 && nm<=c.startMs+4*3600000).sort((a,b)=>Math.abs(nm-a.startMs)-Math.abs(nm-b.startMs));
+    if(win.length){
+      const s=win[0], lateMin=(nm-s.startMs)/60000, ci=appConfig.clockIn||{};
+      const tol=(ci.tolByStore&&ci.tolByStore[atStore]!=null)?ci.tolByStore[atStore]:(ci.lateToleranceMin!=null?ci.lateToleranceMin:10);
+      if(lateMin>tol){
+        hideLoading();
+        const defT=new Date(s.startMs).toLocaleTimeString('zh-TW',{hour12:false,hour:'2-digit',minute:'2-digit'});
+        const fc=await forgotPrompt(Math.round(lateMin), defT);
+        if(fc===null) return; // 取消
+        if(fc.forgot) forgotClaim=fc.time;
+      }
+    }
+  }
   showLoading('打卡中…');
   // 🌟 交由後端 callable 權威判定（伺服器時間＋複驗圍欄＋狀態），前端只送座標
   try{
@@ -459,7 +525,18 @@ async function doPunch(type){
       : r.status==='警告'?`${type}打卡成功（遲到 ${r.lateMin} 分，容許內）`
       : `✅ ${type}打卡成功`;
     const otTail = otIntent==='apply'?'\n📝 已送出加班申請，待店長審核（同意才計工時）':otIntent==='private'?'\n🅿️ 已記為到場・不計工時':'';
-    toast(`${msg}　${r.hm||''} @${r.atStore||atStore}${otTail}`);
+    let fgTail='';
+    if(forgotClaim){
+      try{
+        await window.db.collection('stores').doc(atStore).collection('attendanceRequests').add({
+          empName:currentUser.empName, displayName:currentUser.displayName||currentUser.empName,
+          homeStore:currentUser.store||'', atStore, type:'補登/修改', targetDate:todayStr(), punchType:'上班', requestedTime:forgotClaim,
+          reason:`忘記打卡，實際 ${forgotClaim} 上班（本次打卡 ${r.hm||''}），請店長核對更正`, status:'pending', createdAt:new Date().toISOString(), createdBy:currentUser.empName
+        });
+        fgTail=`\n📝 已把實際時間 ${forgotClaim} 送店長核對更正`;
+      }catch(e){ fgTail='\n⚠️ 核對申請送出失敗，請改用「補登／修改」手動送出'; }
+    }
+    toast(`${msg}　${r.hm||''} @${r.atStore||atStore}${otTail}${fgTail}`);
     await loadToday(); render();
   }catch(e){
     hideLoading();
