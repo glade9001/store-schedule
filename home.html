@@ -744,9 +744,9 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       </div>
 
       <div id="homeClockCard" onclick="window.location.href='clock.html'" style="background:linear-gradient(135deg,#34a853,#1e7e34);border-radius:16px;padding:16px 18px;margin-bottom:12px;display:flex;align-items:center;gap:14px;cursor:pointer;box-shadow:0 3px 12px rgba(52,168,83,.3);">
-        <div style="font-size:32px;line-height:1;">🕐</div>
+        <div id="homeClockIcon" style="font-size:32px;line-height:1;">🕐</div>
         <div style="flex:1;">
-          <div style="font-size:18px;font-weight:900;color:#ffffff;">上下班打卡</div>
+          <div id="homeClockTitle" style="font-size:18px;font-weight:900;color:#ffffff;">上下班打卡</div>
           <div id="homeClockSub" style="font-size:12.5px;color:rgba(255,255,255,.92);margin-top:2px;">記得打卡，並誠實於現場打卡 🙏</div>
         </div>
       </div>
@@ -1348,9 +1348,51 @@ function getCurrentWeekString() {
 }
 const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
 function getTodayDayName() {
-  const jsDay = new Date().getDay(); 
+  const jsDay = new Date().getDay();
   const map = [null,'週一','週二','週三','週四','週五','週六','週日'];
   return map[jsDay] || '週一';
+}
+
+// 首頁打卡卡：依今日排班＋今日打卡顯示狀態（有排班未打上班卡且已過開始→整卡變色）
+async function updateHomeClockStatus(){
+  const card=document.getElementById('homeClockCard');
+  const icon=document.getElementById('homeClockIcon');
+  const sub=document.getElementById('homeClockSub');
+  if(!card||!sub) return;
+  const store=currentUser.store, emp=currentUser.empName;
+  const GREEN='linear-gradient(135deg,#34a853,#1e7e34)', GREEN_SH='0 3px 12px rgba(52,168,83,.3)';
+  const RED='linear-gradient(135deg,#ea4335,#c5221f)', RED_SH='0 3px 14px rgba(234,67,53,.4)';
+  const setGreen=(ic,txt)=>{ card.style.background=GREEN; card.style.boxShadow=GREEN_SH; if(icon)icon.textContent=ic; sub.textContent=txt; };
+  const setRed=(ic,txt)=>{ card.style.background=RED; card.style.boxShadow=RED_SH; if(icon)icon.textContent=ic; sub.textContent=txt; };
+  if(!store){ return; } // 無歸屬門市（如人力支援）→ 維持預設
+  try{
+    const ds=new Date(); const dss=`${ds.getFullYear()}-${String(ds.getMonth()+1).padStart(2,'0')}-${String(ds.getDate()).padStart(2,'0')}`;
+    const dayName=getTodayDayName();
+    const [wd, att]=await Promise.all([
+      window.db.collection('stores').doc(store).collection('weeks').doc(getCurrentWeekString()).get().catch(()=>null),
+      window.db.collection('stores').doc(store).collection('attendance').where('date','==',dss).where('empName','==',emp).get().catch(()=>null)
+    ]);
+    // 今日排班（本店班 or 已核准支援班）
+    const shifts=[];
+    if(wd&&wd.exists)(wd.data().records||[]).forEach(r=>{
+      if(r.day!==dayName) return;
+      const mine=(r.name===emp)||(r.supportEmp===`${store}-${emp}`&&r.approvalStatus==='approved');
+      if(!mine) return;
+      const m=String(r.shift||'').match(/^(\d{1,2})-(\d{1,2})$/); if(!m) return;
+      shifts.push({shift:r.shift, startMs:new Date(`${dss}T${String(+m[1]).padStart(2,'0')}:00:00+08:00`).getTime()});
+    });
+    // 今日打卡
+    let nIn=0,nOut=0;
+    if(att) att.forEach(d=>{ const t=d.data().type; if(t==='上班')nIn++; else if(t==='下班')nOut++; });
+    if(!shifts.length){ setGreen('🕐','今日無排班｜需要時可打卡'); return; }
+    if(nIn>nOut){ setGreen('🟢','上班中，記得打下班卡'); return; }
+    if(nIn>0){ setGreen('✅','今日已完成打卡'); return; }
+    // 有排班、尚未打上班卡
+    shifts.sort((a,b)=>a.startMs-b.startMs);
+    const up=shifts.find(s=>Date.now()<=s.startMs+4*3600000)||shifts[0];
+    if(Date.now()>=up.startMs){ setRed('⚠️',`你今天 ${up.shift} 的班已開始，還沒打上班卡！`); }
+    else { setGreen('🕐',`今天 ${up.shift} 上班，記得準時打卡`); }
+  }catch(e){}
 }
 
 // ===== 登入系統 =====
@@ -2132,7 +2174,7 @@ async function initApp() {
     const cc=document.getElementById('homeClockCard');
     if(cc){
       if(stage==='off'){ cc.style.display='none'; }
-      else if(okPerm && storeOn){ cc.style.display=''; }
+      else if(okPerm && storeOn){ cc.style.display=''; updateHomeClockStatus(); }
       else {
         cc.style.display='';
         cc.onclick=null; cc.removeAttribute('onclick'); cc.style.cursor='default';
