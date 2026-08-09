@@ -1560,76 +1560,12 @@ async function flushCurrentWeek(storeOverride) {
 }
 
 // ===== 班別 Modal =====
-function openShiftModal(btn) {
-  // 跨店整日外派格（loc=支援X）為衍生唯讀顯示，請至該門市班表修改/取消，不在本店編輯（避免落地成雙軌）
-  if(String(btn.dataset.loc||'').startsWith('支援')) { showToast('此為跨店支援班，請至該門市班表修改或取消'); return; }
-  // 調走員工不能編輯
-  const emp = appData.employees.find(e => e.name === btn.dataset.emp);
-  if(emp?.status === '調走') {
-    showToast('⚠️ 此員工已調往 ' + (emp.transferredTo||'其他門市'));
-    return;
-  }
-  currentBtn = btn;
-  const empName = btn.dataset.emp;
-  const day = btn.dataset.day;
-  document.getElementById('shiftModalTitle').textContent = `${getDisplayName(empName)} · ${day}`;
-  document.getElementById('modalShift').value = btn.dataset.shift || '';
-  document.getElementById('modalHours').value = btn.dataset.hours || '';
-  document.getElementById('modalOT').checked = btn.dataset.ot === 'true';
-  document.getElementById('modalNote').value = btn.dataset.note || '';
-  document.getElementById('modalSupportEmp').value = btn.dataset.support || '';
-  document.getElementById('modalApproval').value = btn.dataset.approval || 'pending';
-  const store = document.getElementById('storeSelector').value;
-  const loc = btn.dataset.loc || '本店';
-  document.getElementById('modalLoc').value = loc;
-  toggleApprovalVis();
-  updateConflictWarn(btn);
-  renderQuickShiftBtns();
-  document.getElementById('shiftModal').classList.add('active');
-}
+// 註：舊的 openShiftModal()／saveShiftModal() 已於 2026-08-09 移除。
+// 兩者皆無任何呼叫者（含 HTML 屬性與動態呼叫），且僅它們使用 currentBtn；
+// 現行流程走 handleCellClick() → openModal('shiftModal') → applyShift()。
 
-function saveShiftModal() {
-  if(!currentBtn) return;
-  const _fmtErr = validateShiftFormat(document.getElementById('modalShift').value);
-  if(_fmtErr) { alert('❌ ' + _fmtErr); return; }
-  const shift = document.getElementById('modalShift').value.trim();
-  const hours = parseFloat(document.getElementById('modalHours').value) || 0;
-  const ot = document.getElementById('modalOT').checked;
-  const hourly = (document.getElementById('modalHourly')?.checked) || false;
-  const note = document.getElementById('modalNote').value.trim();
-  const loc = document.getElementById('modalLoc').value || '本店';
-  const support = document.getElementById('modalSupportEmp').value;
-  const approval = document.getElementById('modalApproval').value;
-  pushToUndo(currentBtn);
-  currentBtn.dataset.shift = shift;
-  currentBtn.dataset.hours = hours;
-  currentBtn.dataset.ot = ot;
-  currentBtn.dataset.note = note;
-  currentBtn.dataset.loc = loc;
-  currentBtn.dataset.support = support;
-  currentBtn.dataset.approval = approval;
-  currentBtn.dataset.badges = '';
-  const store = document.getElementById('storeSelector').value;
-  const weekStr = document.getElementById('weekSelector').value;
-  const idx = appData.records.findIndex(r =>
-    r.name===currentBtn.dataset.emp && r.day===currentBtn.dataset.day && r.week===weekStr);
-  const data = {
-    week:weekStr, day:currentBtn.dataset.day, name:currentBtn.dataset.emp,
-    shift, location:loc, note, actualHours:hours, isOT:ot, isHourly:hourly,
-    supportEmp:support, approvalStatus:approval, requestOff:false
-  };
-  const hasData = shift||note||ot||support;
-  if(hasData) { if(idx!==-1) appData.records[idx]=data; else appData.records.push(data); }
-  else { if(idx!==-1) appData.records.splice(idx,1); }
-  const eIdx = appData.employees.findIndex(e=>e.name===currentBtn.dataset.emp);
-  updateCellUI(currentBtn, '');
-  updateDailyTotals();
-  updateWeekTotalCell();
-  const empObj = appData.employees.find(e=>e.name===currentBtn.dataset.emp)||{name:currentBtn.dataset.emp,role:'待補'};
-  updateSummary(eIdx, empObj);
-  closeModal('shiftModal');
-  triggerAutoSave();
-}
+
+
 
 // ===== 畫筆模式 =====
 function paintCell(btn) {

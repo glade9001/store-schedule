@@ -23,7 +23,8 @@
 - **首次執行就找到 3 個未定義呼叫，全部屬實**：
   - 🐛 **`home.html` 復職功能會謊報失敗**：`reinstateEmp()` 在更新成功後呼叫 `loadEmpAdminList()`，但該函式只存在於 `employee-mgmt.html`。ReferenceError 被同一個 try 的 catch 接住 → **員工其實已復職，畫面卻跳「❌ 失敗」**，店長可能誤以為沒生效而重複操作。已移除該呼叫（清單隨 modal 關閉，下次開啟本來就會重讀）。
   - 🐛 **`home.html` 點「個人」分頁必拋錯**：`switchPage()` 末端呼叫全專案都不存在的 `loadProfilePage()`。個人頁欄位本來就由 `initApp()` 於登入時填好，已移除該呼叫。
-  - ⚠️ **`schedule-V2.html` 死碼叢集**：`openShiftModal()` 內呼叫不存在的 `updateConflictWarn()`，但 `openShiftModal` 與 `saveShiftModal` 本身都無任何呼叫者（`#shiftModal` 的 markup 仍在）。屬於待刻意清理的死碼，暫時保留並記入基準線。
+  - 🧹 **`schedule-V2.html` 死碼已清除**：`openShiftModal()`（27 行）與 `saveShiftModal()`（42 行）是被取代的舊班別編輯配對，兩者皆無任何呼叫者（已確認不含 HTML 屬性與 `window[...]` 動態呼叫），且只有它們使用 `currentBtn`。現行流程走 `handleCellClick() → openModal('shiftModal') → applyShift()`，完全不經過這兩個函式。**`#shiftModal` 的 markup 一律保留**——它是活的，內含 `applyShift()`／`appendNote()` 等 onclick，且 `#conflictWarn` 仍由 `handleCellClick()` 使用。刪除後函式宣告數 114 → 112，恰好只少這兩個。
+- **基準線目前為全 0**：21 個頁面、0 個可疑名稱，之後只要 `--check` 冒出任何一筆就是真的踩到雷。
 
 #### ⚙️ 週次公式全面收斂成單一正解（清掉三套並存的慣例）
 
