@@ -405,7 +405,6 @@ function render(){
     <button onclick="window.location.href='my-attendance.html'" style="flex:1;padding:11px;background:#eef2ff;color:#4338ca;border:none;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;">📋 我的出勤</button>
     <button onclick="openReqModal()" style="flex:1;padding:11px;background:#fff7ed;color:#c2410c;border:1.5px solid #fed7aa;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;">📝 補登／修改</button>
   </div>
-  <div style="font-size:11.5px;color:var(--text-muted);line-height:1.75;padding:0 8px 10px;">💡 <b>還在店裡忘了打</b>：先照常打卡（留定位），時間要更正就順手送修改申請；<b>已離店／缺卡／要改別天</b>：走補登／修改申請。兩者都由店長審核。</div>
   <div class="card" style="padding:14px;">
     <div style="font-size:13px;font-weight:800;color:var(--text-muted);margin-bottom:10px;">🔔 打卡提醒（依你的排班時間 LINE 通知）</div>
     <label style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;margin-bottom:10px;flex-wrap:wrap;">
@@ -418,7 +417,17 @@ function render(){
     </label>
     <div style="font-size:11px;color:var(--text-muted);margin-top:8px;line-height:1.5;">※ 上班前分鐘數上限 30 分。需綁定 LINE 才收得到；未排班的日子不提醒。</div>
   </div>
-  ${todayPunches.length?`<div class="card"><div style="font-size:13px;font-weight:800;color:var(--text-muted);margin-bottom:8px;">今日打卡</div>${plist}</div>`:''}`;
+  ${todayPunches.length?`<div class="card"><div style="font-size:13px;font-weight:800;color:var(--text-muted);margin-bottom:8px;">今日打卡</div>${plist}</div>`:''}
+  <div style="padding:2px 10px 16px;">
+    <div style="font-size:11.5px;font-weight:800;color:var(--text-muted);margin-bottom:5px;">💡 忘記打卡怎麼辦</div>
+    <ul style="margin:0;padding-left:17px;font-size:11px;color:var(--text-muted);line-height:1.85;">
+      <li><b>還在店裡</b>：先照常打卡（留下定位），時間要改再送修改申請</li>
+      <li><b>晚按 10 分鐘內</b>：系統會主動問你，填實際上班時間即可</li>
+      <li><b>已離店／要補別天</b>：按上方「📝 補登／修改」</li>
+      <li><b>昨天忘打下班</b>：今天照常打上班卡，再補登昨天那筆</li>
+      <li>一律由<b>店長審核</b>，結果 LINE 通知你</li>
+    </ul>
+  </div>`;
   tickClock();
 }
 
