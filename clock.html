@@ -115,8 +115,18 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
   </div>
 </div>
 <script>
-let currentUser=null, appConfig={}, geoCfg={}, myGeo=null, atStore='', distanceM=null, todayShifts=[], todayPunches=[], locating=false, isBound=true, carriedOpenIn=null, candShifts=[], openPunch=null, remindPref={inBefore:0,outRemind:false};
-function weekStrOf(d){ const first=new Date(d.getFullYear(),0,1); const w=Math.ceil((((d-first)/86400000)+first.getDay()+1)/7); return `${d.getFullYear()}-W${w<10?'0'+w:w}`; }
+let currentUser=null, appConfig={}, geoCfg={}, myGeo=null, atStore='', distanceM=null, todayShifts=[], todayPunches=[], locating=false, isBound=true, carriedOpenIn=null, candShifts=[], openPunch=null, staleOpenIn=null, remindPref={inBefore:0,outRemind:false};
+// 週文件 id 必須是排班表 getWeekDates() 的精準反函式（每週以「週一」起算）。
+// 舊公式把「當下日期(含時間)」直接套年度週次 → 每個週六/週日都算成下一週，打卡因此讀到下週班表。
+function week1Monday(yr){ const d=new Date(yr,0,1), day=d.getDay(); d.setDate(d.getDate()+(day<=4?1-day:8-day)); return d; }
+function weekStrOf(d){
+  const mon=new Date(d.getFullYear(),d.getMonth(),d.getDate());   // 去掉時間，避免小數天數把週次進位
+  mon.setDate(mon.getDate()-((mon.getDay()+6)%7));                // 退到該日所屬的週一
+  let yr=mon.getFullYear();
+  if(mon<week1Monday(yr)) yr--; else if(mon>=week1Monday(yr+1)) yr++;  // 跨年首尾週
+  const w=Math.round((mon-week1Monday(yr))/604800000)+1;
+  return `${yr}-W${w<10?'0'+w:w}`;
+}
 let serverOffset=0, clockTimer=null; // 伺服器校時：serverOffset = 伺服器時間 − 本機時間
 async function syncServerTime(){
   try{ const fn=firebase.app().functions('asia-east1').httpsCallable('serverNow');
@@ -131,8 +141,8 @@ function tickClock(){ const el=document.getElementById('srvClock'); if(!el)retur
 }
 const DAYS=["週一","週二","週三","週四","週五","週六","週日"];
 function fmtT(iso){ if(!iso)return''; const d=new Date(iso); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
-// weeks doc id 用 schedule-V2 getCurrentWeekString 的「簡單公式」(非 ISO)，才對得到班表
-function curWeekStr(){ const d=new Date(); const first=new Date(d.getFullYear(),0,1); const w=Math.ceil((((d-first)/86400000)+first.getDay()+1)/7); return `${d.getFullYear()}-W${w<10?'0'+w:w}`; }
+// weeks doc id 一律走 weekStrOf（對齊 schedule-V2 getWeekDates 的日期）
+function curWeekStr(){ return weekStrOf(new Date()); }
 function showLoading(t){document.getElementById('loadingText').textContent=t||'載入中…';document.getElementById('loadingOverlay').classList.remove('hidden');}
 function hideLoading(){document.getElementById('loadingOverlay').classList.add('hidden');}
 function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2800);}
@@ -222,7 +232,7 @@ async function loadToday(){
   }catch(e){}
   // 跨日班(夜班)：用「昨日+今日」時間序列配對找出尚未打下班的上班。
   // 不能用同一日曆日的上/下班筆數判斷——連續夜班時，同一日曆日會同時含「收前一晚的班」+「開當晚的班」而筆數打平，導致誤判(邱韋誠 8/4：00:39下班收8/3班 + 16:00上班開8/4班 → 1:1 打平)。
-  carriedOpenIn=null; openPunch=null;
+  carriedOpenIn=null; openPunch=null; staleOpenIn=null;
   try{
     const y=new Date(Date.now()-86400000);
     const dsY=`${y.getFullYear()}-${String(y.getMonth()+1).padStart(2,'0')}-${String(y.getDate()).padStart(2,'0')}`;
@@ -234,7 +244,12 @@ async function loadToday(){
     const stack=[]; // 依序配對：上班入堆、下班出堆；剩下的堆頂即尚未打下班的上班
     seq.forEach(p=>{ if(p.type==='上班') stack.push(p); else stack.pop(); });
     openPunch = stack.length ? stack[stack.length-1] : null;
-    if(openPunch && (openPunch.date||'')===dsY) carriedOpenIn={date:dsY}; // 未收的上班屬昨日 → 跨日補打下班提醒
+    // 未收的上班屬昨日 → 可能是跨日夜班(仍該補打下班)，也可能是「昨天忘了打下班」的呆帳。
+    // 呆帳若一直掛著，今天的按鈕會永遠停在「下班」→ 過了合理補打期限就放掉，改走補登申請。
+    if(openPunch && (openPunch.date||'')===dsY){
+      if(serverNowMs() > openInDeadline(openPunch)){ staleOpenIn=openPunch; openPunch=null; }
+      else carriedOpenIn={date:dsY};
+    }
   }catch(e){}
   // 今日在 atStore 的排班（本店班 or 支援班；兩頭班會有多筆）
   try{
@@ -272,6 +287,17 @@ async function loadToday(){
   }catch(e){}
 }
 
+// 未收上班的合理補打期限：該班排定下班 +4 小時（夜班照跨日算）；查不到班別則打卡後 12 小時。
+// 超過即視為缺卡呆帳，不再要求打下班（否則隔天按鈕會卡在「下班」）。
+function openInDeadline(p){
+  const m=String(p.shift||'').match(/^(\d{1,2})-(\d{1,2})$/);
+  if(m && p.shiftDate){
+    const a=+m[1], b=+m[2], dur=(b<=a?b+24:b)-a;
+    const st=new Date(`${p.shiftDate}T${String(a).padStart(2,'0')}:00:00+08:00`).getTime();
+    if(isFinite(st)) return st+(dur+4)*3600000;
+  }
+  return (p.tsMs||Date.parse(p.deviceTs||'')||0)+12*3600000;
+}
 // 依「最後一次打卡」決定下一步，只有上班/下班（可重複多段：兩頭班/跨店連班）。
 // 沒排班的打卡由後端自動歸類為「到場」，不做成按鈕。
 function nextAction(){
@@ -353,6 +379,8 @@ function render(){
   const offBanner = offCnt ? `<div style="background:#e8f0fe;border:1.5px solid #a8c7fa;border-radius:12px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;"><span style="font-size:20px;">📴</span><div style="flex:1;font-size:12.5px;font-weight:700;color:#1a56c4;line-height:1.5;">有 ${offCnt} 筆離線打卡待補傳</div><button onclick="flushOffline()" style="background:#1a73e8;color:#fff;border:none;border-radius:8px;padding:7px 12px;font-weight:800;font-size:12px;cursor:pointer;">立即補傳</button></div>` : '';
   const openIn = todayPunches.filter(p=>p.type==='上班').length > todayPunches.filter(p=>p.type==='下班').length;
   const openWarn = (openIn||carriedOpenIn) ? `<div style="background:#fff3e0;border:1.5px solid #ffc27a;border-radius:12px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;"><span style="font-size:20px;">⏰</span><div style="flex:1;font-size:12.5px;font-weight:700;color:#c0620f;line-height:1.5;">你有一筆上班尚未打下班${carriedOpenIn?`（${carriedOpenIn.date} 跨日班）`:''}，記得補打下班</div></div>` : '';
+  // 昨日上班卡沒收尾且已過補打期限：不擋今天打卡，但要講清楚該去補登，否則會留著缺卡
+  const staleWarn = staleOpenIn ? `<div style="background:#fff3e0;border:1.5px solid #ffc27a;border-radius:12px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;"><span style="font-size:20px;">📝</span><div style="flex:1;font-size:12.5px;font-weight:700;color:#c0620f;line-height:1.5;">${staleOpenIn.date} 有一筆上班沒有對應的下班卡（已超過補打時間）<br><span style="font-weight:600;">今天的打卡不受影響；那天的下班請按下方「補登／修改」申請</span></div><button onclick="openReqModal()" style="background:#c0620f;color:#fff;border:none;border-radius:8px;padding:7px 12px;font-weight:800;font-size:12px;cursor:pointer;white-space:nowrap;">去補登</button></div>` : '';
   const bindWarn = !isBound ? `<div onclick="window.location.href='home.html'" style="background:#fff3e0;border:1.5px solid #ffc27a;border-radius:12px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;cursor:pointer;"><span style="font-size:20px;">🔔</span><div style="flex:1;font-size:12.5px;font-weight:700;color:#c0620f;line-height:1.5;">你尚未綁定 LINE，打卡結果與異常通知收不到<br>點此前往首頁綁定 LINE</div><span style="color:#c0620f;font-size:18px;">›</span></div>` : '';
   // A2 今日狀態醒目提醒：有排班卻還沒打上班卡
   let a2Warn='';
@@ -365,7 +393,7 @@ function render(){
         : `<div style="background:#e8f0fe;border:1.5px solid #a8c7fa;border-radius:12px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;"><span style="font-size:20px;">🕐</span><div style="flex:1;font-size:13px;font-weight:800;color:#1a56c4;line-height:1.5;">今天 ${up.shift} 上班，記得準時打卡</div></div>`;
     }
   }
-  wrap.innerHTML=a2Warn+offBanner+openWarn+bindWarn+`<div class="card">
+  wrap.innerHTML=a2Warn+offBanner+openWarn+staleWarn+bindWarn+`<div class="card">
     <div class="today">${dateLine}</div>
     <div id="srvClock" style="text-align:center;font-size:34px;font-weight:900;letter-spacing:1px;color:var(--primary);font-variant-numeric:tabular-nums;margin:2px 0 2px;">🕐 --:--:--</div>
     <div style="text-align:center;font-size:11px;color:var(--text-muted);margin-bottom:8px;">以伺服器時間為準</div>

@@ -815,6 +815,35 @@ function simpleWeekStr(dateObj) {
   const w = Math.ceil((((d - first) / 86400000) + first.getDay() + 1) / 7);
   return `${yr}-W${w < 10 ? "0" + w : w}`;
 }
+// weeks doc id 的正解：schedule-V2.html getWeekDates() 的精準反函式（每週以「週一」起算）。
+// simpleWeekStr 是把「日期＋時間」直接套年度週次，每個週六/週日都會多算一週 → 打卡對到下週班表。
+// 傳入的是「台北牆上時間」的 Date（nowMs + 8h），故一律用 UTC getter 讀取，不受執行環境時區影響。
+function week1MondayUTC(yr) {
+  const d = new Date(Date.UTC(yr, 0, 1));
+  const day = d.getUTCDay();
+  d.setUTCDate(d.getUTCDate() + (day <= 4 ? 1 - day : 8 - day));
+  return d;
+}
+function weekStrOfTp(tpDate) {
+  const s = new Date(tpDate);
+  const mon = new Date(Date.UTC(s.getUTCFullYear(), s.getUTCMonth(), s.getUTCDate()));
+  mon.setUTCDate(mon.getUTCDate() - ((mon.getUTCDay() + 6) % 7));
+  let yr = mon.getUTCFullYear();
+  if (mon < week1MondayUTC(yr)) yr--; else if (mon >= week1MondayUTC(yr + 1)) yr++;
+  const w = Math.round((mon - week1MondayUTC(yr)) / 604800000) + 1;
+  return `${yr}-W${w < 10 ? "0" + w : w}`;
+}
+// 未收上班的合理補打期限：該班排定下班 +4 小時（夜班跨日照算）；查不到班別則打卡後 12 小時。
+// 超過即視為缺卡呆帳，不再拿來配對今天的下班（否則會把今天的班誤掛到昨天）。
+function openInDeadlineMs(p) {
+  const m = String(p.shift || "").match(/^(\d{1,2})-(\d{1,2})$/);
+  if (m && p.shiftDate) {
+    const a = +m[1], b = +m[2], dur = (b <= a ? b + 24 : b) - a;
+    const st = Date.parse(`${p.shiftDate}T${String(a).padStart(2, "0")}:00:00+08:00`);
+    if (isFinite(st)) return st + (dur + 4) * 3600000;
+  }
+  return (p.tsMs || Date.parse(p.deviceTs || "") || 0) + 12 * 3600000;
+}
 // 以「台北時區」取得今天 YYYY-MM-DD
 function taipeiTodayStr() {
   return new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
@@ -1474,7 +1503,7 @@ exports.scheduledMissingClock = onSchedule(
     const nowTp = new Date(Date.now() + 8 * 3600000);
     const ds = nowTp.toISOString().slice(0, 10);
     const nowMin = nowTp.getUTCHours() * 60 + nowTp.getUTCMinutes();
-    const wk = simpleWeekStr(nowTp);
+    const wk = weekStrOfTp(nowTp);
     const dayName = WEEK_DAYS[(nowTp.getUTCDay() + 6) % 7];
     const notifyBy = conf.clockIn.notifyByStore || {};
     for (const store of stores) {
@@ -1529,7 +1558,7 @@ exports.scheduledMissingClock = onSchedule(
       const yTp = new Date(Date.now() + 8 * 3600000 - 86400000);
       const dsY = yTp.toISOString().slice(0, 10);
       const yName = WEEK_DAYS[(yTp.getUTCDay() + 6) % 7];
-      const wkY = simpleWeekStr(yTp);
+      const wkY = weekStrOfTp(yTp);
       const wdY = (wkY === wk) ? wd : await db.collection("stores").doc(store).collection("weeks").doc(wkY).get().catch(() => null);
       const recsY = (wdY && wdY.exists) ? (wdY.data().records || []) : [];
       const yShifts = recsY.filter((r) => r.day === yName && !String(r.location || "").startsWith("支援") && (() => { const mm = String(r.shift || "").match(/^(\d{1,2})-(\d{1,2})$/); return mm && +mm[2] <= +mm[1]; })());
@@ -1590,7 +1619,7 @@ exports.scheduledClockRemind = onSchedule(
     const nowMs = Date.now();
     const nowTp = new Date(nowMs + 8 * 3600000);
     const ds = nowTp.toISOString().slice(0, 10);
-    const wk = simpleWeekStr(nowTp);
+    const wk = weekStrOfTp(nowTp);
     const dayName = WEEK_DAYS[(nowTp.getUTCDay() + 6) % 7];
     const WIN = 5 * 60000; // cron 週期＝視窗長度
     for (const store of stores) {
@@ -1684,11 +1713,11 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
     if (lastIn && (nowMs - lastIn) < 5 * 60000) throw new HttpsError("failed-precondition", "上班後 5 分鐘內不能打下班");
   }
   // 排班候選(昨/今/明三天，換算絕對時間) → 依排班表、跨日、視窗比對，並決定歸班日 shiftDate
-  const wk = simpleWeekStr(nowTp);
+  const wk = weekStrOfTp(nowTp);
   const dayName = WEEK_DAYS[(nowTp.getUTCDay() + 6) % 7];
   const wd = await db.collection("stores").doc(atStore).collection("weeks").doc(wk).get();
   const dayShifts = async (tpDate) => {
-    const wkk = simpleWeekStr(tpDate);
+    const wkk = weekStrOfTp(tpDate);
     const dn = WEEK_DAYS[(tpDate.getUTCDay() + 6) % 7];
     const dss = tpDate.toISOString().slice(0, 10);
     const wdd = (wkk === wk) ? wd : await db.collection("stores").doc(atStore).collection("weeks").doc(wkk).get().catch(() => null);
@@ -1728,7 +1757,9 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
     }
     seq.sort((a, b) => (a.tsMs || 0) - (b.tsMs || 0));
     const stack = []; seq.forEach((p) => { if (p.type === "上班") stack.push(p); else stack.pop(); });
-    const openIn = stack.length ? stack[stack.length - 1] : null;
+    let openIn = stack.length ? stack[stack.length - 1] : null;
+    // 昨天忘了打下班留下的呆帳：過了補打期限就不再配對，否則今天的下班會被掛到昨天那班並誤判早退
+    if (openIn && (openIn.date || "") !== ds && nowMs > openInDeadlineMs(openIn)) openIn = null;
     if (openIn) {
       shiftDate = openIn.shiftDate || openIn.date || ds;
       matchedShift = openIn.shift || "";
@@ -1852,7 +1883,7 @@ exports.clockPunchOffline = onCall({ region: "asia-east1", secrets: [LINE_TOKEN]
     if (lastIn && (cptMs - lastIn) < 5 * 60000) return { ok: true, skipped: "上班後5分內" };
   }
   // 依手機時間盡力判定狀態（僅供參考，實際以店長複核為準）
-  const wk = simpleWeekStr(punchTp);
+  const wk = weekStrOfTp(punchTp);
   const wd = await db.collection("stores").doc(atStore).collection("weeks").doc(wk).get();
   const shifts = [];
   if (wd.exists) (wd.data().records || []).forEach((r) => {
