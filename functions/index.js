@@ -807,16 +807,10 @@ function isoWeekStr(dateObj) {
   const weekNum = 1 + Math.round(((tmp - jan4) / 86400000 - 3 + ((jan4.getDay() + 6) % 7)) / 7);
   return `${year}-W${String(weekNum).padStart(2, "0")}`;
 }
-// 簡單公式（對應 schedule-V2.html getNextWeekString，＝ weeks doc id）
-function simpleWeekStr(dateObj) {
-  const d = new Date(dateObj);
-  const yr = d.getFullYear();
-  const first = new Date(yr, 0, 1);
-  const w = Math.ceil((((d - first) / 86400000) + first.getDay() + 1) / 7);
-  return `${yr}-W${w < 10 ? "0" + w : w}`;
-}
 // weeks doc id 的正解：schedule-V2.html getWeekDates() 的精準反函式（每週以「週一」起算）。
-// simpleWeekStr 是把「日期＋時間」直接套年度週次，每個週六/週日都會多算一週 → 打卡對到下週班表。
+// ⚠️ 舊的 simpleWeekStr（直接把「日期＋時間」套年度週次）已於 2026-08-09 全面移除——
+//    它的週界會隨該年 1/1 是星期幾而變，且含時間的 Date 會讓天數帶小數而整個進位一週。
+//    任何「日期 → 週字串」都必須走本函式，不要再自行推導。
 // 傳入的是「台北牆上時間」的 Date（nowMs + 8h），故一律用 UTC getter 讀取，不受執行環境時區影響。
 function week1MondayUTC(yr) {
   const d = new Date(Date.UTC(yr, 0, 1));
@@ -907,8 +901,8 @@ exports.scheduledAutoPublishNotify = onSchedule(
   async () => {
     const db = admin.firestore();
     const token = LINE_TOKEN.value();
-    // 下週（台北）＝ 今日+7 的簡單週字串，對應 weeks doc id
-    const nextWeek = simpleWeekStr(new Date(Date.now() + 8 * 3600000 + 7 * 86400000));
+    // 下週（台北）＝ 今日+7 所屬的週字串，對應 weeks doc id
+    const nextWeek = weekStrOfTp(new Date(Date.now() + 8 * 3600000 + 7 * 86400000));
     const label = weekRangeLabel(nextWeek);
     const stores = await getAllStores(db);
     for (const store of stores) {

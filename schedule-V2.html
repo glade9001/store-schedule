@@ -675,23 +675,32 @@ function getWeekDates(wStr) {
   for(let i=0; i<7; i++) { res.push((d.getMonth()+1)+'/'+d.getDate()); d.setDate(d.getDate()+1); }
   return res;
 }
-function getNextWeekString() {
-  let d = new Date(); d.setDate(d.getDate() + 7);
-  let yr = d.getFullYear(); let first = new Date(yr, 0, 1);
-  let w = Math.ceil((((d - first) / 86400000) + first.getDay() + 1) / 7);
+// 週次字串必須是上面 getWeekDates() 的精準反函式（每週以「週一」起算）。
+// 舊寫法直接把「日期＋時間」套年度週次：週界會隨該年 1/1 是星期幾而變，
+// 導致每個週六/週日都算成下一週 —— 與「跳到含今天的週次」的原意相反。
+function week1MondayOf(yr) {
+  const d = new Date(yr, 0, 1), day = d.getDay();
+  d.setDate(d.getDate() + (day <= 4 ? 1 - day : 8 - day));
+  return d;
+}
+function weekStrOfDate(dt) {
+  const mon = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()); // 去掉時間
+  mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));               // 退到該日所屬的週一
+  let yr = mon.getFullYear();
+  if(mon < week1MondayOf(yr)) yr--; else if(mon >= week1MondayOf(yr + 1)) yr++;
+  const w = Math.round((mon - week1MondayOf(yr)) / 604800000) + 1;
   return `${yr}-W${w < 10 ? '0'+w : w}`;
+}
+function getNextWeekString() {
+  const d = new Date(); d.setDate(d.getDate() + 7);
+  return weekStrOfDate(d);
 }
 function getCurrentWeekString() {
-  let d = new Date();
-  let yr = d.getFullYear(); let first = new Date(yr, 0, 1);
-  let w = Math.ceil((((d - first) / 86400000) + first.getDay() + 1) / 7);
-  return `${yr}-W${w < 10 ? '0'+w : w}`;
+  return weekStrOfDate(new Date());
 }
-// 計算某年有幾週（ISO 8601：有 52 或 53 週）
+// 計算某年有幾週（52 或 53）：12/28 永遠落在該年最後一週
 function weeksInYear(yr) {
-  const dec28 = new Date(yr, 11, 28); // 12/28 永遠在最後一週
-  const first = new Date(yr, 0, 1);
-  return Math.ceil((((dec28 - first) / 86400000) + first.getDay() + 1) / 7);
+  return parseInt(weekStrOfDate(new Date(yr, 11, 28)).split('-W')[1], 10);
 }
 
 function weekStringToDate(wStr) {
@@ -1073,10 +1082,7 @@ async function onWeekSelectorChange() {
   if(newMon < limitDate) {
     showToast('⚠️ 最多只能查閱 2 個月前的班表');
     // 恢復到 2 個月前的第一週
-    const limitYr = limitDate.getFullYear();
-    const limitFirst = new Date(limitYr, 0, 1);
-    const limitWk = Math.ceil((((limitDate - limitFirst) / 86400000) + limitFirst.getDay() + 1) / 7);
-    document.getElementById('weekSelector').value = `${limitYr}-W${String(limitWk).padStart(2,'0')}`;
+    document.getElementById('weekSelector').value = weekStrOfDate(limitDate);
   }
   historyEditUnlocked = false;
   fetchAllStoreData();
@@ -1377,10 +1383,7 @@ async function runHistoricalCompFix() {
         const mon = new Date(d);
         const day = mon.getDay() || 7;
         mon.setDate(mon.getDate() - day + 1);
-        const yr2 = mon.getFullYear();
-        const first = new Date(yr2, 0, 1);
-        const w = Math.ceil((((mon - first) / 86400000) + first.getDay() + 1) / 7);
-        const wStr = `${yr2}-W${w < 10 ? '0'+w : w}`;
+        const wStr = weekStrOfDate(mon);
         if(!targetWeeks.includes(wStr)) targetWeeks.push(wStr);
         d.setDate(d.getDate() + 7);
       }
@@ -1763,13 +1766,7 @@ async function fetchAllStoreData() {
     // 收集班表週次所在月份的所有週次
     const monthWeeks = new Set([weekStr]); // 當前班表週一定要讀（顯示用）
     const daysInMonth = new Date(schedYr, schedMo+1, 0).getDate();
-    for(let d = 1; d <= daysInMonth; d++) {
-      const dateObj = new Date(schedYr, schedMo, d);
-      const yr2 = dateObj.getFullYear();
-      const first2 = new Date(yr2, 0, 1);
-      const w2 = Math.ceil((((dateObj - first2) / 86400000) + first2.getDay() + 1) / 7);
-      monthWeeks.add(`${yr2}-W${w2 < 10 ? '0'+w2 : w2}`);
-    }
+    for(let d = 1; d <= daysInMonth; d++) monthWeeks.add(weekStrOfDate(new Date(schedYr, schedMo, d)));
 
     // 平行讀取：本店員工 + 本週班表 + 跨店支援（其他店本週）+ displayName + 班別設定
     const [mainEmpSnap, mainWeekSnap, cfgSnap, accSnap] = await Promise.all([
@@ -2089,12 +2086,6 @@ function empChangeWeek(offset) {
   empWeekStr = newWeekStr;
   updateEmpWeekLabel();
   loadEmpView();
-}
-
-function getWeekNumber(date) {
-  const d = new Date(date);
-  const firstDay = new Date(d.getFullYear(), 0, 1);
-  return Math.ceil((((d - firstDay) / 86400000) + firstDay.getDay() + 1) / 7);
 }
 
 function updateEmpWeekLabel() {

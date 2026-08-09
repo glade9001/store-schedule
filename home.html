@@ -1324,27 +1324,27 @@ function getWeekDates(wStr) {
   }
   return res;
 }
-function getNextWeekString() {
-  const d = new Date();
-  const day = d.getDay() || 7;
-  const mon = new Date(d);
-  mon.setDate(d.getDate() - day + 1 + 7); // 先對齊本週一，再加 7 天到下週一
-  mon.setHours(0, 0, 0, 0);
-  const yr = mon.getFullYear();
-  const first = new Date(yr, 0, 1);
-  const w = Math.ceil((((mon - first) / 86400000) + first.getDay() + 1) / 7);
+// 週次字串必須是上面週次→日期換算的精準反函式（每週以「週一」起算）。
+// 只「對齊週一」還不夠：跨年首尾週（如 2027/1/4~1/10）仍會差一週，故一律走本函式。
+function week1MondayOf(yr) {
+  const d = new Date(yr, 0, 1), day = d.getDay();
+  d.setDate(d.getDate() + (day <= 4 ? 1 - day : 8 - day));
+  return d;
+}
+function weekStrOfDate(dt) {
+  const mon = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()); // 去掉時間
+  mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));               // 退到該日所屬的週一
+  let yr = mon.getFullYear();
+  if(mon < week1MondayOf(yr)) yr--; else if(mon >= week1MondayOf(yr + 1)) yr++;
+  const w = Math.round((mon - week1MondayOf(yr)) / 604800000) + 1;
   return `${yr}-W${w < 10 ? '0'+w : w}`;
 }
+function getNextWeekString() {
+  const d = new Date(); d.setDate(d.getDate() + 7);
+  return weekStrOfDate(d);
+}
 function getCurrentWeekString() {
-  const d = new Date();
-  const day = d.getDay() || 7; 
-  const mon = new Date(d);
-  mon.setDate(d.getDate() - day + 1);
-  mon.setHours(0,0,0,0);
-  const yr = mon.getFullYear();
-  const first = new Date(yr, 0, 1);
-  const w = Math.ceil((((mon - first) / 86400000) + first.getDay() + 1) / 7);
-  return `${yr}-W${w < 10 ? '0'+w : w}`;
+  return weekStrOfDate(new Date());
 }
 const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
 function getTodayDayName() {
@@ -1995,11 +1995,7 @@ function gotoSalaryAck(){
 // ===== 首頁劃休提醒（鼓勵、可關、有劃自動消失）=====
 // 截止規則與 leave-request 一致：目標週的申請截止 = 前一週週一 23:59。
 // 故提示鎖定「目前仍開放中的最早一週」（下週常已截止），並顯示其區間與截止時間。
-function _weekStrOf(d){
-  const yr=d.getFullYear(); const first=new Date(yr,0,1);
-  const w=Math.ceil((((d-first)/86400000)+first.getDay()+1)/7);
-  return `${yr}-W${w<10?'0'+w:w}`;
-}
+const _weekStrOf = weekStrOfDate;
 function _firstOpenLeaveWeek(){
   const now=new Date();
   const t=new Date(); const day=t.getDay(); // 0=Sun
@@ -2505,14 +2501,7 @@ function myCalMonthWeeks(year, month) {
   // 逐日收集週次；必須先退到該日所屬「週一」再換算，否則「月初落在週六/週日」的月份會整週漏抓。
   const weeks = new Set();
   const last = new Date(year, month + 1, 0).getDate();
-  for(let d = 1; d <= last; d++) {
-    const mon = new Date(year, month, d);
-    mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));
-    const yr = mon.getFullYear();
-    const first = new Date(yr, 0, 1);
-    const w = Math.ceil((((mon - first) / 86400000) + first.getDay() + 1) / 7);
-    weeks.add(`${yr}-W${String(w).padStart(2,'0')}`);
-  }
+  for(let d = 1; d <= last; d++) weeks.add(weekStrOfDate(new Date(year, month, d)));
   return [...weeks];
 }
 
@@ -2779,14 +2768,7 @@ async function loadStats() {
     const weeksToFetch = new Set();
     let tempD = new Date(firstDay);
     while (tempD <= lastDay) {
-      const mon = new Date(tempD);
-      const day = mon.getDay() || 7;
-      mon.setDate(mon.getDate() - day + 1); 
-      mon.setHours(0, 0, 0, 0);
-      const y = mon.getFullYear();
-      const first = new Date(y, 0, 1);
-      const w = Math.ceil((((mon - first) / 86400000) + first.getDay() + 1) / 7);
-      weeksToFetch.add(`${y}-W${w < 10 ? '0' + w : w}`);
+      weeksToFetch.add(weekStrOfDate(tempD));
       tempD.setDate(tempD.getDate() + 1);
     }
 
