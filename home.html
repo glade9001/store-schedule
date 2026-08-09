@@ -3236,7 +3236,8 @@ function switchPage(name) {
   pageEl.classList.add('active');
   document.querySelector(`[data-page="${name}"]`)?.classList.add('active');
 
-    if(name === 'profile') loadProfilePage();
+  // 註：原本這裡呼叫 loadProfilePage()，但該函式全專案都不存在，每次點「個人」都會拋 ReferenceError。
+  // 個人頁的欄位（profileName/profileRoleText/profileStoreText）已由 initApp() 於登入時填好，不需另外載入。
 }
 
 // ===== 快速功能按鈕動態渲染 =====
@@ -3389,7 +3390,9 @@ async function reinstateEmp(empName, store) {
     await window.db.collection('stores').doc(store).collection('employees').doc(empName).update({ status: '在職' });
     showToast(`✅ ${empName} 已復職`);
     closeModal('retiredEmpModal');
-    await loadEmpAdminList(store);
+    // 原本這裡呼叫 loadEmpAdminList(store)，但那個函式只存在於 employee-mgmt.html，
+    // 在本頁必定拋 ReferenceError 而被下面的 catch 接住 → 復職其實成功了，畫面卻顯示「❌ 失敗」。
+    // 清單已隨 modal 關閉，openRetiredEmpModal() 每次開啟都會重新讀取，不需要在這裡刷新。
   } catch(e) { showToast('❌ 失敗：' + e.message); }
   hideLoading();
 }

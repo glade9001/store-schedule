@@ -1,0 +1,25 @@
+{
+  "analytics.html": [],
+  "attendance.html": [],
+  "clock.html": [],
+  "comp-backfill.html": [],
+  "data-audit.html": [],
+  "employee-mgmt.html": [],
+  "export.html": [],
+  "home.html": [],
+  "index.html": [],
+  "leave-request.html": [],
+  "leave.html": [],
+  "migration.html": [],
+  "my-attendance.html": [],
+  "my-salary.html": [],
+  "owner-dashboard.html": [],
+  "performance.html": [],
+  "review.html": [],
+  "salary.html": [],
+  "schedule-V2.html": [
+    "updateConflictWarn"
+  ],
+  "settings.html": [],
+  "todo.html": []
+}
