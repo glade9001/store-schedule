@@ -2502,13 +2502,15 @@ function myCalChangeMonth(offset) {
 }
 
 function myCalMonthWeeks(year, month) {
+  // 逐日收集週次；必須先退到該日所屬「週一」再換算，否則「月初落在週六/週日」的月份會整週漏抓。
   const weeks = new Set();
   const last = new Date(year, month + 1, 0).getDate();
   for(let d = 1; d <= last; d++) {
-    const date = new Date(year, month, d);
-    const yr = date.getFullYear();
+    const mon = new Date(year, month, d);
+    mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));
+    const yr = mon.getFullYear();
     const first = new Date(yr, 0, 1);
-    const w = Math.ceil((((date - first) / 86400000) + first.getDay() + 1) / 7);
+    const w = Math.ceil((((mon - first) / 86400000) + first.getDay() + 1) / 7);
     weeks.add(`${yr}-W${String(w).padStart(2,'0')}`);
   }
   return [...weeks];

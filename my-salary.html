@@ -435,14 +435,24 @@ function getMonthWeeks(ym) {
   const [y, m] = ym.split('-').map(Number);
   const weeks = new Set();
   const daysInMonth = new Date(y, m, 0).getDate();
-  for(let day = 1; day <= daysInMonth; day++) {
-    const dateObj = new Date(y, m-1, day);
-    const yr = dateObj.getFullYear();
-    const first = new Date(yr, 0, 1);
-    const wk = Math.ceil((((dateObj - first) / 86400000) + first.getDay() + 1) / 7);
-    weeks.add(`${yr}-W${String(wk).padStart(2,'0')}`);
-  }
+  for(let day = 1; day <= daysInMonth; day++) weeks.add(weekStrOfDate(new Date(y, m-1, day)));
   return [...weeks];
+}
+
+// 週次字串必須是 getWeekDatesFromStr() 的精準反函式（每週以「週一」起算）。
+// 舊寫法直接把日期套年度週次，週界會隨該年 1/1 是星期幾而變 →「月初落在週六/週日」的月份會整週漏抓。
+function week1MondayOf(yr) {
+  const d = new Date(yr, 0, 1), day = d.getDay();
+  d.setDate(d.getDate() + (day <= 4 ? 1 - day : 8 - day));
+  return d;
+}
+function weekStrOfDate(dt) {
+  const mon = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()); // 去掉時間，避免小數天數進位
+  mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));               // 退到該日所屬的週一
+  let yr = mon.getFullYear();
+  if(mon < week1MondayOf(yr)) yr--; else if(mon >= week1MondayOf(yr + 1)) yr++;  // 跨年首尾週
+  const w = Math.round((mon - week1MondayOf(yr)) / 604800000) + 1;
+  return `${yr}-W${String(w).padStart(2,'0')}`;
 }
   
 function getWeekDatesFromStr(weekStr) {

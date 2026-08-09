@@ -667,7 +667,7 @@ async function monthWorkedByEmp(db, store, ym) {
   const [y, m] = ym.split("-").map(Number);
   const lastDay = new Date(y, m, 0).getDate();
   const weekSet = new Set();
-  for (let d = 1; d <= lastDay; d++) weekSet.add(simpleWeekStr(new Date(y, m - 1, d)));
+  for (let d = 1; d <= lastDay; d++) weekSet.add(weekStrOfTp(new Date(Date.UTC(y, m - 1, d))));
   const byEmpDay = {}; // emp -> { dateKey: {h,ot} }
   for (const wk of weekSet) {
     const snap = await db.collection("stores").doc(store).collection("weeks").doc(wk).get().catch(() => null);
@@ -1285,7 +1285,7 @@ async function computeMonthSnapshots(db, month) {
   const [y, mo] = month.split("-").map(Number);
   const lastDay = new Date(y, mo, 0).getDate();
   const weekSet = new Set();
-  for (let d = 1; d <= lastDay; d++) weekSet.add(simpleWeekStr(new Date(y, mo - 1, d)));
+  for (let d = 1; d <= lastDay; d++) weekSet.add(weekStrOfTp(new Date(Date.UTC(y, mo - 1, d))));
   const stores = await getAllStores(db);
   const OFF = ["排休", "指休", "特休", "補休", "清空", ""];
   const rate = {}, ownPay = {};

@@ -110,7 +110,17 @@ function mdToHtml(md){
 }
 function showLoading(){document.getElementById('loadingOverlay').classList.remove('hidden');}
 function hideLoading(){document.getElementById('loadingOverlay').classList.add('hidden');}
-function simpleWeekStr(dt){const first=new Date(dt.getFullYear(),0,1);const w=Math.ceil((((dt-first)/86400000)+first.getDay()+1)/7);return `${dt.getFullYear()}-W${w<10?'0'+w:w}`;}
+// 週次字串必須是排班表 getWeekDates() 的精準反函式（每週以「週一」起算）。
+// 舊寫法直接把日期套年度週次，週界會隨該年 1/1 是星期幾而變 →「月初落在週六/週日」的月份會整週漏抓。
+function week1MondayOf(yr){const d=new Date(yr,0,1),day=d.getDay();d.setDate(d.getDate()+(day<=4?1-day:8-day));return d;}
+function simpleWeekStr(dt){
+  const mon=new Date(dt.getFullYear(),dt.getMonth(),dt.getDate());   // 去掉時間
+  mon.setDate(mon.getDate()-((mon.getDay()+6)%7));                   // 退到該日所屬的週一
+  let yr=mon.getFullYear();
+  if(mon<week1MondayOf(yr))yr--;else if(mon>=week1MondayOf(yr+1))yr++;
+  const w=Math.round((mon-week1MondayOf(yr))/604800000)+1;
+  return `${yr}-W${w<10?'0'+w:w}`;
+}
 function ymMinus12(ym){const[y,m]=ym.split('-');return `${+y-1}-${m}`;}
 function weeksForMonth(ym){const[y,mo]=ym.split('-').map(Number);const set=new Set();const days=new Date(y,mo,0).getDate();for(let d=1;d<=days;d++)set.add(simpleWeekStr(new Date(y,mo-1,d)));return[...set];}
 
