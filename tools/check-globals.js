@@ -193,6 +193,48 @@ function analyze(file) {
   return { file, externals, missingExternals, undef, definedCount: defined.size };
 }
 
+/**
+ * 頂層 const/let/class 撞名偵測。
+ * 外部 script 與 inline script 共用同一個全域語彙環境，同名的頂層 const/let/class
+ * 會讓「後載入的那整段 script」拋 SyntaxError 而完全不執行——整頁功能全滅，
+ * 而且各段單獨看語法都是正確的，所以一般的語法檢查抓不到。
+ * 這是把共用模組掛進既有頁面時最容易踩的雷，務必在加 <script src> 前先跑。
+ */
+function topLevelLexical(code) {
+  const s = strip(code);
+  const names = new Set();
+  let depth = 0, paren = 0;
+  const re = /[{}()]|\b(?:const|let|class)\s+([A-Za-z_$][\w$]*)/g;
+  let m;
+  while ((m = re.exec(s))) {
+    const t = m[0];
+    if (t === '{') depth++;
+    else if (t === '}') depth--;
+    else if (t === '(') paren++;
+    else if (t === ')') paren--;
+    else if (depth === 0 && paren === 0 && m[1]) names.add(m[1]);
+  }
+  return names;
+}
+
+function lexicalClashes(file) {
+  const { externals, inline } = extractHtml(file);
+  const seen = new Map(); // name -> 來源
+  const clashes = [];
+  const add = (names, origin) => {
+    for (const n of names) {
+      if (seen.has(n)) clashes.push(`${n}（${seen.get(n)} ↔ ${origin}）`);
+      else seen.set(n, origin);
+    }
+  };
+  for (const ex of externals) {
+    const p = path.join(ROOT, ex);
+    if (fs.existsSync(p)) add(topLevelLexical(fs.readFileSync(p, 'utf8')), ex);
+  }
+  add(topLevelLexical(inline.join('\n;\n')), '本頁 inline');
+  return clashes;
+}
+
 function syntaxCheck(file) {
   const { inline } = extractHtml(file);
   try {
@@ -212,6 +254,8 @@ for (const f of files) {
   const se = syntaxCheck(f);
   if (se) syntaxErrors.push(`${f}: ${se}`);
   if (r.missingExternals.length) syntaxErrors.push(`${f}: 載入了不存在的檔案 ${r.missingExternals.join(', ')}`);
+  const cl = lexicalClashes(f);
+  if (cl.length) syntaxErrors.push(`${f}: 頂層 const/let/class 撞名（會讓整段 script 失效）→ ${cl.join('、')}`);
 }
 
 const mode = process.argv[2] || '';
