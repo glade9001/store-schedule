@@ -1411,6 +1411,23 @@ function storeClockOn(clk, store) {
   return (clk && clk.stage === "all") ? (((clk.enabledByStore) || {})[store] === true) : true;
 }
 // 單一員工通知：只查該員工的綁定(省讀取，不像 notifyEmployees 讀全表)
+// 通知系統管理員（users.permission === 'admin'），不是門市店長。
+// 定位/技術問題要找的是維運的人，店長處理不了手機設定或門市座標校正。
+async function notifyAdmins(db, text, token) {
+  const us = await db.collection("users").where("permission", "==", "admin").get().catch(() => null);
+  if (!us || us.empty) return 0;
+  const names = []; us.forEach((d) => { const u = d.data() || {}; if (u.empName) names.push({ emp: u.empName, store: u.store || "" }); });
+  let sent = 0;
+  for (const n of names) {
+    const snap = await db.collection("lineBindings").where("empName", "==", n.emp).get().catch(() => null);
+    if (!snap || snap.empty) continue;
+    const arr = []; snap.forEach((d) => arr.push(d.data()));
+    const b = arr.find((x) => x.store === n.store) || arr[0];
+    if (b && b.lineUserId) { await linePush(b.lineUserId, text, token); sent++; }
+  }
+  return sent;
+}
+
 async function notifyOneEmp(db, empName, store, text, token) {
   if (!empName) return;
   const snap = await db.collection("lineBindings").where("empName", "==", empName).get().catch(() => null);
@@ -1786,6 +1803,72 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
     otStatus: otIntent === "apply" ? "pending" : (otIntent === "private" ? "private" : null),
   });
   return { ok: true, atStore, distanceM, status, lateMin, hm: nowTp.toISOString().slice(11, 16) };
+});
+
+// 定位問題回報：員工打不了卡時按一下，直接把診斷資訊送給店長（LINE）並留存紀錄。
+// 失敗的定位原本什麼都不會留下，事後只能靠猜（阮農芯 2026-08-10 就是這樣查不出來）。
+exports.reportGeoIssue = onCall({ region: "asia-east1", secrets: [LINE_TOKEN] }, async (request) => {
+  const auth = request.auth;
+  if (!auth) throw new HttpsError("unauthenticated", "請先登入");
+  const db = admin.firestore();
+  const userSnap = await db.collection("users").doc(auth.uid).get();
+  const user = userSnap.exists ? userSnap.data() : null;
+  if (!user || !user.empName) throw new HttpsError("permission-denied", "查無使用者");
+  const empName = user.empName, homeStore = user.store || "";
+  const d = request.data || {};
+  const lat = Number(d.lat), lng = Number(d.lng);
+  const acc = Number(d.accuracy);
+  const info = await resolveEmpInfo(db, empName);
+  const disp = info.displayName || empName;
+
+  // 到各門市的距離（以伺服器端設定為準，避免前端被改）
+  const cfgSnap = await db.collection("settings").doc("globalConfig").get();
+  const geo = ((cfgSnap.exists ? cfgSnap.data() : {}).clockIn || {}).geo || {};
+  const lines = [];
+  let nearest = null;
+  if (isFinite(lat) && isFinite(lng)) {
+    for (const st of Object.keys(geo)) {
+      const g = geo[st] || {};
+      if (typeof g.lat !== "number" || typeof g.lng !== "number") continue;
+      const dist = Math.round(haversineM(lat, lng, g.lat, g.lng));
+      const r = g.radiusM || 120;
+      lines.push(`${st}：距 ${dist}m / 半徑 ${r}m ${dist <= r ? "✓" : "✗"}`);
+      if (!nearest || dist < nearest.dist) nearest = { st, dist, r };
+    }
+  }
+  const nowMs = Date.now();
+  const tp = new Date(nowMs + 8 * 3600000);
+  // 防濫發：同一人 10 分鐘內只送一次，避免連按讓店長被通知洗版
+  const logCol = db.collection("stores").doc(homeStore || "未分店").collection("geoIssueLog");
+  const recent = await logCol.where("empName", "==", empName).where("tsMs", ">", nowMs - 10 * 60000).limit(1).get().catch(() => null);
+  if (recent && !recent.empty) return { ok: true, skipped: "10 分鐘內已回報過" };
+  const rec = {
+    empName, displayName: disp, homeStore,
+    lat: isFinite(lat) ? lat : null, lng: isFinite(lng) ? lng : null,
+    accuracy: isFinite(acc) ? Math.round(acc) : null,
+    nearestStore: nearest ? nearest.st : "", nearestDist: nearest ? nearest.dist : null,
+    reason: String(d.reason || "").slice(0, 60),
+    deviceInfo: String(d.deviceInfo || "").slice(0, 200),
+    ts: admin.firestore.FieldValue.serverTimestamp(), tsMs: nowMs,
+    date: tp.toISOString().slice(0, 10),
+  };
+  await logCol.add(rec);
+
+  const msg = [
+    `🛠️ 打卡定位問題回報（系統管理員）`,
+    `${disp}（${homeStore}）於 ${tp.toISOString().slice(11, 16)} 打不了卡`,
+    ``,
+    `原因：${rec.reason || "不在門市範圍內"}`,
+    `精度：±${rec.accuracy != null ? rec.accuracy : "?"} m${rec.accuracy > 100 ? "（過大，手機未使用 GPS）" : ""}`,
+    `座標：${rec.lat != null ? rec.lat.toFixed(6) + ", " + rec.lng.toFixed(6) : "取不到"}`,
+    ...(lines.length ? ["", ...lines] : []),
+    ``,
+    rec.accuracy > 100
+      ? `👉 多半是該手機沒開 Wi-Fi 或「精確位置」，請協助排除；員工可先用補登。`
+      : `👉 精度正常，請確認員工是否真的在店內，或該門市座標需要校正。`,
+  ].join("\n");
+  const sent = await notifyAdmins(db, msg, LINE_TOKEN.value());
+  return { ok: true, sent };
 });
 
 // 伺服器時間（給打卡畫面校時用，避免手機本機時間不準）

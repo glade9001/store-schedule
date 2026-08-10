@@ -243,17 +243,28 @@ function geoDiagHtml(){
   return `<details style="margin-top:10px;">
     <summary style="cursor:pointer;font-size:12px;color:var(--text-muted);font-weight:700;">🔧 定位診斷資訊（打不了卡時請複製給店長）</summary>
     <pre style="white-space:pre-wrap;word-break:break-all;font-size:11px;line-height:1.7;background:#f8fafc;border-radius:8px;padding:10px;margin-top:8px;color:#334155;">${geoDiagText().replace(/</g,'&lt;')}</pre>
-    <button onclick="copyGeoDiag()" style="width:100%;padding:9px;background:#eef2ff;color:#4338ca;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;">📋 複製診斷資訊</button>
+    <button id="geoSendBtn" onclick="sendGeoIssue()" style="width:100%;padding:10px;background:#eef2ff;color:#4338ca;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;">📨 傳送給系統管理員（LINE 通知）</button>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;">只有你按這顆才會送出並留存紀錄；平常點開打卡頁不會通知任何人。回報後請改用「補登／修改」先完成打卡。</div>
   </details>`;
 }
-async function copyGeoDiag(){
-  const t = geoDiagText();
-  try{ await navigator.clipboard.writeText(t); toast('✅ 已複製，可貼到 LINE 傳給店長'); }
-  catch(e){
-    // iOS 舊版或非 https 情境下 clipboard API 會失敗 → 退回選取讓使用者自己複製
-    const ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta);
-    ta.select(); try{ document.execCommand('copy'); toast('✅ 已複製'); }catch(_){ toast('請長按上方文字自行複製'); }
-    ta.remove();
+// 直接把診斷資訊送給店長（LINE），並在後端留一筆紀錄。
+// 刻意做成「員工主動按」而不是自動記錄——否則任何人在家點開打卡頁都會產生紀錄與通知。
+async function sendGeoIssue(){
+  const btn=document.getElementById('geoSendBtn');
+  if(!myGeo){ toast('尚未取得定位，請先按「重新定位」'); return; }
+  if(btn){ btn.disabled=true; btn.textContent='傳送中…'; }
+  try{
+    const fn=firebase.app().functions('asia-east1').httpsCallable('reportGeoIssue');
+    const r=await fn({
+      lat:myGeo.lat, lng:myGeo.lng, accuracy:myGeo.acc,
+      reason: myGeo.acc>ACC_BAD ? `定位精度不足（±${myGeo.acc}m）` : '不在門市範圍內',
+      deviceInfo: navigator.userAgent.slice(0,180),
+    });
+    toast(r.data && r.data.skipped ? '（10 分鐘內已回報過，未重複發送）' : '✅ 已通知系統管理員');
+    if(btn){ btn.textContent='✅ 已傳送'; }
+  }catch(e){
+    if(btn){ btn.disabled=false; btn.textContent='📨 傳送給系統管理員（LINE 通知）'; }
+    toast('傳送失敗：'+(e.message||e));
   }
 }
 function locate(){
