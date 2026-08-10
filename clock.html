@@ -201,6 +201,23 @@ function freshGeo(){
   });
 }
 
+// 精度門檻：超過這個值代表手機不是用 GPS，而是退回基地台/WiFi 粗略定位
+// （實例：阮農芯 2026-08-09 兩筆打卡精度 1427m / 2000m，同店其他人都是 5~22m），
+// 這種座標無法判斷是否真的在店裡——落在圍欄內是碰巧，落在外面就會被硬擋。
+const ACC_BAD = 100;
+function accWarnHtml(){
+  const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  return `<div style="font-size:12px;font-weight:600;line-height:1.75;text-align:left;margin-top:6px;">
+    你的定位誤差約 <b>±${myGeo.acc} 公尺</b>，手機沒有用到 GPS，無法確認你在店內。<br>
+    <b>請依序試：</b><br>
+    ① 把 <b>Wi-Fi 打開</b>（不用連上，開著就能大幅提升室內定位）<br>
+    ② ${ios
+      ? '設定 → 隱私權與安全性 → 定位服務 → 找到本 App 或「Safari網站」→ 開啟<b>「精確位置」</b>'
+      : '設定 → 位置 → 應用程式權限 → 瀏覽器 → 開啟<b>「使用精確位置」</b>'}<br>
+    ③ 走到<b>靠窗或門口</b>再按「重新定位」<br>
+    仍不行就用下方「📝 補登／修改」，由店長審核。
+  </div>`;
+}
 function locate(){
   if(!navigator.geolocation){ atStore=''; distanceM=null; render(); toast('此裝置不支援定位'); return; }
   locating=true; render();
@@ -352,8 +369,11 @@ function render(){
   const dateLine=`${d.getMonth()+1}月${d.getDate()}日（${['日','一','二','三','四','五','六'][d.getDay()]}）`;
   let loc='';
   if(locating) loc=`<div class="locbox loc-wait">📍 定位中…</div>`;
-  else if(atStore) loc=`<div class="locbox loc-ok">📍 ${atStore}　距 ${distanceM}m　✓ 可打卡</div>`;
-  else if(myGeo) loc=`<div class="locbox loc-bad">⚠️ 不在任何門市範圍內，無法打卡<br><span style="font-size:12px;font-weight:600;">（若確實在店內，請至設定確認門市座標）</span></div>`;
+  else if(atStore) loc=`<div class="locbox loc-ok">📍 ${atStore}　距 ${distanceM}m　±${myGeo?myGeo.acc:'?'}m　✓ 可打卡${myGeo&&myGeo.acc>ACC_BAD?'<br><span style="font-size:11.5px;font-weight:600;">⚠️ 定位誤差偏大，建議開啟 Wi-Fi 與「精確位置」</span>':''}</div>`;
+  // 定位精度太差時，講「不在門市範圍內」會誤導——真正的問題是手機沒用到 GPS。
+  // 原本那句「請至設定確認門市座標」對員工也沒用（他改不了，而且多半不是座標的問題）。
+  else if(myGeo && myGeo.acc > ACC_BAD) loc=`<div class="locbox loc-bad">⚠️ 定位精度不足，無法確認你在店內${accWarnHtml()}</div>`;
+  else if(myGeo) loc=`<div class="locbox loc-bad">⚠️ 不在任何門市範圍內，無法打卡<br><span style="font-size:12px;font-weight:600;">目前定位誤差 ±${myGeo.acc}m。若你確實在店內，請走到門口再按「重新定位」；仍不行請用下方「📝 補登／修改」，或請店長確認門市座標。</span></div>`;
   else loc=`<div class="locbox loc-wait">📍 尚未定位</div>`;
 
   const shiftLine = atStore ? (todayShifts.length?`<div class="shiftinfo">今日班別：${todayShifts.map(s=>s.shift).join('、')}</div>`
@@ -361,7 +381,12 @@ function render(){
 
   const act=nextAction();
   let btn='';
-  if(!atStore){ btn=`<button class="punch-btn" disabled>需在門市範圍內才能打卡</button>`; }
+  if(!atStore){
+    // 精度不足時，按鈕不要只寫「需在門市範圍內」——她人就在店裡，那句話只會讓人反覆重試。
+    const bad = myGeo && myGeo.acc > ACC_BAD;
+    btn = `<button class="punch-btn" disabled>${bad ? '定位精度不足，無法打卡' : '需在門市範圍內才能打卡'}</button>`
+        + (bad ? `<button onclick="openReqModal()" style="width:100%;margin-top:8px;padding:11px;background:#fff7ed;color:#c2410c;border:1.5px solid #fed7aa;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;">📝 定位一直失敗？改用補登（店長審核）</button>` : '');
+  }
   else if(!act){ btn=`<button class="punch-btn" disabled>✅ 今日已完成</button>`; }
   else{
     const cls=act==='上班'?'punch-in':'punch-out';

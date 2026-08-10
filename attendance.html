@@ -327,7 +327,7 @@ function punchRow(r, showEmp){
   let h=`<div class="prow" style="${rowStyle}">${empLbl}
     <span class="ptag ${tag}">${r.type}</span>
     <span style="font-weight:800;">${time}</span>
-    <span class="meta">@${r.atStore}${r.distanceM!=null?` · ${r.distanceM}m`:''}${r.shift?` · 班 ${r.shift}`:''}${r.homeStore&&r.homeStore!==r.atStore?` · 原店 ${r.homeStore}`:''}${srcTag}${voided?' · <span style="color:var(--danger);font-weight:800;">已註銷</span>':''}</span>
+    <span class="meta">@${r.atStore}${r.distanceM!=null?` · ${r.distanceM}m`:''}${r.accuracy!=null&&r.accuracy>100?`<span style="color:#c5221f;font-weight:800;" title="手機沒用到 GPS，退回基地台/WiFi 粗略定位，這筆的位置不可信"> · ⚠️定位誤差±${Math.round(r.accuracy)}m</span>`:''}${r.shift?` · 班 ${r.shift}`:''}${r.homeStore&&r.homeStore!==r.atStore?` · 原店 ${r.homeStore}`:''}${srcTag}${voided?' · <span style="color:var(--danger);font-weight:800;">已註銷</span>':''}</span>
     <span class="pstat ${needRev?'s-warn':sc}">${needRev?'離線待核':(anom?'⚠️ '+st:st)}</span>${reviewBtn}${voided?'':editBtn}
   </div>`;
   if(r.note) h+=`<div class="meta" style="padding:0 0 6px 4px;">💬 ${r.note}${r.noteBy?`（${r.noteBy}）`:''}</div>`;
