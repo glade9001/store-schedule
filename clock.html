@@ -218,6 +218,44 @@ function accWarnHtml(){
     仍不行就用下方「📝 補登／修改」，由店長審核。
   </div>`;
 }
+// 定位診斷：失敗時原本什麼都沒留下，事後只能猜。這裡把當下座標、精度、
+// 到各門市的距離攤開來，並提供一鍵複製，員工可直接貼給店長判斷是
+// 「精度不足」「門市座標設錯」還是「真的不在店裡」。
+function geoDiagText(){
+  if(!myGeo) return '（尚未定位）';
+  const rows = Object.entries(geoCfg).filter(([,g])=>g.lat!=null&&g.lng!=null).map(([st,g])=>{
+    const d = Math.round(distM(myGeo.lat,myGeo.lng,g.lat,g.lng));
+    const r = g.radiusM||120;
+    return `  ${st}：距 ${d}m / 半徑 ${r}m ${d<=r?'✓ 範圍內':'✗ 範圍外'}`;
+  });
+  return [
+    `【打卡定位診斷】`,
+    `員工：${currentUser.displayName||currentUser.empName}（${currentUser.store||''}）`,
+    `時間：${new Date(serverNowMs()).toLocaleString('zh-TW')}`,
+    `座標：${myGeo.lat.toFixed(6)}, ${myGeo.lng.toFixed(6)}`,
+    `精度：±${myGeo.acc} m ${myGeo.acc>ACC_BAD?'（過大，手機未使用 GPS）':'（正常）'}`,
+    `各門市距離：`, ...rows,
+    `裝置：${navigator.userAgent.slice(0,90)}`,
+  ].join('\n');
+}
+function geoDiagHtml(){
+  if(!myGeo) return '';
+  return `<details style="margin-top:10px;">
+    <summary style="cursor:pointer;font-size:12px;color:var(--text-muted);font-weight:700;">🔧 定位診斷資訊（打不了卡時請複製給店長）</summary>
+    <pre style="white-space:pre-wrap;word-break:break-all;font-size:11px;line-height:1.7;background:#f8fafc;border-radius:8px;padding:10px;margin-top:8px;color:#334155;">${geoDiagText().replace(/</g,'&lt;')}</pre>
+    <button onclick="copyGeoDiag()" style="width:100%;padding:9px;background:#eef2ff;color:#4338ca;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;">📋 複製診斷資訊</button>
+  </details>`;
+}
+async function copyGeoDiag(){
+  const t = geoDiagText();
+  try{ await navigator.clipboard.writeText(t); toast('✅ 已複製，可貼到 LINE 傳給店長'); }
+  catch(e){
+    // iOS 舊版或非 https 情境下 clipboard API 會失敗 → 退回選取讓使用者自己複製
+    const ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta);
+    ta.select(); try{ document.execCommand('copy'); toast('✅ 已複製'); }catch(_){ toast('請長按上方文字自行複製'); }
+    ta.remove();
+  }
+}
 function locate(){
   if(!navigator.geolocation){ atStore=''; distanceM=null; render(); toast('此裝置不支援定位'); return; }
   locating=true; render();
@@ -423,7 +461,7 @@ function render(){
     <div id="srvClock" style="text-align:center;font-size:34px;font-weight:900;letter-spacing:1px;color:var(--primary);font-variant-numeric:tabular-nums;margin:2px 0 2px;">🕐 --:--:--</div>
     <div style="text-align:center;font-size:11px;color:var(--text-muted);margin-bottom:8px;">以伺服器時間為準</div>
     <div class="sub">${currentUser.displayName||currentUser.empName}（${currentUser.store||''}）</div>
-    ${loc}${shiftLine}${btn}
+    ${loc}${shiftLine}${btn}${geoDiagHtml()}
     <div style="text-align:center;margin-top:10px;"><button onclick="locate()" style="background:none;border:none;color:var(--primary);font-size:13px;font-weight:700;cursor:pointer;">🔄 重新定位</button></div>
   </div>
   <div class="card" style="display:flex;gap:8px;padding:12px;">
