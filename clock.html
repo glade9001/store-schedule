@@ -177,6 +177,7 @@ window.onload=async()=>{
   // 讀打卡提醒偏好
   try{ const rp=await window.db.collection('clockRemindPrefs').doc(currentUser.empName).get(); if(rp.exists){ const d=rp.data()||{}; remindPref={inBefore:Number(d.inBefore)||0, outRemind:!!d.outRemind}; } }catch(e){}
   await syncServerTime();
+  refreshGeoPerm();   // 讀定位權限狀態，供診斷顯示
   hideLoading();
   render();
   if(!clockTimer) clockTimer=setInterval(tickClock,1000);
@@ -205,6 +206,23 @@ function freshGeo(){
 // （實例：阮農芯 2026-08-09 兩筆打卡精度 1427m / 2000m，同店其他人都是 5~22m），
 // 這種座標無法判斷是否真的在店裡——落在圍欄內是碰巧，落在外面就會被硬擋。
 const ACC_BAD = 100;
+// 定位權限狀態：iOS 只有在「網頁至少成功請求過一次定位」之後，才會把它列進
+// 設定→定位服務。員工回報「清單裡找不到」通常代表權限從沒被授予過（或被拒絕），
+// 光靠口頭指引很難確認，所以直接把狀態讀出來顯示。
+let geoPerm = '未知';
+async function refreshGeoPerm(){
+  try{
+    if(navigator.permissions && navigator.permissions.query){
+      const r = await navigator.permissions.query({name:'geolocation'});
+      geoPerm = ({granted:'已允許', denied:'已拒絕 ⛔', prompt:'尚未授權（會跳詢問）'})[r.state] || r.state;
+      r.onchange = ()=>{ refreshGeoPerm().then(render); };
+    } else geoPerm = '此瀏覽器不支援查詢';
+  }catch(e){ geoPerm = '無法查詢'; }
+}
+// 是否從桌面圖示開啟（standalone）→ 決定 iOS 設定裡要找哪個名稱
+function isStandalone(){
+  return (window.navigator.standalone === true) || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+}
 function accWarnHtml(){
   const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
   return `<div style="font-size:12px;font-weight:600;line-height:1.75;text-align:left;margin-top:6px;">
@@ -219,6 +237,12 @@ function accWarnHtml(){
       : `② 設定 → 位置 → 應用程式權限 → 你的瀏覽器 → 開啟<b>「使用精確位置」</b><br>
          ③ 瀏覽器網址列左邊的鎖頭 → 權限 → 位置 → 允許<br>`}
     ④ 走到<b>靠窗或門口</b>再按「重新定位」<br>
+    <br><b>⚠️ 在「定位服務」清單裡完全找不到？</b><br>
+    代表這個網頁<b>從來沒有成功取得過定位權限</b>，所以 iOS 還沒把它列進去——
+    這種情況去設定裡找是找不到東西可改的。請改用下面兩招之一：<br>
+    · 按「🔄 重新定位」，若跳出詢問視窗就選<b>「允許」</b>（選過「不允許」的話這個視窗不會再出現）<br>
+    · 若不再跳詢問：<b>把桌面圖示刪掉重新加入</b>（或 Safari → 設定 → 清除瀏覽資料），
+      權限會重置，下次按重新定位就會再問一次<br>
     仍不行就用下方「📝 補登／修改」，由店長審核。
   </div>`;
 }
@@ -239,6 +263,8 @@ function geoDiagText(){
     `座標：${myGeo.lat.toFixed(6)}, ${myGeo.lng.toFixed(6)}`,
     `精度：±${myGeo.acc} m ${myGeo.acc>ACC_BAD?'（過大，手機未使用 GPS）':'（正常）'}`,
     `各門市距離：`, ...rows,
+    `定位權限：${geoPerm}`,
+    `開啟方式：${isStandalone() ? '桌面圖示（設定裡找「莉學商行」）' : 'Safari 瀏覽器（設定裡找「Safari網站」）'}`,
     `裝置：${navigator.userAgent.slice(0,90)}`,
   ].join('\n');
 }
