@@ -1,7 +1,7 @@
 // ===== 莉學商行 Service Worker =====
 // 策略：HTML 永遠走網路，靜態資源才快取
 
-const CACHE_NAME = 'lixue-static-v11';
+const CACHE_NAME = 'lixue-static-v12';
 
 // 快取靜態資源（相對於 sw.js 位置，故 web.app 與 github.io 皆適用）
 const STATIC_ASSETS = [
@@ -61,7 +61,26 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // 靜態資源（圖示、manifest）：Cache First
+  // 自家 JS：Network First（永遠先拿最新，離線才回快取）
+  // ⚠️ 為什麼不能用 Cache First（2026-08-17 踩到）：
+  //    HTML 每次都走網路拿最新，JS 卻鎖在快取裡 → 會出現「新版 HTML 配舊版 JS」，
+  //    新頁面呼叫舊檔還沒有的函式就直接炸（實例：attendance.html 叫 shiftDateAdd()，
+  //    但使用者快取裡的 shift-utils.js 是加這支函式之前的版本 → Can't find variable）。
+  //    靠「改檔就記得進 CACHE_NAME 版號」是不可靠的紀律，改成由架構保證。
+  if(url.pathname.endsWith('.js')) {
+    event.respondWith(
+      fetch(event.request).then(response => {
+        if(response.ok) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+        }
+        return response;
+      }).catch(() => caches.match(event.request))   // 離線：回上次成功抓到的版本
+    );
+    return;
+  }
+
+  // 其餘靜態資源（圖示、manifest）：Cache First
   event.respondWith(
     caches.match(event.request).then(cached => {
       if(cached) return cached;
