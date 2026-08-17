@@ -442,6 +442,28 @@ async function loadBlockedDates() {
 }
 
 // ===== 下週劃休開放設定 =====
+// ===== 劃休截止提醒（LINE）：自行勾選才發，預設不發 =====
+// 2026-08-17：LINE 免費方案額度有限，這則屬於「善意提醒」而非必要通知，
+// 因此從「全體每日發」改成 opt-in。偏好寫 notifyPrefs/{empName}.leaveRemind。
+let leaveRemindPref = false;
+async function loadLeaveRemindPref() {
+  try{
+    const d = await window.db.collection('notifyPrefs').doc(currentUser.empName).get();
+    leaveRemindPref = !!(d.exists && d.data().leaveRemind);
+  }catch(e){ leaveRemindPref = false; }
+}
+async function toggleLeaveRemind(el) {
+  const on = el.checked;
+  try{
+    await window.db.collection('notifyPrefs').doc(currentUser.empName).set({
+      empName: currentUser.empName, store: currentUser.store || '',
+      leaveRemind: on, updatedAt: new Date().toISOString()
+    }, { merge:true });
+    leaveRemindPref = on;
+    showToast(on ? '✅ 已開啟劃休截止提醒（需綁定 LINE）' : '已關閉劃休截止提醒');
+  }catch(e){ el.checked = !on; showToast('儲存失敗：' + e.message); }
+}
+
 async function loadLeaveWindow() {
   leaveWindowCfg = { nextWeekOpen: false, closeDate: '', closeDateTime: '', openedBy: '' };
   try {
@@ -760,8 +782,8 @@ window.onload = async () => {
 
     // 讀取假日資料（Firestore 優先，否則用內建）
     await loadHolidays();
-    // 讀取禁休日期 + 下週開放設定
-    await Promise.all([loadBlockedDates(), loadLeaveWindow()]);
+    // 讀取禁休日期 + 下週開放設定 + 個人劃休提醒偏好
+    await Promise.all([loadBlockedDates(), loadLeaveWindow(), loadLeaveRemindPref()]);
 
     // 加盟主/admin：建立門市切換 bar
     if(isMultiStore()) {
@@ -951,6 +973,11 @@ function renderCalendar(){
         <div style="font-size:11px;margin-top:2px;">截止：${monM}/${monD}（一）23:59</div>
       </div>
     </div>`;
+    // 劃休截止提醒：預設不開，要的人自己勾
+    html += `<label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:9px 11px;background:#fff;border:1.5px solid var(--border,#e2e8f0);border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;">
+      <input type="checkbox" ${leaveRemindPref?'checked':''} onchange="toggleLeaveRemind(this)" style="width:17px;height:17px;flex:none;">
+      <span>截止前 2 天用 LINE 提醒我還沒劃休<span style="font-weight:600;color:var(--text-muted,#64748b);">（預設不提醒；需綁定 LINE）</span></span>
+    </label>`;
   }
 
   // 月份導航
