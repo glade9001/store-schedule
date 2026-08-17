@@ -221,21 +221,67 @@ async function loadRequests(){
         <button onclick="rejectReq('${r.id}')" style="flex:1;padding:8px;background:#fce8e6;color:#c5221f;border:none;border-radius:8px;font-weight:800;cursor:pointer;">❌ 駁回</button>
       </div></div>`).join('')+`</div>`;
 }
+// 補登卡要自己找出它屬於哪一個排班班次。
+// ⚠️ 不補這兩個欄位的後果（邱韋誠 8/5、8/11 就是這樣來的）：
+//    補登的上班卡 shift 是空的 → 之後員工打下班卡時，clockPunch 會配對到這張沒有班別的上班卡，
+//    matchedShift 拿到空字串 → 直接判成「到場」，而「到場」不計工時。
+// 視窗與 clockPunch 一致：上班＝排班起點前1h~後4h、下班＝排班終點前4h~後1h，取最接近的一班。
+// 跨夜班的下班卡會落在隔天，所以候選要含前後一天。
+async function matchSchedShift(store, empName, homeStore, dateStr, hhmm, punchType){
+  const punchMs = Date.parse(`${dateStr}T${hhmm}:00+08:00`);
+  if(!isFinite(punchMs)) return { shift:'', shiftDate:dateStr };
+  const cand=[];
+  for(const off of [-1,0,1]){
+    const dss=shiftDateAdd(dateStr,off);
+    let wd=null;
+    try{ wd=await window.db.collection('stores').doc(store).collection('weeks').doc(shiftWeekStr(dss)).get(); }catch(e){ continue; }
+    if(!wd||!wd.exists) continue;
+    const dn=shiftDayName(dss);
+    (wd.data().records||[]).forEach(r=>{
+      if(r.day!==dn) return;
+      const mine=(r.name===empName)||(r.supportEmp===`${homeStore||store}-${empName}`&&r.approvalStatus==='approved');
+      if(!mine) return;
+      parseShiftSegs(r.shift).forEach(g=>{
+        const startMs=shiftTimeMs(dss,g.startH);
+        if(!isFinite(startMs)) return;
+        cand.push({ shift:r.shift, shiftDate:dss, startMs, endMs:startMs+g.durH*3600000 });
+      });
+    });
+  }
+  const win = punchType==='上班'
+    ? cand.filter(c=>punchMs>=c.startMs-3600000 && punchMs<=c.startMs+4*3600000)
+          .sort((a,b)=>Math.abs(punchMs-a.startMs)-Math.abs(punchMs-b.startMs))
+    : cand.filter(c=>punchMs>=c.endMs-4*3600000 && punchMs<=c.endMs+3600000)
+          .sort((a,b)=>Math.abs(punchMs-a.endMs)-Math.abs(punchMs-b.endMs));
+  return win.length ? { shift:win[0].shift, shiftDate:win[0].shiftDate } : { shift:'', shiftDate:dateStr };
+}
+
 async function approveReq(id){
   const ref=window.db.collection('stores').doc(curStore).collection('attendanceRequests').doc(id);
   showLoading('核准中…');
   try{
     const snap=await ref.get(); if(!snap.exists){ hideLoading(); return; }
     const r=snap.data();
-    const deviceTs=new Date(`${r.targetDate}T${r.requestedTime}:00`).toISOString();
+    // 時間一律以台北時區解讀（原本沒帶 +08:00，會跟著審核者的裝置時區跑）
+    const punchMs=Date.parse(`${r.targetDate}T${r.requestedTime}:00+08:00`);
+    const deviceTs=new Date(punchMs).toISOString();
+    // 依當日排班補回 shift/shiftDate，否則這張卡之後配對不到班 → 被判成「到場」不計工時
+    const sm=await matchSchedShift(curStore, r.empName, r.homeStore||curStore, r.targetDate, r.requestedTime, r.punchType);
     // 找同日同類打卡→有則改時間、無則補登
     const att=window.db.collection('stores').doc(curStore).collection('attendance');
     const ex=await att.where('date','==',r.targetDate).where('empName','==',r.empName).get();
     let target=null; ex.forEach(d=>{ if(d.data().type===r.punchType) target=d; });
     const base={ empName:r.empName, displayName:r.displayName||r.empName, date:r.targetDate, type:r.punchType,
-      atStore:curStore, homeStore:r.homeStore||curStore, status:'補登', source:'manual', deviceTs,
+      atStore:curStore, homeStore:r.homeStore||curStore, status:'補登', source:'manual', deviceTs, tsMs:punchMs,
+      shift:sm.shift, shiftDate:sm.shiftDate, weekday:shiftDayName(r.targetDate),
       editedBy:currentUser.empName, editNote:`申請${r.type||'補登/修改'}：${r.reason||''}`, ts:firebase.firestore.FieldValue.serverTimestamp() };
-    if(target){ await target.ref.set({ deviceTs, status:'補登', source:'manual', editedBy:currentUser.empName, origTs:target.data().deviceTs||'' }, {merge:true}); }
+    if(target){
+      // 既有卡只改時間；shift 原本是空的才補（不覆蓋系統打卡當下判定的結果）
+      const cur=target.data()||{};
+      const upd={ deviceTs, tsMs:punchMs, status:'補登', source:'manual', editedBy:currentUser.empName, origTs:cur.deviceTs||'' };
+      if(!cur.shift && sm.shift){ upd.shift=sm.shift; upd.shiftDate=sm.shiftDate; }
+      await target.ref.set(upd, {merge:true});
+    }
     else { await att.add(base); }
     await ref.set({ status:'approved', reviewedBy:currentUser.empName, reviewedAt:new Date().toISOString() }, {merge:true});
     hideLoading(); await loadRequests(); await load();

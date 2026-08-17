@@ -73,3 +73,34 @@ function shiftTimeMs(dateStr, hours) {
   var base = Date.parse(String(dateStr) + 'T00:00:00+08:00');
   return isFinite(base) ? base + hours * 3600000 : NaN;
 }
+
+/**
+ * 日期字串 → 週文件 id（stores/{店}/weeks/{此值}）
+ * 必須是 schedule-V2 getWeekDates() 的精準反函式：每週以「週一」起算。
+ * ⚠️ 別自己重寫：舊公式把含時間的日期直接套年度週次，每個週六/週日都會算成下一週。
+ */
+function shiftWeekStr(dateStr) {
+  var p = String(dateStr).split('-');
+  var d = new Date(+p[0], +p[1] - 1, +p[2]);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // 退到該日所屬的週一
+  var yr = d.getFullYear();
+  var w1 = function (y) { var a = new Date(y, 0, 1), k = a.getDay(); a.setDate(a.getDate() + (k <= 4 ? 1 - k : 8 - k)); return a; };
+  if (d < w1(yr)) yr--; else if (d >= w1(yr + 1)) yr++;
+  var w = Math.round((d - w1(yr)) / 604800000) + 1;
+  return yr + '-W' + (w < 10 ? '0' + w : w);
+}
+
+/** 日期字串 → 班表用的星期名（週一…週日），對應 weeks records 的 day 欄位 */
+function shiftDayName(dateStr) {
+  var p = String(dateStr).split('-');
+  var d = new Date(+p[0], +p[1] - 1, +p[2]);
+  return ['週一', '週二', '週三', '週四', '週五', '週六', '週日'][(d.getDay() + 6) % 7];
+}
+
+/** 日期字串位移 n 天 → YYYY-MM-DD */
+function shiftDateAdd(dateStr, n) {
+  var p = String(dateStr).split('-');
+  var d = new Date(+p[0], +p[1] - 1, +p[2]);
+  d.setDate(d.getDate() + n);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
