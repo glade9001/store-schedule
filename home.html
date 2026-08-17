@@ -1410,7 +1410,11 @@ async function updateHomeAttnAlert(){
   const store=currentUser.store, emp=currentUser.empName;
   if(!store||!emp) return;
   const isLead=['manager','owner','admin'].includes(currentUser.permission);
-  const ck=`attnAlert:${store}:${emp}`;
+  // 提醒起始日：這天以前的缺卡／異常不再主動提醒（紀錄本身仍完整保留，出勤管理照樣查得到）。
+  // 2026-08-17 設此線的原因：半點班 bug 修好前累積了大量系統自己造成的缺卡，
+  // 全部拿來提醒只會變成雜訊，索性從修好當天重新起算。改日期只要動 Firestore，不必重新部署。
+  const attnSince=((appConfig.clockIn||{}).attnSince)||'';
+  const ck=`attnAlert:${store}:${emp}:${attnSince}`;   // 起始日改變時舊快取自動失效
   let data=null;
   try{
     const c=JSON.parse(sessionStorage.getItem(ck)||'null');
@@ -1418,7 +1422,8 @@ async function updateHomeAttnAlert(){
   }catch(e){}
   if(!data){
     const from=new Date(Date.now()-6*86400000);
-    const fromStr=`${from.getFullYear()}-${String(from.getMonth()+1).padStart(2,'0')}-${String(from.getDate()).padStart(2,'0')}`;
+    let fromStr=`${from.getFullYear()}-${String(from.getMonth()+1).padStart(2,'0')}-${String(from.getDate()).padStart(2,'0')}`;
+    if(attnSince && attnSince>fromStr) fromStr=attnSince;   // 取兩者較晚者
     try{
       const snap=await window.db.collection('stores').doc(store).collection('attendance')
         .where('date','>=',fromStr).get();
@@ -1431,17 +1436,23 @@ async function updateHomeAttnAlert(){
         if(isMiss) stMiss++; else if(isAnom) stAnom++;
         if(isMiss && r.empName===emp) mine++;
       });
-      data={at:Date.now(), mine, stMiss, stAnom};
+      data={at:Date.now(), mine, stMiss, stAnom, from:fromStr};
       sessionStorage.setItem(ck, JSON.stringify(data));
     }catch(e){ return; }   // 查不到就安靜略過，不要卡住首頁
   }
+  // 期間標籤：起始日把 7 天視窗截短時，改寫成「自 M/D 起」，不要謊稱近 7 天
+  const d7=new Date(Date.now()-6*86400000);
+  const d7Str=`${d7.getFullYear()}-${String(d7.getMonth()+1).padStart(2,'0')}-${String(d7.getDate()).padStart(2,'0')}`;
+  const period=(data.from&&data.from>d7Str)
+    ? `自 ${+data.from.slice(5,7)}/${+data.from.slice(8,10)} 起`
+    : '近 7 天';
   const rows=[];
   if(data.mine>0){
     rows.push(`<div onclick="window.location.href='my-attendance.html'" style="display:flex;align-items:center;gap:12px;padding:13px 15px;background:linear-gradient(135deg,#ea4335,#c5221f);border-radius:14px;cursor:pointer;box-shadow:0 3px 14px rgba(234,67,53,.35);">
       <div style="font-size:26px;line-height:1;">🔴</div>
       <div style="flex:1;">
         <div style="font-size:15.5px;font-weight:900;color:#fff;">你有 ${data.mine} 筆缺卡未補登</div>
-        <div style="font-size:12px;color:rgba(255,255,255,.92);margin-top:2px;">近 7 天・影響工時與薪資，請盡快補登 →</div>
+        <div style="font-size:12px;color:rgba(255,255,255,.92);margin-top:2px;">${period}・影響工時與薪資，請盡快補登 →</div>
       </div>
     </div>`);
   }
@@ -1452,7 +1463,7 @@ async function updateHomeAttnAlert(){
     rows.push(`<div onclick="window.location.href='attendance.html'" style="display:flex;align-items:center;gap:12px;padding:13px 15px;background:#fff7ed;border:1.5px solid #fed7aa;border-radius:14px;cursor:pointer;${data.mine>0?'margin-top:8px;':''}">
       <div style="font-size:24px;line-height:1;">📋</div>
       <div style="flex:1;">
-        <div style="font-size:14.5px;font-weight:900;color:#c2410c;">${store} 近 7 天 ${parts.join('、')}</div>
+        <div style="font-size:14.5px;font-weight:900;color:#c2410c;">${store} ${period} ${parts.join('、')}</div>
         <div style="font-size:12px;color:#9a3412;margin-top:2px;">請提醒員工補打卡／補紀錄 →</div>
       </div>
     </div>`);

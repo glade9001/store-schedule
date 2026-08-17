@@ -1674,12 +1674,18 @@ exports.scheduledWeeklyDigest = onSchedule(
     const db = admin.firestore();
     if (await maintenanceOn(db)) return;
     const token = LINE_TOKEN.value();
-    const stores = (await getAllStores(db)).filter((s) => s !== "人力支援");
+    const cfg = await db.collection("settings").doc("globalConfig").get().catch(() => null);
+    const conf = cfg && cfg.exists ? cfg.data() : {};
+    const stores = (conf.stores || []).filter((s) => s && s !== "人力支援");
     // 上週一 ~ 上週日（今天是週一，往前推 7 天即上週一）
     const nowTp = new Date(Date.now() + 8 * 3600000);
     const monTp = new Date(nowTp.getTime() - 7 * 86400000);
-    const mon = monTp.toISOString().slice(0, 10);
+    let mon = monTp.toISOString().slice(0, 10);
     const sun = new Date(monTp.getTime() + 6 * 86400000).toISOString().slice(0, 10);
+    // 提醒起始日：這天以前的缺卡／異常不再提醒（紀錄仍完整保留）。與 home.html 讀同一個設定值。
+    const attnSince = (conf.clockIn && conf.clockIn.attnSince) || "";
+    if (attnSince && attnSince > mon) mon = attnSince;
+    if (mon > sun) return; // 整個上週都在起始日之前 → 這週不用發
     const md = (d) => `${+d.slice(5, 7)}/${+d.slice(8, 10)}`; // 2026-08-10 → 8/10
     const MAX_LINES = 40; // LINE 單則上限 5000 字；40 行約 1200 字，超過就只列前 N 筆並附總數
     const listOf = (arr) => arr.sort((a, b) => a.d.localeCompare(b.d) || a.t.localeCompare(b.t))
