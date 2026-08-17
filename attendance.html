@@ -251,7 +251,7 @@ async function matchSchedShift(store, empName, homeStore, dateStr, hhmm, punchTy
   const win = punchType==='上班'
     ? cand.filter(c=>punchMs>=c.startMs-3600000 && punchMs<=c.startMs+4*3600000)
           .sort((a,b)=>Math.abs(punchMs-a.startMs)-Math.abs(punchMs-b.startMs))
-    : cand.filter(c=>punchMs>=c.endMs-4*3600000 && punchMs<=c.endMs+3600000)
+    : cand.filter(c=>punchMs>=c.endMs-4*3600000 && punchMs<=c.endMs+3*3600000)   // 後 3h：與 clockPunch 一致
           .sort((a,b)=>Math.abs(punchMs-a.endMs)-Math.abs(punchMs-b.endMs));
   return win.length ? { shift:win[0].shift, shiftDate:win[0].shiftDate } : { shift:'', shiftDate:dateStr };
 }

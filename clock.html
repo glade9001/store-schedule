@@ -564,7 +564,10 @@ function offSchedule(type, nowMs){
     const upcoming=candShifts.some(c=>c.startMs>nowMs && c.startMs-nowMs<=8*3600000);
     return {off:true, reason: upcoming?'early':'no-shift'};
   } else {
-    const win=candShifts.filter(c=> nowMs>=c.endMs-4*3600000 && nowMs<=c.endMs+3600000);
+    // 下班配對視窗：排定下班前 4h ~ 後 3h。後段原為 +1h，2026-08-17 放寬——
+    // 人常常收完店走到門口才想到打卡，超過就配不到班、被記成「到場」不計工時，還得走補登。
+    // 放寬不影響加班判定(門檻是另一條「晚超過 30 分」)，工時本來也有排班時數封頂。
+    const win=candShifts.filter(c=> nowMs>=c.endMs-4*3600000 && nowMs<=c.endMs+3*3600000);
     if(win.length){
       win.sort((x,y)=>Math.abs(nowMs-x.endMs)-Math.abs(nowMs-y.endMs));
       const diff=(nowMs-win[0].endMs)/60000; // 正=晚

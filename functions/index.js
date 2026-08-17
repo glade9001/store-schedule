@@ -1889,7 +1889,8 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
       if (!matchedShift) { status = "到場"; }
       else { const s = cand.find((c) => c.shift === matchedShift && c.shiftDate === shiftDate); if (s && nowMs < s.endMs) status = "早退"; }
     } else {
-      const win = cand.filter((c) => nowMs >= c.endMs - 4 * 3600000 && nowMs <= c.endMs + 3600000);
+      // 下班配對視窗：排定下班前 4h ~ 後 3h（後段 2026-08-17 由 +1h 放寬，見 clock.html offSchedule 註解）
+      const win = cand.filter((c) => nowMs >= c.endMs - 4 * 3600000 && nowMs <= c.endMs + 3 * 3600000);
       if (win.length) { win.sort((x, y) => Math.abs(nowMs - x.endMs) - Math.abs(nowMs - y.endMs)); const s = win[0]; matchedShift = s.shift; shiftDate = s.shiftDate; if (nowMs < s.endMs) status = "早退"; }
       else { status = "到場"; }
     }
