@@ -14,6 +14,7 @@
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 <script src="firebase-init.js"></script>
+<script src="shift-utils.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 :root{--primary:#e67e22;--primary-dark:#c0620f;--accent:#34a853;--danger:#d93025;--warn:#f9ab00;--bg:#f4f6fb;--text:#1e293b;--text-muted:#64748b;--border:#e2e8f0;--header-h:56px;}
@@ -196,7 +197,7 @@ async function load(){
   if(list) list.innerHTML=reqHtml+sumHtml+html;
 }
 // 本月有效工時：以排班時數為基準(超時封頂)、核准加班才加、到場/私事不計；配對上下班、跨日自動接續、排除缺卡/註銷
-function schedHours(sh){ const m=String(sh||'').match(/^(\d{1,2})-(\d{1,2})$/); if(!m)return 0; let a=+m[1],b=+m[2]; if(b<=a)b+=24; return b-a; }
+function schedHours(sh){ return shiftTotalHours(sh); }   // 見 shift-utils.js（支援半點班／兩頭班）
 function calcMonthHours(recs){
   const pts=recs.filter(r=>(r.type==='上班'||r.type==='下班') && r.status!=='缺卡' && !r.voided)
     .map(r=>({type:r.type, t:(typeof r.tsMs==='number'?r.tsMs:Date.parse(r.deviceTs||r.date||'')), shift:r.shift||'', ot:r.otStatus||null}))

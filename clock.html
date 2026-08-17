@@ -16,6 +16,7 @@
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-functions.js"></script>
 <script src="firebase-init.js"></script>
 <script src="utils.js"></script>
+<script src="shift-utils.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 :root{--primary:#e67e22;--primary-dark:#c0620f;--accent:#34a853;--danger:#d93025;--warn:#f9ab00;--bg:#f4f6fb;--text:#1e293b;--text-muted:#64748b;--border:#e2e8f0;--header-h:56px;}
@@ -174,8 +175,10 @@ window.onload=async()=>{
     if(currentUser.uid){ const bs=await window.db.collection('lineBindings').doc(currentUser.uid).get(); isBound=bs.exists; }
     else { const qq=await window.db.collection('lineBindings').where('empName','==',currentUser.empName).limit(1).get(); isBound=!qq.empty; }
   }catch(e){}
-  // 讀打卡提醒偏好
-  try{ const rp=await window.db.collection('clockRemindPrefs').doc(currentUser.empName).get(); if(rp.exists){ const d=rp.data()||{}; remindPref={inBefore:Number(d.inBefore)||0, outRemind:!!d.outRemind}; } }catch(e){}
+  // 讀打卡提醒偏好（暫停期間不顯示設定，省一次讀取）
+  if(!CLOCK_REMIND_SUSPENDED){
+    try{ const rp=await window.db.collection('clockRemindPrefs').doc(currentUser.empName).get(); if(rp.exists){ const d=rp.data()||{}; remindPref={inBefore:Number(d.inBefore)||0, outRemind:!!d.outRemind}; } }catch(e){}
+  }
   await syncServerTime();
   refreshGeoPerm();   // 讀定位權限狀態，供診斷顯示
   hideLoading();
@@ -357,8 +360,8 @@ async function loadToday(){
         if(r.day!==dayName) return;
         const mine=(r.name===currentUser.empName) || (r.supportEmp===`${currentUser.store}-${currentUser.empName}` && r.approvalStatus==='approved');
         if(!mine) return;
-        const m=String(r.shift||'').match(/^(\d{1,2})-(\d{1,2})$/);
-        if(m) todayShifts.push({shift:r.shift,start:+m[1],end:+m[2]});
+        // 兩頭班一筆記錄會有多段；跨夜的 end 已推成 >24（見 shift-utils.js）
+        parseShiftSegs(r.shift).forEach(g=>todayShifts.push({shift:r.shift,start:g.startH,end:g.endH}));
       });
     }
   }catch(e){}
@@ -374,10 +377,11 @@ async function loadToday(){
         if(r.day!==dn) return;
         const mine=(r.name===currentUser.empName)||(r.supportEmp===`${currentUser.store}-${currentUser.empName}`&&r.approvalStatus==='approved');
         if(!mine) return;
-        const m=String(r.shift||'').match(/^(\d{1,2})-(\d{1,2})$/); if(!m) return;
-        const a=+m[1],b=+m[2],dur=(b<=a?b+24:b)-a;
-        const startMs=new Date(`${dss}T${String(a).padStart(2,'0')}:00:00+08:00`).getTime();
-        candShifts.push({shift:r.shift,shiftDate:dss,startMs,endMs:startMs+dur*3600000});
+        parseShiftSegs(r.shift).forEach(g=>{   // 兩頭班：每段各自成為一個候選
+          const startMs=shiftTimeMs(dss,g.startH);
+          if(!isFinite(startMs)) return;
+          candShifts.push({shift:r.shift,shiftDate:dss,startMs,endMs:startMs+g.durH*3600000});
+        });
       });
     }
   }catch(e){}
@@ -386,11 +390,10 @@ async function loadToday(){
 // 未收上班的合理補打期限：該班排定下班 +4 小時（夜班照跨日算）；查不到班別則打卡後 12 小時。
 // 超過即視為缺卡呆帳，不再要求打下班（否則隔天按鈕會卡在「下班」）。
 function openInDeadline(p){
-  const m=String(p.shift||'').match(/^(\d{1,2})-(\d{1,2})$/);
-  if(m && p.shiftDate){
-    const a=+m[1], b=+m[2], dur=(b<=a?b+24:b)-a;
-    const st=new Date(`${p.shiftDate}T${String(a).padStart(2,'0')}:00:00+08:00`).getTime();
-    if(isFinite(st)) return st+(dur+4)*3600000;
+  const sp=shiftSpan(p.shift);   // 兩頭班取最後一段的下班時刻
+  if(sp && p.shiftDate){
+    const endMs=shiftTimeMs(p.shiftDate,sp.endH);
+    if(isFinite(endMs)) return endMs+4*3600000;
   }
   return (p.tsMs||Date.parse(p.deviceTs||'')||0)+12*3600000;
 }
@@ -400,11 +403,16 @@ function nextAction(){
   // 依「昨日+今日時間序列配對」結果：尚有未打下班的上班(含跨日夜班) → 下班；否則 上班
   return openPunch ? '下班' : '上班';
 }
-function nearestShiftByStart(nowMin){ let best=null; todayShifts.forEach(s=>{const d=Math.abs(s.start*60-nowMin);if(!best||d<best.d)best={s,d};}); return best?best.s:null; }
-function nearestShiftByEnd(nowMin){ let best=null; todayShifts.forEach(s=>{let e=s.end*60;if(s.end<=s.start)e+=1440;const d=Math.abs(e-nowMin);if(!best||d<best.d)best={s,d};}); return best?best.s:null; }
+
+// 🔕 打卡提醒全面暫停（2026-08-17）：LINE 官方帳號免費方案只有 200 則/月，
+//    光打卡提醒(10 人 × 上下班 × 全月)就吃掉遠超額度，導致薪資/班表等重要通知全被擠掉。
+//    要恢復：這裡與 functions/index.js 的 CLOCK_REMIND_SUSPENDED 一起改回 false 並重新部署。
+//    （員工既有的 clockRemindPrefs 偏好保留不動，恢復後照舊生效。）
+const CLOCK_REMIND_SUSPENDED = true;
 
 // 打卡提醒偏好：寫 clockRemindPrefs/{empName}，排程 cron 依排班時間發 LINE
 async function saveRemindPref(){
+  if(CLOCK_REMIND_SUSPENDED) return;
   const on=document.getElementById('remIn').checked;
   let x=parseInt(document.getElementById('remInMin').value,10); if(!(x>0))x=10; if(x>30)x=30;
   document.getElementById('remInMin').value=x;
@@ -509,6 +517,14 @@ function render(){
     <button onclick="window.location.href='my-attendance.html'" style="flex:1;padding:11px;background:#eef2ff;color:#4338ca;border:none;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;">📋 我的出勤</button>
     <button onclick="openReqModal()" style="flex:1;padding:11px;background:#fff7ed;color:#c2410c;border:1.5px solid #fed7aa;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;">📝 補登／修改</button>
   </div>
+  ${CLOCK_REMIND_SUSPENDED?`
+  <div class="card" style="padding:14px;">
+    <div style="font-size:13px;font-weight:800;color:var(--text-muted);margin-bottom:8px;">🔔 打卡提醒</div>
+    <div style="background:#fff7ed;border:1.5px solid #fed7aa;border-radius:10px;padding:12px;font-size:13px;font-weight:700;color:#c2410c;line-height:1.7;">
+      因使用人數過多，超出免費用量，全面暫停使用
+    </div>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:8px;line-height:1.5;">※ 其他通知（缺卡、班表、薪資）不受影響。</div>
+  </div>`:`
   <div class="card" style="padding:14px;">
     <div style="font-size:13px;font-weight:800;color:var(--text-muted);margin-bottom:10px;">🔔 打卡提醒（依你的排班時間 LINE 通知）</div>
     <label style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;margin-bottom:10px;flex-wrap:wrap;">
@@ -520,7 +536,7 @@ function render(){
       下班時間提醒下班打卡
     </label>
     <div style="font-size:11px;color:var(--text-muted);margin-top:8px;line-height:1.5;">※ 上班前分鐘數上限 30 分。需綁定 LINE 才收得到；未排班的日子不提醒。</div>
-  </div>
+  </div>`}
   ${todayPunches.length?`<div class="card"><div style="font-size:13px;font-weight:800;color:var(--text-muted);margin-bottom:8px;">今日打卡</div>${plist}</div>`:''}
   <div style="padding:2px 10px 16px;">
     <div style="font-size:11.5px;font-weight:800;color:var(--text-muted);margin-bottom:5px;">💡 忘記打卡怎麼辦</div>

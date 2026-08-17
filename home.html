@@ -17,6 +17,7 @@
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-functions.js"></script>
 <script src="firebase-init.js"></script>
 <script src="auth.js"></script>
+<script src="shift-utils.js"></script>
 <style>
 /* ===== RESET & BASE ===== */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1378,8 +1379,7 @@ async function updateHomeClockStatus(){
       if(r.day!==dayName) return;
       const mine=(r.name===emp)||(r.supportEmp===`${store}-${emp}`&&r.approvalStatus==='approved');
       if(!mine) return;
-      const m=String(r.shift||'').match(/^(\d{1,2})-(\d{1,2})$/); if(!m) return;
-      shifts.push({shift:r.shift, startMs:new Date(`${dss}T${String(+m[1]).padStart(2,'0')}:00:00+08:00`).getTime()});
+      parseShiftSegs(r.shift).forEach(g=>shifts.push({shift:r.shift, startMs:shiftTimeMs(dss,g.startH)}));
     });
     // 今日打卡
     let nIn=0,nOut=0;

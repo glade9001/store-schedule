@@ -161,21 +161,44 @@ const crypto = require("crypto");
 const LINE_TOKEN = defineSecret("LINE_CHANNEL_ACCESS_TOKEN");
 const LINE_SECRET = defineSecret("LINE_CHANNEL_SECRET");
 
+// LINE API 呼叫的共同善後：非 2xx 也要出聲。
+// ⚠️ 舊版只有 .catch()，那只接得到網路層錯誤 —— HTTP 429（免費方案 200 則/月用罄）
+//    完全不會 throw，於是「通知整批消失」卻連一行 log 都沒有（2026-08-17 才發現）。
+//    額度類錯誤另外寫 notifyFailures，讓人查得到是哪天開始斷的。
+async function lineCall(kind, url, payload, token, meta) {
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) return true;
+    const body = await res.text().catch(() => "");
+    console.error(`${kind} 失敗 HTTP ${res.status}`, body.slice(0, 300), meta || "");
+    // 429=額度用罄／頻率限制，401/403=金鑰失效 → 這幾種是「全站性」故障，留檔備查
+    if ([401, 403, 429].includes(res.status)) {
+      await admin.firestore().collection("notifyFailures").add({
+        kind, status: res.status, body: body.slice(0, 500),
+        to: (meta && meta.to) || null, at: new Date().toISOString(),
+        ts: admin.firestore.FieldValue.serverTimestamp(),
+      }).catch(() => {});
+    }
+    return false;
+  } catch (e) {
+    console.error(`${kind} 失敗（網路層）`, e);
+    return false;
+  }
+}
+
 async function lineReply(replyToken, text, token) {
-  await fetch("https://api.line.me/v2/bot/message/reply", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ replyToken, messages: [{ type: "text", text }] }),
-  }).catch((e) => console.error("lineReply 失敗", e));
+  return lineCall("lineReply", "https://api.line.me/v2/bot/message/reply",
+    { replyToken, messages: [{ type: "text", text }] }, token, null);
 }
 
 // 推播給單一 lineUserId（供之後事件通知共用）
 async function linePush(lineUserId, text, token) {
-  await fetch("https://api.line.me/v2/bot/message/push", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ to: lineUserId, messages: [{ type: "text", text }] }),
-  }).catch((e) => console.error("linePush 失敗", e));
+  return lineCall("linePush", "https://api.line.me/v2/bot/message/push",
+    { to: lineUserId, messages: [{ type: "text", text }] }, token, { to: lineUserId });
 }
 
 exports.lineWebhook = onRequest(
@@ -827,14 +850,48 @@ function weekStrOfTp(tpDate) {
   const w = Math.round((mon - week1MondayUTC(yr)) / 604800000) + 1;
   return `${yr}-W${w < 10 ? "0" + w : w}`;
 }
+// ===== 班別字串解析（與前端 shift-utils.js 同語意，改一邊請一併改另一邊）=====
+// 文法：「開始-結束」，小時可帶 .25/.5/.75；兩頭班用逗號分隔；結束 <= 開始 視為跨夜（endH 推 >24）。
+// ⚠️ 舊版各處自己寫 /^(\d{1,2})-(\d{1,2})$/，半點班(23.5-07.5、7.5-15.5) 全部匹配失敗被當成沒排班，
+//    導致 attendance.shift 寫空字串、缺卡與打卡提醒漏發。三店約一成班別中招（2026-08-17 修正）。
+function parseShiftSegs(shiftStr) {
+  const s = String(shiftStr == null ? "" : shiftStr).trim();
+  if (!s || !/\d/.test(s)) return [];
+  const out = [];
+  for (const seg of s.split(",")) {
+    const m = seg.trim().match(/^(\d{1,2}(?:\.\d+)?)-(\d{1,2}(?:\.\d+)?)$/);
+    if (!m) return []; // 任一段不合法 → 整串都不當成時間班別
+    const startH = parseFloat(m[1]);
+    let endH = parseFloat(m[2]);
+    if (!isFinite(startH) || !isFinite(endH)) return [];
+    if (endH <= startH) endH += 24; // 跨夜
+    out.push({ startH, endH, durH: endH - startH });
+  }
+  return out;
+}
+// 第一段上班 / 最後一段下班的時刻（小時；跨夜 endH > 24）；非時間班別回 null
+function shiftSpan(shiftStr) {
+  const segs = parseShiftSegs(shiftStr);
+  return segs.length ? { startH: segs[0].startH, endH: segs[segs.length - 1].endH } : null;
+}
+// 下班是否落在隔天（含 16-00 這種正好 24:00 收班的，與舊行為 end <= start 一致）
+function shiftIsOvernight(shiftStr) {
+  const sp = shiftSpan(shiftStr);
+  return !!sp && sp.endH >= 24;
+}
+// 台北時區絕對毫秒：dateStr 當日 00:00 起算第 hours 小時（可含小數、可 > 24）
+function shiftTimeMs(dateStr, hours) {
+  const base = Date.parse(`${dateStr}T00:00:00+08:00`);
+  return isFinite(base) ? base + hours * 3600000 : NaN;
+}
+
 // 未收上班的合理補打期限：該班排定下班 +4 小時（夜班跨日照算）；查不到班別則打卡後 12 小時。
 // 超過即視為缺卡呆帳，不再拿來配對今天的下班（否則會把今天的班誤掛到昨天）。
 function openInDeadlineMs(p) {
-  const m = String(p.shift || "").match(/^(\d{1,2})-(\d{1,2})$/);
-  if (m && p.shiftDate) {
-    const a = +m[1], b = +m[2], dur = (b <= a ? b + 24 : b) - a;
-    const st = Date.parse(`${p.shiftDate}T${String(a).padStart(2, "0")}:00:00+08:00`);
-    if (isFinite(st)) return st + (dur + 4) * 3600000;
+  const sp = shiftSpan(p.shift); // 兩頭班取最後一段的下班
+  if (sp && p.shiftDate) {
+    const endMs = shiftTimeMs(p.shiftDate, sp.endH);
+    if (isFinite(endMs)) return endMs + 4 * 3600000;
   }
   return (p.tsMs || Date.parse(p.deviceTs || "") || 0) + 12 * 3600000;
 }
@@ -1526,14 +1583,13 @@ exports.scheduledMissingClock = onSchedule(
       const esSnap = await db.collection("stores").doc(store).collection("employees").get().catch(() => null);
       const statusMap = {}; if (esSnap) esSnap.forEach((d) => { const e = d.data() || {}; statusMap[d.id] = { status: e.status || "", eff: e.retireDate || e.transferDate || "" }; });
       // 排除派出店的「支援X」顯示記錄(loc=支援)＝跨店去重，只認接收店 supportEmp 那筆
-      const shifts = recs.filter((r) => r.day === dayName && /^\d{1,2}-\d{1,2}$/.test(String(r.shift || "")) && !String(r.location || "").startsWith("支援"));
+      const shifts = recs.filter((r) => r.day === dayName && parseShiftSegs(r.shift).length && !String(r.location || "").startsWith("支援"));
       if (!shifts.length) continue;
       const attSnap = await db.collection("stores").doc(store).collection("attendance").where("date", "==", ds).get().catch(() => null);
       const punches = []; if (attSnap) attSnap.forEach((d) => punches.push(d.data()));
       for (const sh of shifts) {
-        const m = String(sh.shift).match(/^(\d{1,2})-(\d{1,2})$/);
-        if (+m[2] <= +m[1]) continue; // 跨日班先略過
-        if (nowMin < (+m[2]) * 60 + 120) continue; // 未到「結束後 2 小時」
+        if (shiftIsOvernight(sh.shift)) continue; // 跨日班先略過（下面昨日那段處理）
+        if (nowMin < shiftSpan(sh.shift).endH * 60 + 120) continue; // 未到「結束後 2 小時」
         const isSupport = sh.supportEmp && sh.approvalStatus === "approved";
         const emp = (sh.name && !String(sh.name).startsWith("🆘")) ? sh.name
           : (isSupport ? sh.supportEmp.slice(sh.supportEmp.indexOf("-") + 1) : "");
@@ -1572,13 +1628,13 @@ exports.scheduledMissingClock = onSchedule(
       const wkY = weekStrOfTp(yTp);
       const wdY = (wkY === wk) ? wd : await db.collection("stores").doc(store).collection("weeks").doc(wkY).get().catch(() => null);
       const recsY = (wdY && wdY.exists) ? (wdY.data().records || []) : [];
-      const yShifts = recsY.filter((r) => r.day === yName && !String(r.location || "").startsWith("支援") && (() => { const mm = String(r.shift || "").match(/^(\d{1,2})-(\d{1,2})$/); return mm && +mm[2] <= +mm[1]; })());
+      const yShifts = recsY.filter((r) => r.day === yName && !String(r.location || "").startsWith("支援") && shiftIsOvernight(r.shift));
       if (yShifts.length) {
         const attSnapY = await db.collection("stores").doc(store).collection("attendance").where("date", "==", dsY).get().catch(() => null);
         const punchesY = []; if (attSnapY) attSnapY.forEach((d) => punchesY.push(d.data()));
         for (const sh of yShifts) {
-          const mm = String(sh.shift).match(/^(\d{1,2})-(\d{1,2})$/);
-          if (nowMin < (+mm[2]) * 60 + 120) continue; // 今天還沒到「下班+2 小時」
+          // 跨日班的下班落在今天：endH 已推 >24，減回 24 得今天的時刻
+          if (nowMin < (shiftSpan(sh.shift).endH - 24) * 60 + 120) continue; // 今天還沒到「下班+2 小時」
           const isSupport = sh.supportEmp && sh.approvalStatus === "approved";
           const emp = (sh.name && !String(sh.name).startsWith("🆘")) ? sh.name
             : (isSupport ? sh.supportEmp.slice(sh.supportEmp.indexOf("-") + 1) : "");
@@ -1613,9 +1669,14 @@ exports.scheduledMissingClock = onSchedule(
 
 // 打卡提醒（員工自行開啟）：依排班時間，上班前 X 分鐘 / 下班時間 LINE 提醒打卡。
 // 偏好存 clockRemindPrefs/{empName} = {inBefore:分鐘(0=關), outRemind:bool}。每 5 分跑一次，5 分視窗+去重。
+// 🔕 打卡提醒全面暫停（2026-08-17）：LINE 免費方案 200 則/月，光這支就吃掉遠超額度，
+//    把薪資/班表/缺卡等重要通知全擠掉。要恢復：與 clock.html 的同名常數一起改回 false 再部署。
+const CLOCK_REMIND_SUSPENDED = true;
+
 exports.scheduledClockRemind = onSchedule(
   { schedule: "*/5 * * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN] },
   async () => {
+    if (CLOCK_REMIND_SUSPENDED) return; // ← 暫停中：連 Firestore 都不讀
     const db = admin.firestore();
     if (await maintenanceOn(db)) return;
     const cfg = await db.collection("settings").doc("globalConfig").get().catch(() => null);
@@ -1637,7 +1698,7 @@ exports.scheduledClockRemind = onSchedule(
       if (!storeClockOn(conf.clockIn || {}, store)) continue; // 全面開放下本店未開啟打卡 → 不提醒
       const wd = await db.collection("stores").doc(store).collection("weeks").doc(wk).get().catch(() => null);
       if (!wd || !wd.exists) continue;
-      const recs = (wd.data().records || []).filter((r) => r.day === dayName && /^\d{1,2}-\d{1,2}$/.test(String(r.shift || "")) && !String(r.location || "").startsWith("支援"));
+      const recs = (wd.data().records || []).filter((r) => r.day === dayName && parseShiftSegs(r.shift).length && !String(r.location || "").startsWith("支援"));
       if (!recs.length) continue;
       const esSnap = await db.collection("stores").doc(store).collection("employees").get().catch(() => null);
       const statusMap = {}; if (esSnap) esSnap.forEach((d) => { const e = d.data() || {}; statusMap[d.id] = { status: e.status || "", eff: e.retireDate || e.transferDate || "" }; });
@@ -1653,10 +1714,10 @@ exports.scheduledClockRemind = onSchedule(
         const homeStore = isSupport ? r.supportEmp.slice(0, r.supportEmp.indexOf("-")) : store;
         const info = await resolveEmpInfo(db, emp);
         if (!canClockPerm(stage, info.permission)) continue;
-        const m = String(r.shift).match(/^(\d{1,2})-(\d{1,2})$/);
-        const a = +m[1], b = +m[2], dur = (b <= a ? b + 24 : b) - a;
-        const startMs = Date.parse(`${ds}T${String(a).padStart(2, "0")}:00:00+08:00`);
-        const endMs = startMs + dur * 3600000;
+        // 兩頭班：提醒只發整天的第一次上班與最後一次下班（去重旗標本來就以整串班別為 key）
+        const sp = shiftSpan(r.shift);
+        const startMs = shiftTimeMs(ds, sp.startH);
+        const endMs = shiftTimeMs(ds, sp.endH);
         const inBefore = Number(pref.inBefore) || 0;
         const wantIn = inBefore > 0 && nowMs >= startMs - inBefore * 60000 && nowMs < startMs - inBefore * 60000 + WIN;
         const wantOut = !!pref.outRemind && nowMs >= endMs && nowMs < endMs + WIN;
@@ -1737,11 +1798,11 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
       if (r.day !== dn) return;
       const mine = (r.name === empName) || (r.supportEmp === `${homeStore}-${empName}` && r.approvalStatus === "approved");
       if (!mine) return;
-      const m = String(r.shift || "").match(/^(\d{1,2})-(\d{1,2})$/);
-      if (!m) return;
-      const a = +m[1], b = +m[2], dur = (b <= a ? b + 24 : b) - a;
-      const startMs = Date.parse(`${dss}T${String(a).padStart(2, "0")}:00:00+08:00`);
-      out.push({ shift: r.shift, shiftDate: dss, startMs, endMs: startMs + dur * 3600000 });
+      parseShiftSegs(r.shift).forEach((g) => { // 兩頭班：每段各自成為一個候選
+        const startMs = shiftTimeMs(dss, g.startH);
+        if (!isFinite(startMs)) return;
+        out.push({ shift: r.shift, shiftDate: dss, startMs, endMs: startMs + g.durH * 3600000 });
+      });
     });
     return out;
   };
@@ -1967,8 +2028,8 @@ exports.clockPunchOffline = onCall({ region: "asia-east1", secrets: [LINE_TOKEN]
     if (r.day !== dayName) return;
     const mine = (r.name === empName) || (r.supportEmp === `${homeStore}-${empName}` && r.approvalStatus === "approved");
     if (!mine) return;
-    const m = String(r.shift || "").match(/^(\d{1,2})-(\d{1,2})$/);
-    if (m) shifts.push({ shift: r.shift, start: +m[1], end: +m[2] });
+    // 兩頭班一筆記錄會有多段；跨夜的 end 已推成 >24
+    parseShiftSegs(r.shift).forEach((g) => shifts.push({ shift: r.shift, start: g.startH, end: g.endH }));
   });
   const tol = (clk.tolByStore && clk.tolByStore[atStore] != null) ? clk.tolByStore[atStore]
             : (clk.lateToleranceMin != null ? clk.lateToleranceMin : 10);
@@ -1979,8 +2040,12 @@ exports.clockPunchOffline = onCall({ region: "asia-east1", secrets: [LINE_TOKEN]
     matchedShift = best.s.shift; const late = nowMin - best.s.start * 60;
     if (late > tol) { status = "遲到"; lateMin = late; } else if (late > 0) { status = "警告"; lateMin = late; }
   } else {
-    let best = null; shifts.forEach((s) => { let e = s.end * 60; if (s.end <= s.start) e += 1440; const dd = Math.abs(e - nowMin); if (!best || dd < best.d) best = { s, d: dd }; });
-    matchedShift = best.s.shift; let endMin = best.s.end * 60; if (best.s.end <= best.s.start) endMin += 1440; let cur = nowMin; if (best.s.end <= best.s.start && punchTp.getUTCHours() < best.s.start) cur += 1440;
+    // end 已是「當日 00:00 起算」的分鐘基準（跨夜 > 1440），不必再自己補 1440
+    let best = null; shifts.forEach((s) => { const dd = Math.abs(s.end * 60 - nowMin); if (!best || dd < best.d) best = { s, d: dd }; });
+    matchedShift = best.s.shift;
+    const endMin = best.s.end * 60;
+    // 跨夜班在隔天凌晨打下班：now 落在班別開始之前 → 推到隔天再比
+    let cur = nowMin; if (best.s.end >= 24 && nowMin < best.s.start * 60) cur += 1440;
     if (cur < endMin) status = "早退";
   }
   const info = await resolveEmpInfo(db, empName);
