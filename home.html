@@ -752,6 +752,9 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
         </div>
       </div>
 
+      <!-- 缺卡／出勤異常提醒：近 7 天，資料由 updateHomeAttnAlert() 填入（沒事就整塊隱藏） -->
+      <div id="homeAttnAlert" style="display:none; margin-bottom:12px;"></div>
+
       <div id="announceBannerWrap" style="display:none; margin-bottom:10px;">
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
           <div style="font-size:11px; font-weight:800; color:var(--text-muted); letter-spacing:0.5px;">📢 公告事項</div>
@@ -1393,6 +1396,70 @@ async function updateHomeClockStatus(){
     if(Date.now()>=up.startMs){ setRed('⚠️',`你今天 ${up.shift} 的班已開始，還沒打上班卡！`); }
     else { setGreen('🕐',`今天 ${up.shift} 上班，記得準時打卡`); }
   }catch(e){}
+}
+
+// ===== 首頁缺卡／出勤異常提醒（近 7 天）=====
+// 2026-08-17 新增。LINE 免費額度只有 200 則/月，店長端的即時缺卡/異常通知已改成每週一彙整，
+// 中間幾天就靠這張卡補上即時性——首頁顯示不花額度，而且永遠是最新的。
+// 成本控制：只查近 7 天、一次查詢同時算「自己的」與「全店的」（避免 empName 等值 + date 範圍
+// 需要複合索引），結果在 sessionStorage 快取 5 分鐘。
+const ATTN_CACHE_MIN = 5;
+async function updateHomeAttnAlert(){
+  const box=document.getElementById('homeAttnAlert');
+  if(!box) return;
+  const store=currentUser.store, emp=currentUser.empName;
+  if(!store||!emp) return;
+  const isLead=['manager','owner','admin'].includes(currentUser.permission);
+  const ck=`attnAlert:${store}:${emp}`;
+  let data=null;
+  try{
+    const c=JSON.parse(sessionStorage.getItem(ck)||'null');
+    if(c && Date.now()-c.at < ATTN_CACHE_MIN*60000) data=c;
+  }catch(e){}
+  if(!data){
+    const from=new Date(Date.now()-6*86400000);
+    const fromStr=`${from.getFullYear()}-${String(from.getMonth()+1).padStart(2,'0')}-${String(from.getDate()).padStart(2,'0')}`;
+    try{
+      const snap=await window.db.collection('stores').doc(store).collection('attendance')
+        .where('date','>=',fromStr).get();
+      let mine=0, stMiss=0, stAnom=0;
+      snap.forEach(d=>{
+        const r=d.data()||{};
+        if(r.voided) return;
+        const isMiss=(r.status==='缺卡'||r.type==='缺卡');
+        const isAnom=(r.status==='遲到'||r.status==='早退');
+        if(isMiss) stMiss++; else if(isAnom) stAnom++;
+        if(isMiss && r.empName===emp) mine++;
+      });
+      data={at:Date.now(), mine, stMiss, stAnom};
+      sessionStorage.setItem(ck, JSON.stringify(data));
+    }catch(e){ return; }   // 查不到就安靜略過，不要卡住首頁
+  }
+  const rows=[];
+  if(data.mine>0){
+    rows.push(`<div onclick="window.location.href='my-attendance.html'" style="display:flex;align-items:center;gap:12px;padding:13px 15px;background:linear-gradient(135deg,#ea4335,#c5221f);border-radius:14px;cursor:pointer;box-shadow:0 3px 14px rgba(234,67,53,.35);">
+      <div style="font-size:26px;line-height:1;">🔴</div>
+      <div style="flex:1;">
+        <div style="font-size:15.5px;font-weight:900;color:#fff;">你有 ${data.mine} 筆缺卡未補登</div>
+        <div style="font-size:12px;color:rgba(255,255,255,.92);margin-top:2px;">近 7 天・影響工時與薪資，請盡快補登 →</div>
+      </div>
+    </div>`);
+  }
+  if(isLead && (data.stMiss>0||data.stAnom>0)){
+    const parts=[];
+    if(data.stMiss>0) parts.push(`${data.stMiss} 筆缺卡`);
+    if(data.stAnom>0) parts.push(`${data.stAnom} 筆出勤異常`);
+    rows.push(`<div onclick="window.location.href='attendance.html'" style="display:flex;align-items:center;gap:12px;padding:13px 15px;background:#fff7ed;border:1.5px solid #fed7aa;border-radius:14px;cursor:pointer;${data.mine>0?'margin-top:8px;':''}">
+      <div style="font-size:24px;line-height:1;">📋</div>
+      <div style="flex:1;">
+        <div style="font-size:14.5px;font-weight:900;color:#c2410c;">${store} 近 7 天 ${parts.join('、')}</div>
+        <div style="font-size:12px;color:#9a3412;margin-top:2px;">請提醒員工補打卡／補紀錄 →</div>
+      </div>
+    </div>`);
+  }
+  if(!rows.length){ box.style.display='none'; box.innerHTML=''; return; }
+  box.innerHTML=rows.join('');
+  box.style.display='';
 }
 
 // ===== 登入系統 =====
@@ -2170,7 +2237,7 @@ async function initApp() {
     const cc=document.getElementById('homeClockCard');
     if(cc){
       if(stage==='off'){ cc.style.display='none'; }
-      else if(okPerm && storeOn){ cc.style.display=''; updateHomeClockStatus(); }
+      else if(okPerm && storeOn){ cc.style.display=''; updateHomeClockStatus(); updateHomeAttnAlert(); }
       else {
         cc.style.display='';
         cc.onclick=null; cc.removeAttribute('onclick'); cc.style.cursor='default';
