@@ -1026,7 +1026,7 @@ async function doSettle() {
     // 寫入 log
     const ym = today().slice(0,7);
     await window.db.collection('employees').doc(empName).collection('leaveLog').doc(ym).set({
-      records: firebase.firestore.FieldValue.arrayUnion({ date:today(), type:'settle', days:remaining, note:`特休薪資結算（${b.label||b.note}）`, savedBy:currentUser.displayName||currentUser.empName })
+      records: firebase.firestore.FieldValue.arrayUnion({ ts: Date.now(), date:today(), type:'settle', days:remaining, note:`特休薪資結算（${b.label||b.note}）`, savedBy:currentUser.displayName||currentUser.empName })
     },{ merge:true });
     showToast('✅ 已結算，請至薪資系統確認');
     closeModal('settleCarryModal');
@@ -1107,7 +1107,7 @@ async function doCompSettle() {
     // 寫入 log
     const ym = today().slice(0,7);
     await window.db.collection('employees').doc(empName).collection('leaveLog').doc(ym).set({
-      records: firebase.firestore.FieldValue.arrayUnion({ date:today(), type:'settle', days:data.remaining, note:`補休薪資結算（${compYear}年度）`, savedBy:currentUser.displayName||currentUser.empName })
+      records: firebase.firestore.FieldValue.arrayUnion({ ts: Date.now(), date:today(), type:'settle', days:data.remaining, note:`補休薪資結算（${compYear}年度）`, savedBy:currentUser.displayName||currentUser.empName })
     },{ merge:true });
     showToast('✅ 補休已結算，請至薪資系統確認');
     closeModal('compSettleModal');

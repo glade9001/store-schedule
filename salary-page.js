@@ -575,7 +575,7 @@ async function confirmLeaveSettle() {
       const carried = compDataMap[empName]?.carried;
       if(curRem > 0) {
         await window.db.collection('employees').doc(empName).collection('leaveLog').doc(currentMonth).set({
-          records: firebase.firestore.FieldValue.arrayUnion({
+          records: firebase.firestore.FieldValue.arrayUnion({ ts: Date.now(),
             date: now, type:'comp_cancel', source:'settle', days: curRem,
             note: `${note}：補休 ${curRem} 天折發工資`,
             savedBy: currentUser.displayName || currentUser.empName
@@ -594,7 +594,7 @@ async function confirmLeaveSettle() {
     }
     // 3) leaveLog 留痕（金額 0 也要留）
     await window.db.collection('employees').doc(empName).collection('leaveLog').doc(currentMonth).set({
-      records: firebase.firestore.FieldValue.arrayUnion({
+      records: firebase.firestore.FieldValue.arrayUnion({ ts: Date.now(),
         date:now, type:'settle', days:c.totalDays,
         note:`${note}：特休 ${c.annualDays} 天（${c.basis}）、補休 ${c.compDays} 天，計 $${amount.toLocaleString()}`
           + (c.uncovered>0 ? `｜其中 ${c.uncovered} 天無對應批次（該年度批次未發放）` : '')
@@ -713,6 +713,11 @@ async function doUnworkedAction(empName, action, maxDays) {
   await _doGrantUnworked(empName, rec, emp, maxDays);
 }
 
+// ⚠️ leaveLog 的每筆紀錄都要帶 ts（2026-08-29）：Firestore 的 arrayUnion **不會加入
+//    已存在的相同元素**。「發放→撤回→再發放」產生的 comp_earn 每個欄位都與第一筆一模一樣，
+//    會被靜默判定為重複而不加入 → 函式回報成功、帳本卻沒變、餘額停在 0。
+//    （實際踩到：使用者撤回後補發，畫面顯示「✅ 已發放」但補休仍是 0 天。）
+//    加上毫秒時間戳讓每筆天然唯一。
 /**
  * 本月「應休未休補休」目前的淨發放天數（發放 − 撤回）
  * ⚠️ 不能只看「有沒有 comp_earn」（2026-08-28 回報：收回後再發放，系統仍說已發放過）：
@@ -752,7 +757,7 @@ async function _doGrantUnworked(empName, rec, emp, days) {
   try {
     const year = currentMonth.split('-')[0];
     const logRef = window.db.collection('employees').doc(empName).collection('leaveLog').doc(currentMonth);
-    await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
+    await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({ ts: Date.now(),
       date: currentMonth + '-01', type: 'comp_earn', source: 'unworked', days,
       note: `${currentMonth.replace('-','年')}月 應休未休補休（應休${weekends.total}天，已休${actualOff}天，補休${days}天）`,
       savedBy: currentUser.displayName || currentUser.empName
@@ -825,7 +830,7 @@ async function confirmCompEarned(empName) {
       const year = currentMonth.split('-')[0];
       const logRef = window.db.collection('employees').doc(empName).collection('leaveLog').doc(currentMonth);
       const days = rec.unworkedCompDays || 0;
-      await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
+      await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({ ts: Date.now(),
         date: currentMonth + '-01', type: 'comp_cancel', source: 'unworked_revoke', days,
         note: `${currentMonth.replace('-','年')}月 應休未休補休撤回（${days}天）`,
         savedBy: currentUser.displayName || currentUser.empName
@@ -868,7 +873,7 @@ async function confirmCompEarned(empName) {
     const year = currentMonth.split('-')[0];
     const logRef = window.db.collection('employees').doc(empName).collection('leaveLog').doc(currentMonth);
     // 寫入應休未休補休（含 source 標記防重複）
-    await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
+    await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({ ts: Date.now(),
       date: currentMonth + '-01', type: 'comp_earn', source: 'unworked', days: shortage,
       note: `${currentMonth.replace('-','年')}月 應休未休補休（應休${weekends.total}天，已休${actualOff}天，補休${shortage}天）`,
       savedBy: currentUser.displayName || currentUser.empName
@@ -1010,7 +1015,7 @@ async function doEncash(empName, type, maxDays, dailyRate) {
       await compRef2.set({ earned: cd2.earned||0, used: cd2.earned||0 }, { merge: true });
     }
     await leaveRef.set(leaveData, { merge: true });
-    await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
+    await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({ ts: Date.now(),
       date: currentMonth + '-31', type: type === 'annual' ? 'annual_encash' : 'comp_encash',
       days, amount: days * dailyRate,
       note: `年度折現 $${(days*dailyRate).toLocaleString()}`, savedBy: currentUser.displayName || currentUser.empName
