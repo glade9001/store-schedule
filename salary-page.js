@@ -615,16 +615,14 @@ async function doUnworkedAction(empName, action, maxDays) {
   const emp = empList.find(e => e.name === empName);
   if(!rec || !emp) return;
 
-  // 🚫 當月還沒結束就不能處理應休未休（用戶 2026-08-28 定案）
-  // Why：應休未休＝當月六日應休天數 − 實際已休天數，月底前「已休天數」還會變，
-  //      這時發出去的天數本來就不準。而且補休是立即入帳、員工當下就能拿去劃休
-  //      （leave-request.html 讀同一份 comp/{年}），事後想撤回可能人家已經排掉班了。
-  if(!salaryMonthEnded(currentMonth)) {
-    alert(`${currentMonth} 還沒結束，現在不能處理應休未休補休。\n\n`
-      + `應休未休 = 當月六日應休天數 − 實際已休天數，月底前「已休天數」還會變動，現在算出來的不準。\n`
-      + `而且補休一發放員工立即可見、當下就能拿去劃休，事後要撤回可能班已經排掉了。\n\n`
-      + `請於 ${currentMonth} 結束後再處理。`);
-    return;
+  // ⚠️ 月中處理是允許的（實務上會發生），但要讓人知道數字還會變、以及可以撤回。
+  //    不硬擋——2026-08-28 一度改成硬擋是誤解用戶意思，用戶要的是「允許＋配套」。
+  //    配套＝撤回機制（confirmCompEarned 的撤回分支，撤回後會清掉 unworkedAction 重新決定）。
+  if(action !== 'none' && !salaryMonthEnded(currentMonth)) {
+    if(!confirm(`${currentMonth} 還沒結束。\n\n`
+      + `應休未休 = 當月六日應休 − 實際已休，月底前「已休天數」還會變動，現在的天數可能不是最終值。\n`
+      + `補休一發放員工立即可見、當下就能拿去劃休。\n\n`
+      + `仍要現在發放嗎？（之後可在同一處「撤回」，撤回後需重新決定）`)) return;
   }
 
   if(action === 'none') {

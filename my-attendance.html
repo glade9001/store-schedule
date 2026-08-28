@@ -141,17 +141,18 @@ async function load(){
         window.db.collection('stores').doc(st).collection('attendanceRequests').where('empName','==',me).get().catch(()=>null)
       ]);
       if(aSnap) aSnap.forEach(d=>{ const r={id:d.id,_store:st,...d.data()}; if(String(r.shiftDate||r.date||'').startsWith(curMonth)) recs.push(r); });
-      if(rSnap) rSnap.forEach(d=>reqs.push({id:d.id,_store:st,...d.data()}));
+      // 依月份過濾，與上方的打卡紀錄一致（不然會一直累積、只看得到最近 10 筆）
+      // 以 targetDate（要更正的那一天）為準，缺漏才退回 createdAt
+      if(rSnap) rSnap.forEach(d=>{ const r={id:d.id,_store:st,...d.data()};
+        if(String(r.targetDate||r.createdAt||'').startsWith(curMonth)) reqs.push(r); });
     }));
   }catch(e){ if(list) list.innerHTML=`<div class="empty">讀取失敗：${e.message}</div>`; return; }
   // 我的補登/修改申請（近期＋狀態）
   let reqHtml='';
   if(reqs.length){
     reqs.sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
-    // ⚠️ 這一區刻意不套用上方的月份選擇（打卡紀錄才有套用）：申請的審核結果跨月才會回來，
-    //    依月份切掉會讓人以為申請不見了。但畫面上要講清楚，否則看起來像壞掉（2026-08-28 回報）。
-    reqHtml=`<div class="daycard" style="border:1.5px solid #cfe2ff;background:#f2f8ff;"><div class="dayhdr" style="color:#0369a1;">📝 我的補登/修改申請<span style="font-size:11px;font-weight:600;color:var(--text-muted);margin-left:6px;">不分月份 · 最近 ${Math.min(reqs.length,10)} 筆${reqs.length>10?`（共 ${reqs.length} 筆）`:''}</span></div>`+
-      reqs.slice(0,10).map(q=>{
+    reqHtml=`<div class="daycard" style="border:1.5px solid #cfe2ff;background:#f2f8ff;"><div class="dayhdr" style="color:#0369a1;">📝 我的補登/修改申請<span style="font-size:11px;font-weight:600;color:var(--text-muted);margin-left:6px;">${curMonth.replace('-','年')}月 · ${reqs.length} 筆</span></div>`+
+      reqs.map(q=>{
         const sc=q.status==='approved'?'s-ok':q.status==='rejected'?'s-bad':'s-warn';
         const stt=q.status==='approved'?'✅ 已核准':q.status==='rejected'?`❌ 已駁回${q.reviewNote?'：'+q.reviewNote:''}`:'⏳ 待審核';
         return `<div class="prow"><span class="meta" style="flex:1;font-weight:700;color:var(--text);">${q.targetDate} ${q.punchType} ${q.requestedTime} @${q.atStore}</span><span class="pstat ${sc}">${stt}</span></div>`;
