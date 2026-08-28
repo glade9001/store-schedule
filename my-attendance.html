@@ -148,7 +148,9 @@ async function load(){
   let reqHtml='';
   if(reqs.length){
     reqs.sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
-    reqHtml=`<div class="daycard" style="border:1.5px solid #cfe2ff;background:#f2f8ff;"><div class="dayhdr" style="color:#0369a1;">📝 我的補登/修改申請</div>`+
+    // ⚠️ 這一區刻意不套用上方的月份選擇（打卡紀錄才有套用）：申請的審核結果跨月才會回來，
+    //    依月份切掉會讓人以為申請不見了。但畫面上要講清楚，否則看起來像壞掉（2026-08-28 回報）。
+    reqHtml=`<div class="daycard" style="border:1.5px solid #cfe2ff;background:#f2f8ff;"><div class="dayhdr" style="color:#0369a1;">📝 我的補登/修改申請<span style="font-size:11px;font-weight:600;color:var(--text-muted);margin-left:6px;">不分月份 · 最近 ${Math.min(reqs.length,10)} 筆${reqs.length>10?`（共 ${reqs.length} 筆）`:''}</span></div>`+
       reqs.slice(0,10).map(q=>{
         const sc=q.status==='approved'?'s-ok':q.status==='rejected'?'s-bad':'s-warn';
         const stt=q.status==='approved'?'✅ 已核准':q.status==='rejected'?`❌ 已駁回${q.reviewNote?'：'+q.reviewNote:''}`:'⏳ 待審核';
