@@ -1606,7 +1606,12 @@ exports.onPunchResolveMissFlag = onDocumentWritten(
     const anchor = after.shiftDate || after.date;   // 缺卡標記的 date＝班別當天
     if (!emp || !anchor) return;
     const db = admin.firestore();
-    const attCol = db.collection("stores").doc(event.params.store).collection("attendance");
+    // ⚠️ event.params.store 對中文店名會是 latin1 亂碼（這就是 fixStoreName 存在的原因）。
+    //    直接拿來當路徑會指向不存在的店 → 查詢回空、不報錯 → trigger 每次都靜靜什麼都沒做。
+    //    2026-08-28 實際踩到：補登完成後缺卡標記完全沒被註銷，log 卻顯示執行成功。
+    //    優先用打卡紀錄自己帶的 atStore，退而求其次才修 params。（比照 onClockPunch）
+    const store = after.atStore || fixStoreName(event.params.store);
+    const attCol = db.collection("stores").doc(store).collection("attendance");
     // 跨日班的下班卡 date 是隔天（靠 shiftDate 回指班別當天），故兩天都要撈
     const snaps = await Promise.all([
       attCol.where("empName", "==", emp).where("date", "==", anchor).get(),
