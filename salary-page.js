@@ -603,10 +603,29 @@ function cancelUnworkedAction(empName) {
   }
 }
 
+/** 該薪資月是否已經結束（應休未休要等當月結束才算得準） */
+function salaryMonthEnded(ym) {
+  const now = new Date();
+  const todayYM = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  return todayYM > (ym || currentMonth);
+}
+
 async function doUnworkedAction(empName, action, maxDays) {
   const rec = getSalaryRecord(empName);
   const emp = empList.find(e => e.name === empName);
   if(!rec || !emp) return;
+
+  // 🚫 當月還沒結束就不能處理應休未休（用戶 2026-08-28 定案）
+  // Why：應休未休＝當月六日應休天數 − 實際已休天數，月底前「已休天數」還會變，
+  //      這時發出去的天數本來就不準。而且補休是立即入帳、員工當下就能拿去劃休
+  //      （leave-request.html 讀同一份 comp/{年}），事後想撤回可能人家已經排掉班了。
+  if(!salaryMonthEnded(currentMonth)) {
+    alert(`${currentMonth} 還沒結束，現在不能處理應休未休補休。\n\n`
+      + `應休未休 = 當月六日應休天數 − 實際已休天數，月底前「已休天數」還會變動，現在算出來的不準。\n`
+      + `而且補休一發放員工立即可見、當下就能拿去劃休，事後要撤回可能班已經排掉了。\n\n`
+      + `請於 ${currentMonth} 結束後再處理。`);
+    return;
+  }
 
   if(action === 'none') {
     // 不發放：直接標記
@@ -643,15 +662,30 @@ async function doUnworkedAction(empName, action, maxDays) {
   await _doGrantUnworked(empName, rec, emp, maxDays);
 }
 
+/**
+ * 本月「應休未休補休」目前的淨發放天數（發放 − 撤回）
+ * ⚠️ 不能只看「有沒有 comp_earn」（2026-08-28 回報：收回後再發放，系統仍說已發放過）：
+ *    撤回是**追加一筆 comp_cancel**、不是刪掉原本的 comp_earn，
+ *    所以撤回之後那筆 earn 還在，只查 earn 會永遠判定成已發放而擋住重發。
+ * @returns {Promise<number>} >0＝目前仍在發放狀態
+ */
+async function unworkedGrantedNet(empName) {
+  const snap = await window.db.collection('employees').doc(empName)
+    .collection('leaveLog').doc(currentMonth).get().catch(() => null);
+  if(!snap || !snap.exists) return 0;
+  let net = 0;
+  (snap.data().records || []).forEach(r => {
+    const d = parseFloat(r.days) || 0;
+    if(r.type === 'comp_earn'   && r.source === 'unworked')        net += d;
+    if(r.type === 'comp_cancel' && r.source === 'unworked_revoke') net -= d;
+  });
+  return net;
+}
+
 async function _doGrantUnworked(empName, rec, emp, days) {
   // 查 leaveLog 確認未重複發放
   try {
-    const logSnap = await window.db.collection('employees').doc(empName)
-      .collection('leaveLog').doc(currentMonth).get();
-    if(logSnap.exists) {
-      const alreadyGranted = (logSnap.data().records||[]).some(r => r.source === 'unworked' && r.type === 'comp_earn');
-      if(alreadyGranted) { showToast('⚠️ 本月已發放過應休未休補休'); return; }
-    }
+    if(await unworkedGrantedNet(empName) > 0) { showToast('⚠️ 本月已發放過應休未休補休'); return; }
   } catch(e) {}
 
   const weekends = getMonthWeekendDays(currentMonth);
@@ -742,6 +776,10 @@ async function confirmCompEarned(empName) {
       await recalcComp(empName, year);
       rec.unworkedCompGranted = false;
       rec.unworkedCompDays = 0;
+      // 撤回＝這個月的應休未休又回到「還沒決定」，必須重新做三選一。
+      // 不清掉 unworkedAction 的話，unworkedPendingDays() 會判成已處理 →
+      // 結清的硬擋不會鎖回去，等於撤回後還能結清一個少算的金額（2026-08-28 回報）。
+      rec.unworkedAction = null;
       triggerAutoSave();
       const compCur = compDataMap[empName]?.current;
       showToast(`✅ 已撤回，目前補休餘額 ${compCur?.remaining ?? '--'} 天`);
@@ -757,12 +795,7 @@ async function confirmCompEarned(empName) {
 
   // 方案C：查 leaveLog 確認未重複發放
   try {
-    const logSnap = await window.db.collection('employees').doc(empName)
-      .collection('leaveLog').doc(currentMonth).get();
-    if(logSnap.exists) {
-      const alreadyGranted = (logSnap.data().records||[]).some(r => r.source === 'unworked' && r.type === 'comp_earn');
-      if(alreadyGranted) { showToast('⚠️ 本月已發放過應休未休補休'); return; }
-    }
+    if(await unworkedGrantedNet(empName) > 0) { showToast('⚠️ 本月已發放過應休未休補休'); return; }
   } catch(e) {}
 
   if(!confirm(`確認發放 ${getDisplayName(empName)} ${shortage} 天應休未休補休？\n（應休 ${weekends.total} 天，已休 ${actualOff} 天）`)) return;
@@ -3525,6 +3558,10 @@ let autoSaveTimer = null;
 function triggerAutoSave() {
   clearTimeout(autoSaveTimer);
   autoSaveTimer = setTimeout(() => autoSaveDraft(), 2000);
+  // 結清橫幅跟著重繪：應休未休三選一／撤回都會影響「能不能結清」的硬擋狀態。
+  // 掛在這個單一收口而不是各個動作裡——散著加必然漏掉一條（2026-08-28 回報：
+  // 應休未休處理完，橫幅沒有立刻改變）。
+  try{ renderLeaveSettleBanner(); }catch(e){}
   // 顯示儲存中提示
   const badge = document.getElementById('statusBadge');
   if(badge && salaryData.status === 'draft') {
