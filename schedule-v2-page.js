@@ -1720,12 +1720,10 @@ function onApprovalChange(sel) {
 // ===== 檢視模式切換（Phase 2）=====
 let scheduleViewMode = localStorage.getItem('scheduleViewMode') || 'classic';
 let dayViewDayIdx = null;   // 單日檢視選中的星期（0=週一..6=週日）
-let empGridEmpName = null;  // 單人檢視選中的員工 name
 function renderSchedule() {
   renderIncomingSupportBanner();
   switch(scheduleViewMode) {
     case 'day': return renderDayView();
-    case 'emp': return renderEmpGridView();
     default:    return renderTable();
   }
 }
@@ -1742,7 +1740,7 @@ function toggleScheduleContainers(mode) {
   const dayC  = document.getElementById('dayViewContainer');
   const tbody = document.getElementById('tableBody');
   if(!table || !dayC) return;
-  const isMobile = (mode === 'day' || mode === 'emp');
+  const isMobile = (mode === 'day');
   table.style.display = isMobile ? 'none' : '';
   dayC.style.display  = isMobile ? 'block' : 'none';
   // ⚠️ 清掉「隱藏那一側」的 .cell-btn，否則 syncUIToMemory 的 querySelectorAll('.cell-btn')
@@ -1751,7 +1749,12 @@ function toggleScheduleContainers(mode) {
   else { dayC.innerHTML = ''; }
 }
 
-// 單日檢視：一天所有員工縱向卡片，複用 buildCellButton（同一套編輯/同步邏輯）
+// 單日檢視：一天 × 三間店。本店可編輯（複用 buildCellButton，同一套編輯/同步邏輯），
+// 別店唯讀純顯示。
+// ⚠️ 別店刻意不用 buildCellButton：那支只讀 appData.records（本店），而且存檔路徑
+//    (saveCell) 的 store 是從全域 storeSelector 取的、格子本身沒有 dataset.store。
+//    若讓別店也產生可編輯的 .cell-btn，編輯錦花的格子會被寫進美德。
+//    「別店唯讀」這條路自然避開這個地雷——可編輯的格子永遠只有一間店。
 function renderDayView() {
   toggleScheduleContainers('day');
   const weekStr = document.getElementById('weekSelector').value;
@@ -1762,9 +1765,6 @@ function renderDayView() {
   currentWeekDates = getWeekDates(weekStr);
   if(dayViewDayIdx === null) dayViewDayIdx = (new Date().getDay() + 6) % 7; // 預設今天
 
-  const emps = [...appData.employees];
-  virtualRowNames.forEach(n => emps.push({ name: n, role: '待補' }));
-
   const cont = document.getElementById('dayViewContainer');
   // 日選擇器
   let html = `<div style="display:flex; gap:4px; overflow-x:auto; padding-bottom:8px; margin-bottom:6px;">`;
@@ -1772,15 +1772,60 @@ function renderDayView() {
     const on = i === dayViewDayIdx;
     html += `<button onclick="setDayViewDay(${i})" style="flex:1; min-width:44px; padding:7px 3px; border:none; border-radius:8px; font-size:13px; font-weight:${on?'800':'600'}; background:${on?'var(--primary)':'#f1f3f4'}; color:${on?'#fff':'var(--text-muted)'}; cursor:pointer; line-height:1.35;">${d.replace('週','')}<br><span style="font-size:10px;">${currentWeekDates[i]||''}</span></button>`;
   });
-  html += `</div><div id="dayViewCards"></div>`;
+  html += `</div><div id="dayViewStores"></div>`;
   cont.innerHTML = html;
 
-  const cardsWrap = document.getElementById('dayViewCards');
   const day = dayNames[dayViewDayIdx];
+  const wrap = document.getElementById('dayViewStores');
+  const stores = (appConfig.stores || []).filter(x => x && x !== '人力支援');
+  // 本店排最前面
+  const ordered = [store, ...stores.filter(x => x !== store)];
+
+  ordered.forEach(st => {
+    const isHome = (st === store);
+    const box = document.createElement('div');
+    box.style.cssText = 'margin-bottom:14px; border:1.5px solid ' + (isHome ? 'var(--primary)' : 'var(--border)')
+      + '; border-radius:12px; overflow:hidden;' + (isHome ? '' : 'opacity:.92;');
+    box.appendChild(buildDayStoreHeader(st, isHome, weekStr, day));
+    const body = document.createElement('div');
+    body.style.cssText = 'padding:4px 10px 8px;';
+    if(isHome) buildDayHomeRows(body, day, store, weekStr, isReadonly);
+    else       buildDayOtherRows(body, st, day, weekStr);
+    box.appendChild(body);
+    wrap.appendChild(box);
+  });
+}
+
+/** 單日檢視的門市標題列（含當日人力摘要） */
+function buildDayStoreHeader(st, isHome, weekStr, day) {
+  const recs = dayRecordsOf(st, weekStr, day, isHome);
+  const working = recs.filter(r => r.shift && !['排休','指休','特休','補休'].includes(r.shift));
+  const gaps = working.filter(r => String(r.name||'').startsWith('🆘') && !r.supportEmp);
+  const h = document.createElement('div');
+  h.style.cssText = 'display:flex; align-items:center; gap:8px; padding:8px 10px; background:'
+    + (isHome ? 'var(--primary)' : '#f1f3f4') + '; color:' + (isHome ? '#fff' : 'var(--text)') + ';';
+  h.innerHTML = `<span style="font-weight:900; font-size:14px;">${st}</span>`
+    + `<span style="font-size:12px; opacity:.9;">${working.length} 人上班</span>`
+    + (gaps.length ? `<span style="font-size:11px; font-weight:800; background:#fee2e2; color:#b91c1c; padding:2px 7px; border-radius:10px;">🆘 待補 ${gaps.length}</span>` : '')
+    + `<span style="margin-left:auto; font-size:11px; font-weight:700; opacity:.85;">${isHome ? '可編輯' : '🔒 唯讀'}</span>`;
+  return h;
+}
+
+/** 取某店某日的排班記錄（本店用 appData.records，別店用 allStoresRecords） */
+function dayRecordsOf(st, weekStr, day, isHome) {
+  if(isHome) return (appData.records || []).filter(r => r.day === day && r.week === weekStr);
+  return (appData.allStoresRecords || []).filter(r => r._store === st && r.day === day && r.week === weekStr);
+}
+
+/** 本店：全部員工縱向卡片，可編輯（與改版前行為相同） */
+function buildDayHomeRows(wrap, day, store, weekStr, isReadonly) {
+  const emps = [...appData.employees];
+  virtualRowNames.forEach(n => emps.push({ name: n, role: '待補' }));
+  if(!emps.length) { wrap.innerHTML = '<div style="padding:14px; text-align:center; color:var(--text-muted); font-size:13px;">本店無員工</div>'; return; }
   emps.forEach((emp, eIdx) => {
     const isVirtual = emp.name.startsWith('🆘');
     const card = document.createElement('div');
-    card.style.cssText = 'display:flex; align-items:center; gap:10px; padding:8px 4px; border-bottom:1px solid var(--border);';
+    card.style.cssText = 'display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--border);';
     const nameDiv = document.createElement('div');
     nameDiv.style.cssText = 'flex:0 0 84px; min-width:84px;';
     const dispName = isVirtual ? emp.name : getDisplayName(emp.name);
@@ -1791,70 +1836,36 @@ function renderDayView() {
     btn.style.minHeight = '48px';
     card.appendChild(nameDiv);
     card.appendChild(btn);
-    cardsWrap.appendChild(card);
+    wrap.appendChild(card);
+  });
+}
+
+/** 別店：只列當天有班的人，純唯讀顯示（不產生 .cell-btn，避免污染存檔） */
+function buildDayOtherRows(wrap, st, day, weekStr) {
+  const recs = dayRecordsOf(st, weekStr, day, false)
+    .filter(r => r.shift && !['排休','指休'].includes(r.shift))
+    .sort((a,b) => String(a.shift||'').localeCompare(String(b.shift||'')));
+  if(!recs.length) {
+    wrap.innerHTML = '<div style="padding:12px; text-align:center; color:var(--text-muted); font-size:12.5px;">當日無排班資料</div>';
+    return;
+  }
+  recs.forEach(r => {
+    const isGap = String(r.name||'').startsWith('🆘');
+    const filled = isGap && r.supportEmp && r.approvalStatus === 'approved';
+    const who = isGap
+      ? (filled ? `${r.name} → ${getDisplayName(r.supportEmp.slice(r.supportEmp.indexOf('-')+1))}` : r.name)
+      : getDisplayName(r.name);
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid var(--border); font-size:13px;'
+      + (isGap && !filled ? 'background:#fff5f5;' : '');
+    row.innerHTML = `<div style="flex:0 0 96px; min-width:96px; font-weight:${isGap?'800':'700'}; color:${isGap&&!filled?'#b91c1c':'var(--text)'};">${who}</div>`
+      + `<div style="flex:1; font-weight:800;">${r.shift || ''}${r.note?`<span style="font-size:11px; color:var(--text-muted); font-weight:600;"> · ${r.note}</span>`:''}</div>`
+      + (isGap && !filled ? `<span style="font-size:11px; font-weight:800; color:#b91c1c;">待補</span>` : '');
+    wrap.appendChild(row);
   });
 }
 function setDayViewDay(i) { dayViewDayIdx = i; renderDayView(); }
 
-// 單人檢視：一員整週 7 列縱向，複用 buildCellButton
-function renderEmpGridView() {
-  toggleScheduleContainers('emp');
-  const weekStr = document.getElementById('weekSelector').value;
-  const store   = document.getElementById('storeSelector').value;
-  const isLockedHistory = isHistoryWeek(weekStr) && !historyEditUnlocked;
-  const isReadonly = !canScheduleStore(store) || isLockedHistory;
-  updateHistoryLockUI(weekStr, store);
-  currentWeekDates = getWeekDates(weekStr);
-
-  const emps = [...appData.employees];
-  virtualRowNames.forEach(n => emps.push({ name: n, role: '待補' }));
-  const cont = document.getElementById('dayViewContainer');
-  if(!emps.length) { cont.innerHTML = '<div style="padding:20px; text-align:center; color:var(--text-muted);">本店無員工</div>'; return; }
-
-  // 預設／校正選中員工（切店後可能已不存在）
-  if(!empGridEmpName || !emps.some(e => e.name === empGridEmpName)) empGridEmpName = emps[0].name;
-  const eIdx = emps.findIndex(e => e.name === empGridEmpName);
-  const emp  = emps[eIdx];
-
-  // 員工選擇器（左右切換 + 下拉）
-  let html = `<div style="display:flex; gap:6px; align-items:center; margin-bottom:8px;">`;
-  html += `<button onclick="stepEmpGrid(-1)" style="border:none; background:#f1f3f4; border-radius:8px; padding:8px 12px; font-size:16px; cursor:pointer;">‹</button>`;
-  html += `<select onchange="setEmpGridEmp(this.value)" style="flex:1; padding:9px 8px; border:1px solid var(--border); border-radius:8px; font-size:14px; font-weight:700;">`;
-  emps.forEach(e => {
-    const dn = e.name.startsWith('🆘') ? e.name : getDisplayName(e.name);
-    html += `<option value="${e.name}" ${e.name===empGridEmpName?'selected':''}>${dn}${e.role?'（'+e.role+'）':''}</option>`;
-  });
-  html += `</select>`;
-  html += `<button onclick="stepEmpGrid(1)" style="border:none; background:#f1f3f4; border-radius:8px; padding:8px 12px; font-size:16px; cursor:pointer;">›</button>`;
-  html += `</div><div id="empGridRows"></div>`;
-  cont.innerHTML = html;
-
-  const rowsWrap = document.getElementById('empGridRows');
-  dayNames.forEach((day, i) => {
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex; align-items:center; gap:10px; padding:8px 4px; border-bottom:1px solid var(--border);';
-    const dayDiv = document.createElement('div');
-    dayDiv.style.cssText = 'flex:0 0 66px; min-width:66px; font-size:13px; font-weight:700;';
-    dayDiv.innerHTML = `${day}<br><span style="font-size:11px; color:var(--text-muted); font-weight:500;">${currentWeekDates[i]||''}</span>`;
-    const btn = buildCellButton(emp, eIdx, day, store, weekStr, isReadonly);
-    btn.style.flex = '1';
-    btn.style.minHeight = '48px';
-    row.appendChild(dayDiv);
-    row.appendChild(btn);
-    rowsWrap.appendChild(row);
-  });
-}
-function setEmpGridEmp(name) { empGridEmpName = name; renderEmpGridView(); }
-function stepEmpGrid(delta) {
-  const emps = [...appData.employees];
-  virtualRowNames.forEach(n => emps.push({ name: n }));
-  if(!emps.length) return;
-  let idx = emps.findIndex(e => e.name === empGridEmpName);
-  if(idx < 0) idx = 0;
-  idx = (idx + delta + emps.length) % emps.length;
-  empGridEmpName = emps[idx].name;
-  renderEmpGridView();
-}
 function setScheduleViewMode(m) {
   scheduleViewMode = m;
   localStorage.setItem('scheduleViewMode', m);
@@ -1862,7 +1873,7 @@ function setScheduleViewMode(m) {
   renderSchedule();
 }
 function updateViewToggleUI() {
-  ['classic','day','emp'].forEach(m => {
+  ['classic','day'].forEach(m => {
     const b = document.getElementById('viewBtn-' + m);
     if(!b) return;
     const on = scheduleViewMode === m;
