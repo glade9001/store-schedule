@@ -381,9 +381,10 @@ function punchRow(r, showEmp){
   if(r.editReason||r.voidReason) h+=`<div class="meta" style="padding:0 0 6px 4px;color:#8a5cf6;">✏️ ${voided?'註銷':'修改'}原因：${r.voidReason||r.editReason}${(r.voidedBy||r.editedBy)?`（${r.voidedBy||r.editedBy}）`:''}${(r.origTs&&!voided)?` · 原時間 ${fmtT(r.origTs)}`:''}</div>`;
   if(!voided && r.otStatus){
     if(r.otStatus==='pending') h+=`<div style="padding:2px 0 8px 4px;font-size:12px;color:#c0620f;line-height:1.6;">📝 加班申請待審：<b>${r.otContent||'—'}</b> <button onclick="approveOt('${r.id}')" style="background:#e6f4ea;color:#137333;border:none;border-radius:8px;padding:4px 10px;font-weight:800;font-size:11px;cursor:pointer;margin-left:4px;">✔同意</button><button onclick="rejectOt('${r.id}')" style="background:#fce8e6;color:#c5221f;border:none;border-radius:8px;padding:4px 10px;font-weight:800;font-size:11px;cursor:pointer;margin-left:4px;">✕否</button></div>`;
-    else if(r.otStatus==='approved') h+=`<div class="meta" style="padding:0 0 6px 4px;color:#137333;font-weight:700;">✅ 加班已核准（計工時）${r.otContent?'：'+r.otContent:''}</div>`;
-    else if(r.otStatus==='rejected') h+=`<div class="meta" style="padding:0 0 6px 4px;color:#94a3b8;">❌ 加班未准${r.otReason?'：'+r.otReason:''}（不計工時）</div>`;
+    else if(r.otStatus==='approved') h+=`<div class="meta" style="padding:0 0 6px 4px;color:#137333;font-weight:700;">✅ 加班已核准（計工時）${r.otContent?'：'+r.otContent:''}${otReviseBtn(r,'rejected')}</div>`;
+    else if(r.otStatus==='rejected') h+=`<div class="meta" style="padding:0 0 6px 4px;color:#94a3b8;">❌ 加班未准${r.otReason?'：'+r.otReason:''}（不計工時）${otReviseBtn(r,'approved')}</div>`;
     else if(r.otStatus==='private') h+=`<div class="meta" style="padding:0 0 6px 4px;color:#64748b;">🅿️ 不計工時（非加班／私事）${r.otContent?`・${r.otContent}`:''}</div>`;
+    if(r.otReviseReason) h+=`<div class="meta" style="padding:0 0 6px 4px;color:#8a5cf6;">✏️ 加班改判原因：${r.otReviseReason}${r.otReviewedBy?`（${r.otReviewedBy}）`:''}</div>`;
   }
   return h;
 }
@@ -404,6 +405,32 @@ async function rejectOt(id){
     await window.db.collection('stores').doc(curStore).collection('attendance').doc(id)
       .set({ otStatus:'rejected', otReason:reason, otReviewedBy:(currentUser.empName||''), otReviewedAt:new Date().toISOString() },{merge:true});
     hideLoading(); await load();
+  }catch(e){ hideLoading(); alert('失敗：'+e.message); }
+}
+// 加班改判：審完之後才發現判錯，原本沒有任何 UI 可以回頭改（按鈕只在 otStatus==='pending' 時渲染），
+// 唯一辦法是進 Firebase Console 改欄位。而誤駁回是有代價的——calcHours 只有 ot==='approved' 才把
+// 超出排班的時數計入，否則封頂在排班時數，等於員工那段加班算不進薪資，店長自己還救不回來。
+// 比照修改／註銷的慣例：強制填原因、寫進 editLog，不做無痕改。（2026-08-28）
+const otReviseBtn=(r,to)=>`<button onclick="reviseOt('${r.id}','${to}')" title="改判（需填原因，留存 editLog 備查）" style="background:#eef2ff;color:#4338ca;border:none;border-radius:8px;padding:3px 9px;font-weight:800;font-size:11px;cursor:pointer;margin-left:6px;">改判為${to==='approved'?'同意':'不准'}</button>`;
+async function reviseOt(id, to){
+  const fromLbl = to==='approved' ? '不准' : '同意';
+  const label = to==='approved' ? '改判為「同意加班」\n→ 超出排班的時數會計入工時'
+    : '改判為「不准加班」\n→ 超出排班的時數不計工時';
+  const reason=prompt(`${label}\n\n請填改判原因（存檔留痕，員工在「我的出勤」看得到）：`,'');
+  if(reason===null) return;
+  if(!reason.trim()){ alert('請填寫改判原因（法規要求留存備查）'); return; }
+  showLoading('處理中…');
+  try{
+    const now=new Date().toISOString(), by=(currentUser.empName||currentUser.displayName||'');
+    const AU=firebase.firestore.FieldValue.arrayUnion;
+    await window.db.collection('stores').doc(curStore).collection('attendance').doc(id)
+      .set({ otStatus:to,
+        otReason: to==='rejected' ? reason.trim() : null,   // 改判為同意時清掉舊的未准原因
+        otReviseReason:reason.trim(), otReviewedBy:by, otReviewedAt:now,
+        editLog:AU({at:now, by, action:'加班改判', from:fromLbl, to:(to==='approved'?'同意':'不准'), reason:reason.trim()}) },{merge:true});
+    hideLoading();
+    alert(to==='approved'?'✅ 已改判為同意加班（超時已計入工時）':'已改判為不准加班（超時不計工時）');
+    await load();
   }catch(e){ hideLoading(); alert('失敗：'+e.message); }
 }
 // 有效工時：以排班時數為基準(超時封頂)、核准加班才加、到場/私事不計；跨日自動接續

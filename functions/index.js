@@ -1776,10 +1776,26 @@ exports.scheduledWeeklyDigest = onSchedule(
           anom.push({ d: r.date, t: `${dn} ${md(r.date)} ${r.type} ${hm}（${tail}）` });
         }
       });
-      if (!miss.length && !anom.length) continue; // 沒事就不發，別浪費額度
+      // 待審加班：刻意不限「上週」。加班申請的 LINE 只在員工打卡當下發一則，之後沒有任何催辦，
+      // 店長若漏看就會無限期躺著；而未審核＝超時不計工時，躺越久對員工越不利。
+      // 所以這裡把「全部尚未審核的」都撈出來催，不受上週區間與 attnSince 影響。（2026-08-28）
+      const otSnap = await db.collection("stores").doc(store).collection("attendance")
+        .where("otStatus", "==", "pending").get().catch(() => null);
+      const ot = [];
+      if (otSnap) {
+        otSnap.forEach((d) => {
+          const r = d.data() || {};
+          if (r.voided) return;
+          const dn = r.displayName || r.empName || "";
+          const ds = r.date || "";
+          ot.push({ d: ds, t: `${dn} ${ds ? md(ds) : ""} ${r.type || ""} ${tpHM(r.deviceTs, r.ts)}｜${r.otContent || "—"}`.replace(/\s+/g, " ").trim() });
+        });
+      }
+      if (!miss.length && !anom.length && !ot.length) continue; // 沒事就不發，別浪費額度
       let msg = `📋 ${store} 上週出勤彙整（${md(mon)}–${md(sun)}）\n`;
       if (miss.length) msg += `\n🔴 缺卡 ${miss.length} 筆　請提醒員工補打卡\n${listOf(miss)}\n`;
       if (anom.length) msg += `\n⚠️ 出勤異常 ${anom.length} 筆　請提醒員工補紀錄\n${listOf(anom)}\n`;
+      if (ot.length) msg += `\n📝 加班待審 ${ot.length} 筆　未審核＝超時不計工時，請盡快處理\n${listOf(ot)}\n`;
       msg += `\n👉 出勤管理：https://glade9001.github.io/store-schedule/attendance.html`;
       await notifyStoreManagers(db, store, msg, token);
     }
