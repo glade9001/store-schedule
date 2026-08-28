@@ -757,7 +757,13 @@ async function _doGrantUnworked(empName, rec, emp, days) {
     }
     rec.unworkedCompGranted = true;
     leaveDataMap[empName] = updatedLeave;
-    triggerAutoSave();
+      // ⚠️ 同步存檔，不能用 triggerAutoSave() 的 2 秒 debounce（2026-08-29 修）：
+      //    這條路已經直接寫了 leaveLog／comp/{年} 到 Firestore，薪資記錄上的
+      //    unworkedAction／unworkedCompGranted 卻走 debounce。使用者若在 2 秒內
+      //    重整或離開，就會變成「帳本說撤回了、薪資記錄說還在發放中」的不一致狀態，
+      //    結清的硬擋也跟著失效（實際踩到：Modal 顯示補休 0 天卻沒被擋住）。
+    clearTimeout(autoSaveTimer);
+    await autoSaveDraft();
     document.getElementById('empModalBody').innerHTML = renderSalaryForm(emp, rec, 0, isReadonly());
     switchModalTab(currentModalTab, false);
     showToast(`✅ 已發放 ${getDisplayName(empName)} ${days} 天應休未休補休`);
@@ -800,7 +806,13 @@ async function confirmCompEarned(empName) {
       // 不清掉 unworkedAction 的話，unworkedPendingDays() 會判成已處理 →
       // 結清的硬擋不會鎖回去，等於撤回後還能結清一個少算的金額（2026-08-28 回報）。
       rec.unworkedAction = null;
-      triggerAutoSave();
+      // ⚠️ 同步存檔，不能用 triggerAutoSave() 的 2 秒 debounce（2026-08-29 修）：
+      //    這條路已經直接寫了 leaveLog／comp/{年} 到 Firestore，薪資記錄上的
+      //    unworkedAction／unworkedCompGranted 卻走 debounce。使用者若在 2 秒內
+      //    重整或離開，就會變成「帳本說撤回了、薪資記錄說還在發放中」的不一致狀態，
+      //    結清的硬擋也跟著失效（實際踩到：Modal 顯示補休 0 天卻沒被擋住）。
+      clearTimeout(autoSaveTimer);
+      await autoSaveDraft();
       const compCur = compDataMap[empName]?.current;
       showToast(`✅ 已撤回，目前補休餘額 ${compCur?.remaining ?? '--'} 天`);
       const empObj = empList.find(e=>e.name===empName);
