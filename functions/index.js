@@ -1705,6 +1705,36 @@ exports.scheduledMissingClock = onSchedule(
       const statusMap = {}; if (esSnap) esSnap.forEach((d) => { const e = d.data() || {}; statusMap[d.id] = { status: e.status || "", eff: e.retireDate || e.transferDate || "" }; });
       // 排除派出店的「支援X」顯示記錄(loc=支援)＝跨店去重，只認接收店 supportEmp 那筆
       const shifts = recs.filter((r) => r.day === dayName && parseShiftSegs(r.shift).length && !String(r.location || "").startsWith("支援"));
+
+      // 孤兒缺卡清理：flagId 帶班別字串（miss_{日期}_{人}_{班別}），排班一改班別就會建一張新的，
+      // 舊班別那張沒人動、永遠留著。實例 2026-08-28：聯鑫 8/22 亞琪同時掛「16-00.5」與「16-01」兩張。
+      // 比對當日排班，班別對不上的一律註銷（留 editLog，不刪除）。
+      // ⚠️ 只在當日確實有排班時才掃：若 shifts 為空就全掃，等於「讀不到排班＝把當天缺卡全銷掉」。
+      if (shifts.length) {
+        const validPairs = new Set();
+        shifts.forEach((r) => {
+          const isSup = r.supportEmp && r.approvalStatus === "approved";
+          const nm = (r.name && !String(r.name).startsWith("🆘")) ? r.name
+            : (isSup ? r.supportEmp.slice(r.supportEmp.indexOf("-") + 1) : "");
+          if (nm) validPairs.add(nm + "|" + (r.shift || ""));
+        });
+        const fSnap = await db.collection("stores").doc(store).collection("attendance")
+          .where("date", "==", ds).where("type", "==", "缺卡").get().catch(() => null);
+        if (fSnap) {
+          for (const fd of fSnap.docs) {
+            const f = fd.data() || {};
+            if (f.voided) continue;
+            if (validPairs.has((f.empName || "") + "|" + (f.shift || ""))) continue;
+            const at = new Date().toISOString();
+            await fd.ref.set({
+              voided: true, voidedBy: "system", voidedAt: at,
+              voidReason: "排班已變更，此班別不存在",
+              editLog: admin.firestore.FieldValue.arrayUnion({ at, by: "system", action: "註銷", reason: "排班已變更，此班別不存在" }),
+            }, { merge: true }).catch(() => {});
+          }
+        }
+      }
+
       if (!shifts.length) continue;
       const attSnap = await db.collection("stores").doc(store).collection("attendance").where("date", "==", ds).get().catch(() => null);
       const punches = []; if (attSnap) attSnap.forEach((d) => punches.push(d.data()));
