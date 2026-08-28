@@ -563,9 +563,12 @@ async function confirmLeaveSettle() {
       let rec = getSalaryRecord(empName);
       if(!rec){ rec = buildDefaultRecord(_e); salaryData.records.push(rec); }
       rec.otherBonus = (parseFloat(rec.otherBonus||0)) + amount;
-      // ⚠️ 不在薪資記錄上留任何結清說明：my-salary.html 會下載整份 salary/{ym}
-      //    （含全店所有人的 records），寫在這裡等於讓所有員工都讀得到彼此的結清細節。
-      //    管理者要查就到「員工特補休」看 leaveLog。員工只會看到金額併入「補貼/其他」。
+      // 備註只寫「是什麼」，不寫試算金額／差額／調整原因——那些仍然只進 leaveLog。
+      // ⚠️ my-salary.html 會下載整份 salary/{ym}（含全店所有人的 records），
+      //    寫在這裡等於全員可讀。但「離職特補休結清 N 天」不比金額本身多洩漏什麼
+      //    （金額就在其他獎金那一欄），而且能讓薪資單自己解釋得清楚。
+      const _bn = `${_lsCase?_lsCase.kind:'特補休'}結清 ${c.totalDays} 天`;
+      rec.otherBonusNote = rec.otherBonusNote ? `${rec.otherBonusNote}；${_bn}` : _bn;
       if(st === 'submitted') {
         salaryData.status = 'draft';
         salaryData.recalledAt = new Date().toISOString();
@@ -1227,7 +1230,7 @@ function buildPayslipRows(rec, emp, rate, isPartTime) {
     if(parseFloat(rec.roleBonus||0)>0)
       rows.push(['職務津貼', `$${parseFloat(rec.roleBonus).toLocaleString()}`, '', '']);
     if(parseFloat(rec.otherBonus||0)>0)
-      rows.push(['其他津貼', `$${parseFloat(rec.otherBonus).toLocaleString()}`, '', '']);
+      rows.push([rec.otherBonusNote ? `其他津貼（${rec.otherBonusNote}）` : '其他津貼', `$${parseFloat(rec.otherBonus).toLocaleString()}`, '', '']);
     if(parseFloat(rec.personalSickLeave||0)>0)
       rows.push(['事病假扣款', `-$${Math.abs(parseFloat(rec.personalSickLeave)).toLocaleString()}`, '', '']);
     if(parseFloat(rec.otherDeduction||0)>0)
@@ -1255,7 +1258,7 @@ function buildPayslipRows(rec, emp, rate, isPartTime) {
     if(parseFloat(rec.nightAllowance||0)>0)
       rows.push(['夜點費', `$${parseFloat(rec.nightAllowance).toLocaleString()}`, '', '']);
     if(parseFloat(rec.otherBonus||0)>0)
-      rows.push(['其他獎金/津貼', `$${parseFloat(rec.otherBonus).toLocaleString()}`, '', '']);
+      rows.push([rec.otherBonusNote ? `其他獎金/津貼（${rec.otherBonusNote}）` : '其他獎金/津貼', `$${parseFloat(rec.otherBonus).toLocaleString()}`, '', '']);
     if(parseFloat(rec.annualLeaveEncash||0)>0)
       rows.push(['特休折現', `$${parseFloat(rec.annualLeaveEncash).toLocaleString()}`, '', '']);
     if(parseFloat(rec.compLeaveEncash||0)>0)
@@ -1853,7 +1856,7 @@ function buildSinglePayslipHtml(emp, y, m) {
     earningRows += row('全勤獎金', '$0');
     earningRows += row('職務津貼', `$${(rec.roleBonus||0).toLocaleString()}`);
     earningRows += row('績效獎金', '$0');
-    earningRows += row('其他獎金/津貼', `$${(rec.otherBonus||0).toLocaleString()}`);
+    earningRows += row(rec.otherBonusNote ? `其他獎金/津貼（${rec.otherBonusNote}）` : '其他獎金/津貼', `$${(rec.otherBonus||0).toLocaleString()}`);
     earningRows += row('國定假日加給', `$${Math.round((rec.wage||0)*(rec.holidayHours||0)*1).toLocaleString()}`);
     deductItemRows += row('勞保費', `$${(rec.laborInsurance||0).toLocaleString()}`);
     deductItemRows += row('健保費', `$${((rec.healthInsurance||0)+(rec.dependentInsurance||0)).toLocaleString()}`);
@@ -1874,7 +1877,7 @@ function buildSinglePayslipHtml(emp, y, m) {
       earningRows += row('管理責任獎金', `$${mgmtTotal.toLocaleString()}`);
       earningRows += row('績效獎金', `$${(rec.performance||0).toLocaleString()}`);
     }
-    earningRows += row('其他獎金/津貼', `$${(rec.otherBonus||0).toLocaleString()}`);
+    earningRows += row(rec.otherBonusNote ? `其他獎金/津貼（${rec.otherBonusNote}）` : '其他獎金/津貼', `$${(rec.otherBonus||0).toLocaleString()}`);
     earningRows += row('平日加班', `+$${otPayAmt.toLocaleString()}`);
     earningRows += row('遲到扣款', `-$${lateDeductAmt.toLocaleString()}`, 'color:#d93025;');
     deductItemRows += row('勞保費', `$${(rec.laborInsurance||0).toLocaleString()}`);
@@ -2588,7 +2591,7 @@ function updateFieldModal(empName, key, val) {
   const emp = empList.find(e => e.name === empName);
   if(!rec) { rec = buildDefaultRecord(emp); salaryData.records.push(rec); }
   
-  if(key === 'otherDeductionNote') {
+  if(key === 'otherDeductionNote' || key === 'otherBonusNote') {
     rec[key] = val; // 文字欄位
   } else {
     rec[key] = parseFloat(val) || 0; // 數字欄位
@@ -2646,7 +2649,7 @@ function buildDefaultRecord(emp) {
       insuranceGrade: prev.insuranceGrade || null,
       laborEr: prev.laborEr || 0, healthEr: prev.healthEr || 0, pensionEr: prev.pensionEr || 0,
       personalSickLeave: 0,
-      otherDeduction: 0, otherDeductionNote: ''
+      otherDeduction: 0, otherDeductionNote: '', otherBonusNote: ''
     };
   } else {
     // 正職/店長預設
@@ -2668,7 +2671,7 @@ function buildDefaultRecord(emp) {
       laborPension: prev.laborPension !== undefined ? prev.laborPension : (emp.laborPension || 0),
       insuranceGrade: prev.insuranceGrade || null,
       laborEr: prev.laborEr || 0, healthEr: prev.healthEr || 0, pensionEr: prev.pensionEr || 0,
-      otherDeduction: 0, otherDeductionNote: ''
+      otherDeduction: 0, otherDeductionNote: '', otherBonusNote: ''
     };
   }
 }
@@ -2730,6 +2733,13 @@ function renderSalaryForm(emp, rec, idx, readonly) {
   col1 += inp('performance', rec.performance, '績效津貼');
   col1 += inp('nightAllowance', rec.nightAllowance, '夜點費金額');
   col1 += inp('otherBonus', rec.otherBonus, '其他獎金/津貼');
+  // 備註欄（比照「其他扣款」既有做法）：其他獎金常常是結清差額、特殊加班補差之類的一次性項目，
+  // 只印金額的話事後查不出依據，勞檢或員工詢問時說不清楚。
+  if(!ro) {
+    col1 += `<div style="margin-top:4px;"><input class="salary-input input-text" type="text" value="${rec.otherBonusNote||''}" placeholder="請輸入獎金備註內容..." onchange="updateFieldModal('${emp.name}','otherBonusNote',this.value)"></div>`;
+  } else if(rec.otherBonusNote) {
+    col1 += `<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">備註：${rec.otherBonusNote}</div>`;
+  }
   
   col1 += `<div class="salary-row"><span class="salary-row-label">特別假津貼 <span style="font-size:10px;color:var(--text-muted);">請先至特補休系統結算才會匯入</span></span>
            <span class="salary-row-val">$${(rec.annualLeaveEncash||0).toLocaleString()}</span></div>`;
