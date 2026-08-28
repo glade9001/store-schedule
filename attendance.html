@@ -108,7 +108,22 @@ window.onload=async()=>{
   if(!['manager','owner','admin'].includes(currentUser.permission)){ document.getElementById('wrap').innerHTML='<div class="card maint">僅店長以上可用</div>'; hideLoading(); return; }
   try{const s=await window.db.collection('settings').doc('globalConfig').get();if(s.exists)appConfig=s.data();}catch(e){}
   // app 顯示名權威對照（account.empName → displayName）；打卡紀錄自帶的 displayName 可能為舊值或缺漏
-  try{const acc=await window.db.collection('account').get();acc.forEach(d=>{const a=d.data();if(a.empName&&a.displayName)dispMap[a.empName]=a.displayName;});}catch(e){}
+  // 快取 12 小時（2026-08-28 加）：原本每次開頁都整批撈 account（目前 37 份，隨人數成長），
+  // 只為了組一份顯示名對照表。顯示名極少變動，過期資料頂多是「改名後最多 12 小時才反映」，
+  // 純屬顯示層面。另外 v8 client SDK 沒有欄位投影，整份撈會把 password 等欄位一併拉到瀏覽器，
+  // 少撈一次就少曝一次（根治要改走 callable，見 project_salary_rules_hardening）。
+  const DISP_TTL_H=12, dispCk='dispMap:v1';
+  try{
+    const c=JSON.parse(localStorage.getItem(dispCk)||'null');
+    if(c && Date.now()-c.at < DISP_TTL_H*3600000 && c.map) dispMap=c.map;
+  }catch(e){}
+  if(!Object.keys(dispMap).length){
+    try{
+      const acc=await window.db.collection('account').get();
+      acc.forEach(d=>{const a=d.data();if(a.empName&&a.displayName)dispMap[a.empName]=a.displayName;});
+      try{ localStorage.setItem(dispCk, JSON.stringify({at:Date.now(), map:dispMap})); }catch(e){}
+    }catch(e){}
+  }
   const stage=(appConfig.clockIn||{}).stage||'off';
   if(!canClock(stage,currentUser.permission)){
     document.getElementById('wrap').innerHTML='<div class="card maint"><div style="font-size:52px;margin-bottom:14px;">🚧</div><div style="font-size:20px;font-weight:900;margin-bottom:8px;">維護中敬請期待</div><div style="color:var(--text-muted);">出勤管理尚未對您開放。</div></div>';

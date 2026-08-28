@@ -515,6 +515,24 @@ function validateRange(){
 }
 
 // ===== 產生月份列表 =====
+// ===== 週文件載入器（2026-08-28 加）=====
+// weeks 是「一週一份、只增不減」的集合，原本兩處都直接 collection('weeks').get() 全撈再由
+// 前端過濾，而且第一處還被包在 ymList × stores 雙層迴圈裡——分析區間選 12 個月就把整個集合
+// 重撈 12 次（每店 24 份 × 12 個月 × 3 店 ≈ 864 次讀取，真正用到的只有 73 份）。
+// 改成：每店只撈一次並快取，且用 documentId 範圍把年份夾住 → 讀取量不再隨歷史累積無限成長。
+// 週文件 id 一律是補零的 'YYYY-Www'（已核對三店 73 份全符合），故字典序範圍查詢安全。
+let _weekDocCache = {};
+async function loadWeekDocs(store, years){
+  const lo=`${Math.min(...years)}-W00`, hi=`${Math.max(...years)}-W99`;
+  const ck=`${store}|${lo}|${hi}`;
+  if(_weekDocCache[ck]) return _weekDocCache[ck];
+  const snap = await window.db.collection('stores').doc(store).collection('weeks')
+    .where(firebase.firestore.FieldPath.documentId(), '>=', lo)
+    .where(firebase.firestore.FieldPath.documentId(), '<=', hi).get();
+  const out=[]; snap.forEach(d=>out.push({ id:d.id, data:d.data()||{} }));
+  return (_weekDocCache[ck]=out);
+}
+
 function getYMRange(){
   const sy=document.getElementById('selStartYear').value;
   const sm=document.getElementById('selStartMonth').value;
@@ -537,6 +555,8 @@ async function runAnalysis(){
   setProgress(0,'讀取中...');
 
   const ymList = getYMRange();
+  const anaYears = [...new Set(ymList.map(x=>parseInt(x.slice(0,4))))];
+  _weekDocCache = {};   // 每次重跑都重新讀，避免拿到上一次區間的快取
   const stores = appConfig.stores||[];
   const complianceRows = []; // 勞基法合規稽核：知情放行 lawOverrides（歷史快照）
   if(!stores.length){ showToast('⚠️ 無門市資料'); document.getElementById('runBtn').disabled=false; return; }
@@ -590,11 +610,11 @@ async function runAnalysis(){
       // 找該月所有週次
       for(const store of stores){
         try{
-          const weeksSnap = await window.db.collection('stores').doc(store).collection('weeks').get();
+          const weeksSnap = await loadWeekDocs(store, anaYears);
           weeksSnap.forEach(wd => {
             const wk = wd.id; // 'YYYY-Www'
             if(!wk.startsWith(String(y))) return;
-            (wd.data().records||[]).forEach(r => {
+            (wd.data.records||[]).forEach(r => {
               // 合規稽核：蒐集知情放行的勞基法軟擋（只存在真實員工列；歷史快照，不重算）
               if(Array.isArray(r.lawOverrides) && r.lawOverrides.length && r.name && !String(r.name).startsWith('🆘')){
                 const wMon2 = weekStringToDate(wk);
@@ -648,7 +668,7 @@ async function runAnalysis(){
     const monthlyHoursMap = {}; // ym -> { hours, ot, byStore }（依班次日期歸月，供每工時成本用；發薪歸屬）
     for(const store of stores){
       try{
-        const wSnap = await window.db.collection('stores').doc(store).collection('weeks').get();
+        const wSnap = await loadWeekDocs(store, anaYears);
         wSnap.forEach(wd=>{
           const wk = wd.id;
           if(!/^\d{4}-W\d{1,2}$/.test(wk)) return;
@@ -659,7 +679,7 @@ async function runAnalysis(){
           const bucket = weeklyMap[key] || (weeklyMap[key] = { store, wk, mon, emps:{} });
           const phys = physMap[key] || (physMap[key] = { store, wk, mon, hours:0 });
           const _seenRec = new Set(); // 去重：同筆記錄重複(如 W28 被灌爆)不重複計工時
-          (wd.data().records||[]).forEach(r=>{
+          (wd.data.records||[]).forEach(r=>{
             if(!r || !r.name || r.name==='門市備註') return;
             const _rk = [r.name, r.day, r.shift, r.location, r.supportEmp].join('|');
             if(_seenRec.has(_rk)) return; _seenRec.add(_rk);
