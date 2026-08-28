@@ -524,17 +524,36 @@ async function confirmLeaveSettle() {
         settledNote:`${currentMonth} ${note}`
       });
     }
-    // 2) 補休歸零
+    // 2) 補休折發後要真的從餘額扣掉
+    // ⚠️ 不能只在 comp/{年} 標 settled（2026-08-29 修）：全系統有 8 處在算補休餘額，
+    //    公式都是 earned - used、**都不看 settled**（只有「遞延」那段才看）。
+    //    只標旗標的話員工端餘額不變 → 領了折發工資還能拿那天去劃休＝重複給付。
+    //    正解是走既有的帳本模型：寫一筆 comp_cancel（來源 settle）再 recalcComp()，
+    //    earned 自然下降，那 8 個讀取端一行都不用改。
+    //    （comp_cancel 在 leave-page.js 的顯示對照表本來就叫「補休結算」，語意吻合；
+    //      unworkedGrantedNet() 只認 source==='unworked_revoke'，不會誤判成應休未休撤回。）
     if(c.compDays > 0) {
       const year = currentMonth.split('-')[0];
-      const cur = compDataMap[empName]?.current;
-      await window.db.collection('employees').doc(empName).collection('comp').doc(year)
-        .set({ earned:cur?.earned||0, used:cur?.used||0, settled:true, settledAt:now, settledDays:c.compDays }, { merge:true });
+      const curRem = compDataMap[empName]?.current?.remaining || 0;
       const carried = compDataMap[empName]?.carried;
+      if(curRem > 0) {
+        await window.db.collection('employees').doc(empName).collection('leaveLog').doc(currentMonth).set({
+          records: firebase.firestore.FieldValue.arrayUnion({
+            date: now, type:'comp_cancel', source:'settle', days: curRem,
+            note: `${note}：補休 ${curRem} 天折發工資`,
+            savedBy: currentUser.displayName || currentUser.empName
+          })
+        }, { merge:true });
+        await recalcComp(empName, year);   // 會重算並寫回 comp/{年}.earned/used
+      }
+      // 遞延年度：那一段的讀取端本來就看 settled，標旗標即可
       if(carried && carried.remaining > 0) {
         await window.db.collection('employees').doc(empName).collection('comp').doc(String(carried.year))
           .set({ settled:true, settledAt:now, settledDays:carried.remaining }, { merge:true });
       }
+      // 稽核旗標（earned/used 已由 recalcComp 寫好，這裡不可再覆蓋）
+      await window.db.collection('employees').doc(empName).collection('comp').doc(year)
+        .set({ settled:true, settledAt:now, settledDays:c.compDays }, { merge:true });
     }
     // 3) leaveLog 留痕（金額 0 也要留）
     await window.db.collection('employees').doc(empName).collection('leaveLog').doc(currentMonth).set({
