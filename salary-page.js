@@ -457,7 +457,23 @@ async function confirmLeaveSettle() {
     return;
   }
 
-  if(!confirm(`確認為 ${getDisplayName(empName)} 結清特補休？\n\n特休 ${c.annualDays} 天、補休 ${c.compDays} 天，金額 $${amount.toLocaleString()}\n${amount>0?'此金額將加入本月薪資的「其他獎金」。\n':''}結清後餘額歸零，且不可自動復原。`)) return;
+  // 金額低於系統試算 → 需填原因並留痕。
+  // 系統的預設值是依勞基法 §38／施行細則 §24 算出的法定應得；調降是雇主的決定，
+  // 責任也在雇主，所以要把「系統算多少、實際給多少、誰改的、為什麼」一起存起來。
+  // （調整未必是少給：底薪＋全勤以外可能有其他應計入平均工資的項目、或部分已另行給付。）
+  let diffReason = '';
+  const diff = c.amount - amount;
+  if(diff > 0) {
+    diffReason = prompt(
+      `⚠️ 你填的金額比系統試算少 $${diff.toLocaleString()}。\n\n`
+      + `系統試算 $${c.amount.toLocaleString()}（特休 ${c.annualDays} 天＋補休 ${c.compDays} 天 × 日薪 ${c.dailyWage.toLocaleString()}）\n`
+      + `實際結清 $${amount.toLocaleString()}\n\n`
+      + `請填寫調整原因（會連同差額一併存檔備查）：`, '');
+    if(diffReason === null) return;
+    if(!diffReason.trim()) { alert('調降金額必須填寫原因。'); return; }
+  }
+
+  if(!confirm(`確認為 ${getDisplayName(empName)} 結清特補休？\n\n特休 ${c.annualDays} 天、補休 ${c.compDays} 天，金額 $${amount.toLocaleString()}\n${diff>0?`（系統試算 $${c.amount.toLocaleString()}，差額 $${diff.toLocaleString()} 已記錄原因）\n`:''}${amount>0?'此金額將加入本月薪資的「其他獎金」。\n':''}結清後餘額歸零，且不可自動復原。`)) return;
 
   showLoading('結清中...');
   try {
@@ -487,13 +503,24 @@ async function confirmLeaveSettle() {
     await window.db.collection('employees').doc(empName).collection('leaveLog').doc(currentMonth).set({
       records: firebase.firestore.FieldValue.arrayUnion({
         date:now, type:'settle', days:c.totalDays,
-        note:`${note}：特休 ${c.annualDays} 天（${c.basis}）、補休 ${c.compDays} 天，計 $${amount.toLocaleString()}`,
+        note:`${note}：特休 ${c.annualDays} 天（${c.basis}）、補休 ${c.compDays} 天，計 $${amount.toLocaleString()}`
+          + (c.uncovered>0 ? `｜其中 ${c.uncovered} 天無對應批次（該年度批次未發放）` : '')
+          + (diff>0 ? `｜系統試算 $${c.amount.toLocaleString()}，調整 -$${diff.toLocaleString()}：${diffReason.trim()}` : ''),
+        calcAmount: c.amount, actualAmount: amount, diffAmount: diff,
+        diffReason: diff>0 ? diffReason.trim() : '',
+        calcAnnualDays: c.annualDays, calcCompDays: c.compDays, calcDailyWage: c.dailyWage,
+        uncoveredDays: c.uncovered || 0,
         savedBy: currentUser.displayName || currentUser.empName
       })
     }, { merge:true });
     // 4) 員工主檔記結清時間（避免重複結清）
     const empRef = window.db.collection('stores').doc(currentStore).collection('employees').doc(empName);
-    await empRef.set({ leaveSettledAt:now, leaveSettledMonth:currentMonth, leaveSettledAmount:amount }, { merge:true });
+    await empRef.set({
+      leaveSettledAt:now, leaveSettledMonth:currentMonth, leaveSettledAmount:amount,
+      leaveSettledCalcAmount:c.amount, leaveSettledDiff:diff,
+      leaveSettledDiffReason: diff>0 ? diffReason.trim() : '',
+      leaveSettledBy: currentUser.displayName || currentUser.empName
+    }, { merge:true });
     const _e = empList.find(e=>e.name===empName); if(_e) _e.leaveSettledAt = now;
 
     // 5) 金額寫進薪資（0 元不動薪資）；已送審則自動收回
