@@ -288,7 +288,7 @@ function today() { return new Date().toISOString().split('T')[0]; }
 async function confirmCarrySettle(empName) {
   const carry = calcCarrySettlement(empName);
   if(!carry.days) { showToast('無需結算'); return; }
-  if(!confirm(`確認將 ${getDisplayName(empName)} 的 ${carry.days} 天遞延假結算為工資 $${carry.amount.toLocaleString()}？\n\n此金額將加入本月薪資的「其他獎金」欄位。`)) return;
+  if(!confirm(`確認將 ${getDisplayName(empName)} 的 ${carry.days} 天遞延假結算為工資 $${carry.amount.toLocaleString()}？\n\n此金額將計入本月薪資的「特別假津貼（特休折現）」。`)) return;
   showLoading('結算中...');
   try {
     for(const item of carry.items) {
@@ -300,15 +300,21 @@ async function confirmCarrySettle(empName) {
     let rec = getSalaryRecord(empName);
     const emp = empList.find(e=>e.name===empName);
     if(!rec){ rec=buildDefaultRecord(emp); salaryData.records.push(rec); }
-    rec.otherBonus = (parseFloat(rec.otherBonus||0)) + carry.amount;
-    rec.carrySettleNote = `遞延假結算 ${carry.days} 天 $${carry.amount.toLocaleString()}`;
+    // ⚠️ 遞延假＝特休遞延，折現金額要進「特別假津貼」(annualLeaveEncash) 這個專屬欄位，
+    //    不是「其他獎金」（2026-08-29 修）。薪資單會印成獨立的「特休折現」列，
+    //    export-page.js 的 opt-col-ho 欄與 analytics 的成本拆解也才分得出來；
+    //    塞進 otherBonus 會混進雜項、報表上看不出這筆是折現。
+    //    （既有的年度折現流程 :964 本來就是寫 annualLeaveEncash，此處是漏網的一支。）
+    rec.annualLeaveEncash = (parseFloat(rec.annualLeaveEncash||0)) + carry.amount;
+    // carrySettleNote 移除：全專案沒有任何地方顯示它，卻掛在員工讀得到的薪資記錄上。
+    // 依據已經寫在 leaveBatches 的 settledNote／settledDays／settlePay 裡。
     const batchSnap = await window.db.collection('employees').doc(empName).collection('leaveBatches').get().catch(()=>null);
     let batches = [];
     if(batchSnap) batchSnap.forEach(d=>batches.push({id:d.id,...d.data()}));
     batchDataMap[empName] = batches;
     triggerAutoSave();
     openEmpModal(empName);
-    showToast(`✅ 已結算 $${carry.amount.toLocaleString()} 納入本月薪資`);
+    showToast(`✅ 已結算 $${carry.amount.toLocaleString()}，已計入本月「特休折現」`);
   }catch(e){ showToast('❌ 失敗：'+e.message); }
   hideLoading();
 }
