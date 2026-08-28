@@ -603,27 +603,10 @@ function cancelUnworkedAction(empName) {
   }
 }
 
-/** 該薪資月是否已經結束（應休未休要等當月結束才算得準） */
-function salaryMonthEnded(ym) {
-  const now = new Date();
-  const todayYM = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-  return todayYM > (ym || currentMonth);
-}
-
 async function doUnworkedAction(empName, action, maxDays) {
   const rec = getSalaryRecord(empName);
   const emp = empList.find(e => e.name === empName);
   if(!rec || !emp) return;
-
-  // ⚠️ 月中處理是允許的（實務上會發生），但要讓人知道數字還會變、以及可以撤回。
-  //    不硬擋——2026-08-28 一度改成硬擋是誤解用戶意思，用戶要的是「允許＋配套」。
-  //    配套＝撤回機制（confirmCompEarned 的撤回分支，撤回後會清掉 unworkedAction 重新決定）。
-  if(action !== 'none' && !salaryMonthEnded(currentMonth)) {
-    if(!confirm(`${currentMonth} 還沒結束。\n\n`
-      + `應休未休 = 當月六日應休 − 實際已休，月底前「已休天數」還會變動，現在的天數可能不是最終值。\n`
-      + `補休一發放員工立即可見、當下就能拿去劃休。\n\n`
-      + `仍要現在發放嗎？（之後可在同一處「撤回」，撤回後需重新決定）`)) return;
-  }
 
   if(action === 'none') {
     // 不發放：直接標記
