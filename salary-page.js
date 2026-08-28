@@ -3775,6 +3775,26 @@ async function saveDraft() {
 }
 
 async function submitSalary() {
+  // ✅ 送審前：檢查「本月該辦特補休結清的人」是否都辦完（2026-08-29 加）
+  // Why 要擋在送審：結清只有「目標薪資月」這一次機會——離職／轉工讀生效後，
+  // 那個月一旦發布就鎖住（published 不可改），未折發的特補休就再也付不出去。
+  // 應休未休是「結清的前置」，結清才是「錢真的進薪資」的那一步，兩道都要擋。
+  const unsettled = [];
+  empList.forEach(emp => {
+    const c = settleCaseOf(emp);
+    if(c) unsettled.push(`${getDisplayName(emp.name)}（${c.kind} ${c.effectDate} 生效）`);
+  });
+  if(unsettled.length > 0) {
+    alert(
+      `🧾 尚有 ${unsettled.length} 位員工的特補休結清未辦理：\n\n` +
+      unsettled.map(n => `• ${n}`).join('\n') +
+      `\n\n${currentMonth} 是他們最後一次以原身分計薪的月份，也是唯一能結清的月份。\n` +
+      `一旦發布就無法再改，未折發的特補休將付不出去。\n\n` +
+      `請先到頁面上方的「特補休結清」橫幅完成處理（沒有餘額也要確認一次留痕）。`
+    );
+    return;
+  }
+
   // ✅ 送審前：檢查應休未休補休是否全員處理完畢
   const unhandled = [];
   empList.forEach(emp => {
