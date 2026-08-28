@@ -930,6 +930,20 @@ function punchLateStatus(lateMin, tolMin) {
   return "正常";
 }
 
+/**
+ * 缺卡判定的門檻（收班 +2 小時）是否落到「隔天」
+ * ⚠️ 2026-08-28 修：原本只用 shiftIsOvernight() 分流，導致 22:00~23:59 收班但沒跨夜的班別
+ *    （如 15-23、14-22）兩段都漏掉——當日那段的條件是 nowMin < endH*60+120，
+ *    endH=23 時門檻是 1500 分鐘，而一天只有 1440 分鐘，永遠成立所以每次都跳過；
+ *    「昨日」那段又只收 shiftIsOvernight 的班。結果這類班別從來沒被檢查過缺卡。
+ */
+function missDeadlineCrossesDay(shiftStr) {
+  const sp = shiftSpan(shiftStr);
+  // 用 >= 而不是 >：nowMin 最大只到 1439，門檻正好等於 1440（如 14-22）留在當日段
+  // 一樣永遠觸發不了，必須也交給昨日段。
+  return !!sp && (sp.endH * 60 + 120) >= 1440;
+}
+
 // 未收上班的合理補打期限：該班排定下班 +4 小時（夜班跨日照算）；查不到班別則打卡後 12 小時。
 // 超過即視為缺卡呆帳，不再拿來配對今天的下班（否則會把今天的班誤掛到昨天）。
 function openInDeadlineMs(p) {
@@ -1739,7 +1753,7 @@ exports.scheduledMissingClock = onSchedule(
       const attSnap = await db.collection("stores").doc(store).collection("attendance").where("date", "==", ds).get().catch(() => null);
       const punches = []; if (attSnap) attSnap.forEach((d) => punches.push(d.data()));
       for (const sh of shifts) {
-        if (shiftIsOvernight(sh.shift)) continue; // 跨日班先略過（下面昨日那段處理）
+        if (missDeadlineCrossesDay(sh.shift)) continue; // 門檻落在隔天 → 交給下面「昨日」那段處理
         if (nowMin < shiftSpan(sh.shift).endH * 60 + 120) continue; // 未到「結束後 2 小時」
         const isSupport = sh.supportEmp && sh.approvalStatus === "approved";
         const emp = (sh.name && !String(sh.name).startsWith("🆘")) ? sh.name
@@ -1779,13 +1793,13 @@ exports.scheduledMissingClock = onSchedule(
       const wkY = weekStrOfTp(yTp);
       const wdY = (wkY === wk) ? wd : await db.collection("stores").doc(store).collection("weeks").doc(wkY).get().catch(() => null);
       const recsY = (wdY && wdY.exists) ? (wdY.data().records || []) : [];
-      const yShifts = recsY.filter((r) => r.day === yName && !String(r.location || "").startsWith("支援") && shiftIsOvernight(r.shift));
+      const yShifts = recsY.filter((r) => r.day === yName && !String(r.location || "").startsWith("支援") && missDeadlineCrossesDay(r.shift));
       if (yShifts.length) {
         const attSnapY = await db.collection("stores").doc(store).collection("attendance").where("date", "==", dsY).get().catch(() => null);
         const punchesY = []; if (attSnapY) attSnapY.forEach((d) => punchesY.push(d.data()));
         for (const sh of yShifts) {
-          // 跨日班的下班落在今天：endH 已推 >24，減回 24 得今天的時刻
-          if (nowMin < (shiftSpan(sh.shift).endH - 24) * 60 + 120) continue; // 今天還沒到「下班+2 小時」
+          // 門檻換算成「今天的分鐘數」：收班+2h 超過 1440 的部分就是今天的時刻
+          if (nowMin < (shiftSpan(sh.shift).endH * 60 + 120) - 1440) continue; // 今天還沒到「下班+2 小時」
           const isSupport = sh.supportEmp && sh.approvalStatus === "approved";
           const emp = (sh.name && !String(sh.name).startsWith("🆘")) ? sh.name
             : (isSupport ? sh.supportEmp.slice(sh.supportEmp.indexOf("-") + 1) : "");
@@ -1793,8 +1807,12 @@ exports.scheduledMissingClock = onSchedule(
           const sInfo = statusMap[emp] || {};
           if (!isSupport && ["離職", "調走"].includes(sInfo.status) && (!sInfo.eff || dsY >= sInfo.eff)) continue;
           const homeStore = isSupport ? sh.supportEmp.slice(0, sh.supportEmp.indexOf("-")) : store;
-          const hasInY = punchesY.some((p) => p.empName === emp && p.type === "上班"); // 昨天的上班
-          const hasOutT = punches.some((p) => p.empName === emp && p.type === "下班"); // 今天的下班
+          // 跨夜班（endH >= 24）的下班卡打在今天；22:00~23:59 收班但沒跨夜的班，上下班都在昨天
+          const overnight = shiftIsOvernight(sh.shift);
+          const hasInY = punchesY.some((p) => p.empName === emp && p.type === "上班");
+          const hasOutT = overnight
+            ? punches.some((p) => p.empName === emp && p.type === "下班")
+            : punchesY.some((p) => p.empName === emp && p.type === "下班");
           if (hasInY && hasOutT) continue;
           const info = await resolveEmpInfo(db, emp);
           if (!canClockPerm(stage, info.permission)) continue;
@@ -1806,7 +1824,7 @@ exports.scheduledMissingClock = onSchedule(
           const dn = info.displayName;
           await flagRef.set({
             empName: emp, displayName: dn, date: dsY, type: "缺卡", atStore: store, homeStore,
-            shift: sh.shift, status: "缺卡", note: missWhat + "(跨日班)", source: "system",
+            shift: sh.shift, status: "缺卡", note: missWhat + (overnight ? "(跨日班)" : ""), source: "system",
             // 缺卡＝沒有打卡時間：不寫 deviceTs/tsMs；等手動補卡才有真時間
             ts: admin.firestore.FieldValue.serverTimestamp(), deviceTs: null, tsMs: null,
           });
