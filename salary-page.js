@@ -515,12 +515,10 @@ async function confirmLeaveSettle() {
     }, { merge:true });
     // 4) 員工主檔記結清時間（避免重複結清）
     const empRef = window.db.collection('stores').doc(currentStore).collection('employees').doc(empName);
-    await empRef.set({
-      leaveSettledAt:now, leaveSettledMonth:currentMonth, leaveSettledAmount:amount,
-      leaveSettledCalcAmount:c.amount, leaveSettledDiff:diff,
-      leaveSettledDiffReason: diff>0 ? diffReason.trim() : '',
-      leaveSettledBy: currentUser.displayName || currentUser.empName
-    }, { merge:true });
+    // ⚠️ 這份文件員工端讀得到（my-salary.html 會整包撈 stores/{店}/employees），
+    //    所以只放「有沒有結清過、哪個月」這種判重用的最小資訊。
+    //    試算金額／差額／調整原因／經手人一律只寫 leaveLog（員工端不讀）。
+    await empRef.set({ leaveSettledAt:now, leaveSettledMonth:currentMonth }, { merge:true });
     const _e = empList.find(e=>e.name===empName); if(_e) _e.leaveSettledAt = now;
 
     // 5) 金額寫進薪資（0 元不動薪資）；已送審則自動收回
@@ -528,7 +526,9 @@ async function confirmLeaveSettle() {
       let rec = getSalaryRecord(empName);
       if(!rec){ rec = buildDefaultRecord(_e); salaryData.records.push(rec); }
       rec.otherBonus = (parseFloat(rec.otherBonus||0)) + amount;
-      rec.leaveSettleNote = `${note} ${c.totalDays} 天 $${amount.toLocaleString()}`;
+      // ⚠️ 不在薪資記錄上留任何結清說明：my-salary.html 會下載整份 salary/{ym}
+      //    （含全店所有人的 records），寫在這裡等於讓所有員工都讀得到彼此的結清細節。
+      //    管理者要查就到「員工特補休」看 leaveLog。員工只會看到金額併入「補貼/其他」。
       if(st === 'submitted') {
         salaryData.status = 'draft';
         salaryData.recalledAt = new Date().toISOString();
