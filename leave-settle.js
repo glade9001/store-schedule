@@ -68,64 +68,99 @@ function settleDailyWage(monthWage) {
 }
 
 /**
+ * 目前所處「特休年度」的起算日
+ * 勞基法 §38 的年資級距：滿 6 個月、滿 1 年、滿 2 年、滿 3 年…
+ * 例：到職 2025-07-01、年資 14 個月 → 目前落在「滿 1 年」那個年度，起算日 2026-07-01
+ */
+function settleYearStart(hireDate, totalMonths) {
+  if (!hireDate || totalMonths < 6) return null;
+  var d = new Date(hireDate);
+  if (totalMonths < 12) d.setMonth(d.getMonth() + 6);
+  else d.setFullYear(d.getFullYear() + Math.floor(totalMonths / 12));
+  return d.toISOString().slice(0, 10);
+}
+
+/**
  * 結清試算
- * @param {object} o
- *   o.batches       特休批次 [{id,label,note,grantDate,days,used,settled,carried}]
- *   o.compRemaining 補休剩餘天數（current + carried）
- *   o.monthWage     月薪基準（底薪＋全勤）
- *   o.hireDate      到職日 'YYYY-MM-DD'（沒有就用最早批次 grantDate 往前推 6 個月）
- *   o.effectDate    生效日 'YYYY-MM-DD'
- * @returns {object} 天數、金額、依據、逐條說明
+ *
+ * ⚠️ 2026-08-28 修正（用戶指正，勞基法施行細則 §24）：
+ *   特休在「符合年資的當下」就整年度取得，**不是隨在職月數按比例累進**。
+ *   例：到職 2025-07-01 的人在 2026-07-01 滿 1 年，當下即取得第 2 年度的 7 天；
+ *   9/1 離職時這 7 天是既得權利，不因為只做了 2 個月而打折，必須全額結算。
+ *   同細則亦規定曆年制得比例計給但「**不得低於**」週年制 → 比例制只能是下限參考，
+ *   永遠不該被選中當答案。
+ *
+ *   原本的錯誤：把「週年制」用「系統裡現有批次的剩餘」來代表。批次沒發 ≠ 員工沒有權利，
+ *   於是週年制欄算成 0，擇優就掉到比例制、少付 5 天。
+ *   現在改為：法定應得 = 依年資的當年度天數 − 當年度已使用 + 前期未結清餘額。
+ *
+ * @param {object} o batches / compRemaining / monthWage / hireDate / effectDate
  */
 function calcLeaveSettle(o) {
   o = o || {};
-  var batches = (o.batches || []).filter(function (b) { return !b.settled; });
+  var all = o.batches || [];
+  var batches = all.filter(function (b) { return !b.settled; });
   var effectDate = o.effectDate || new Date().toISOString().slice(0, 10);
 
   // 到職日：優先用員工主檔；退而求其次用最早批次往前推 6 個月（特休於到職滿 6 個月首次發放）
   var hireDate = o.hireDate || null;
-  if (!hireDate && batches.length) {
-    var g = batches.slice().sort(function (a, b) { return String(a.grantDate || '').localeCompare(String(b.grantDate || '')); })[0].grantDate;
-    if (g) { var d = new Date(g); d.setMonth(d.getMonth() - 6); hireDate = d.toISOString().slice(0, 10); }
+  if (!hireDate && all.length) {
+    var g = all.slice().sort(function (a, b) { return String(a.grantDate || '').localeCompare(String(b.grantDate || '')); })[0].grantDate;
+    if (g) { var d0 = new Date(g); d0.setMonth(d0.getMonth() - 6); hireDate = d0.toISOString().slice(0, 10); }
   }
 
-  // ① 週年制：現有未結清批次的剩餘天數總和
-  var annualByBatch = 0, items = [];
+  var totalMonths = hireDate ? settleMonthsBetween(hireDate, effectDate) : 0;
+  var yearStart = settleYearStart(hireDate, totalMonths);
+  var entitled = settleAnnualRule(totalMonths);   // 當年度法定應得（整年度，不按比例）
+
+  // 批次拆成「本年度」與「前期」：本年度用來抵扣已使用，前期未結清的直接累加
+  var usedThisYear = 0, priorRemain = 0, items = [], batchRemainTotal = 0;
   for (var i = 0; i < batches.length; i++) {
     var b = batches[i];
-    var rem = Math.max(0, (parseFloat(b.days) || 0) - (parseFloat(b.used) || 0));
+    var days = parseFloat(b.days) || 0, used = parseFloat(b.used) || 0;
+    var rem = Math.max(0, days - used);
+    batchRemainTotal += rem;
+    var isThisYear = yearStart && b.grantDate && String(b.grantDate) >= yearStart;
+    if (isThisYear) usedThisYear += used;
+    else priorRemain += rem;
     if (rem > 0) items.push({ batchId: b.id, label: b.label || b.note || '特休批次', grantDate: b.grantDate || '', days: rem });
-    annualByBatch += rem;
   }
 
-  // ② 比例制：依實際在職月數換算「當個年度」應得天數（不重複計已發放的整年份）
-  var totalMonths = hireDate ? settleMonthsBetween(hireDate, effectDate) : 0;
-  var fullYearDays = settleAnnualRule(totalMonths);
-  var monthsIntoYear = totalMonths > 0 ? (totalMonths % 12 || 12) : 0;
-  var proportional = totalMonths > 0 ? Math.ceil(fullYearDays * monthsIntoYear / 12) : 0;
+  // 法定應得：當年度整年度天數 − 當年度已使用 + 前期未結清餘額
+  var statutory = Math.max(0, entitled - usedThisYear) + priorRemain;
 
-  // ③ 擇優（勞工有利原則）
-  var annualDays = Math.max(annualByBatch, proportional);
-  var basis = (annualDays === proportional && proportional > annualByBatch) ? '比例制' : '週年制';
+  // 保險起見取「法定應得」與「系統批次剩餘總和」的高者（批次若因故多發，以實際為準）
+  var annualDays = Math.max(statutory, batchRemainTotal);
+  var basis = annualDays === statutory && statutory >= batchRemainTotal ? '法定應得（週年制）' : '系統批次剩餘';
+
+  // 比例制僅作下限參考，不參與取值（施行細則 §24：曆年制得比例計給但不得低於週年制）
+  var monthsIntoYear = totalMonths > 0 ? (totalMonths % 12 || 12) : 0;
+  var proportional = totalMonths > 0 ? Math.ceil(entitled * monthsIntoYear / 12) : 0;
 
   var compDays = Math.max(0, parseFloat(o.compRemaining) || 0);
   var totalDays = annualDays + compDays;
   var dailyWage = settleDailyWage(o.monthWage);
   var amount = Math.round(totalDays * dailyWage);
 
+  // 批次沒涵蓋到的天數（例如當年度批次根本沒發放）→ 結清時沒有批次可標記，要另外說明
+  var uncovered = Math.max(0, annualDays - batchRemainTotal);
+
   var explain = [];
-  explain.push('到職 ' + (hireDate || '—') + '，年資 ' + totalMonths + ' 個月');
-  explain.push('週年制：現有批次剩餘合計 ' + annualByBatch + ' 天');
-  explain.push('比例制：年度應得 ' + fullYearDays + ' 天 × ' + monthsIntoYear + '/12 = ' + proportional + ' 天');
-  explain.push('特休擇優取高者 → ' + annualDays + ' 天（' + basis + '）');
+  explain.push('到職 ' + (hireDate || '—') + '，至 ' + effectDate + ' 年資 ' + totalMonths + ' 個月');
+  explain.push('目前特休年度起算 ' + (yearStart || '—') + '，該年度法定應得 ' + entitled + ' 天（滿年資即整年度取得，不按比例）');
+  explain.push('本年度已使用 ' + usedThisYear + ' 天' + (priorRemain > 0 ? '，前期未結清 ' + priorRemain + ' 天' : ''));
+  explain.push('特休應結清 ' + annualDays + ' 天（' + basis + '）');
+  if (uncovered > 0) explain.push('⚠️ 其中 ' + uncovered + ' 天在系統裡沒有對應批次（該年度批次未發放），仍須結算');
+  explain.push('※ 比例制僅供對照：' + entitled + ' × ' + monthsIntoYear + '/12 = ' + proportional + ' 天，依施行細則 §24 不得低於週年制，故不採用');
   if (compDays > 0) explain.push('補休剩餘 ' + compDays + ' 天');
   explain.push('日薪 = 月薪 ' + (parseFloat(o.monthWage) || 0).toLocaleString() + ' ÷ 30 = ' + dailyWage.toLocaleString());
   explain.push('結清金額 = (' + annualDays + (compDays > 0 ? ' + ' + compDays : '') + ') 天 × ' + dailyWage.toLocaleString() + ' = ' + amount.toLocaleString());
 
   return {
     hireDate: hireDate, effectDate: effectDate, totalMonths: totalMonths,
-    annualByBatch: annualByBatch, proportional: proportional,
-    annualDays: annualDays, basis: basis, items: items,
+    yearStart: yearStart, entitled: entitled, usedThisYear: usedThisYear, priorRemain: priorRemain,
+    statutory: statutory, batchRemainTotal: batchRemainTotal, uncovered: uncovered,
+    annualDays: annualDays, basis: basis, items: items, proportional: proportional,
     compDays: compDays, totalDays: totalDays,
     dailyWage: dailyWage, amount: amount, explain: explain,
   };
