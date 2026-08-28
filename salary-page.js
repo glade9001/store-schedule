@@ -322,6 +322,21 @@ async function confirmCarrySettle(empName) {
 //  ④ 身份轉換（正職→工讀）採「折發後歸零」，與離職共用同一套流程
 //  ⑤ 沒有餘額也要留痕 → 金額 0 一樣可確認，只是不動薪資
 
+/**
+ * 本月「應休未休補休」是否尚未處理
+ * 條件與送審前檢查（submitSalary）完全相同，抽出來共用避免兩份實作漂掉。
+ * 工讀（含以工讀計薪）沒有六日應休，一律跳過。
+ * @returns {number} 尚未處理的應休未休天數；0＝已處理或不適用
+ */
+function unworkedPendingDays(empName) {
+  const emp = empList.find(e => e.name === empName);
+  if(!emp || effSalaryRole(emp) === ROLE_PART) return 0;
+  const rec = getSalaryRecord(empName);
+  if(!rec) return 0;
+  const shortRest = Math.max(0, getMonthWeekendDays(currentMonth).total - calcMonthOffDays(empName, currentMonth));
+  return (shortRest > 0 && !rec.unworkedAction) ? shortRest : 0;
+}
+
 /** 這位員工本月是否該結清（離職／轉工讀生效，且當月正是目標薪資月） */
 function settleCaseOf(emp) {
   if(!emp) return null;
@@ -347,10 +362,13 @@ function renderLeaveSettleBanner() {
   });
   if(!rows.length || !canEditSalary()) { box.style.display='none'; box.innerHTML=''; return; }
   box.innerHTML = `<div style="font-size:13px;font-weight:900;color:#b91c1c;margin-bottom:8px;">🧾 本月有 ${rows.length} 位需辦理特補休結清</div>`
-    + rows.map(({emp,c}) => `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid #fecaca;">
-        <div style="flex:1;font-size:13px;font-weight:700;">${getDisplayName(emp.name)}<span style="font-size:11px;color:var(--text-muted);font-weight:600;"> · ${c.kind} ${c.effectDate} 生效</span></div>
-        <button onclick="openLeaveSettleModal('${emp.name.replace(/'/g,"\\'")}')" style="background:var(--danger);color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:800;cursor:pointer;">前往結清</button>
-      </div>`).join('');
+    + rows.map(({emp,c}) => {
+        const pend = unworkedPendingDays(emp.name);
+        return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid #fecaca;">
+        <div style="flex:1;font-size:13px;font-weight:700;">${getDisplayName(emp.name)}<span style="font-size:11px;color:var(--text-muted);font-weight:600;"> · ${c.kind} ${c.effectDate} 生效</span>${
+          pend > 0 ? `<div style="font-size:11px;color:#b91c1c;font-weight:800;margin-top:2px;">🚫 需先處理應休未休補休（${pend} 天）</div>` : ''}</div>
+        <button onclick="openLeaveSettleModal('${emp.name.replace(/'/g,"\\'")}')" style="background:${pend>0?'#94a3b8':'var(--danger)'};color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:800;cursor:pointer;">${pend>0?'查看':'前往結清'}</button>
+      </div>`; }).join('');
   box.style.display = 'block';
 }
 
@@ -401,6 +419,12 @@ function openLeaveSettleModal(empName) {
   //    實例（2026-08-28 用正式資料驗到）：某員工到職 2025-07-01、9/1 離職＝滿 14 個月，
   //    系統只有一筆 3 天批次且已用完；滿 12 個月該發的 7 天批次從未發放。
   //    若直接採比例制只會算出 2 天 → 少付 5 天。寧可擋下來讓人先補批次，也不要靜靜少算。
+  // 🚫 硬擋：應休未休沒處理就不能結清。
+  //    當月的補休是在薪資頁手動發放的（_doGrantUnworked），你按下發放前那幾天根本不存在，
+  //    先結清就會少折發，而且結清後餘額歸零、不可自動復原 → 錢就這樣少給了。
+  //    只提示不夠（原本是灰字說明），必須擋住。
+  const unworkedPend = unworkedPendingDays(empName);
+
   let warnBlock = '';
   if(c.totalDays > 0 && c.dailyWage <= 0) {
     // 日薪＝底薪＋全勤÷30。薪資記錄還沒建或底薪為 0 時，天數再多也會算成 0 元 → 靜靜少付。
@@ -420,9 +444,13 @@ function openLeaveSettleModal(empName) {
       <div style="display:flex;justify-content:space-between;"><span>補休剩餘</span><b>${c.compDays} 天</b></div>
       <div style="display:flex;justify-content:space-between;border-top:1px solid #e2e8f0;margin-top:6px;padding-top:6px;"><span>合計</span><b>${c.totalDays} 天 × 日薪 ${c.dailyWage.toLocaleString()}</b></div>
     </div>
+    ${unworkedPend > 0 ? `<div style="background:#fef2f2;border:1.5px solid var(--danger);border-radius:10px;padding:12px;margin:12px 0;font-size:12.5px;color:#b91c1c;font-weight:800;line-height:1.8;">
+      🚫 無法結清：本月「應休未休補休」尚未處理（應休未休 ${unworkedPend} 天）。<br>
+      <span style="font-weight:600;">當月補休是在薪資頁手動發放的，發放前那幾天不存在。先結清會少折發，而且結清後餘額歸零、不可自動復原。</span><br>
+      請先在下方員工卡片完成「應休未休三選一」（發放／部分發放／不發放），再回來結清。</div>` : ''}
     ${warnBlock}
     ${zero ? `<div style="background:#f1f5f9;border-radius:10px;padding:10px 12px;margin:12px 0;font-size:12px;color:var(--text-muted);font-weight:700;">
-      無未休特休／補休，結清金額 0 元。仍請確認一次留痕（若當月「應休未休補休」尚未發放，請先發放再回來結清）。</div>` : statusBlock}
+      無未休特休／補休，結清金額 0 元。仍請確認一次留痕。</div>` : statusBlock}
     <div class="salary-row" style="margin-top:12px;">
       <span class="salary-row-label">結清金額（可修改）</span>
       <input id="lsAmount" type="number" class="salary-input" value="${c.amount}">
@@ -433,7 +461,9 @@ function openLeaveSettleModal(empName) {
         ${c.explain.map(l=>`· ${l}`).join('<br>')}
       </div>
     </details>
-    <button onclick="confirmLeaveSettle()" style="width:100%;padding:12px;background:var(--danger);color:white;border:none;border-radius:10px;font-size:14px;font-weight:800;margin-top:16px;cursor:pointer;">確認結清${zero?'（0 元）':''}</button>
+    ${unworkedPend > 0
+      ? `<button disabled style="width:100%;padding:12px;background:#e2e8f0;color:#94a3b8;border:none;border-radius:10px;font-size:14px;font-weight:800;margin-top:16px;cursor:not-allowed;">請先處理應休未休補休</button>`
+      : `<button onclick="confirmLeaveSettle()" style="width:100%;padding:12px;background:var(--danger);color:white;border:none;border-radius:10px;font-size:14px;font-weight:800;margin-top:16px;cursor:pointer;">確認結清${zero?'（0 元）':''}</button>`}
     <button onclick="closeModal('leaveSettleModal')" style="width:100%;padding:10px;background:#f1f5f9;color:var(--text);border:none;border-radius:10px;font-size:13px;font-weight:700;margin-top:8px;cursor:pointer;">取消</button>`;
   openModal('leaveSettleModal');
 }
@@ -443,6 +473,13 @@ async function confirmLeaveSettle() {
   if(!empName || !c) return;
   const amount = Math.round(parseFloat(document.getElementById('lsAmount').value) || 0);
   const st = salaryData.status || 'draft';
+
+  // 硬擋（UI 已停用按鈕，這裡再擋一次，避免 console 直接呼叫繞過）
+  const _pend = unworkedPendingDays(empName);
+  if(_pend > 0) {
+    alert(`無法結清：${getDisplayName(empName)} 本月「應休未休補休」尚未處理（應休未休 ${_pend} 天）。\n\n請先完成「應休未休三選一」再回來結清，否則會少折發。`);
+    return;
+  }
 
   // 已發布：依選擇決定。選「計入本月」但尚未退回 → 擋住，不代為更動已發布薪資。
   // ⚠️ 金額 0 例外：0 元不會動到薪資記錄，只寫 leaveLog 留痕，沒有更動已發布薪資的問題，
@@ -3688,13 +3725,7 @@ async function submitSalary() {
   // ✅ 送審前：檢查應休未休補休是否全員處理完畢
   const unhandled = [];
   empList.forEach(emp => {
-    if(effSalaryRole(emp) === ROLE_PART) return; // 工讀(含以工讀計薪)無六日應休，跳過
-    const rec = getSalaryRecord(emp.name);
-    if(!rec) return;
-    const shortRest = Math.max(0, getMonthWeekendDays(currentMonth).total - calcMonthOffDays(emp.name, currentMonth));
-    if(shortRest > 0 && !rec.unworkedAction) {
-      unhandled.push(getDisplayName(emp.name));
-    }
+    if(unworkedPendingDays(emp.name) > 0) unhandled.push(getDisplayName(emp.name));
   });
   if(unhandled.length > 0) {
     alert(
