@@ -69,7 +69,14 @@ self.addEventListener('fetch', event => {
   //    靠「改檔就記得進 CACHE_NAME 版號」是不可靠的紀律，改成由架構保證。
   if(url.pathname.endsWith('.js')) {
     event.respondWith(
-      fetch(event.request).then(response => {
+      // ⚠️ 一定要帶 cache:'no-cache'（2026-08-28 加）：
+      //    GitHub Pages 對 .js 回 Cache-Control: max-age=600，預設 fetch 會直接吃瀏覽器快取、
+      //    連請求都不發 → 改了 JS 最多要 10 分鐘才會到已載過的人手上。
+      //    2026-08-28 把六個巨檔的行內 JS 外部化後，等於整個網站的邏輯都受這個延遲影響
+      //    （以前 HTML 走 no-cache，push 後約 1 分鐘就生效）。
+      //    no-cache ≠ no-store：仍會帶 ETag 去問，沒變就回 304 空回應。
+      //    真正的省是「不用傳 200KB 本體」而不是「不發請求」，所以幾乎不損失頻寬。
+      fetch(event.request, { cache: 'no-cache' }).then(response => {
         if(response.ok) {
           const clone = response.clone();
           caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
