@@ -808,13 +808,6 @@ function _nextMonthFirst() {
   const d = new Date(); d.setMonth(d.getMonth()+1, 1);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`;
 }
-/** 'YYYY-MM-01' → 上一個薪資月 'YYYY-MM'（結清應計入的月份） */
-function _prevYM(dateStr) {
-  const [y,m] = String(dateStr).split('-').map(Number);
-  const py = m===1 ? y-1 : y, pm = m===1 ? 12 : m-1;
-  return `${py}-${String(pm).padStart(2,'0')}`;
-}
-
 // 身份轉換一律從 1 號生效（用戶 2026-08-28 定案）
 // Why：salary/{ym}.records[].payAsPartTime 是整月一個旗標，月中轉換無法表達
 //      「前半月薪、後半時薪」，會整月用同一種模式計薪 → 算錯。
@@ -967,7 +960,10 @@ async function saveAccountSetting() {
           upd.partTimeFrom = hasFutureRoleDate ? roleEffDate
             : `${new Date().toISOString().slice(0,7)}-01`;
           upd.leaveSettledAt = firebase.firestore.FieldValue.delete();
-        } else if (role !== '工讀' && wasPart) {
+        } else if (role !== '工讀') {
+          // 目標職稱不是工讀 → 沒有待生效或已生效的轉換，一律清掉。
+          // ⚠️ 不能只在 wasPart 時才清：取消「待生效的轉工讀」時 role 還是正職(wasPart=false)，
+          //    只判 wasPart 會讓 partTimeFrom 留著，薪資頁仍會叫你去結清一個已取消的轉換。
           upd.partTimeFrom = firebase.firestore.FieldValue.delete();
         }
       }
@@ -984,8 +980,10 @@ async function saveAccountSetting() {
         }
       }
       if (Object.keys(upd).length) await empRef.update(upd);
+      // 轉工讀與離職走同一支結清摘要（用戶需求：兩種情境一併套用）
       if (upd.partTimeFrom) {
-        alert(`已設定 ${dispName||empName} 自 ${upd.partTimeFrom} 起以工讀時薪計薪。\n\n請至薪資系統 ${_prevYM(upd.partTimeFrom)} 月辦理「特補休結清」——正職期間累積的特休需按正職日薪折發，逾期改用工讀基準會少付。`);
+        closeModal('accountModal');
+        await showSettlePrompt(store, empName, upd.partTimeFrom, '轉工讀');
       }
     }
 
