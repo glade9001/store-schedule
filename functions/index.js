@@ -1528,6 +1528,74 @@ exports.onClockPunch = onDocumentWritten(
   }
 );
 
+// A-2. 打卡／補登成立 → 自動註銷對應的缺卡標記（2026-08-28）
+// 為什麼需要：缺卡標記是排程在「班別結束後 2 小時」寫下的，但之後不論員工自己補打（下班配對
+// 視窗到 +3h，比 2h 晚）、店長核准補登申請、或店長直接改一筆卡，都沒有任何一條路會回頭動那張
+// 標記。8 月實測 184 筆有效缺卡裡有 36 筆（19%）其實早就補齊了，卻還掛在員工首頁紅字與店長
+// 清單上。清單一旦五分之一是雜訊就沒人願意看，剩下真正該補的也會跟著被忽略。
+// 為什麼掛 trigger 而不是寫在各補登按鈕裡：來源有 app／offline／店長核准／店長直接改四條路，
+// 各自實作一份必然漏掉一條，而且未來新增第五條時沒人會記得補。
+function addDaysStr(ds, n) {
+  const d = new Date(`${ds}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+exports.onPunchResolveMissFlag = onDocumentWritten(
+  { document: "stores/{store}/attendance/{id}", region: "asia-east1" },
+  async (event) => {
+    const after = event.data.after.exists ? event.data.after.data() : null;
+    if (!after) return;
+    if (after.type !== "上班" && after.type !== "下班") return; // 缺卡本身不處理 → 寫回標記不會遞迴
+    const before = event.data.before.exists ? event.data.before.data() : null;
+    // 只在「可能改變補齊與否」的異動才重算，避免每次 merge 寫入都跑一輪查詢
+    if (before && before.type === after.type && !!before.voided === !!after.voided &&
+        before.shiftDate === after.shiftDate && before.date === after.date) return;
+    const emp = after.empName;
+    const anchor = after.shiftDate || after.date;   // 缺卡標記的 date＝班別當天
+    if (!emp || !anchor) return;
+    const db = admin.firestore();
+    const attCol = db.collection("stores").doc(event.params.store).collection("attendance");
+    // 跨日班的下班卡 date 是隔天（靠 shiftDate 回指班別當天），故兩天都要撈
+    const snaps = await Promise.all([
+      attCol.where("empName", "==", emp).where("date", "==", anchor).get(),
+      attCol.where("empName", "==", emp).where("date", "==", addDaysStr(anchor, 1)).get(),
+    ]);
+    const docs = [];
+    snaps.forEach((s) => s.forEach((d) => docs.push({ ref: d.ref, d: d.data() || {} })));
+    // 算得上出勤的打卡：「到場」＝沒配對到任何班別，不能拿來抵缺卡
+    const punches = docs.filter((x) => (x.d.type === "上班" || x.d.type === "下班") &&
+      !x.d.voided && x.d.status !== "到場" && ((x.d.shiftDate || x.d.date) === anchor));
+    const flags = docs.filter((x) => x.d.type === "缺卡" && x.d.date === anchor);
+    for (const f of flags) {
+      const fs = f.d.shift || "";
+      // 兩頭班同一天會有兩張標記：班別對得起來才算，對不上的不要互相抵銷
+      const rel = punches.filter((p) => !fs || !p.d.shift || p.d.shift === fs);
+      const hasIn = rel.some((p) => p.d.type === "上班");
+      const hasOut = rel.some((p) => p.d.type === "下班");
+      const note = String(f.d.note || "");
+      const done = note.includes("缺下班") ? hasOut :
+        note.includes("缺上班") ? hasIn :
+          (hasIn && hasOut);   // 「整天未打卡」與沒註記的一律要求上下班都齊
+      const now = new Date().toISOString();
+      const AU = admin.firestore.FieldValue.arrayUnion;
+      if (done && !f.d.voided) {
+        await f.ref.set({
+          voided: true, voidedBy: "system", voidedAt: now, voidReason: "已補登，系統自動註銷",
+          editLog: AU({ at: now, by: "system", action: "註銷", reason: "已補登，系統自動註銷" }),
+        }, { merge: true });
+      } else if (!done && f.d.voided && f.d.voidedBy === "system") {
+        // 補登的卡又被店長註銷或改掉 → 缺卡要回來，否則這個班就永遠沒人管了。
+        // 只還原「系統自己註銷」的；人工註銷（例如改為休假）一律尊重，不覆蓋。
+        await f.ref.set({
+          voided: false, voidedBy: null, voidedAt: null, voidReason: null,
+          editLog: AU({ at: now, by: "system", action: "還原", reason: "補登紀錄已失效，缺卡重新成立" }),
+        }, { merge: true });
+      }
+    }
+  }
+);
+
+
 // B. 補登/修改申請 → 送出通知店長；核准/駁回通知員工
 exports.onAttendanceRequest = onDocumentWritten(
   { document: "stores/{store}/attendanceRequests/{id}", region: "asia-east1", secrets: [LINE_TOKEN] },
