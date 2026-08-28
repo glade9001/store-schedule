@@ -394,10 +394,41 @@ function buildSettleCalc(empName) {
   });
 }
 
+/**
+ * 重讀單一員工的特補休資料（特休批次＋補休餘額），直接更新 compDataMap／batchDataMap
+ * ⚠️ 2026-08-29：結清 Modal 原本只讀記憶體，只要任何一條發放/撤回路徑忘了同步
+ *    （或同步被 if(compDataMap[emp]) 跳過），Modal 就顯示舊數字——使用者實際踩到
+ *    「補發後點進去仍是 0」。與其逐條補同步（今天已經漏過三次），不如在開啟時重讀：
+ *    Modal 一次結清只開一兩次，多兩個讀取換掉一整類 bug。
+ */
+async function reloadLeaveDataFor(empName) {
+  const year = currentMonth.split('-')[0], prevYear = String(parseInt(year) - 1);
+  const [batchSnap, compSnap, compPrevSnap] = await Promise.all([
+    window.db.collection('employees').doc(empName).collection('leaveBatches').get().catch(()=>null),
+    window.db.collection('employees').doc(empName).collection('comp').doc(year).get().catch(()=>null),
+    window.db.collection('employees').doc(empName).collection('comp').doc(prevYear).get().catch(()=>null)
+  ]);
+  const batches = [];
+  if(batchSnap) batchSnap.forEach(d => batches.push({ id:d.id, ...d.data() }));
+  batchDataMap[empName] = batches.sort((a,b)=>(a.grantDate||'').localeCompare(b.grantDate||''));
+  const cd = compSnap?.exists ? compSnap.data() : { earned:0, used:0 };
+  const cpd = compPrevSnap?.exists ? compPrevSnap.data() : {};
+  const carriedRem = (cpd.carried && !cpd.settled)
+    ? Math.max(0,(cpd.earned||0)-(cpd.used||0)-(cpd.carriedUsed||0)) : 0;
+  compDataMap[empName] = {
+    current: { earned: cd.earned||0, used: cd.used||0, remaining: Math.max(0,(cd.earned||0)-(cd.used||0)), settled: cd.settled||false },
+    carried: carriedRem > 0 ? { remaining: carriedRem, year: parseInt(prevYear), settled: cpd.settled||false } : null,
+    totalRemaining: Math.max(0,(cd.earned||0)-(cd.used||0)) + carriedRem
+  };
+}
+
 let _lsEmp = null, _lsCalc = null, _lsCase = null;
-function openLeaveSettleModal(empName) {
+async function openLeaveSettleModal(empName) {
   const emp = empList.find(e => e.name === empName);
   if(!emp) { showToast('找不到員工'); return; }
+  showLoading('讀取特補休資料…');
+  try { await reloadLeaveDataFor(empName); } catch(e) { /* 讀不到就用記憶體現有值 */ }
+  hideLoading();
   _lsEmp = empName; _lsCase = settleCaseOf(emp); _lsCalc = buildSettleCalc(empName);
   const st = salaryData.status || 'draft';
   const nextYM = settleNextMonth(currentMonth);
@@ -874,7 +905,8 @@ async function confirmCompEarned(empName) {
     rec.unworkedCompGranted = true;
     rec.unworkedCompDays = shortage;
     leaveDataMap[empName] = updatedLeave;
-    triggerAutoSave();
+    clearTimeout(autoSaveTimer);
+    await autoSaveDraft();   // 同步存檔，理由同 _doGrantUnworked／撤回分支
     const empObj2 = empList.find(e=>e.name===empName);
     if(empObj2) { document.getElementById('empModalBody').innerHTML = renderSalaryForm(empObj2, rec, 0, isReadonly()); switchModalTab(currentModalTab, false); }
     showToast(`✅ 已發放 ${getDisplayName(empName)} ${shortage} 天應休未休補休`);
@@ -917,7 +949,8 @@ async function recalcComp(empName, year) {
   ];
   if(carriedActive) _writes.push(prevRef.set({ carriedUsed }, { merge: true }));
   await Promise.all(_writes);
-  if(compDataMap[empName]) {
+  if(!compDataMap[empName]) compDataMap[empName] = { current:{}, carried:null, totalRemaining:0 };
+  {
     compDataMap[empName].current = { earned, used: currentUsed, remaining: earned - currentUsed };
     if(carriedActive && compDataMap[empName].carried) compDataMap[empName].carried.remaining = carriedRem;
     const effCarriedRem = carriedActive ? carriedRem : (compDataMap[empName].carried?.remaining || 0);
