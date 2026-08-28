@@ -393,7 +393,15 @@ function punchRow(r, showEmp){
   const needRev = r.source==='offline' && r.needReview;
   const reviewBtn = needRev?`<button onclick="approveOffline('${r.id}')" title="核可離線打卡" style="background:#e6f4ea;color:#137333;border:none;border-radius:8px;padding:5px 9px;font-weight:800;font-size:11px;cursor:pointer;margin-left:6px;">✔核可</button>`:'';
   const editBtn=`<button onclick="openEditPunch('${r.id}')" title="修改／註銷（需填原因，保留原始紀錄）" style="background:#eef2ff;color:#4338ca;border:none;border-radius:8px;padding:5px 9px;font-weight:800;font-size:11px;cursor:pointer;margin-left:6px;">✏️</button>`;
-  const rowStyle=voided?'opacity:.55;text-decoration:line-through;':anom?'border-left:3px solid var(--danger);padding-left:8px;background:#fff5f5;border-radius:6px;':'';
+  // 底色依「要不要處理」分流（2026-08-28）：原本缺卡／遲到／早退三種共用同一個紅底，
+  // 但缺卡是待辦（影響工時與薪資，要去催補登、補完就消失），遲到／早退是既成事實
+  // （店長做什麼都不會讓它消失）。同色會讓整片紅字失去輕重，跟首頁那張卡是同一個道理。
+  const isMissRec = !voided && (r.status==='缺卡'||r.type==='缺卡');
+  const isLateRec = !voided && (r.status==='遲到'||r.status==='早退');
+  const rowStyle = voided ? 'opacity:.55;text-decoration:line-through;'
+    : isMissRec ? 'border-left:3px solid var(--danger);padding-left:8px;background:#fff5f5;border-radius:6px;'
+    : isLateRec ? 'border-left:3px solid var(--warn);padding-left:8px;background:#fffbeb;border-radius:6px;'
+    : '';
   const empLbl=showEmp?`<span style="font-weight:800;min-width:52px;">${empDisplay(r.empName)}</span>`:'';
   let h=`<div class="prow" style="${rowStyle}">${empLbl}
     <span class="ptag ${tag}">${r.type}</span>
