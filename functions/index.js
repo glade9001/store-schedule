@@ -1951,7 +1951,13 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
     if (win.length) {
       win.sort((x, y) => Math.abs(nowMs - x.startMs) - Math.abs(nowMs - y.startMs));
       const s = win[0]; matchedShift = s.shift; shiftDate = s.shiftDate;
-      const late = Math.round((nowMs - s.startMs) / 60000);
+      // ⚠️ 一律無條件捨去到「分」，不可用 Math.round（2026-08-28 修）：
+      //    打卡時間顯示給員工看的是 hm＝ISO 字串 slice(11,16)＝截斷到分，07:00:30 畫面就是「07:00」。
+      //    原本 Math.round 會把 0.5 分進位成 1 → 同一筆資料「顯示準時、系統判遲到 1 分」。
+      //    8 月實測 6 筆（吳亦婷 8/09 07:00:55、賴家宥 8/12 08:00:39、楊文菱 8/19 15:00:57 等）
+      //    全是未滿一分鐘卻被記遲到，其中 4 筆還因此觸發「你是不是忘記打卡？」而衍生補登申請。
+      //    採計到分＝未滿 01:00 就是準時，與畫面一致。
+      const late = Math.floor((nowMs - s.startMs) / 60000);
       if (late > tol) { status = "遲到"; lateMin = late; } else if (late > 0) { status = "警告"; lateMin = late; }
     } else { status = "到場"; }
   } else { // 下班：跨日時間序列配對，找尚未打下班的上班 → 歸同一班(shiftDate)、以其排班結束判早退

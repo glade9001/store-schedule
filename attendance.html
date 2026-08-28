@@ -253,7 +253,8 @@ async function matchSchedShift(store, empName, homeStore, dateStr, hhmm, punchTy
           .sort((a,b)=>Math.abs(punchMs-a.startMs)-Math.abs(punchMs-b.startMs))
     : cand.filter(c=>punchMs>=c.endMs-4*3600000 && punchMs<=c.endMs+3*3600000)   // 後 3h：與 clockPunch 一致
           .sort((a,b)=>Math.abs(punchMs-a.endMs)-Math.abs(punchMs-b.endMs));
-  return win.length ? { shift:win[0].shift, shiftDate:win[0].shiftDate } : { shift:'', shiftDate:dateStr };
+  return win.length ? { shift:win[0].shift, shiftDate:win[0].shiftDate, startMs:win[0].startMs }
+                   : { shift:'', shiftDate:dateStr, startMs:null };
 }
 
 async function approveReq(id){
@@ -274,12 +275,20 @@ async function approveReq(id){
     const base={ empName:r.empName, displayName:r.displayName||r.empName, date:r.targetDate, type:r.punchType,
       atStore:curStore, homeStore:r.homeStore||curStore, status:'補登', source:'manual', deviceTs, tsMs:punchMs,
       shift:sm.shift, shiftDate:sm.shiftDate, weekday:shiftDayName(r.targetDate),
+      lateMin:(r.punchType==='上班' && sm.startMs!=null) ? Math.max(0, Math.floor((punchMs-sm.startMs)/60000)) : 0,
       editedBy:currentUser.empName, editNote:`申請${r.type||'補登/修改'}：${r.reason||''}`, ts:firebase.firestore.FieldValue.serverTimestamp() };
     if(target){
       // 既有卡只改時間；shift 原本是空的才補（不覆蓋系統打卡當下判定的結果）
       const cur=target.data()||{};
       const upd={ deviceTs, tsMs:punchMs, status:'補登', source:'manual', editedBy:currentUser.empName, origTs:cur.deviceTs||'' };
       if(!cur.shift && sm.shift){ upd.shift=sm.shift; upd.shiftDate=sm.shiftDate; }
+      // 原判定要留痕：status 被蓋成「補登」等於把「警告/遲到」無痕抹掉，日後查不出這筆本來遲到幾分。
+      // 同理 lateMin 也不能放著不管——時間已改成核准的申報時間，舊的分鐘數不再對應那個時間
+      // （8 月 22 筆核准後有 20 筆殘留舊 lateMin）。改依核准後的時間重算，採計到分、無條件捨去。
+      if(cur.origStatus===undefined) upd.origStatus=cur.status||'';
+      if(cur.origLateMin===undefined) upd.origLateMin=(typeof cur.lateMin==='number'?cur.lateMin:0);
+      upd.lateMin = (r.punchType==='上班' && sm.startMs!=null)
+        ? Math.max(0, Math.floor((punchMs-sm.startMs)/60000)) : 0;
       await target.ref.set(upd, {merge:true});
     }
     else { await att.add(base); }
@@ -378,6 +387,7 @@ function punchRow(r, showEmp){
     <span class="pstat ${needRev?'s-warn':sc}">${needRev?'離線待核':(anom?'⚠️ '+st:st)}</span>${reviewBtn}${voided?'':editBtn}
   </div>`;
   if(r.note) h+=`<div class="meta" style="padding:0 0 6px 4px;">💬 ${r.note}${r.noteBy?`（${r.noteBy}）`:''}</div>`;
+  if(r.origStatus && r.origStatus!==r.status) h+=`<div class="meta" style="padding:0 0 6px 4px;color:#8a5cf6;">🕰️ 原判定：${r.origStatus}${r.origLateMin?` ${r.origLateMin} 分`:''}（補登後改為 ${r.status}）</div>`;
   if(r.editReason||r.voidReason) h+=`<div class="meta" style="padding:0 0 6px 4px;color:#8a5cf6;">✏️ ${voided?'註銷':'修改'}原因：${r.voidReason||r.editReason}${(r.voidedBy||r.editedBy)?`（${r.voidedBy||r.editedBy}）`:''}${(r.origTs&&!voided)?` · 原時間 ${fmtT(r.origTs)}`:''}</div>`;
   if(!voided && r.otStatus){
     if(r.otStatus==='pending') h+=`<div style="padding:2px 0 8px 4px;font-size:12px;color:#c0620f;line-height:1.6;">📝 加班申請待審：<b>${r.otContent||'—'}</b> <button onclick="approveOt('${r.id}')" style="background:#e6f4ea;color:#137333;border:none;border-radius:8px;padding:4px 10px;font-weight:800;font-size:11px;cursor:pointer;margin-left:4px;">✔同意</button><button onclick="rejectOt('${r.id}')" style="background:#fce8e6;color:#c5221f;border:none;border-radius:8px;padding:4px 10px;font-weight:800;font-size:11px;cursor:pointer;margin-left:4px;">✕否</button></div>`;

@@ -618,11 +618,15 @@ function _otDone(v){ document.getElementById('otModal').style.display='none'; co
 
 // B1 忘記打卡一鍵（遲到上班 → 問是否忘打卡，員工自填實際時間，送店長核對）
 let _fgResolve=null;
-function forgotPrompt(lateMin, defTime){
+function forgotPrompt(lateMin, schedTime){
   return new Promise(resolve=>{
     _fgResolve=resolve;
-    document.getElementById('fgMsg').textContent=`目前已超過班別開始時間約 ${lateMin} 分鐘。`;
-    document.getElementById('fgTime').value=defTime||'';
+    document.getElementById('fgMsg').textContent=`目前已超過班別開始時間（${schedTime}）約 ${lateMin} 分鐘。`;
+    // ⚠️ 刻意不預填排班開始時間（2026-08-28 改）：原本 value=排定上班時間，等於把「我準時到」
+    //    設成一鍵可送出的預設答案。8 月 22 筆自動申請中有 14 筆申報時間正好等於排班開始時間，
+    //    合計把 69 分鐘的遲到抹平，且 22/22 全數核准——店長根本無從查證。
+    //    出勤時間是勞基法 §30 要求逐日據實記載的法定紀錄，要改就必須是員工自己刻意填入的值。
+    document.getElementById('fgTime').value='';
     document.getElementById('fgRow').style.display='none';
     document.getElementById('fgYesBtn').textContent='是，我忘了打卡（填實際時間）';
     document.getElementById('forgotModal').style.display='flex';
@@ -675,13 +679,15 @@ async function doPunch(type){
     const nm=serverNowMs();
     const win=candShifts.filter(c=> nm>=c.startMs-3600000 && nm<=c.startMs+4*3600000).sort((a,b)=>Math.abs(nm-a.startMs)-Math.abs(nm-b.startMs));
     if(win.length){
-      const s=win[0], lateMin=(nm-s.startMs)/60000, ci=appConfig.clockIn||{};
+      // 與後端 clockPunch 一致：採計到分、無條件捨去。未滿 01:00 就是準時，不該跳這個提示
+      // （原本用未取整的浮點數，07:00:33 會算成 0.55>0 而跳出來，白白製造一筆補登申請）
+      const s=win[0], lateMin=Math.floor((nm-s.startMs)/60000), ci=appConfig.clockIn||{};
       const tol=(ci.tolByStore&&ci.tolByStore[atStore]!=null)?ci.tolByStore[atStore]:(ci.lateToleranceMin!=null?ci.lateToleranceMin:10);
       // 只在「遲到但容許值內(警告區)」提示忘打卡；超過容許值＝真遲到，不遞台階，只能手動補登
       if(lateMin>0 && lateMin<=tol){
         hideLoading();
-        const defT=new Date(s.startMs).toLocaleTimeString('zh-TW',{hour12:false,hour:'2-digit',minute:'2-digit'});
-        const fc=await forgotPrompt(Math.round(lateMin), defT);
+        const schedT=new Date(s.startMs).toLocaleTimeString('zh-TW',{hour12:false,hour:'2-digit',minute:'2-digit'});
+        const fc=await forgotPrompt(lateMin, schedT);
         if(fc===null) return; // 取消
         if(fc.forgot) forgotClaim=fc.time;
       }
@@ -701,6 +707,9 @@ async function doPunch(type){
       : `✅ ${type}打卡成功`;
     const otTail = otIntent==='apply'?'\n📝 已送出加班申請，待店長審核（同意才計工時）':otIntent==='private'?'\n🅿️ 已記為不計工時（非加班）':'';
     let fgTail='';
+    // 申報時間跟實際打卡時間一樣＝沒有要更正什麼，不必送出去佔店長的審核佇列
+    // （8 月 22 筆自動申請裡有 7 筆是這種空轉）
+    if(forgotClaim && forgotClaim===(r.hm||'')){ forgotClaim=null; fgTail='\n（申報時間與實際打卡相同，未送出核對）'; }
     if(forgotClaim){
       try{
         await window.db.collection('stores').doc(atStore).collection('attendanceRequests').add({
