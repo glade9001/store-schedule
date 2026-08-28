@@ -1895,12 +1895,15 @@ async function loadSalaryData() {
       const data = d.data();
       const status = data.status;
       const effectDate = data.retireDate || data.transferDate;
-      // 守歷史鐵則，且區分語意：
-      //  離職→當月仍領薪(生效日<當月1號才排除，月中離職者留在最後一月)；
-      //  調走→生效當月即整月歸新店(生效日<=當月1號就排除，如 7/1 調走則 7 月不列原店)。
+      // 守歷史鐵則。離職與調走用同一條線：**生效日當天(含)之後就不屬本月**。
+      //  離職：生效日＝第一個不上班的日子。8/1 離職＝8 月一天沒做 → 最後薪資月是 7 月
+      //        （與 resignAccessUntil「1號離職→最後薪資是上月的、本月5號發」同一套模型）。
+      //        月中離職(8/15)則 8 月仍要算薪 → 8/15 <= 8/01 為 false，正確保留。
+      //  調走：生效當月即整月歸新店（7/1 調走則 7 月不列原店）。
+      //  ⚠️ 2026-08-28 修：離職原本用 `<`，8/1 離職者會被留在 8 月薪資名單（工時 0），
+      //     與 resignAccessUntil 的認定互相矛盾。改 `<=` 後兩邊一致。
       let isEffective = false;
-      if(status === '離職') isEffective = !effectDate || effectDate < salMonthStart;
-      else if(status === '調走') isEffective = !effectDate || effectDate <= salMonthStart;
+      if(status === '離職' || status === '調走') isEffective = !effectDate || effectDate <= salMonthStart;
       if(isEffective) return; // 該月已不屬本店，跳過
 
       // ✅ 到職日篩選：到職年月 > 當月年月 → 不顯示

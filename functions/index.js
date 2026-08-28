@@ -1095,18 +1095,25 @@ exports.scheduledSalaryAckReminder = onSchedule(
     const [rY, rM] = nowYM.split("-").map(Number);
     const remDay = await salaryReminderDay(db, rY, rM); // 本月發薪提醒日(5號或順延)
     // 離職者：不再發任何 LINE；並收集資訊供「離職註記自動標」
-    const resignedInfo = {}; // empName -> {store, retireDate}
+    const todayTp = taipeiTodayStr(); // 生效日比對用（提前登記者在生效日前仍在職）
+    const resignedInfo = {}; // empName -> {store, retireDate, effective}
     const cfgR = await db.collection("settings").doc("globalConfig").get().catch(() => null);
     for (const st of ((cfgR && cfgR.exists ? cfgR.data().stores : []) || [])) {
       const es = await db.collection("stores").doc(st).collection("employees").get().catch(() => null);
-      if (es) es.forEach((d) => { const e = d.data() || {}; if (e.status === "離職") resignedInfo[d.id] = { store: st, retireDate: e.retireDate || "" }; });
+      // 生效日還沒到的（提前登記）仍在職，照常提醒；到職最後一天為止都要收得到薪資簽收通知
+      if (es) es.forEach((d) => {
+        const e = d.data() || {};
+        if (e.status !== "離職") return;
+        const rd = e.retireDate || "";
+        resignedInfo[d.id] = { store: st, retireDate: rd, effective: !rd || todayTp >= rd };
+      });
     }
     const bindSnap = await db.collection("lineBindings").get();
     const uidByName = {}; bindSnap.forEach((d) => { const b = d.data(); if (b.empName && b.uid) uidByName[b.empName] = b.uid; });
     for (const bd of bindSnap.docs) {
       const b = bd.data();
       if (!b.uid || !b.empName || !b.lineUserId || !b.store) continue;
-      if (resignedInfo[b.empName]) continue; // 離職者不再提醒
+      if (resignedInfo[b.empName] && resignedInfo[b.empName].effective) continue; // 已生效的離職者不再提醒
       const disp = b.displayName || b.empName;
       for (const ym of months) {
         // 5 號發薪(遇假日順延)：ym 月薪資於「次月發薪提醒日」才提醒(cron 15:00)，提醒日前不提醒

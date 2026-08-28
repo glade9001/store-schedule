@@ -73,9 +73,13 @@ async function _loadProfile(fbUser) {
         .collection('employees').doc(data.empName).get();
       if (empSnap.exists) {
         const e = empSnap.data();
-        if (e.status === '離職' && e.retireDate) {
+        // ⚠️ 2026-08-28 修：原本只看 status，離職生效日還沒到就把帳號降級成「只能查看薪水」。
+        //    實例：錦花某員工 9/1 離職、8 月就先標記好，結果 8 月還要上滿整個月的班，
+        //    卻在 8 月就看不到班表、打不了卡、不能劃休。
+        //    改成生效日當天才生效 → 可以放心提前登記。
+        const today = new Date().toISOString().split('T')[0];
+        if (e.status === '離職' && e.retireDate && today >= e.retireDate) {
           const until = _resignAccessUntil(e.retireDate);
-          const today = new Date().toISOString().split('T')[0];
           if (until && today > until) {
             const err = new Error('此帳號已離職，存取期限已到（僅開放至最後薪資發放月月底）');
             err.code = 'resigned-expired';

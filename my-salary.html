@@ -619,13 +619,16 @@ async function loadSalaryData() {
     });
 
     empList = [];
-    const [_my, _mm] = currentMonth.split('-').map(Number);
-    const salMonthEnd = `${_my}-${String(_mm).padStart(2,'0')}-${new Date(_my, _mm, 0).getDate()}`;
+    // ⚠️ 2026-08-28 修：這裡原本比對「月底」(salMonthEnd)，與店長端 salary.html 比對「月初」不一致
+    //    → 8/15 離職的員工看自己最後一個月薪資會被排除，畫面顯示「找不到您的薪資紀錄」，
+    //    正好打死「離職者期限內只能看薪資」的整個設計。改成與店長端完全同一條規則。
+    const salMonthStart = `${currentMonth}-01`;
     empSnap.forEach(d => {
       const data = d.data();
       const status = data.status;
       const effectDate = data.retireDate || data.transferDate;
-      const isEffective = ['離職','調走'].includes(status) && (!effectDate || effectDate <= salMonthEnd);
+      // 生效日當天(含)之後就不屬本月；月中離職者仍留在最後一個月
+      const isEffective = ['離職','調走'].includes(status) && (!effectDate || effectDate <= salMonthStart);
       if(!isEffective) empList.push({ name: d.id, ...data });
     });
     empList.sort((a,b) => (a.sortKey||0)-(b.sortKey||0));
