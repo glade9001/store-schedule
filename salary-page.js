@@ -313,6 +313,204 @@ async function confirmCarrySettle(empName) {
   hideLoading();
 }
 
+// ===== 特補休結清（離職／身份轉換共用）=====
+// 用戶 2026-08-28 定案：
+//  ① 目標薪資月＝生效日 1 號→上個月、2 號以後→當月（settleTargetMonth，見 leave-settle.js）
+//  ② 目標月已 submitted → 自動收回為草稿，提醒重送
+//  ③ 目標月已 published → **不自動動它**（歷史不可變鐵則），改問要算哪個月：
+//     選該月＝要求先自行退回薪資才能繼續；選下個月＝改列入下月
+//  ④ 身份轉換（正職→工讀）採「折發後歸零」，與離職共用同一套流程
+//  ⑤ 沒有餘額也要留痕 → 金額 0 一樣可確認，只是不動薪資
+
+/** 這位員工本月是否該結清（離職／轉工讀生效，且當月正是目標薪資月） */
+function settleCaseOf(emp) {
+  if(!emp) return null;
+  if(emp.leaveSettledAt) return null;                       // 已結清過
+  if(emp.status === '離職' && emp.retireDate) {
+    if(settleTargetMonth(emp.retireDate) === currentMonth) return { kind:'離職', effectDate:emp.retireDate };
+  }
+  // 轉工讀：pendingRole 已生效或 payAsPartTime 生效日落在本月目標
+  if(emp.partTimeFrom && settleTargetMonth(emp.partTimeFrom) === currentMonth) {
+    return { kind:'轉工讀', effectDate:emp.partTimeFrom };
+  }
+  return null;
+}
+
+/** 頂部橫幅：列出本月需要結清的人 */
+function renderLeaveSettleBanner() {
+  const box = document.getElementById('leaveSettleBanner');
+  if(!box) return;
+  const rows = [];
+  empList.forEach(emp => {
+    const c = settleCaseOf(emp);
+    if(c) rows.push({ emp, c });
+  });
+  if(!rows.length || !canEditSalary()) { box.style.display='none'; box.innerHTML=''; return; }
+  box.innerHTML = `<div style="font-size:13px;font-weight:900;color:#b91c1c;margin-bottom:8px;">🧾 本月有 ${rows.length} 位需辦理特補休結清</div>`
+    + rows.map(({emp,c}) => `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid #fecaca;">
+        <div style="flex:1;font-size:13px;font-weight:700;">${getDisplayName(emp.name)}<span style="font-size:11px;color:var(--text-muted);font-weight:600;"> · ${c.kind} ${c.effectDate} 生效</span></div>
+        <button onclick="openLeaveSettleModal('${emp.name.replace(/'/g,"\\'")}')" style="background:var(--danger);color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:800;cursor:pointer;">前往結清</button>
+      </div>`).join('');
+  box.style.display = 'block';
+}
+
+/** 試算（把薪資頁已載入的資料餵給 leave-settle.js 的純計算層） */
+function buildSettleCalc(empName) {
+  const emp = empList.find(e => e.name === empName);
+  const c = settleCaseOf(emp);
+  const rec = getSalaryRecord(empName);
+  const monthWage = parseFloat(rec?.baseSalary||0) + parseFloat(rec?.fullAttendBonus||0);
+  const comp = compDataMap[empName];
+  return calcLeaveSettle({
+    batches: batchDataMap[empName] || [],
+    compRemaining: comp ? comp.totalRemaining : 0,
+    monthWage,
+    hireDate: emp?.startDate || null,
+    effectDate: c ? c.effectDate : today(),
+  });
+}
+
+let _lsEmp = null, _lsCalc = null, _lsCase = null;
+function openLeaveSettleModal(empName) {
+  const emp = empList.find(e => e.name === empName);
+  if(!emp) { showToast('找不到員工'); return; }
+  _lsEmp = empName; _lsCase = settleCaseOf(emp); _lsCalc = buildSettleCalc(empName);
+  const st = salaryData.status || 'draft';
+  const nextYM = settleNextMonth(currentMonth);
+  document.getElementById('lsTitle').textContent =
+    `${_lsCase ? _lsCase.kind : ''}結清 — ${getDisplayName(empName)}`;
+
+  // 薪資狀態處理
+  let statusBlock = '';
+  if(st === 'submitted') {
+    statusBlock = `<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:10px 12px;margin:12px 0;font-size:12px;color:#9a3412;font-weight:700;">
+      ⚠️ ${currentMonth} 薪資已送審。確認結清會<b>自動收回為草稿</b>，請記得重新送出。</div>`;
+  } else if(st === 'published') {
+    statusBlock = `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:10px 12px;margin:12px 0;font-size:12px;color:#b91c1c;font-weight:700;line-height:1.7;">
+      🔒 ${currentMonth} 薪資<b>已發布</b>，系統不會自動更動已發布的薪資。請選擇要計入哪個月：
+      <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px;font-weight:600;color:#7f1d1d;">
+        <label style="display:flex;gap:6px;align-items:flex-start;cursor:pointer;"><input type="radio" name="lsTarget" value="this" style="margin-top:3px;"><span>計入 <b>${currentMonth}</b>（需先自行「退回薪資」，退回後才能繼續）</span></label>
+        <label style="display:flex;gap:6px;align-items:flex-start;cursor:pointer;"><input type="radio" name="lsTarget" value="next" checked style="margin-top:3px;"><span>計入下個月 <b>${nextYM}</b>（不動已發布的薪資）</span></label>
+      </div></div>`;
+  }
+
+  const c = _lsCalc;
+  const zero = c.totalDays <= 0;
+
+  // ⚠️ 資料完整性防呆：比例制高於週年制，通常代表「本年度的特休批次還沒發放」。
+  //    實例（2026-08-28 用正式資料驗到）：某員工到職 2025-07-01、9/1 離職＝滿 14 個月，
+  //    系統只有一筆 3 天批次且已用完；滿 12 個月該發的 7 天批次從未發放。
+  //    若直接採比例制只會算出 2 天 → 少付 5 天。寧可擋下來讓人先補批次，也不要靜靜少算。
+  let warnBlock = '';
+  if(c.proportional > c.annualByBatch) {
+    warnBlock = `<div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:10px 12px;margin:12px 0;font-size:12px;color:#92400e;font-weight:700;line-height:1.7;">
+      ⚠️ 比例制（${c.proportional} 天）高於現有批次剩餘（${c.annualByBatch} 天）。<br>
+      常見原因是<b>本年度的特休批次尚未發放</b>——年資已滿 ${c.totalMonths} 個月，請先到「員工特補休」確認批次是否完整，再回來結清，否則可能少付。</div>`;
+  }
+  document.getElementById('lsBody').innerHTML = `
+    <div class="modal-sub">${_lsCase ? `${_lsCase.kind}生效日 ${_lsCase.effectDate}` : ''}　結清應計入 <b>${currentMonth}</b> 薪資</div>
+    <div style="background:#f8fafc;border-radius:10px;padding:12px;font-size:13px;line-height:1.9;">
+      <div style="display:flex;justify-content:space-between;"><span>特休可結清（${c.basis}擇優）</span><b>${c.annualDays} 天</b></div>
+      <div style="display:flex;justify-content:space-between;"><span>補休剩餘</span><b>${c.compDays} 天</b></div>
+      <div style="display:flex;justify-content:space-between;border-top:1px solid #e2e8f0;margin-top:6px;padding-top:6px;"><span>合計</span><b>${c.totalDays} 天 × 日薪 ${c.dailyWage.toLocaleString()}</b></div>
+    </div>
+    ${warnBlock}
+    ${zero ? `<div style="background:#f1f5f9;border-radius:10px;padding:10px 12px;margin:12px 0;font-size:12px;color:var(--text-muted);font-weight:700;">
+      無未休特休／補休，結清金額 0 元。仍請確認一次留痕（若當月「應休未休補休」尚未發放，請先發放再回來結清）。</div>` : statusBlock}
+    <div class="salary-row" style="margin-top:12px;">
+      <span class="salary-row-label">結清金額（可修改）</span>
+      <input id="lsAmount" type="number" class="salary-input" value="${c.amount}">
+    </div>
+    <details style="margin-top:10px;">
+      <summary style="font-size:12px;color:var(--text-muted);font-weight:700;cursor:pointer;">計算方式</summary>
+      <div style="font-size:11.5px;color:var(--text-muted);line-height:1.9;margin-top:6px;padding-left:4px;">
+        ${c.explain.map(l=>`· ${l}`).join('<br>')}
+      </div>
+    </details>
+    <button onclick="confirmLeaveSettle()" style="width:100%;padding:12px;background:var(--danger);color:white;border:none;border-radius:10px;font-size:14px;font-weight:800;margin-top:16px;cursor:pointer;">確認結清${zero?'（0 元）':''}</button>
+    <button onclick="closeModal('leaveSettleModal')" style="width:100%;padding:10px;background:#f1f5f9;color:var(--text);border:none;border-radius:10px;font-size:13px;font-weight:700;margin-top:8px;cursor:pointer;">取消</button>`;
+  openModal('leaveSettleModal');
+}
+
+async function confirmLeaveSettle() {
+  const empName = _lsEmp, c = _lsCalc;
+  if(!empName || !c) return;
+  const amount = Math.round(parseFloat(document.getElementById('lsAmount').value) || 0);
+  const st = salaryData.status || 'draft';
+
+  // 已發布：依選擇決定。選「計入本月」但尚未退回 → 擋住，不代為更動已發布薪資
+  if(st === 'published') {
+    const pick = (document.querySelector('input[name=lsTarget]:checked')||{}).value || 'next';
+    if(pick === 'this') {
+      alert(`${currentMonth} 薪資仍為「已發布」。\n\n請先由加盟主在本頁按「退回」，退回後再回來結清。\n（系統不會自行更動已發布的薪資）`);
+      return;
+    }
+    alert(`請切換到 ${settleNextMonth(currentMonth)} 月薪資後再執行結清，金額會計入該月。`);
+    return;
+  }
+
+  if(!confirm(`確認為 ${getDisplayName(empName)} 結清特補休？\n\n特休 ${c.annualDays} 天、補休 ${c.compDays} 天，金額 $${amount.toLocaleString()}\n${amount>0?'此金額將加入本月薪資的「其他獎金」。\n':''}結清後餘額歸零，且不可自動復原。`)) return;
+
+  showLoading('結清中...');
+  try {
+    const now = today();
+    const note = `${_lsCase?_lsCase.kind:'結清'}特補休結清（生效日 ${_lsCase?_lsCase.effectDate:now}）`;
+    // 1) 特休批次標記已結清
+    for(const item of c.items) {
+      await window.db.collection('employees').doc(empName).collection('leaveBatches').doc(item.batchId).update({
+        settled:true, settledAt:now, settledDays:item.days,
+        settlePay: c.totalDays>0 ? Math.round(amount * item.days / c.totalDays) : 0,
+        settledNote:`${currentMonth} ${note}`
+      });
+    }
+    // 2) 補休歸零
+    if(c.compDays > 0) {
+      const year = currentMonth.split('-')[0];
+      const cur = compDataMap[empName]?.current;
+      await window.db.collection('employees').doc(empName).collection('comp').doc(year)
+        .set({ earned:cur?.earned||0, used:cur?.used||0, settled:true, settledAt:now, settledDays:c.compDays }, { merge:true });
+      const carried = compDataMap[empName]?.carried;
+      if(carried && carried.remaining > 0) {
+        await window.db.collection('employees').doc(empName).collection('comp').doc(String(carried.year))
+          .set({ settled:true, settledAt:now, settledDays:carried.remaining }, { merge:true });
+      }
+    }
+    // 3) leaveLog 留痕（金額 0 也要留）
+    await window.db.collection('employees').doc(empName).collection('leaveLog').doc(currentMonth).set({
+      records: firebase.firestore.FieldValue.arrayUnion({
+        date:now, type:'settle', days:c.totalDays,
+        note:`${note}：特休 ${c.annualDays} 天（${c.basis}）、補休 ${c.compDays} 天，計 $${amount.toLocaleString()}`,
+        savedBy: currentUser.displayName || currentUser.empName
+      })
+    }, { merge:true });
+    // 4) 員工主檔記結清時間（避免重複結清）
+    const empRef = window.db.collection('stores').doc(currentStore).collection('employees').doc(empName);
+    await empRef.set({ leaveSettledAt:now, leaveSettledMonth:currentMonth, leaveSettledAmount:amount }, { merge:true });
+    const _e = empList.find(e=>e.name===empName); if(_e) _e.leaveSettledAt = now;
+
+    // 5) 金額寫進薪資（0 元不動薪資）；已送審則自動收回
+    if(amount > 0) {
+      let rec = getSalaryRecord(empName);
+      if(!rec){ rec = buildDefaultRecord(_e); salaryData.records.push(rec); }
+      rec.otherBonus = (parseFloat(rec.otherBonus||0)) + amount;
+      rec.leaveSettleNote = `${note} ${c.totalDays} 天 $${amount.toLocaleString()}`;
+      if(st === 'submitted') {
+        salaryData.status = 'draft';
+        salaryData.recalledAt = new Date().toISOString();
+        salaryData.recalledBy = currentUser.displayName || currentUser.empName;
+        salaryData.recallReason = '特補休結清後金額異動，需重新送出';
+      }
+      triggerAutoSave();
+    }
+    hideLoading();
+    closeModal('leaveSettleModal');
+    await loadSalaryData();
+    showToast(amount>0
+      ? (st==='submitted' ? `✅ 已結清 $${amount.toLocaleString()}，薪資已收回為草稿，請重新送出` : `✅ 已結清 $${amount.toLocaleString()}，已計入本月薪資`)
+      : '✅ 已確認無未休特補休（0 元），已留存紀錄');
+  } catch(e) { hideLoading(); showToast('❌ 結清失敗：' + e.message); }
+}
+
 // ===== 應休未休三選一操作 =====
 function cancelUnworkedAction(empName) {
   const rec = getSalaryRecord(empName);
@@ -2001,6 +2199,7 @@ async function loadSalaryData() {
     await loadSalaryAcks(); // 載入本月員工簽收狀態
     renderEmpList();
     renderBottomAction();
+    renderLeaveSettleBanner(); // 特補休結清提示（需在 loadLeaveData 之後，才有批次/補休餘額）
   } catch(e) {
     console.error('loadSalaryData 失敗:', e);
     showToast('❌ 載入失敗：' + e.message);

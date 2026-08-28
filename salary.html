@@ -16,6 +16,7 @@
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 <script src="firebase-init.js"></script>
 <script src="salary-calc.js"></script>
+<script src="leave-settle.js"></script>
 <script>emailjs.init('OfG65y3BH5AMGcN-U');</script>
   <style>
   /* ===== 全新 3 欄式版面與按鈕 ===== */
@@ -218,6 +219,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
         <div style="font-size:11px;color:var(--text-muted);">有員工的遞延假應在去年 12/31 結算為工資，請在各員工薪資卡片中確認。</div>
       </div>
     </div>
+    <div id="leaveSettleBanner" style="display:none; background:linear-gradient(135deg,#fef2f2,#fff1f2); border:1.5px solid var(--danger); border-radius:12px; padding:12px 16px; margin-bottom:12px;"></div>
     <div id="monthInfoArea"></div>
     <div id="empList">
       <div class="empty-state"><div class="empty-icon">💰</div><div>載入中...</div></div>
@@ -423,6 +425,15 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
         計算中...
       </div>
     </div>
+  </div>
+</div>
+
+<!-- ===== 特補休結清 Modal（離職／轉工讀共用）===== -->
+<div class="modal-overlay" id="leaveSettleModal" onclick="if(event.target===this)closeModal('leaveSettleModal')">
+  <div class="modal-box" style="max-width:520px;">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="lsTitle">特補休結清</div>
+    <div id="lsBody"></div>
   </div>
 </div>
 
