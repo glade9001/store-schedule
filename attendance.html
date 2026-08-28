@@ -368,6 +368,33 @@ async function applyEditPunch(){
         editLog:AU({at:now, by, action:'修改', from:`${_editRec.type||''}/${fmtT(_editRec.deviceTs)}/${_editRec.status||''}`, to:`${nt}/${tv}/${ns}`, reason}) };
       if(nt!==_editRec.type){ upd.type=nt; if(!_editRec.origType) upd.origType=_editRec.type||''; }
       if(ns!==_editRec.status){ upd.status=ns; if(!['遲到','早退','警告'].includes(ns)) upd.lateMin=0; if(!_editRec.origStatus) upd.origStatus=_editRec.status||''; }
+
+      // ⚠️ 時間改了，lateMin/status 是衍生資料，必須跟著重算（2026-08-29 修）。
+      //    原本只有「手動改狀態」才會動 lateMin，所以店長把 23:49 更正成 23:05 之後，
+      //    畫面會出現「23:05 · 遲到 50 分」這種自相矛盾的紀錄（用戶截圖回報）。
+      //    approveReq（核准補登申請）那條路今天已經改成重算，這裡是漏掉的另一條。
+      const _segs = parseShiftSegs(_editRec.shift || '');
+      const _finalType = upd.type || _editRec.type;
+      if(_finalType === '上班' && _segs.length) {
+        const _startMs = shiftTimeMs(_editRec.shiftDate || _editRec.date, _segs[0].startH);
+        if(isFinite(_startMs)) {
+          const _late = lateMinutesOf(nd.getTime(), _startMs);
+          upd.lateMin = _late;
+          // 審核者沒有手動改狀態 → 依新時間重判（他有改就尊重他的選擇，只修 lateMin）
+          if(ns === _editRec.status) {
+            const _ci = appConfig.clockIn || {};
+            const _tol = (_ci.tolByStore && _ci.tolByStore[curStore] != null) ? _ci.tolByStore[curStore]
+                       : (_ci.lateToleranceMin != null ? _ci.lateToleranceMin : 10);
+            const _auto = punchLateStatus(_late, _tol);
+            if(['正常','警告','遲到'].includes(_editRec.status || '') && _auto !== _editRec.status) {
+              upd.status = _auto;
+              if(!_editRec.origStatus) upd.origStatus = _editRec.status || '';
+            }
+          }
+        }
+      } else if(_finalType === '下班') {
+        upd.lateMin = 0;   // 下班卡沒有遲到分鐘數，改成下班就清掉
+      }
       await ref.set(upd, {merge:true});
     }
     hideLoading(); closeEditPunch(); await load();
