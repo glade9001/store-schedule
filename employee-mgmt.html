@@ -957,15 +957,29 @@ async function saveAccountSetting() {
     } else {
       const upd = {};
       if (!hasFutureRoleDate) upd.role = role;
+      // 職稱轉為「工讀」→ 記下生效日，供薪資頁判定是否要辦特補休結清。
+      // ⚠️ 一定要在「標記當下」就寫，不能等生效：pendingRole 會在生效日當天登入時被套用並刪除
+      //    （auth.js），等 9 月初編 8 月薪資（＝結清目標月）時就看不出這人原本是正職了。
+      // ⚠️ 也不能只靠 payAsPartTime 那個勾選——用「職稱＋生效日」這條路轉換的不會經過它。
+      {
+        const wasPart = (empSnap.data()||{}).role === '工讀';
+        if (role === '工讀' && !wasPart) {
+          upd.partTimeFrom = hasFutureRoleDate ? roleEffDate
+            : `${new Date().toISOString().slice(0,7)}-01`;
+          upd.leaveSettledAt = firebase.firestore.FieldValue.delete();
+        } else if (role !== '工讀' && wasPart) {
+          upd.partTimeFrom = firebase.firestore.FieldValue.delete();
+        }
+      }
       if (payFieldVisible) {
         upd.payAsPartTime = payAsPart;
         // 轉為工讀計薪時記下生效日，薪資頁據此判斷是否要辦特補休結清
         // （正職期間累積的特休若不結清，之後會用較低的工讀基準折現 → 對員工不利）
         const wasPart = !!(empSnap.data()||{}).payAsPartTime;
-        if (payAsPart && !wasPart) {
+        if (payAsPart && !wasPart && upd.partTimeFrom === undefined) {
           upd.partTimeFrom = (roleEffDate && roleEffDate.endsWith('-01')) ? roleEffDate : _nextMonthFirst();
           upd.leaveSettledAt = firebase.firestore.FieldValue.delete(); // 新的一次轉換需重新結清
-        } else if (!payAsPart && wasPart) {
+        } else if (!payAsPart && wasPart && upd.partTimeFrom === undefined) {
           upd.partTimeFrom = firebase.firestore.FieldValue.delete();
         }
       }
