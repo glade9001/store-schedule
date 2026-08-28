@@ -278,8 +278,8 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
     </div>
     <div class="form-field" id="roleEffectiveDateField" style="display:none;">
       <label>職稱生效日 <span style="color:var(--text-muted); font-weight:400;">（留空則立即生效）</span></label>
-      <input type="date" id="roleEffectiveDate" onchange="checkRoleEffDate()">
-      <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">身份轉換一律<b>從 1 號生效</b>：薪資記錄的計薪模式是整月一個旗標，沒有「前半月薪、後半時薪」的表達能力，月中轉換會算錯。</div>
+      <input type="date" id="roleEffectiveDate">
+      <div id="roleEffDateHint" style="display:none;font-size:11px;color:var(--text-muted);margin-top:4px;">身份轉換<b>以整月為單位</b>（自所選月份 1 號生效）：薪資的計薪模式是整月一個旗標，沒有「前半月薪、後半時薪」的表達能力。<b>不能回溯</b>已經開始的月份。</div>
       <div style="font-size:11px; color:#d97706; margin-top:4px;">⚠️ 設定後員工登入時自動切換，不提前更新</div>
     </div>
     <div class="form-field">
@@ -758,6 +758,7 @@ async function openAccountModal(empName, store) {
     document.getElementById('accountRoleOriginal').value = currentRole;
     document.getElementById('roleEffectiveDate').value = '';
     document.getElementById('roleEffectiveDateField').style.display = 'none';
+    applyRoleEffDateMode();
 
     // 計薪模式開關（僅加盟主/admin 可見可設）
     const canSetPay = ['owner','admin'].includes(currentUser.permission);
@@ -794,12 +795,55 @@ function toggleLinkType() {
   document.getElementById('newEmpGroup').style.display  = isLinked ? 'none'  : 'block';
 }
 
+/** 最早可轉換的年月：本月已經開始就只能下個月（計薪模式是整月旗標，不能回溯） */
+function _earliestConvertYM() {
+  const d = new Date();
+  const past1st = d.getDate() > 1;
+  d.setDate(1);
+  if (past1st) d.setMonth(d.getMonth() + 1);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+
+/**
+ * 生效日的輸入模式
+ * 涉及「工讀」的異動（正職↔工讀）→ 改用月份選擇器，只能選年月、自動視為該月 1 號。
+ *   Why：payAsPartTime 是整月一個旗標，月中轉換會整月用同一種模式計薪而算錯。
+ *   用 month 而不是「選了日期再幫他改成 1 號」——後者會靜默改寫使用者的輸入，
+ *   而且選當月任一天會被捲回「本月 1 號」＝回溯到已經上完班的月份（2026-08-28 回報）。
+ * 其他職稱異動（如升店長）沒有這個限制，維持日期選擇器。
+ */
+function applyRoleEffDateMode() {
+  const selected = document.getElementById('accountRole').value;
+  const original = document.getElementById('accountRoleOriginal').value;
+  const el = document.getElementById('roleEffectiveDate');
+  const hint = document.getElementById('roleEffDateHint');
+  const involvesPart = (selected === '工讀' || original === '工讀');
+  if (involvesPart) {
+    if (el.type !== 'month') { el.type = 'month'; el.value = ''; }
+    el.min = _earliestConvertYM();
+    hint.style.display = '';
+  } else {
+    if (el.type !== 'date') { el.type = 'date'; el.value = ''; }
+    el.removeAttribute('min');
+    hint.style.display = 'none';
+  }
+}
+
+/** 讀生效日，統一回傳 YYYY-MM-DD（月份模式補成該月 1 號） */
+function readRoleEffDate() {
+  const el = document.getElementById('roleEffectiveDate');
+  const v = el.value;
+  if (!v) return '';
+  return el.type === 'month' ? `${v}-01` : v;
+}
+
 function onRoleChange() {
   const selected = document.getElementById('accountRole').value;
   const original = document.getElementById('accountRoleOriginal').value;
   const field = document.getElementById('roleEffectiveDateField');
   // 只在有現有帳號（original 不為空）且職稱改變時顯示生效日
   field.style.display = (original && selected !== original) ? 'block' : 'none';
+  applyRoleEffDateMode();
   if(field.style.display === 'none') document.getElementById('roleEffectiveDate').value = '';
 }
 
@@ -808,20 +852,6 @@ function _nextMonthFirst() {
   const d = new Date(); d.setMonth(d.getMonth()+1, 1);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`;
 }
-// 身份轉換一律從 1 號生效（用戶 2026-08-28 定案）
-// Why：salary/{ym}.records[].payAsPartTime 是整月一個旗標，月中轉換無法表達
-//      「前半月薪、後半時薪」，會整月用同一種模式計薪 → 算錯。
-//      強制 1 號生效後也沒有混合月，結清的目標薪資月固定是「上個月」，與 1 號離職同一條規則。
-function checkRoleEffDate() {
-  const el = document.getElementById('roleEffectiveDate');
-  if(!el || !el.value) return;
-  if(!el.value.endsWith('-01')) {
-    const d = el.value.slice(0,7);
-    alert('身份轉換一律從 1 號生效。\n\n已自動改為 ' + d + '-01。');
-    el.value = d + '-01';
-  }
-}
-
 async function saveAccountSetting() {
   const store    = document.getElementById('accountEmpStore').value;
   const username = document.getElementById('accountUsername').value.trim().toUpperCase();
@@ -829,7 +859,7 @@ async function saveAccountSetting() {
   const pwd      = document.getElementById('accountPassword').value;
   const pwdC     = document.getElementById('accountPasswordConfirm').value;
   const role            = document.getElementById('accountRole').value;
-  const roleEffDate     = document.getElementById('roleEffectiveDate').value;
+  const roleEffDate     = readRoleEffDate();
   const roleOriginal    = document.getElementById('accountRoleOriginal').value;
   const perm     = document.getElementById('accountPermission').value;
   const isLinked = document.getElementById('linkTypeLinked').checked;
