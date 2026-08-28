@@ -594,7 +594,13 @@ async function confirmLeaveSettle() {
         salaryData.recalledBy = currentUser.displayName || currentUser.empName;
         salaryData.recallReason = '特補休結清後金額異動，需重新送出';
       }
-      triggerAutoSave();
+      // ⚠️ 不能用 triggerAutoSave()（2026-08-29 修）：它是 2 秒 debounce，
+      //    而下面緊接著 await loadSalaryData() 會從 Firestore 重載並覆蓋 salaryData，
+      //    記憶體裡剛加上去的 otherBonus 還沒寫出去就被丟掉 →
+      //    leaveLog／補休餘額都正確更新了，只有薪資金額停在 0（用戶回報）。
+      //    改成清掉 debounce、同步等寫入完成再重載。
+      clearTimeout(autoSaveTimer);
+      await autoSaveDraft();
     }
     hideLoading();
     closeModal('leaveSettleModal');
