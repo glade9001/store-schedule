@@ -43,11 +43,25 @@ function settleNextMonth(ym) {
   return y + '-' + (m < 10 ? '0' + m : String(m));
 }
 
-/** 兩個日期相差幾個「月」（只看年月，與 salary-page.js monthsDiffSalary 同語意） */
+/** 日期字串位移 n 天 */
+function settleDateAdd(dateStr, n) {
+  var d = new Date(dateStr);
+  if (isNaN(d)) return dateStr;
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * 年資「滿幾個月」——會看日，未滿當月對應日不算滿一個月
+ * ⚠️ 不可只比年月（原本的寫法）：3/15 到職的人到 9/01 只滿 5 個多月，
+ *    只比年月會算成 6 個月而多給一整年度的特休。
+ */
 function settleMonthsBetween(fromDate, toDate) {
   var f = new Date(fromDate), t = new Date(toDate);
   if (isNaN(f) || isNaN(t)) return 0;
-  return (t.getFullYear() - f.getFullYear()) * 12 + (t.getMonth() - f.getMonth());
+  var m = (t.getFullYear() - f.getFullYear()) * 12 + (t.getMonth() - f.getMonth());
+  if (t.getDate() < f.getDate()) m -= 1;
+  return Math.max(0, m);
 }
 
 /** 勞基法 §38 特休天數表（與 salary-page.js annualLeaveRuleSalary 同一份） */
@@ -109,7 +123,14 @@ function calcLeaveSettle(o) {
     if (g) { var d0 = new Date(g); d0.setMonth(d0.getMonth() - 6); hireDate = d0.toISOString().slice(0, 10); }
   }
 
-  var totalMonths = hireDate ? settleMonthsBetween(hireDate, effectDate) : 0;
+  // ⚠️ 量測點是「舊身分的最後一天」＝生效日前一天，不是生效日本身（2026-08-28 修）。
+  //    生效日是新身分的第一天：離職生效日當天已經不上班、轉工讀生效日當天已經是工讀。
+  //    邊界實例（楊文菱）：到職 2026-03-01、9/1 轉工讀，滿 6 個月正好落在 9/1 當天。
+  //    用生效日量會算成「正職期間有 3 天特休」→ 以正職日薪折現 $3,051，但那 3 天其實是
+  //    以工讀身分取得的，而且契約沒終止、她不會失去，之後照樣能休 → 等於多付。
+  //    用 8/31 量則是滿 5 個月 → 正職期間應結清 0 天，正確。
+  var measureDate = settleDateAdd(effectDate, -1);
+  var totalMonths = hireDate ? settleMonthsBetween(hireDate, measureDate) : 0;
   var yearStart = settleYearStart(hireDate, totalMonths);
   var entitled = settleAnnualRule(totalMonths);   // 當年度法定應得（整年度，不按比例）
 
@@ -146,7 +167,7 @@ function calcLeaveSettle(o) {
   var uncovered = Math.max(0, annualDays - batchRemainTotal);
 
   var explain = [];
-  explain.push('到職 ' + (hireDate || '—') + '，至 ' + effectDate + ' 年資 ' + totalMonths + ' 個月');
+  explain.push('到職 ' + (hireDate || '—') + '，至 ' + measureDate + '（生效日前一天）年資 ' + totalMonths + ' 個月');
   explain.push('目前特休年度起算 ' + (yearStart || '—') + '，該年度法定應得 ' + entitled + ' 天（滿年資即整年度取得，不按比例）');
   explain.push('本年度已使用 ' + usedThisYear + ' 天' + (priorRemain > 0 ? '，前期未結清 ' + priorRemain + ' 天' : ''));
   explain.push('特休應結清 ' + annualDays + ' 天（' + basis + '）');
@@ -157,7 +178,7 @@ function calcLeaveSettle(o) {
   explain.push('結清金額 = (' + annualDays + (compDays > 0 ? ' + ' + compDays : '') + ') 天 × ' + dailyWage.toLocaleString() + ' = ' + amount.toLocaleString());
 
   return {
-    hireDate: hireDate, effectDate: effectDate, totalMonths: totalMonths,
+    hireDate: hireDate, effectDate: effectDate, measureDate: measureDate, totalMonths: totalMonths,
     yearStart: yearStart, entitled: entitled, usedThisYear: usedThisYear, priorRemain: priorRemain,
     statutory: statutory, batchRemainTotal: batchRemainTotal, uncovered: uncovered,
     annualDays: annualDays, basis: basis, items: items, proportional: proportional,
