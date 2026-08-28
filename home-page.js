@@ -226,7 +226,7 @@ async function updateHomeAttnAlert(){
   // 灰色知悉列＋LINE 式未讀數：浮水印記「最後看到哪個時間點」，比它新的才算未讀。
   // 浮水印先放 localStorage——零後端改動、零 Firestore 成本、不必動 rules；代價是換裝置會重新變未讀。
   if(isLead && data.stAnom>0){
-    const seen=Number(localStorage.getItem(`attnSeenAt:${store}`)||0);
+    const seen=await attnSeenWatermark(store);
     const unread=(data.anomTs||[]).filter(t=>t>seen).length;
     if(unread>0){
       rows.push(`<div onclick="markAttnSeen('${store}');window.location.href='attendance.html'" style="display:flex;align-items:center;gap:10px;padding:11px 14px;background:var(--bg-soft,#f8fafc);border:1px solid #e2e8f0;border-radius:14px;cursor:pointer;margin-top:8px;">
@@ -244,9 +244,44 @@ async function updateHomeAttnAlert(){
   box.style.display='';
 }
 
-// 出勤知悉列「標為已讀」：把浮水印推到現在。比浮水印新的遲到才算未讀（LINE 語意）。
+// ===== 出勤知悉列的已讀浮水印（2026-08-28 改為跨裝置同步）=====
+// 只記「這位店長最後看到哪個時間點」，比浮水印新的遲到才算未讀（LINE 語意）。
+// 逐筆已讀要往法定出勤紀錄塞 seenBy 陣列、每人每筆各寫一次，既污染紀錄又昂貴。
+//
+// 存 notifyPrefs/{empName}.attnSeenAt.{店} = epoch ms。
+//  · 用既有的 notifyPrefs 而不是新集合：firestore.rules 的 catch-all 已涵蓋，不必動規則
+//    （動規則有踩過雷，見 reference_firestore_rules_gotcha）。
+//  · localStorage 仍保留為即時快取：先用本機值畫，遠端回來取「兩者較大值」再重畫，
+//    避免開首頁時閃一下未讀數。取較大值也確保在 A 裝置標已讀不會被 B 裝置的舊值蓋回去。
+//  · 成本：首頁每次多讀 1 份小文件，標已讀時多寫 1 次。
+let _attnSeenCache = {};
+function _attnSeenLocal(store){ try{ return Number(localStorage.getItem(`attnSeenAt:${store}`)||0); }catch(e){ return 0; } }
+
+async function attnSeenWatermark(store){
+  const local = _attnSeenLocal(store);
+  if(_attnSeenCache[store] != null) return Math.max(local, _attnSeenCache[store]);
+  let remote = 0;
+  try{
+    const d = await window.db.collection('notifyPrefs').doc(currentUser.empName).get();
+    if(d.exists) remote = Number(((d.data().attnSeenAt)||{})[store] || 0) || 0;
+  }catch(e){ /* 讀不到就只用本機值，不要卡住首頁 */ }
+  _attnSeenCache[store] = remote;
+  const merged = Math.max(local, remote);
+  // 遠端比本機新 → 回寫本機，下次開頁不必等網路
+  if(remote > local){ try{ localStorage.setItem(`attnSeenAt:${store}`, String(remote)); }catch(e){} }
+  return merged;
+}
+
 function markAttnSeen(store, rerender){
-  try{ localStorage.setItem(`attnSeenAt:${store}`, String(Date.now())); }catch(e){}
+  const now = Date.now();
+  try{ localStorage.setItem(`attnSeenAt:${store}`, String(now)); }catch(e){}
+  _attnSeenCache[store] = now;
+  // 跨裝置同步：寫進 notifyPrefs（set+merge 會併入 map 的既有鍵，不會蓋掉其他門市）
+  try{
+    window.db.collection('notifyPrefs').doc(currentUser.empName)
+      .set({ attnSeenAt: { [store]: now } }, { merge:true })
+      .catch(()=>{});   // 寫失敗不影響本機已讀，下次標記會再試
+  }catch(e){}
   if(rerender) updateHomeAttnAlert();
 }
 
