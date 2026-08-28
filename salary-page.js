@@ -751,10 +751,11 @@ async function _doGrantUnworked(empName, rec, emp, days) {
     await leaveRef.set(updatedLeave, { merge: true });
     await window.db.collection('employees').doc(empName).collection('comp').doc(year)
       .set({ earned: earnedComp, used: usedComp }, { merge: true });
-    if(compDataMap[empName]) {
-      compDataMap[empName].current = { earned: earnedComp, used: usedComp, remaining: earnedComp - usedComp };
-      compDataMap[empName].totalRemaining = earnedComp - usedComp + (compDataMap[empName].carried?.remaining||0);
-    }
+    // 記憶體同步：不能包在 if(compDataMap[empName]) 裡——沒有這個 key 就整段跳過，
+    // 發放完 UI（結清橫幅／Modal）仍讀到舊的 0。缺就補一個空殼再寫。
+    if(!compDataMap[empName]) compDataMap[empName] = { current:{}, carried:null, totalRemaining:0 };
+    compDataMap[empName].current = { earned: earnedComp, used: usedComp, remaining: earnedComp - usedComp };
+    compDataMap[empName].totalRemaining = earnedComp - usedComp + (compDataMap[empName].carried?.remaining||0);
     rec.unworkedCompGranted = true;
     leaveDataMap[empName] = updatedLeave;
       // ⚠️ 同步存檔，不能用 triggerAutoSave() 的 2 秒 debounce（2026-08-29 修）：
@@ -3597,10 +3598,7 @@ let autoSaveTimer = null;
 function triggerAutoSave() {
   clearTimeout(autoSaveTimer);
   autoSaveTimer = setTimeout(() => autoSaveDraft(), 2000);
-  // 結清橫幅跟著重繪：應休未休三選一／撤回都會影響「能不能結清」的硬擋狀態。
-  // 掛在這個單一收口而不是各個動作裡——散著加必然漏掉一條（2026-08-28 回報：
-  // 應休未休處理完，橫幅沒有立刻改變）。
-  try{ renderLeaveSettleBanner(); }catch(e){}
+  try{ renderLeaveSettleBanner(); }catch(e){}   // 即時回饋；autoSaveDraft 內也會再繪一次
   // 顯示儲存中提示
   const badge = document.getElementById('statusBadge');
   if(badge && salaryData.status === 'draft') {
@@ -3635,6 +3633,11 @@ async function autoSaveDraft() {
     });
     salaryData.status = 'draft';
     updateStatusBadge();
+    // 結清橫幅重繪的「單一收口」：應休未休三選一／發放／撤回／結清都會影響硬擋狀態。
+    // 放這裡而不是各動作裡——散著加必然漏掉一條。
+    // ⚠️ 2026-08-29：發放/撤回改成直接 await autoSaveDraft() 之後就繞過了 triggerAutoSave，
+    //    橫幅因此不再更新（使用者回報「發放補休後立刻看仍會是 0」），所以兩邊都要有。
+    try{ renderLeaveSettleBanner(); }catch(e){}
   } catch(e) {
     console.error('自動儲存失敗:', e);
   }
