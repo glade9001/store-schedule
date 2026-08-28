@@ -510,7 +510,7 @@ async function confirmLeaveSettle() {
     if(!diffReason.trim()) { alert('調降金額必須填寫原因。'); return; }
   }
 
-  if(!confirm(`確認為 ${getDisplayName(empName)} 結清特補休？\n\n特休 ${c.annualDays} 天、補休 ${c.compDays} 天，金額 $${amount.toLocaleString()}\n${diff>0?`（系統試算 $${c.amount.toLocaleString()}，差額 $${diff.toLocaleString()} 已記錄原因）\n`:''}${amount>0?'此金額將加入本月薪資的「其他獎金」。\n':''}結清後餘額歸零，且不可自動復原。`)) return;
+  if(!confirm(`確認為 ${getDisplayName(empName)} 結清特補休？\n\n特休 ${c.annualDays} 天、補休 ${c.compDays} 天，金額 $${amount.toLocaleString()}\n${diff>0?`（系統試算 $${c.amount.toLocaleString()}，差額 $${diff.toLocaleString()} 已記錄原因）\n`:''}${amount>0?'金額將計入本月薪資的「特休折現／補休折現」。\n':''}結清後餘額歸零，且不可自動復原。`)) return;
 
   showLoading('結清中...');
   try {
@@ -581,13 +581,18 @@ async function confirmLeaveSettle() {
     if(amount > 0) {
       let rec = getSalaryRecord(empName);
       if(!rec){ rec = buildDefaultRecord(_e); salaryData.records.push(rec); }
-      rec.otherBonus = (parseFloat(rec.otherBonus||0)) + amount;
-      // 備註只寫「是什麼」，不寫試算金額／差額／調整原因——那些仍然只進 leaveLog。
-      // ⚠️ my-salary.html 會下載整份 salary/{ym}（含全店所有人的 records），
-      //    寫在這裡等於全員可讀。但「離職特補休結清 N 天」不比金額本身多洩漏什麼
-      //    （金額就在其他獎金那一欄），而且能讓薪資單自己解釋得清楚。
-      const _bn = `${_lsCase?_lsCase.kind:'特補休'}結清 ${c.totalDays} 天`;
-      rec.otherBonusNote = rec.otherBonusNote ? `${rec.otherBonusNote}；${_bn}` : _bn;
+      // ⚠️ 折現金額要進專屬欄位，不是「其他獎金」（2026-08-29 修，用戶指正）：
+      //    薪資表單本來就有唯讀的「特別假津貼」與「補休結算金額」兩列，提示寫著
+      //    「請先至特補休系統結算才會匯入」——就是為這件事準備的；
+      //    薪資單也會印成獨立的「特休折現」「補休折現」兩列（salary-page.js:1288/1290），
+      //    而既有的年度折現流程（:964）本來就是這樣寫。我照 confirmCarrySettle 抄成
+      //    otherBonus 是錯的，會讓折現混進雜項、匯出與分析也分不出來。
+      //    金額若被手動調整過，依天數比例拆分到兩個欄位。
+      const _annualAmt = (c.annualDays > 0 && c.totalDays > 0)
+        ? Math.round(amount * c.annualDays / c.totalDays) : 0;
+      const _compAmt = amount - _annualAmt;
+      if(_annualAmt > 0) rec.annualLeaveEncash = (parseFloat(rec.annualLeaveEncash||0)) + _annualAmt;
+      if(_compAmt   > 0) rec.compLeaveEncash   = (parseFloat(rec.compLeaveEncash||0))   + _compAmt;
       if(st === 'submitted') {
         salaryData.status = 'draft';
         salaryData.recalledAt = new Date().toISOString();
@@ -606,7 +611,7 @@ async function confirmLeaveSettle() {
     closeModal('leaveSettleModal');
     await loadSalaryData();
     showToast(amount>0
-      ? (st==='submitted' ? `✅ 已結清 $${amount.toLocaleString()}，薪資已收回為草稿，請重新送出` : `✅ 已結清 $${amount.toLocaleString()}，已計入本月薪資`)
+      ? (st==='submitted' ? `✅ 已結清 $${amount.toLocaleString()}，薪資已收回為草稿，請重新送出` : `✅ 已結清 $${amount.toLocaleString()}，已計入本月「特休／補休折現」`)
       : '✅ 已確認無未休特補休（0 元），已留存紀錄');
   } catch(e) { hideLoading(); showToast('❌ 結清失敗：' + e.message); }
 }
