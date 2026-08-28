@@ -3776,6 +3776,11 @@ window.onload = async () => {
       targetY = now.getMonth() === 0 ? now.getFullYear()-1 : now.getFullYear();
     }
     currentMonth = `${targetY}-${String(targetM).padStart(2,'0')}`;
+    // ?month=YYYY-MM 直接開到指定月份（員工管理標記離職後導引過來用）
+    try {
+      const qm = new URLSearchParams(location.search).get('month');
+      if(qm && /^\d{4}-\d{2}$/.test(qm)) currentMonth = qm;
+    } catch(e) {}
     document.getElementById('monthLabel').textContent = getMonthLabel(currentMonth);
 
     // 門市選擇器

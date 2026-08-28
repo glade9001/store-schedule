@@ -13,6 +13,7 @@
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-functions.js"></script>
 <script src="firebase-init.js"></script>
+<script src="leave-settle.js"></script>
 <script src="auth.js"></script>
 <script>window.db.settings({ experimentalForceLongPolling: true });</script>
 <style>
@@ -277,7 +278,8 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
     </div>
     <div class="form-field" id="roleEffectiveDateField" style="display:none;">
       <label>職稱生效日 <span style="color:var(--text-muted); font-weight:400;">（留空則立即生效）</span></label>
-      <input type="date" id="roleEffectiveDate">
+      <input type="date" id="roleEffectiveDate" onchange="checkRoleEffDate()">
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">身份轉換一律<b>從 1 號生效</b>：薪資記錄的計薪模式是整月一個旗標，沒有「前半月薪、後半時薪」的表達能力，月中轉換會算錯。</div>
       <div style="font-size:11px; color:#d97706; margin-top:4px;">⚠️ 設定後員工登入時自動切換，不提前更新</div>
     </div>
     <div class="form-field">
@@ -801,6 +803,32 @@ function onRoleChange() {
   if(field.style.display === 'none') document.getElementById('roleEffectiveDate').value = '';
 }
 
+/** 下個月 1 號（身份轉換未填生效日時的預設） */
+function _nextMonthFirst() {
+  const d = new Date(); d.setMonth(d.getMonth()+1, 1);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`;
+}
+/** 'YYYY-MM-01' → 上一個薪資月 'YYYY-MM'（結清應計入的月份） */
+function _prevYM(dateStr) {
+  const [y,m] = String(dateStr).split('-').map(Number);
+  const py = m===1 ? y-1 : y, pm = m===1 ? 12 : m-1;
+  return `${py}-${String(pm).padStart(2,'0')}`;
+}
+
+// 身份轉換一律從 1 號生效（用戶 2026-08-28 定案）
+// Why：salary/{ym}.records[].payAsPartTime 是整月一個旗標，月中轉換無法表達
+//      「前半月薪、後半時薪」，會整月用同一種模式計薪 → 算錯。
+//      強制 1 號生效後也沒有混合月，結清的目標薪資月固定是「上個月」，與 1 號離職同一條規則。
+function checkRoleEffDate() {
+  const el = document.getElementById('roleEffectiveDate');
+  if(!el || !el.value) return;
+  if(!el.value.endsWith('-01')) {
+    const d = el.value.slice(0,7);
+    alert('身份轉換一律從 1 號生效。\n\n已自動改為 ' + d + '-01。');
+    el.value = d + '-01';
+  }
+}
+
 async function saveAccountSetting() {
   const store    = document.getElementById('accountEmpStore').value;
   const username = document.getElementById('accountUsername').value.trim().toUpperCase();
@@ -929,8 +957,22 @@ async function saveAccountSetting() {
     } else {
       const upd = {};
       if (!hasFutureRoleDate) upd.role = role;
-      if (payFieldVisible) upd.payAsPartTime = payAsPart;
+      if (payFieldVisible) {
+        upd.payAsPartTime = payAsPart;
+        // 轉為工讀計薪時記下生效日，薪資頁據此判斷是否要辦特補休結清
+        // （正職期間累積的特休若不結清，之後會用較低的工讀基準折現 → 對員工不利）
+        const wasPart = !!(empSnap.data()||{}).payAsPartTime;
+        if (payAsPart && !wasPart) {
+          upd.partTimeFrom = (roleEffDate && roleEffDate.endsWith('-01')) ? roleEffDate : _nextMonthFirst();
+          upd.leaveSettledAt = firebase.firestore.FieldValue.delete(); // 新的一次轉換需重新結清
+        } else if (!payAsPart && wasPart) {
+          upd.partTimeFrom = firebase.firestore.FieldValue.delete();
+        }
+      }
       if (Object.keys(upd).length) await empRef.update(upd);
+      if (upd.partTimeFrom) {
+        alert(`已設定 ${dispName||empName} 自 ${upd.partTimeFrom} 起以工讀時薪計薪。\n\n請至薪資系統 ${_prevYM(upd.partTimeFrom)} 月辦理「特補休結清」——正職期間累積的特休需按正職日薪折發，逾期改用工讀基準會少付。`);
+      }
     }
 
     closeModal('accountModal');
@@ -1194,8 +1236,53 @@ async function confirmRetire() {
     closeModal('retireModal');
     await loadEmpAdminList(store);
     showToast(`✅ 已設定離職，生效日：${date}`);
+    await showSettlePrompt(store, empId, date, '離職');
   } catch(e) { showToast('❌ 操作失敗：' + e.message); }
   hideLoading();
+}
+
+// 標記離職／身份轉換後跳出的特補休結清摘要（唯讀試算＋導引）
+// Why 只做試算不做寫入：實際寫入需要 salaryData / batchDataMap / triggerAutoSave，
+//     那整套資料層在 salary.html。在這裡重建一份等於再抄一遍，改一處要改兩處。
+//     所以這裡只負責「讓人看到有這件事、看到金額」，按鈕帶去薪資頁完成。
+async function showSettlePrompt(store, empName, effectDate, kind) {
+  const targetYM = settleTargetMonth(effectDate);
+  let calc = null;
+  try {
+    const [empSnap, batchSnap, compSnap, compPrevSnap] = await Promise.all([
+      window.db.collection('stores').doc(store).collection('employees').doc(empName).get().catch(()=>null),
+      window.db.collection('employees').doc(empName).collection('leaveBatches').get().catch(()=>null),
+      window.db.collection('employees').doc(empName).collection('comp').doc(String(new Date(effectDate).getFullYear())).get().catch(()=>null),
+      window.db.collection('employees').doc(empName).collection('comp').doc(String(new Date(effectDate).getFullYear()-1)).get().catch(()=>null),
+    ]);
+    const emp = empSnap && empSnap.exists ? empSnap.data() : {};
+    const batches = []; if(batchSnap) batchSnap.forEach(d => batches.push({ id:d.id, ...d.data() }));
+    const cd = compSnap && compSnap.exists ? compSnap.data() : {};
+    const cpd = compPrevSnap && compPrevSnap.exists ? compPrevSnap.data() : {};
+    const carriedRem = (cpd.carried && !cpd.settled) ? Math.max(0,(cpd.earned||0)-(cpd.used||0)-(cpd.carriedUsed||0)) : 0;
+    const compRemaining = Math.max(0,(cd.earned||0)-(cd.used||0)) + carriedRem;
+    calc = calcLeaveSettle({
+      batches, compRemaining,
+      monthWage: parseFloat(emp.wage||0),   // 試算用主檔月薪；實際以薪資頁的底薪＋全勤為準
+      hireDate: emp.startDate || null, effectDate
+    });
+  } catch(e) { /* 讀不到就只顯示導引 */ }
+
+  const dn = (await _dispNameOf(store, empName)) || empName;
+  const head = `${kind}生效日 ${effectDate}\n結清應計入 ${targetYM} 月薪資\n`;
+  if(!calc) { alert(head + '\n特補休資料讀取失敗，請直接到薪資系統該月辦理結清。'); return; }
+  const body = calc.totalDays > 0
+    ? `\n特休 ${calc.annualDays} 天（${calc.basis}擇優）\n補休 ${calc.compDays} 天\n合計 ${calc.totalDays} 天\n試算金額 約 $${calc.amount.toLocaleString()}（以薪資頁實際底薪為準，可修改）\n`
+    : `\n目前無未休特休／補休，結清金額 0 元。\n（若當月「應休未休補休」尚未發放，請先發放再結清）\n`;
+  if(confirm(`🧾 ${dn} 特補休結清\n\n${head}${body}\n要現在前往 ${targetYM} 月薪資頁完成結清嗎？`)) {
+    location.href = `salary.html?month=${targetYM}`;
+  }
+}
+async function _dispNameOf(store, empName) {
+  try {
+    const d = await window.db.collection('stores').doc(store).collection('employees').doc(empName).get();
+    return d.exists ? (d.data().displayName || empName) : empName;
+  } catch(e) { return empName; }
 }
 
 async function reinstateEmp(empName, store) {
