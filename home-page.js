@@ -143,7 +143,7 @@ async function updateHomeClockStatus(){
     if(nIn>0){ setGreen('✅','今日已完成打卡'); return; }
     // 有排班、尚未打上班卡
     shifts.sort((a,b)=>a.startMs-b.startMs);
-    const up=shifts.find(s=>Date.now()<=s.startMs+4*3600000)||shifts[0];
+    const up=shifts.find(s=>Date.now()<=s.startMs+punchWindowMs().inAfter)||shifts[0];
     if(Date.now()>=up.startMs){ setRed('⚠️',`你今天 ${up.shift} 的班已開始，還沒打上班卡！`); }
     else { setGreen('🕐',`今天 ${up.shift} 上班，記得準時打卡`); }
   }catch(e){}

@@ -104,3 +104,73 @@ function shiftDateAdd(dateStr, n) {
   d.setDate(d.getDate() + n);
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
+
+/**
+ * ===== 打卡判定規則（2026-08-28 集中化）=====
+ *
+ * ⚠️ 為什麼要集中：這兩條規則原本散在 7 處（配對視窗）與 4 處（遲到採計），
+ *    每次改都要靠「記得還有哪幾處」。半點班那次已經示範過代價——同一條正則寫在 11 個地方，
+ *    改漏一處就讓整條打卡鏈失效。記憶裡出現「N 處必須一致」就等於登記了一個未來的 bug。
+ *
+ * ⚠️ 後端 functions/index.js 有一份同語意副本（Node 不吃這支檔）。
+ *    `node tools/check-clock-rules.js` 會對拍兩份是否等價，改任一邊都要跑。
+ *
+ * 註：本檔規定「只有 function 宣告、沒有頂層 const」，所以視窗常數用函式回傳而非 const。
+ */
+
+/** 打卡配對視窗（毫秒）—— 全系統唯一定義處 */
+function punchWindowMs() {
+  return {
+    inBefore: 1 * 3600000,   // 上班：排定開始前 1 小時
+    inAfter: 4 * 3600000,    // 上班：排定開始後 4 小時
+    outBefore: 4 * 3600000,  // 下班：排定結束前 4 小時
+    // 下班後 3 小時（2026-08-17 由 +1h 放寬）：人常收完店走到門口才想到打卡，
+    // 超過就配不到班、被記成「到場」不計工時，還得走補登。
+    outAfter: 3 * 3600000,
+  };
+}
+
+/**
+ * 從候選班段挑出這筆打卡該歸屬的班（取視窗內最接近的一段）
+ * @param {Array<{shift:string,shiftDate:string,startMs:number,endMs:number}>} cands
+ * @param {number} punchMs 打卡時間（絕對毫秒）
+ * @param {string} type '上班' | '下班'
+ * @returns {object|null} 命中的候選；null＝落在視窗外（狀態應判「到場」）
+ */
+function matchPunchShift(cands, punchMs, type) {
+  var w = punchWindowMs();
+  var isIn = (type === '上班');
+  var win = [];
+  for (var i = 0; i < (cands || []).length; i++) {
+    var c = cands[i];
+    var lo = isIn ? c.startMs - w.inBefore : c.endMs - w.outBefore;
+    var hi = isIn ? c.startMs + w.inAfter : c.endMs + w.outAfter;
+    if (punchMs >= lo && punchMs <= hi) win.push(c);
+  }
+  if (!win.length) return null;
+  win.sort(function (a, b) {
+    var ka = isIn ? a.startMs : a.endMs;
+    var kb = isIn ? b.startMs : b.endMs;
+    return Math.abs(punchMs - ka) - Math.abs(punchMs - kb);
+  });
+  return win[0];
+}
+
+/**
+ * 遲到分鐘數 —— 採計到分、無條件捨去
+ * ⚠️ 不可用 Math.round：畫面顯示的打卡時間是截斷到分（ISO slice(11,16)），
+ *    07:00:30 顯示「07:00」卻被 round 成遲到 1 分 → 顯示與判定不一致（2026-08-28 修）。
+ *    未滿 01 分 00 秒＝準時。
+ */
+function lateMinutesOf(punchMs, startMs) {
+  if (!isFinite(punchMs) || !isFinite(startMs)) return 0;
+  return Math.max(0, Math.floor((punchMs - startMs) / 60000));
+}
+
+/** 遲到分鐘 + 門市容許值 → 打卡狀態（容許值內＝「警告」，不列入出勤異常） */
+function punchLateStatus(lateMin, tolMin) {
+  var tol = (tolMin == null ? 10 : tolMin);
+  if (lateMin > tol) return '遲到';
+  if (lateMin > 0) return '警告';
+  return '正常';
+}

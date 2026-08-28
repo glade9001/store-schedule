@@ -885,6 +885,51 @@ function shiftTimeMs(dateStr, hours) {
   return isFinite(base) ? base + hours * 3600000 : NaN;
 }
 
+// ===== 打卡判定規則（2026-08-28 集中化）=====
+// ⚠️ 這是 shift-utils.js 同名函式的**同語意副本**（Node 不吃那支瀏覽器檔）。
+//    改任一邊都必須跑 `node tools/check-clock-rules.js` 對拍，確認兩份仍等價。
+//    集中的理由：配對視窗原本散在 7 處、遲到採計散在 4 處，靠「記得還有哪幾處」維持一致，
+//    半點班那次（同一條正則寫在 11 個地方）已經示範過改漏一處的代價。
+
+/** 打卡配對視窗（毫秒）—— 後端唯一定義處 */
+function punchWindowMs() {
+  return {
+    inBefore: 1 * 3600000,   // 上班：排定開始前 1 小時
+    inAfter: 4 * 3600000,    // 上班：排定開始後 4 小時
+    outBefore: 4 * 3600000,  // 下班：排定結束前 4 小時
+    outAfter: 3 * 3600000,   // 下班：排定結束後 3 小時（2026-08-17 由 +1h 放寬）
+  };
+}
+
+/** 從候選班段挑出這筆打卡該歸屬的班；null＝視窗外（狀態應判「到場」） */
+function matchPunchShift(cands, punchMs, type) {
+  const w = punchWindowMs();
+  const isIn = (type === "上班");
+  const win = (cands || []).filter((c) => {
+    const lo = isIn ? c.startMs - w.inBefore : c.endMs - w.outBefore;
+    const hi = isIn ? c.startMs + w.inAfter : c.endMs + w.outAfter;
+    return punchMs >= lo && punchMs <= hi;
+  });
+  if (!win.length) return null;
+  win.sort((a, b) => Math.abs(punchMs - (isIn ? a.startMs : a.endMs)) -
+                     Math.abs(punchMs - (isIn ? b.startMs : b.endMs)));
+  return win[0];
+}
+
+/** 遲到分鐘數 —— 採計到分、無條件捨去（不可用 Math.round，見 2026-08-28 修正） */
+function lateMinutesOf(punchMs, startMs) {
+  if (!isFinite(punchMs) || !isFinite(startMs)) return 0;
+  return Math.max(0, Math.floor((punchMs - startMs) / 60000));
+}
+
+/** 遲到分鐘 + 門市容許值 → 打卡狀態（容許值內＝「警告」，不列入出勤異常） */
+function punchLateStatus(lateMin, tolMin) {
+  const tol = (tolMin == null ? 10 : tolMin);
+  if (lateMin > tol) return "遲到";
+  if (lateMin > 0) return "警告";
+  return "正常";
+}
+
 // 未收上班的合理補打期限：該班排定下班 +4 小時（夜班跨日照算）；查不到班別則打卡後 12 小時。
 // 超過即視為缺卡呆帳，不再拿來配對今天的下班（否則會把今天的班誤掛到昨天）。
 function openInDeadlineMs(p) {
@@ -1946,19 +1991,19 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
             : (clk.lateToleranceMin != null ? clk.lateToleranceMin : 10);
   let status = "正常", lateMin = 0, matchedShift = "", shiftDate = ds;
   if (type === "上班") {
-    // 視窗：排班起點前 1 小時 ~ 後 4 小時，取最近的班
-    const win = cand.filter((c) => nowMs >= c.startMs - 3600000 && nowMs <= c.startMs + 4 * 3600000);
-    if (win.length) {
-      win.sort((x, y) => Math.abs(nowMs - x.startMs) - Math.abs(nowMs - y.startMs));
-      const s = win[0]; matchedShift = s.shift; shiftDate = s.shiftDate;
+    // 視窗與取最近班的規則見上方 matchPunchShift（前後端唯一定義，對拍工具 tools/check-clock-rules.js）
+    const s = matchPunchShift(cand, nowMs, "上班");
+    if (s) {
+      matchedShift = s.shift; shiftDate = s.shiftDate;
       // ⚠️ 一律無條件捨去到「分」，不可用 Math.round（2026-08-28 修）：
       //    打卡時間顯示給員工看的是 hm＝ISO 字串 slice(11,16)＝截斷到分，07:00:30 畫面就是「07:00」。
       //    原本 Math.round 會把 0.5 分進位成 1 → 同一筆資料「顯示準時、系統判遲到 1 分」。
       //    8 月實測 6 筆（吳亦婷 8/09 07:00:55、賴家宥 8/12 08:00:39、楊文菱 8/19 15:00:57 等）
       //    全是未滿一分鐘卻被記遲到，其中 4 筆還因此觸發「你是不是忘記打卡？」而衍生補登申請。
       //    採計到分＝未滿 01:00 就是準時，與畫面一致。
-      const late = Math.floor((nowMs - s.startMs) / 60000);
-      if (late > tol) { status = "遲到"; lateMin = late; } else if (late > 0) { status = "警告"; lateMin = late; }
+      const late = lateMinutesOf(nowMs, s.startMs);
+      const st = punchLateStatus(late, tol);
+      if (st !== "正常") { status = st; lateMin = late; }
     } else { status = "到場"; }
   } else { // 下班：跨日時間序列配對，找尚未打下班的上班 → 歸同一班(shiftDate)、以其排班結束判早退
     // 不能用同日筆數判斷：連續夜班時同一日曆日會同時含「收前晚班」+「開當晚班」使筆數打平而漏配。
@@ -1980,8 +2025,8 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
       else { const s = cand.find((c) => c.shift === matchedShift && c.shiftDate === shiftDate); if (s && nowMs < s.endMs) status = "早退"; }
     } else {
       // 下班配對視窗：排定下班前 4h ~ 後 3h（後段 2026-08-17 由 +1h 放寬，見 clock.html offSchedule 註解）
-      const win = cand.filter((c) => nowMs >= c.endMs - 4 * 3600000 && nowMs <= c.endMs + 3 * 3600000);
-      if (win.length) { win.sort((x, y) => Math.abs(nowMs - x.endMs) - Math.abs(nowMs - y.endMs)); const s = win[0]; matchedShift = s.shift; shiftDate = s.shiftDate; if (nowMs < s.endMs) status = "早退"; }
+      const s = matchPunchShift(cand, nowMs, "下班");
+      if (s) { matchedShift = s.shift; shiftDate = s.shiftDate; if (nowMs < s.endMs) status = "早退"; }
       else { status = "到場"; }
     }
   }

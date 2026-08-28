@@ -263,13 +263,9 @@ async function matchSchedShift(store, empName, homeStore, dateStr, hhmm, punchTy
       });
     });
   }
-  const win = punchType==='上班'
-    ? cand.filter(c=>punchMs>=c.startMs-3600000 && punchMs<=c.startMs+4*3600000)
-          .sort((a,b)=>Math.abs(punchMs-a.startMs)-Math.abs(punchMs-b.startMs))
-    : cand.filter(c=>punchMs>=c.endMs-4*3600000 && punchMs<=c.endMs+3*3600000)   // 後 3h：與 clockPunch 一致
-          .sort((a,b)=>Math.abs(punchMs-a.endMs)-Math.abs(punchMs-b.endMs));
-  return win.length ? { shift:win[0].shift, shiftDate:win[0].shiftDate, startMs:win[0].startMs }
-                   : { shift:'', shiftDate:dateStr, startMs:null };
+  const hit = matchPunchShift(cand, punchMs, punchType);  // 視窗定義見 shift-utils.js
+  return hit ? { shift:hit.shift, shiftDate:hit.shiftDate, startMs:hit.startMs }
+             : { shift:'', shiftDate:dateStr, startMs:null };
 }
 
 async function approveReq(id){
@@ -290,7 +286,7 @@ async function approveReq(id){
     const base={ empName:r.empName, displayName:r.displayName||r.empName, date:r.targetDate, type:r.punchType,
       atStore:curStore, homeStore:r.homeStore||curStore, status:'補登', source:'manual', deviceTs, tsMs:punchMs,
       shift:sm.shift, shiftDate:sm.shiftDate, weekday:shiftDayName(r.targetDate),
-      lateMin:(r.punchType==='上班' && sm.startMs!=null) ? Math.max(0, Math.floor((punchMs-sm.startMs)/60000)) : 0,
+      lateMin:(r.punchType==='上班' && sm.startMs!=null) ? lateMinutesOf(punchMs, sm.startMs) : 0,
       editedBy:currentUser.empName, editNote:`申請${r.type||'補登/修改'}：${r.reason||''}`, ts:firebase.firestore.FieldValue.serverTimestamp() };
     if(target){
       // 既有卡只改時間；shift 原本是空的才補（不覆蓋系統打卡當下判定的結果）
@@ -302,8 +298,7 @@ async function approveReq(id){
       // （8 月 22 筆核准後有 20 筆殘留舊 lateMin）。改依核准後的時間重算，採計到分、無條件捨去。
       if(cur.origStatus===undefined) upd.origStatus=cur.status||'';
       if(cur.origLateMin===undefined) upd.origLateMin=(typeof cur.lateMin==='number'?cur.lateMin:0);
-      upd.lateMin = (r.punchType==='上班' && sm.startMs!=null)
-        ? Math.max(0, Math.floor((punchMs-sm.startMs)/60000)) : 0;
+      upd.lateMin = (r.punchType==='上班' && sm.startMs!=null) ? lateMinutesOf(punchMs, sm.startMs) : 0;
       await target.ref.set(upd, {merge:true});
     }
     else { await att.add(base); }

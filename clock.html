@@ -499,7 +499,7 @@ function render(){
   { const hasInToday=todayPunches.some(p=>p.type==='上班');
     const todayCand=candShifts.filter(c=>c.shiftDate===todayStr()).sort((a,b)=>a.startMs-b.startMs);
     if(!openPunch && !carriedOpenIn && !hasInToday && todayCand.length){
-      const up=todayCand.find(c=>Date.now()<=c.startMs+4*3600000)||todayCand[0];
+      const up=todayCand.find(c=>Date.now()<=c.startMs+punchWindowMs().inAfter)||todayCand[0];
       a2Warn = (Date.now()>=up.startMs)
         ? `<div style="background:#fce8e6;border:1.5px solid #f5a3a3;border-radius:12px;padding:11px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;"><span style="font-size:22px;">⚠️</span><div style="flex:1;font-size:13.5px;font-weight:900;color:#c5221f;line-height:1.5;">你今天 ${up.shift} 的班已開始，還沒打上班卡！<br><span style="font-size:11.5px;font-weight:700;">請盡快打卡；若準時上班只是忘了打，打卡時可填實際時間</span></div></div>`
         : `<div style="background:#e8f0fe;border:1.5px solid #a8c7fa;border-radius:12px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;"><span style="font-size:20px;">🕐</span><div style="flex:1;font-size:13px;font-weight:800;color:#1a56c4;line-height:1.5;">今天 ${up.shift} 上班，記得準時打卡</div></div>`;
@@ -555,10 +555,9 @@ function render(){
 function offSchedule(type, nowMs){
   if(!candShifts.length) return {off:true, reason:'no-shift'};
   if(type==='上班'){
-    const win=candShifts.filter(c=> nowMs>=c.startMs-3600000 && nowMs<=c.startMs+4*3600000);
-    if(win.length){
-      win.sort((x,y)=>Math.abs(nowMs-x.startMs)-Math.abs(nowMs-y.startMs));
-      const diff=(nowMs-win[0].startMs)/60000; // 負=提早
+    const hit=matchPunchShift(candShifts, nowMs, '上班'); // 視窗定義見 shift-utils.js
+    if(hit){
+      const diff=(nowMs-hit.startMs)/60000; // 負=提早
       return diff < -30 ? {off:true, reason:'early'} : {off:false};
     }
     const upcoming=candShifts.some(c=>c.startMs>nowMs && c.startMs-nowMs<=8*3600000);
@@ -567,10 +566,9 @@ function offSchedule(type, nowMs){
     // 下班配對視窗：排定下班前 4h ~ 後 3h。後段原為 +1h，2026-08-17 放寬——
     // 人常常收完店走到門口才想到打卡，超過就配不到班、被記成「到場」不計工時，還得走補登。
     // 放寬不影響加班判定(門檻是另一條「晚超過 30 分」)，工時本來也有排班時數封頂。
-    const win=candShifts.filter(c=> nowMs>=c.endMs-4*3600000 && nowMs<=c.endMs+3*3600000);
-    if(win.length){
-      win.sort((x,y)=>Math.abs(nowMs-x.endMs)-Math.abs(nowMs-y.endMs));
-      const diff=(nowMs-win[0].endMs)/60000; // 正=晚
+    const hit=matchPunchShift(candShifts, nowMs, '下班'); // 視窗定義見 shift-utils.js
+    if(hit){
+      const diff=(nowMs-hit.endMs)/60000; // 正=晚
       return diff > 30 ? {off:true, reason:'late'} : {off:false};
     }
     const recent=candShifts.some(c=>c.endMs<nowMs && nowMs-c.endMs<=8*3600000);
@@ -677,11 +675,9 @@ async function doPunch(type){
   let forgotClaim=null;
   if(!os.off && type==='上班'){
     const nm=serverNowMs();
-    const win=candShifts.filter(c=> nm>=c.startMs-3600000 && nm<=c.startMs+4*3600000).sort((a,b)=>Math.abs(nm-a.startMs)-Math.abs(nm-b.startMs));
-    if(win.length){
-      // 與後端 clockPunch 一致：採計到分、無條件捨去。未滿 01:00 就是準時，不該跳這個提示
-      // （原本用未取整的浮點數，07:00:33 會算成 0.55>0 而跳出來，白白製造一筆補登申請）
-      const s=win[0], lateMin=Math.floor((nm-s.startMs)/60000), ci=appConfig.clockIn||{};
+    const s=matchPunchShift(candShifts, nm, '上班'); // 視窗與遲到採計都走 shift-utils.js
+    if(s){
+      const lateMin=lateMinutesOf(nm, s.startMs), ci=appConfig.clockIn||{};
       const tol=(ci.tolByStore&&ci.tolByStore[atStore]!=null)?ci.tolByStore[atStore]:(ci.lateToleranceMin!=null?ci.lateToleranceMin:10);
       // 只在「遲到但容許值內(警告區)」提示忘打卡；超過容許值＝真遲到，不遞台階，只能手動補登
       if(lateMin>0 && lateMin<=tol){
