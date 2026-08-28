@@ -1749,8 +1749,8 @@ function toggleScheduleContainers(mode) {
   else { dayC.innerHTML = ''; }
 }
 
-// 單日檢視：一天 × 三間店。本店可編輯（複用 buildCellButton，同一套編輯/同步邏輯），
-// 別店唯讀純顯示。
+// 單日檢視：一天 × 三間店的「人力總覽」（純唯讀，要排班請切經典檢視）。
+// 固定 00:00–24:00 時間軸，三店垂直對齊可直接比對同一時段的人力。
 // ⚠️ 別店刻意不用 buildCellButton：那支只讀 appData.records（本店），而且存檔路徑
 //    (saveCell) 的 store 是從全域 storeSelector 取的、格子本身沒有 dataset.store。
 //    若讓別店也產生可編輯的 .cell-btn，編輯錦花的格子會被寫進美德。
@@ -1775,94 +1775,138 @@ function renderDayView() {
   html += `</div><div id="dayViewStores"></div>`;
   cont.innerHTML = html;
 
-  const day = dayNames[dayViewDayIdx];
   const wrap = document.getElementById('dayViewStores');
   const stores = (appConfig.stores || []).filter(x => x && x !== '人力支援');
   // 本店排最前面
   const ordered = [store, ...stores.filter(x => x !== store)];
 
   ordered.forEach(st => {
-    const isHome = (st === store);
-    const box = document.createElement('div');
-    box.style.cssText = 'margin-bottom:14px; border:1.5px solid ' + (isHome ? 'var(--primary)' : 'var(--border)')
-      + '; border-radius:12px; overflow:hidden;' + (isHome ? '' : 'opacity:.92;');
-    box.appendChild(buildDayStoreHeader(st, isHome, weekStr, day));
-    const body = document.createElement('div');
-    body.style.cssText = 'padding:4px 10px 8px;';
-    if(isHome) buildDayHomeRows(body, day, store, weekStr, isReadonly);
-    else       buildDayOtherRows(body, st, day, weekStr);
-    box.appendChild(body);
-    wrap.appendChild(box);
+    wrap.appendChild(buildDayStoreBlock(st, st === store, weekStr, dayViewDayIdx));
   });
+  // 圖例
+  const lg = document.createElement('div');
+  lg.style.cssText = 'font-size:11px; color:var(--text-muted); padding:2px 4px 20px; line-height:1.9;';
+  lg.innerHTML = '<b>看法：</b>上方色條為逐小時在班人數（越深越多，<span style="background:#fee2e2; padding:0 4px; border-radius:3px;">紅色＝無人</span>）。'
+    + '<br><span style="color:#4f46e5;">◀</span> 昨日跨夜班延續到今天　▶ 今日跨夜班延續到明天　'
+    + '<span style="background:repeating-linear-gradient(45deg,#fecaca,#fecaca 4px,#fff 4px,#fff 8px); padding:0 6px; border-radius:3px;">斜線</span> 待補缺口（不計入人力）'
+    + '<br>此為總覽檢視，<b>要排班請切「經典」</b>。';
+  wrap.appendChild(lg);
 }
 
-/** 單日檢視的門市標題列（含當日人力摘要） */
-function buildDayStoreHeader(st, isHome, weekStr, day) {
-  const recs = dayRecordsOf(st, weekStr, day, isHome);
-  const working = recs.filter(r => r.shift && !['排休','指休','特休','補休'].includes(r.shift));
-  const gaps = working.filter(r => String(r.name||'').startsWith('🆘') && !r.supportEmp);
-  const h = document.createElement('div');
-  h.style.cssText = 'display:flex; align-items:center; gap:8px; padding:8px 10px; background:'
-    + (isHome ? 'var(--primary)' : '#f1f3f4') + '; color:' + (isHome ? '#fff' : 'var(--text)') + ';';
-  h.innerHTML = `<span style="font-weight:900; font-size:14px;">${st}</span>`
-    + `<span style="font-size:12px; opacity:.9;">${working.length} 人上班</span>`
-    + (gaps.length ? `<span style="font-size:11px; font-weight:800; background:#fee2e2; color:#b91c1c; padding:2px 7px; border-radius:10px;">🆘 待補 ${gaps.length}</span>` : '')
-    + `<span style="margin-left:auto; font-size:11px; font-weight:700; opacity:.85;">${isHome ? '可編輯' : '🔒 唯讀'}</span>`;
-  return h;
-}
+/**
+ * 單日檢視的一天資料：把三店當天「實際在店」的時段攤平成時間軸線段
+ * ⚠️ 視窗固定 00:00–24:00，並且**自動計入前一天的跨夜班**：
+ *    昨天 23-07 的人今天 00:00–07:00 確實在店裡，不算進來凌晨那段會看起來是空的。
+ *    今天的跨夜班則只畫到 24:00，尾端標 ▶ 表示延續到明天。
+ * @returns {Array<{name,shift,from,to,isGap,filled,carry}>} from/to 為 0~24 的小時數
+ */
+function daySegmentsOf(st, weekStr, dayIdx, isHome) {
+  const out = [];
+  const day = dayNames[dayIdx];
+  const pick = (wk, dy) => isHome
+    ? (appData.records || []).filter(r => r.day === dy && r.week === wk)
+    : (appData.allStoresRecords || []).filter(r => r._store === st && r.day === dy && r.week === wk);
 
-/** 取某店某日的排班記錄（本店用 appData.records，別店用 allStoresRecords） */
-function dayRecordsOf(st, weekStr, day, isHome) {
-  if(isHome) return (appData.records || []).filter(r => r.day === day && r.week === weekStr);
-  return (appData.allStoresRecords || []).filter(r => r._store === st && r.day === day && r.week === weekStr);
-}
-
-/** 本店：全部員工縱向卡片，可編輯（與改版前行為相同） */
-function buildDayHomeRows(wrap, day, store, weekStr, isReadonly) {
-  const emps = [...appData.employees];
-  virtualRowNames.forEach(n => emps.push({ name: n, role: '待補' }));
-  if(!emps.length) { wrap.innerHTML = '<div style="padding:14px; text-align:center; color:var(--text-muted); font-size:13px;">本店無員工</div>'; return; }
-  emps.forEach((emp, eIdx) => {
-    const isVirtual = emp.name.startsWith('🆘');
-    const card = document.createElement('div');
-    card.style.cssText = 'display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--border);';
-    const nameDiv = document.createElement('div');
-    nameDiv.style.cssText = 'flex:0 0 84px; min-width:84px;';
-    const dispName = isVirtual ? emp.name : getDisplayName(emp.name);
-    nameDiv.innerHTML = `<strong style="font-size:14px;">${dispName}</strong> <span class="role-tag">${emp.role||''}</span>`
-      + (isVirtual ? ` <span style="color:var(--danger);font-size:11px;cursor:pointer;" onclick="deleteVirtualRow('${emp.name}')">✖</span>` : '');
-    const btn = buildCellButton(emp, eIdx, day, store, weekStr, isReadonly);
-    btn.style.flex = '1';
-    btn.style.minHeight = '48px';
-    card.appendChild(nameDiv);
-    card.appendChild(btn);
-    wrap.appendChild(card);
-  });
-}
-
-/** 別店：只列當天有班的人，純唯讀顯示（不產生 .cell-btn，避免污染存檔） */
-function buildDayOtherRows(wrap, st, day, weekStr) {
-  const recs = dayRecordsOf(st, weekStr, day, false)
-    .filter(r => r.shift && !['排休','指休'].includes(r.shift))
-    .sort((a,b) => String(a.shift||'').localeCompare(String(b.shift||'')));
-  if(!recs.length) {
-    wrap.innerHTML = '<div style="padding:12px; text-align:center; color:var(--text-muted); font-size:12.5px;">當日無排班資料</div>';
-    return;
-  }
-  recs.forEach(r => {
-    const isGap = String(r.name||'').startsWith('🆘');
+  const push = (r, from, to, carry) => {
+    const isGap = String(r.name || '').startsWith('🆘');
     const filled = isGap && r.supportEmp && r.approvalStatus === 'approved';
     const who = isGap
-      ? (filled ? `${r.name} → ${getDisplayName(r.supportEmp.slice(r.supportEmp.indexOf('-')+1))}` : r.name)
+      ? (filled ? getDisplayName(r.supportEmp.slice(r.supportEmp.indexOf('-') + 1)) : r.name)
       : getDisplayName(r.name);
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid var(--border); font-size:13px;'
-      + (isGap && !filled ? 'background:#fff5f5;' : '');
-    row.innerHTML = `<div style="flex:0 0 96px; min-width:96px; font-weight:${isGap?'800':'700'}; color:${isGap&&!filled?'#b91c1c':'var(--text)'};">${who}</div>`
-      + `<div style="flex:1; font-weight:800;">${r.shift || ''}${r.note?`<span style="font-size:11px; color:var(--text-muted); font-weight:600;"> · ${r.note}</span>`:''}</div>`
-      + (isGap && !filled ? `<span style="font-size:11px; font-weight:800; color:#b91c1c;">待補</span>` : '');
-    wrap.appendChild(row);
+    out.push({ name: who, shift: r.shift, from, to, isGap, filled, carry });
+  };
+
+  // 今天開始的班：畫 [start, min(end,24)]，超過 24 標 ▶
+  pick(weekStr, day).forEach(r => {
+    parseShiftSegs(r.shift).forEach(g => {
+      if(g.startH >= 24) return;
+      push(r, g.startH, Math.min(g.endH, 24), g.endH > 24 ? 'next' : '');
+    });
   });
+
+  // 昨天的跨夜班：畫 [0, end-24]，標 ◀（週一則往前一週的週日）
+  const yIdx = (dayIdx + 6) % 7;
+  const yWeek = (dayIdx === 0) ? prevWeekStr(weekStr) : weekStr;
+  pick(yWeek, dayNames[yIdx]).forEach(r => {
+    parseShiftSegs(r.shift).forEach(g => {
+      if(g.endH <= 24) return;
+      push(r, 0, Math.min(g.endH - 24, 24), 'prev');
+    });
+  });
+
+  return out.sort((a, b) => a.from - b.from || String(a.name).localeCompare(String(b.name)));
+}
+
+/** 週次字串往前一週（週一要看上週日的夜班） */
+function prevWeekStr(wStr) {
+  const mon = weekStringToDate(wStr);
+  if(!mon) return wStr;
+  const d = new Date(mon); d.setDate(d.getDate() - 7);
+  return shiftWeekStr(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
+}
+
+/** 逐小時在班人數（0~23），用來畫人力覆蓋條 */
+function dayCoverageOf(segs) {
+  const cov = new Array(24).fill(0);
+  segs.forEach(s => {
+    if(s.isGap && !s.filled) return;   // 待補＝還沒有人，不算人力
+    for(let h = Math.floor(s.from); h < Math.ceil(s.to); h++) if(h >= 0 && h < 24) cov[h]++;
+  });
+  return cov;
+}
+
+/** 一間店的時間軸區塊 */
+function buildDayStoreBlock(st, isHome, weekStr, dayIdx) {
+  const segs = daySegmentsOf(st, weekStr, dayIdx, isHome);
+  const cov = dayCoverageOf(segs);
+  const gaps = segs.filter(s => s.isGap && !s.filled);
+  const people = new Set(segs.filter(s => !(s.isGap && !s.filled)).map(s => s.name)).size;
+  const maxCov = Math.max(1, ...cov);
+
+  const box = document.createElement('div');
+  box.style.cssText = 'margin-bottom:12px; border:1.5px solid ' + (isHome ? 'var(--primary)' : 'var(--border)') + '; border-radius:12px; overflow:hidden;';
+
+  // 標題
+  const pct = x => (x / 24 * 100).toFixed(2) + '%';
+  let h = `<div style="display:flex; align-items:center; gap:8px; padding:7px 10px; background:${isHome?'var(--primary)':'#f1f3f4'}; color:${isHome?'#fff':'var(--text)'};">
+      <span style="font-weight:900; font-size:14px;">${st}</span>
+      <span style="font-size:12px; opacity:.9;">${people} 人</span>
+      ${gaps.length ? `<span style="font-size:11px; font-weight:800; background:#fee2e2; color:#b91c1c; padding:2px 7px; border-radius:10px;">🆘 待補 ${gaps.length}</span>` : ''}
+      ${isHome ? '<span style="margin-left:auto; font-size:11px; font-weight:700; opacity:.85;">本店</span>' : ''}
+    </div>`;
+
+  // 人力覆蓋條（逐小時人數，深淺表示密度；0 人用紅底）
+  h += `<div style="display:flex; height:18px; margin:8px 10px 2px; border-radius:4px; overflow:hidden; border:1px solid var(--border);">`;
+  for(let i = 0; i < 24; i++) {
+    const n = cov[i];
+    const bg = n === 0 ? '#fee2e2' : `rgba(26,115,232,${(0.18 + 0.72 * n / maxCov).toFixed(2)})`;
+    h += `<div title="${i}:00　${n} 人" style="flex:1; background:${bg}; border-right:${i%3===2?'1px solid rgba(0,0,0,.08)':'none'};"></div>`;
+  }
+  h += `</div>`;
+  // 刻度
+  h += `<div style="display:flex; margin:0 10px 6px; font-size:9.5px; color:var(--text-muted);">`;
+  for(let i = 0; i < 24; i += 3) h += `<div style="flex:3; text-align:left;">${i}</div>`;
+  h += `</div>`;
+
+  // 每人一列
+  h += `<div style="padding:0 10px 8px;">`;
+  if(!segs.length) {
+    h += `<div style="padding:8px 0; text-align:center; color:var(--text-muted); font-size:12.5px;">當日無排班資料</div>`;
+  } else segs.forEach(s => {
+    const gapUnfilled = s.isGap && !s.filled;
+    const bg = gapUnfilled ? 'repeating-linear-gradient(45deg,#fecaca,#fecaca 4px,#fff 4px,#fff 8px)'
+             : s.carry === 'prev' ? '#c7d2fe' : (isHome ? 'var(--primary)' : '#94a3b8');
+    const label = (s.to - s.from) >= 3 ? s.shift : '';
+    h += `<div style="display:flex; align-items:center; gap:6px; padding:2.5px 0;">
+        <div style="flex:0 0 74px; min-width:74px; font-size:11.5px; font-weight:${gapUnfilled?'800':'700'}; color:${gapUnfilled?'#b91c1c':'var(--text)'}; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${s.carry==='prev'?'<span style="color:#4f46e5;">◀</span>':''}${s.name}</div>
+        <div style="flex:1; position:relative; height:17px; background:#f8fafc; border-radius:4px;">
+          <div title="${s.shift}" style="position:absolute; left:${pct(s.from)}; width:${pct(Math.max(0.4,s.to-s.from))}; top:0; bottom:0; background:${bg}; border-radius:4px; color:#fff; font-size:9.5px; font-weight:800; line-height:17px; text-align:center; overflow:hidden;">${label}${s.carry==='next'?' ▶':''}</div>
+        </div>
+      </div>`;
+  });
+  h += `</div>`;
+  box.innerHTML = h;
+  return box;
 }
 function setDayViewDay(i) { dayViewDayIdx = i; renderDayView(); }
 
