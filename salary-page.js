@@ -402,6 +402,12 @@ function openLeaveSettleModal(empName) {
   //    系統只有一筆 3 天批次且已用完；滿 12 個月該發的 7 天批次從未發放。
   //    若直接採比例制只會算出 2 天 → 少付 5 天。寧可擋下來讓人先補批次，也不要靜靜少算。
   let warnBlock = '';
+  if(c.totalDays > 0 && c.dailyWage <= 0) {
+    // 日薪＝底薪＋全勤÷30。薪資記錄還沒建或底薪為 0 時，天數再多也會算成 0 元 → 靜靜少付。
+    warnBlock += `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:10px 12px;margin:12px 0;font-size:12px;color:#b91c1c;font-weight:700;line-height:1.7;">
+      ⚠️ 有 ${c.totalDays} 天可結清，但日薪算出來是 0（本月底薪＋全勤為 0）。<br>
+      請先確認這位員工本月的薪資欄位已填寫，否則結清金額會是 0 元。</div>`;
+  }
   if(c.proportional > c.annualByBatch) {
     warnBlock = `<div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:10px 12px;margin:12px 0;font-size:12px;color:#92400e;font-weight:700;line-height:1.7;">
       ⚠️ 比例制（${c.proportional} 天）高於現有批次剩餘（${c.annualByBatch} 天）。<br>
@@ -438,8 +444,10 @@ async function confirmLeaveSettle() {
   const amount = Math.round(parseFloat(document.getElementById('lsAmount').value) || 0);
   const st = salaryData.status || 'draft';
 
-  // 已發布：依選擇決定。選「計入本月」但尚未退回 → 擋住，不代為更動已發布薪資
-  if(st === 'published') {
+  // 已發布：依選擇決定。選「計入本月」但尚未退回 → 擋住，不代為更動已發布薪資。
+  // ⚠️ 金額 0 例外：0 元不會動到薪資記錄，只寫 leaveLog 留痕，沒有更動已發布薪資的問題，
+  //    不該被擋住（否則「確認無未休特補休」這個留痕動作在已發布的月份永遠做不了）。
+  if(st === 'published' && amount > 0) {
     const pick = (document.querySelector('input[name=lsTarget]:checked')||{}).value || 'next';
     if(pick === 'this') {
       alert(`${currentMonth} 薪資仍為「已發布」。\n\n請先由加盟主在本頁按「退回」，退回後再回來結清。\n（系統不會自行更動已發布的薪資）`);
