@@ -1755,7 +1755,7 @@ function toggleScheduleContainers(mode) {
 //    (saveCell) 的 store 是從全域 storeSelector 取的、格子本身沒有 dataset.store。
 //    若讓別店也產生可編輯的 .cell-btn，編輯錦花的格子會被寫進美德。
 //    「別店唯讀」這條路自然避開這個地雷——可編輯的格子永遠只有一間店。
-function renderDayView() {
+async function renderDayView() {
   toggleScheduleContainers('day');
   const weekStr = document.getElementById('weekSelector').value;
   const store   = document.getElementById('storeSelector').value;
@@ -1776,6 +1776,9 @@ function renderDayView() {
   cont.innerHTML = html;
 
   const wrap = document.getElementById('dayViewStores');
+  wrap.innerHTML = '<div style="padding:24px; text-align:center; color:var(--text-muted); font-size:13px;">讀取三店班表中…</div>';
+  await ensureDayViewData(weekStr, dayViewDayIdx === 0);   // 週一要多讀上週（看上週日的夜班）
+  wrap.innerHTML = '';
   const stores = (appConfig.stores || []).filter(x => x && x !== '人力支援');
   // 本店排最前面
   const ordered = [store, ...stores.filter(x => x !== store)];
@@ -1794,18 +1797,44 @@ function renderDayView() {
 }
 
 /**
+ * 單日檢視專用的三店週資料快取
+ * ⚠️ 不能用 appData.allStoresRecords（2026-08-29 踩到）：那份對「其他店」只保留
+ *    「跟支援本店有關」的記錄（supportEmp 指向本店、或 location=支援本店），
+ *    是**支援關係快取**而不是跨店班表快取。用它會讓三店總覽的內容隨「目前選哪間店」而變，
+ *    但總覽的結果本來就該與選店無關。所以這裡自己抓各店的週文件。
+ *    成本：切到單日檢視時最多 3~6 次讀取（三店 × 本週，週一多讀上週），並快取。
+ */
+let _dayWeekCache = {};   // 'store|weekStr' -> records[]
+async function ensureDayViewData(weekStr, alsoPrevWeek) {
+  const stores = (appConfig.stores || []).filter(x => x && x !== '人力支援');
+  const weeks = alsoPrevWeek ? [weekStr, prevWeekStr(weekStr)] : [weekStr];
+  const jobs = [];
+  stores.forEach(st => weeks.forEach(wk => {
+    const key = `${st}|${wk}`;
+    if(_dayWeekCache[key]) return;
+    jobs.push(
+      window.db.collection('stores').doc(st).collection('weeks').doc(wk).get()
+        .then(snap => { _dayWeekCache[key] = (snap.exists && snap.data().records) ? snap.data().records : []; })
+        .catch(() => { _dayWeekCache[key] = []; })
+    );
+  }));
+  if(jobs.length) await Promise.all(jobs);
+}
+/** 存檔後要讓單日檢視重新抓（本店資料已變） */
+function invalidateDayViewCache() { _dayWeekCache = {}; }
+
+/**
  * 單日檢視的一天資料：把三店當天「實際在店」的時段攤平成時間軸線段
  * ⚠️ 視窗固定 00:00–24:00，並且**自動計入前一天的跨夜班**：
  *    昨天 23-07 的人今天 00:00–07:00 確實在店裡，不算進來凌晨那段會看起來是空的。
  *    今天的跨夜班則只畫到 24:00，尾端標 ▶ 表示延續到明天。
  * @returns {Array<{name,shift,from,to,isGap,filled,carry}>} from/to 為 0~24 的小時數
  */
-function daySegmentsOf(st, weekStr, dayIdx, isHome) {
+function daySegmentsOf(st, weekStr, dayIdx) {
   const out = [];
   const day = dayNames[dayIdx];
-  const pick = (wk, dy) => isHome
-    ? (appData.records || []).filter(r => r.day === dy && r.week === wk)
-    : (appData.allStoresRecords || []).filter(r => r._store === st && r.day === dy && r.week === wk);
+  // 一律讀 _dayWeekCache，本店也不例外——三店的資料來源要一致，結果才不會隨選店而變
+  const pick = (wk, dy) => (_dayWeekCache[`${st}|${wk}`] || []).filter(r => r.day === dy);
 
   const push = (r, from, to, carry) => {
     const isGap = String(r.name || '').startsWith('🆘');
@@ -1857,7 +1886,7 @@ function dayCoverageOf(segs) {
 
 /** 一間店的時間軸區塊 */
 function buildDayStoreBlock(st, isHome, weekStr, dayIdx) {
-  const segs = daySegmentsOf(st, weekStr, dayIdx, isHome);
+  const segs = daySegmentsOf(st, weekStr, dayIdx);
   const cov = dayCoverageOf(segs);
   const gaps = segs.filter(s => s.isGap && !s.filled);
   const people = new Set(segs.filter(s => !(s.isGap && !s.filled)).map(s => s.name)).size;
@@ -2754,6 +2783,7 @@ function applyPaintToCell(btn, eIdx) {
     }
   }
   // 局部更新記憶體
+  invalidateDayViewCache();   // 本店資料已變，單日檢視要重抓
   const week=document.getElementById('weekSelector').value;
   const idx=appData.records.findIndex(r=>r.name===btn.dataset.emp&&r.day===btn.dataset.day&&r.week===week);
   const data={ week, day:btn.dataset.day, name:btn.dataset.emp, shift:btn.dataset.shift||'', location:btn.dataset.loc||'本店', note:btn.dataset.note||'', actualHours:parseFloat(btn.dataset.hours||0), isOT:btn.dataset.ot==='true', isHourly:btn.dataset.hourly==='true', supportEmp:btn.dataset.support||'', approvalStatus:btn.dataset.approval||'', supportUpdatedAt:btn.dataset.supportat||'', requestOff:btn.dataset.reqoff==='true', lawOverrides: btn.dataset.lawoverrides ? JSON.parse(btn.dataset.lawoverrides) : [] };
