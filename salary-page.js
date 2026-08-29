@@ -2233,8 +2233,6 @@ async function loadSalaryData() {
   currentStore = document.getElementById('storeSelector').value || currentStore;
   if(!currentStore) { hideLoading(); return; }
   document.getElementById('headerStore').textContent = currentStore;
-  const _bf = document.getElementById('backfillBtn');
-  if(_bf) _bf.style.display = ['owner','admin'].includes(currentUser?.permission) ? 'block' : 'none';
   showLoading('載入薪資資料...');
   expandedCards.clear();
 
@@ -3777,47 +3775,6 @@ function stampPayHashes(){
   });
 }
 
-// ===== 回填舊月份 grossAmt 快照（admin/加盟主一次性）=====
-// 只補「缺少 grossAmt」的記錄，用該月自己的排班+記錄職稱計算（守鐵則：不改金額以外欄位、不動 payHash、不新增記錄）
-async function backfillOldSnapshots(){
-  if(!['owner','admin'].includes(currentUser?.permission)){ showToast('僅加盟主/admin 可回填'); return; }
-  const months = ['2026-03','2026-04','2026-05','2026-06'];
-  const stores = (appConfig.stores || [currentStore]).filter(Boolean);
-  if(!confirm(`回填 ${stores.length} 店 × ${months.length} 月的 grossAmt 快照？\n只補缺少的金額欄位，不改其他資料。`)) return;
-  const sel = document.getElementById('storeSelector');
-  const origStore = currentStore, origMonth = currentMonth;
-  let docCount = 0, recCount = 0;
-  showLoading('回填中...');
-  try {
-    for(const store of stores){
-      for(const ym of months){
-        if(sel) sel.value = store;
-        currentStore = store; currentMonth = ym;
-        await loadSalaryData(); // 載入該店該月：empList(歷史職稱鎖定)+scheduleData+級距
-        const docRef = window.db.collection('stores').doc(store).collection('salary').doc(ym);
-        const snap = await docRef.get();
-        if(!snap.exists) continue;
-        const recs = snap.data().records || [];
-        let changed = false;
-        recs.forEach(rec => {
-          if(rec.grossAmt == null){
-            rec.grossAmt  = calcGross(rec);
-            rec.deductAmt = calcDeduct(rec);
-            rec.netAmt    = rec.grossAmt - rec.deductAmt;
-            changed = true; recCount++;
-          }
-        });
-        if(changed){ await docRef.set({ records: recs }, { merge: true }); docCount++; }
-      }
-    }
-    showToast(`✅ 回填完成：${docCount} 個月 doc、${recCount} 筆記錄`);
-  } catch(e){ showToast('❌ 回填失敗：' + e.message); console.error('backfill', e); }
-  // 還原原本檢視
-  if(sel) sel.value = origStore;
-  currentStore = origStore; currentMonth = origMonth;
-  await loadSalaryData();
-  hideLoading();
-}
 
 async function saveDraft() {
   collectRecords();
