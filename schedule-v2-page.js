@@ -1927,7 +1927,14 @@ function buildDayStoreBlock(st, isHome, weekStr, dayIdx) {
   const segs = daySegmentsOf(st, weekStr, dayIdx);
   const { cov, gap } = dayCoverageOf(segs);
   const gaps = segs.filter(s => s.isGap && !s.filled);
-  const people = new Set(segs.filter(s => !(s.isGap && !s.filled)).map(s => s.name)).size;
+  const staffed = segs.filter(s => !(s.isGap && !s.filled));
+  const people = new Set(staffed.map(s => s.name)).size;
+  // 日總工時＝今天 00:00~24:00 內「實際有人在店」的時數總和，也就是覆蓋條的面積。
+  // 跨夜班只計今天落在視窗內的那一段（昨夜延續進來的算今天、今夜延續出去的算明天），
+  // 與覆蓋條、人數的口徑一致。未認領的待補不算在內，另外標示。
+  const fmtH = n => (Math.round(n * 10) / 10).toString().replace(/\.0$/, '');
+  const totalH = staffed.reduce((a, x) => a + (x.to - x.from), 0);
+  const gapH   = gaps.reduce((a, x) => a + (x.to - x.from), 0);
   const HOUR_W = 28, TL_W = HOUR_W * 24, ROW_H = 20;
 
   const box = document.createElement('div');
@@ -1936,8 +1943,8 @@ function buildDayStoreBlock(st, isHome, weekStr, dayIdx) {
   // ── 標題
   let h = `<div style="display:flex; align-items:center; gap:8px; padding:7px 10px; background:${isHome?'var(--primary)':'#f1f3f4'}; color:${isHome?'#fff':'var(--text)'};">
       <span style="font-weight:900; font-size:14px;">${st}</span>
-      <span style="font-size:12px; opacity:.9;">${people} 人</span>
-      ${gaps.length ? `<span style="font-size:11px; font-weight:800; background:#fee2e2; color:#b91c1c; padding:2px 7px; border-radius:10px;">🆘 待補 ${gaps.length}</span>` : ''}
+      <span style="font-size:12px; opacity:.9;" title="今日 00:00–24:00 實際有人在店的總時數（＝覆蓋條面積，跨夜班只計今天這一段）">${people} 人 · ${fmtH(totalH)}h</span>
+      ${gaps.length ? `<span style="font-size:11px; font-weight:800; background:#fee2e2; color:#b91c1c; padding:2px 7px; border-radius:10px;">🆘 待補 ${gaps.length}（${fmtH(gapH)}h）</span>` : ''}
       ${isHome ? '<span style="margin-left:auto; font-size:11px; font-weight:700; opacity:.85;">本店</span>' : ''}
     </div>`;
 
