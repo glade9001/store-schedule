@@ -1796,7 +1796,8 @@ async function renderDayView() {
   lg.innerHTML = '<b>覆蓋條顏色＝該時段在班人數：</b>'
     + sw('#ef4444','#fff','0 或待補') + ' ' + sw('#fbbf24','#7c2d12','1 人')
     + ' ' + sw('#60a5fa','#fff','2 人') + ' ' + sw('#2563eb','#fff','3 人') + ' ' + sw('#1e3a8a','#fff','4+')
-    + '（<b>!</b> 表示該時段有未認領的待補缺口，即使已有人也算人力不足）'
+    + '（<b>!</b>＝該時段有未認領的待補缺口，即使已有人也算人力不足）'
+    + '<br>覆蓋條每格為 <b>30 分鐘</b>，點一下（或滑過）可看該時段的實際人數。'
     + '<br><span style="color:#4f46e5;">◀</span> 昨日跨夜班延續到今天　▶ 今日跨夜班延續到明天　'
     + '<span style="background:repeating-linear-gradient(45deg,#fecaca,#fecaca 4px,#fff 4px,#fff 8px); padding:0 6px; border-radius:3px;">斜線</span> 待補缺口（不計入人力）'
     + '<br>時間軸可<b>左右滑動</b>（三店同步）。此為總覽檢視，<b>要排班請切「經典」</b>。';
@@ -1888,10 +1889,18 @@ function prevWeekStr(wStr) {
  * 覆蓋條要標紅警示，不能因為 cov>0 就當作正常。
  */
 function dayCoverageOf(segs) {
-  const cov = new Array(24).fill(0), gap = new Array(24).fill(0);
+  // 48 格＝每 30 分鐘一格（2026-08-29 改）。
+  // ⚠️ 為什麼是 30 分鐘：三店全部班別的小數部分**清一色是 .5**（實測 528 筆，無 .25/.75），
+  //    所以 30 分鐘格能「精確」表示，完全不需要四捨五入。
+  //    用 1 小時格時 17.5-23.5 的人 17:30 才到，17 點那格卻會被算成已覆蓋 →
+  //    把真正的空窗填掉，而抓空窗正是這個檢視存在的理由。
+  const cov = new Array(48).fill(0), gap = new Array(48).fill(0);
   segs.forEach(s => {
     const arr = (s.isGap && !s.filled) ? gap : cov;
-    for(let h = Math.floor(s.from); h < Math.ceil(s.to); h++) if(h >= 0 && h < 24) arr[h]++;
+    for(let k = 0; k < 48; k++) {
+      const a = k / 2, b = (k + 1) / 2;
+      if(Math.min(s.to, b) - Math.max(s.from, a) > 0) arr[k]++;
+    }
   });
   return { cov, gap };
 }
@@ -1949,15 +1958,20 @@ function buildDayStoreBlock(st, isHome, weekStr, dayIdx) {
   h += `<div style="width:${TL_W}px; min-width:100%;">`;
   // 刻度
   h += `<div style="display:flex; height:12px; font-size:9.5px; color:var(--text-muted);">`;
-  for(let i = 0; i < 24; i += 2) h += `<div style="width:${HOUR_W*2}px; flex:0 0 ${HOUR_W*2}px;">${i}</div>`;
+  for(let i = 0; i < 24; i++) h += `<div style="width:${HOUR_W}px; flex:0 0 ${HOUR_W}px; text-align:center;">${i}</div>`;
   h += `</div>`;
   // 人力覆蓋條
+  const SLOT_W = HOUR_W / 2;   // 每 30 分鐘一格
   h += `<div style="display:flex; height:18px; margin-bottom:2px; border-radius:4px; overflow:hidden; border:1px solid var(--border);">`;
-  for(let i = 0; i < 24; i++) {
-    const n = cov[i], g = gap[i];
+  for(let k = 0; k < 48; k++) {
+    const n = cov[k], g = gap[k];
     const c = coverageColor(n, g);
-    const tip = `${i}:00　${n} 人` + (g > 0 ? `（🆘 待補 ${g}）` : (n === 0 ? '（無人）' : ''));
-    h += `<div title="${tip}" style="width:${HOUR_W}px; flex:0 0 ${HOUR_W}px; background:${c.bg}; border-right:${i%3===2?'1px solid rgba(0,0,0,.15)':'none'}; font-size:9.5px; color:${c.fg}; text-align:center; line-height:18px; font-weight:800;">${g>0?'!':(n||'')}</div>`;
+    const hh = Math.floor(k / 2), mm = (k % 2) ? '30' : '00';
+    const tip = `${hh}:${mm}　${n} 人` + (g > 0 ? `（🆘 待補 ${g}）` : (n === 0 ? '（無人）' : ''));
+    // 分隔線只畫在整點交界（k 為奇數＝該格結束於整點）；半小時處不畫，避免格線太密
+    const isHourEnd = (k % 2 === 1);
+    const border = isHourEnd ? (Math.floor(k/2) % 3 === 2 ? '1px solid rgba(0,0,0,.22)' : '1px solid rgba(0,0,0,.10)') : 'none';
+    h += `<div title="${tip}" style="width:${SLOT_W}px; flex:0 0 ${SLOT_W}px; background:${c.bg}; border-right:${border}; font-size:9px; color:${c.fg}; text-align:center; line-height:18px; font-weight:900;">${g>0?'!':''}</div>`;
   }
   h += `</div>`;
   // 每人一條
