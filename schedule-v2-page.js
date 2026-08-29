@@ -1955,10 +1955,12 @@ function buildDayStoreBlock(st, isHome, weekStr, dayIdx) {
 
   // 右：可橫向捲動的時間軸
   h += `<div class="tl-scroll" style="flex:1; overflow-x:auto; overflow-y:hidden; -webkit-overflow-scrolling:touch; padding-right:8px;">`;
-  h += `<div style="width:${TL_W}px; min-width:100%;">`;
+  // 寬度策略：min-width 保底（手機不足時橫向捲動），width:100% 讓桌機撐滿。
+  // 因此內部一律用彈性/百分比定位，不能用絕對 px，否則桌機右半邊會留白。
+  h += `<div style="min-width:${TL_W}px; width:100%;">`;
   // 刻度
   h += `<div style="display:flex; height:12px; font-size:9.5px; color:var(--text-muted);">`;
-  for(let i = 0; i < 24; i++) h += `<div style="width:${HOUR_W}px; flex:0 0 ${HOUR_W}px; text-align:center;">${i}</div>`;
+  for(let i = 0; i < 24; i++) h += `<div style="flex:1 1 0; min-width:${HOUR_W}px; text-align:center;">${i}</div>`;
   h += `</div>`;
   // 人力覆蓋條
   const SLOT_W = HOUR_W / 2;   // 每 30 分鐘一格
@@ -1971,7 +1973,7 @@ function buildDayStoreBlock(st, isHome, weekStr, dayIdx) {
     // 分隔線只畫在整點交界（k 為奇數＝該格結束於整點）；半小時處不畫，避免格線太密
     const isHourEnd = (k % 2 === 1);
     const border = isHourEnd ? (Math.floor(k/2) % 3 === 2 ? '1px solid rgba(0,0,0,.22)' : '1px solid rgba(0,0,0,.10)') : 'none';
-    h += `<div title="${tip}" style="width:${SLOT_W}px; flex:0 0 ${SLOT_W}px; background:${c.bg}; border-right:${border}; font-size:9px; color:${c.fg}; text-align:center; line-height:18px; font-weight:900;">${g>0?'!':''}</div>`;
+    h += `<div title="${tip}" style="flex:1 1 0; min-width:${SLOT_W}px; background:${c.bg}; border-right:${border}; font-size:9px; color:${c.fg}; text-align:center; line-height:18px; font-weight:900;">${g>0?'!':''}</div>`;
   }
   h += `</div>`;
   // 每人一條
@@ -1981,10 +1983,12 @@ function buildDayStoreBlock(st, isHome, weekStr, dayIdx) {
     const gapUnfilled = s.isGap && !s.filled;
     const bg = gapUnfilled ? 'repeating-linear-gradient(45deg,#fecaca,#fecaca 4px,#fff 4px,#fff 8px)'
              : s.carry === 'prev' ? '#c7d2fe' : (isHome ? 'var(--primary)' : '#94a3b8');
-    const w = Math.max(0.4, s.to - s.from) * HOUR_W;
+    const durH = Math.max(0.4, s.to - s.from);
+    const leftPct = (s.from / 24 * 100).toFixed(3), widPct = (durH / 24 * 100).toFixed(3);
+    // 格線每 3 小時一條＝12.5%；用百分比才會跟著容器伸縮
     h += `<div style="position:relative; height:${ROW_H}px;">
-        <div style="position:absolute; inset:1px 0; background:linear-gradient(to right, #f8fafc 0 1px, transparent 1px) 0 0/${HOUR_W*3}px 100%; border-radius:3px;"></div>
-        <div title="${s.shift}" style="position:absolute; left:${s.from*HOUR_W}px; width:${w}px; top:1px; bottom:1px; background:${bg}; border-radius:4px; color:${gapUnfilled?'#b91c1c':'#fff'}; font-size:10px; font-weight:800; line-height:${ROW_H-2}px; text-align:center; overflow:hidden; white-space:nowrap;">${w>=64?s.shift:''}${s.carry==='next'?' ▶':''}</div>
+        <div style="position:absolute; inset:1px 0; background:linear-gradient(to right, #eef2f7 0 1px, transparent 1px) 0 0/12.5% 100%; border-radius:3px;"></div>
+        <div title="${s.shift}" style="position:absolute; left:${leftPct}%; width:${widPct}%; top:1px; bottom:1px; background:${bg}; border-radius:4px; color:${gapUnfilled?'#b91c1c':'#fff'}; font-size:10px; font-weight:800; line-height:${ROW_H-2}px; text-align:center; overflow:hidden; white-space:nowrap;">${durH>=2.5?s.shift:''}${s.carry==='next'?' ▶':''}</div>
       </div>`;
   });
   h += `</div></div></div>`;
