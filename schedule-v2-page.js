@@ -1719,7 +1719,8 @@ function onApprovalChange(sel) {
 
 // ===== 檢視模式切換（Phase 2）=====
 let scheduleViewMode = localStorage.getItem('scheduleViewMode') || 'classic';
-let dayViewDayIdx = null;   // 單日檢視選中的星期（0=週一..6=週日）
+let dayViewDayIdx = null;   // 三店人力檢視選中的星期（0=週一..6=週日）
+// 註：內部的 mode key 仍是 'day'（改名會波及 toggleScheduleContainers／updateViewToggleUI／viewBtn-day）
 function renderSchedule() {
   renderIncomingSupportBanner();
   switch(scheduleViewMode) {
@@ -1749,7 +1750,8 @@ function toggleScheduleContainers(mode) {
   else { dayC.innerHTML = ''; }
 }
 
-// 單日檢視：一天 × 三間店的「人力總覽」（純唯讀，要排班請切經典檢視）。
+// 三店人力檢視（按鈕標示「🏪 三店人力」，內部 mode key 為 'day'）：
+// 一天 × 三間店的人力總覽，純唯讀；要排班請切經典檢視。
 // 固定 00:00–24:00 時間軸，三店垂直對齊可直接比對同一時段的人力。
 // ⚠️ 別店刻意不用 buildCellButton：那支只讀 appData.records（本店），而且存檔路徑
 //    (saveCell) 的 store 是從全域 storeSelector 取的、格子本身沒有 dataset.store。
