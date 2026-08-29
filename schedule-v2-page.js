@@ -1792,7 +1792,11 @@ async function renderDayView() {
   // 圖例
   const lg = document.createElement('div');
   lg.style.cssText = 'font-size:11px; color:var(--text-muted); padding:2px 4px 20px; line-height:1.9;';
-  lg.innerHTML = '<b>看法：</b>上方色條為逐小時在班人數（越深越多，<span style="background:#fee2e2; padding:0 4px; border-radius:3px;">紅色＝無人</span>）。'
+  const sw = (bg,fg,t) => `<span style="background:${bg}; color:${fg}; padding:0 6px; border-radius:3px; font-weight:800;">${t}</span>`;
+  lg.innerHTML = '<b>覆蓋條顏色＝該時段在班人數：</b>'
+    + sw('#ef4444','#fff','0 或待補') + ' ' + sw('#fbbf24','#7c2d12','1 人')
+    + ' ' + sw('#60a5fa','#fff','2 人') + ' ' + sw('#2563eb','#fff','3 人') + ' ' + sw('#1e3a8a','#fff','4+')
+    + '（<b>!</b> 表示該時段有未認領的待補缺口，即使已有人也算人力不足）'
     + '<br><span style="color:#4f46e5;">◀</span> 昨日跨夜班延續到今天　▶ 今日跨夜班延續到明天　'
     + '<span style="background:repeating-linear-gradient(45deg,#fecaca,#fecaca 4px,#fff 4px,#fff 8px); padding:0 6px; border-radius:3px;">斜線</span> 待補缺口（不計入人力）'
     + '<br>時間軸可<b>左右滑動</b>（三店同步）。此為總覽檢視，<b>要排班請切「經典」</b>。';
@@ -1877,14 +1881,31 @@ function prevWeekStr(wStr) {
   return shiftWeekStr(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
 }
 
-/** 逐小時在班人數（0~23），用來畫人力覆蓋條 */
+/**
+ * 逐小時的人力狀況（0~23）
+ * @returns {{cov:number[], gap:number[]}} cov＝實際在班人數；gap＝未認領的🆘待補覆蓋數
+ * 待補不計入 cov（還沒有人），但要單獨記錄——「已有 1 人但同時掛著待補」也是人力不足，
+ * 覆蓋條要標紅警示，不能因為 cov>0 就當作正常。
+ */
 function dayCoverageOf(segs) {
-  const cov = new Array(24).fill(0);
+  const cov = new Array(24).fill(0), gap = new Array(24).fill(0);
   segs.forEach(s => {
-    if(s.isGap && !s.filled) return;   // 待補＝還沒有人，不算人力
-    for(let h = Math.floor(s.from); h < Math.ceil(s.to); h++) if(h >= 0 && h < 24) cov[h]++;
+    const arr = (s.isGap && !s.filled) ? gap : cov;
+    for(let h = Math.floor(s.from); h < Math.ceil(s.to); h++) if(h >= 0 && h < 24) arr[h]++;
   });
-  return cov;
+  return { cov, gap };
+}
+
+/**
+ * 覆蓋條的配色：依人數分級用不同顏色（不只深淺），缺人一律紅色
+ * 0 人／有未認領待補 → 紅；1 人 → 琥珀（人力單薄）；2 人 → 藍；3 人 → 深藍；4+ → 靛
+ */
+function coverageColor(n, gapN) {
+  if(gapN > 0 || n === 0) return { bg:'#ef4444', fg:'#fff' };
+  if(n === 1) return { bg:'#fbbf24', fg:'#7c2d12' };
+  if(n === 2) return { bg:'#60a5fa', fg:'#fff' };
+  if(n === 3) return { bg:'#2563eb', fg:'#fff' };
+  return { bg:'#1e3a8a', fg:'#fff' };
 }
 
 /** 一間店的時間軸區塊
@@ -1895,10 +1916,9 @@ function dayCoverageOf(segs) {
  */
 function buildDayStoreBlock(st, isHome, weekStr, dayIdx) {
   const segs = daySegmentsOf(st, weekStr, dayIdx);
-  const cov = dayCoverageOf(segs);
+  const { cov, gap } = dayCoverageOf(segs);
   const gaps = segs.filter(s => s.isGap && !s.filled);
   const people = new Set(segs.filter(s => !(s.isGap && !s.filled)).map(s => s.name)).size;
-  const maxCov = Math.max(1, ...cov);
   const HOUR_W = 28, TL_W = HOUR_W * 24, ROW_H = 20;
 
   const box = document.createElement('div');
@@ -1934,9 +1954,10 @@ function buildDayStoreBlock(st, isHome, weekStr, dayIdx) {
   // 人力覆蓋條
   h += `<div style="display:flex; height:18px; margin-bottom:2px; border-radius:4px; overflow:hidden; border:1px solid var(--border);">`;
   for(let i = 0; i < 24; i++) {
-    const n = cov[i];
-    const bg = n === 0 ? '#fee2e2' : `rgba(26,115,232,${(0.18 + 0.72 * n / maxCov).toFixed(2)})`;
-    h += `<div title="${i}:00　${n} 人" style="width:${HOUR_W}px; flex:0 0 ${HOUR_W}px; background:${bg}; border-right:${i%3===2?'1px solid rgba(0,0,0,.08)':'none'}; font-size:9px; color:${n>maxCov*0.6?'#fff':'#64748b'}; text-align:center; line-height:18px; font-weight:800;">${n||''}</div>`;
+    const n = cov[i], g = gap[i];
+    const c = coverageColor(n, g);
+    const tip = `${i}:00　${n} 人` + (g > 0 ? `（🆘 待補 ${g}）` : (n === 0 ? '（無人）' : ''));
+    h += `<div title="${tip}" style="width:${HOUR_W}px; flex:0 0 ${HOUR_W}px; background:${c.bg}; border-right:${i%3===2?'1px solid rgba(0,0,0,.15)':'none'}; font-size:9.5px; color:${c.fg}; text-align:center; line-height:18px; font-weight:800;">${g>0?'!':(n||'')}</div>`;
   }
   h += `</div>`;
   // 每人一條
