@@ -1788,13 +1788,14 @@ async function renderDayView() {
   ordered.forEach(st => {
     wrap.appendChild(buildDayStoreBlock(st, st === store, weekStr, dayViewDayIdx));
   });
+  syncDayTimelineScroll();
   // 圖例
   const lg = document.createElement('div');
   lg.style.cssText = 'font-size:11px; color:var(--text-muted); padding:2px 4px 20px; line-height:1.9;';
   lg.innerHTML = '<b>看法：</b>上方色條為逐小時在班人數（越深越多，<span style="background:#fee2e2; padding:0 4px; border-radius:3px;">紅色＝無人</span>）。'
     + '<br><span style="color:#4f46e5;">◀</span> 昨日跨夜班延續到今天　▶ 今日跨夜班延續到明天　'
     + '<span style="background:repeating-linear-gradient(45deg,#fecaca,#fecaca 4px,#fff 4px,#fff 8px); padding:0 6px; border-radius:3px;">斜線</span> 待補缺口（不計入人力）'
-    + '<br>此為總覽檢視，<b>要排班請切「經典」</b>。';
+    + '<br>時間軸可<b>左右滑動</b>（三店同步）。此為總覽檢視，<b>要排班請切「經典」</b>。';
   wrap.appendChild(lg);
 }
 
@@ -1886,19 +1887,24 @@ function dayCoverageOf(segs) {
   return cov;
 }
 
-/** 一間店的時間軸區塊 */
+/** 一間店的時間軸區塊
+ *  版面：左側固定姓名欄 + 右側可橫向滑動的時間軸。
+ *  ⚠️ 手機上 24 小時只有約 270px（一小時 11px），班別標籤塞不下、長條也看不清，
+ *     所以時間軸給固定寬度（每小時 28px ≈ 672px）並開橫向捲動；姓名欄留在捲動區外
+ *     才不會滑走。三店的捲動位置會同步，否則就失去「同一時段對照」的意義。
+ */
 function buildDayStoreBlock(st, isHome, weekStr, dayIdx) {
   const segs = daySegmentsOf(st, weekStr, dayIdx);
   const cov = dayCoverageOf(segs);
   const gaps = segs.filter(s => s.isGap && !s.filled);
   const people = new Set(segs.filter(s => !(s.isGap && !s.filled)).map(s => s.name)).size;
   const maxCov = Math.max(1, ...cov);
+  const HOUR_W = 28, TL_W = HOUR_W * 24, ROW_H = 20;
 
   const box = document.createElement('div');
   box.style.cssText = 'margin-bottom:12px; border:1.5px solid ' + (isHome ? 'var(--primary)' : 'var(--border)') + '; border-radius:12px; overflow:hidden;';
 
-  // 標題
-  const pct = x => (x / 24 * 100).toFixed(2) + '%';
+  // ── 標題
   let h = `<div style="display:flex; align-items:center; gap:8px; padding:7px 10px; background:${isHome?'var(--primary)':'#f1f3f4'}; color:${isHome?'#fff':'var(--text)'};">
       <span style="font-weight:900; font-size:14px;">${st}</span>
       <span style="font-size:12px; opacity:.9;">${people} 人</span>
@@ -1906,38 +1912,61 @@ function buildDayStoreBlock(st, isHome, weekStr, dayIdx) {
       ${isHome ? '<span style="margin-left:auto; font-size:11px; font-weight:700; opacity:.85;">本店</span>' : ''}
     </div>`;
 
-  // 人力覆蓋條（逐小時人數，深淺表示密度；0 人用紅底）
-  h += `<div style="display:flex; height:18px; margin:8px 10px 2px; border-radius:4px; overflow:hidden; border:1px solid var(--border);">`;
+  // ── 左右兩欄
+  h += `<div style="display:flex; padding:6px 0 8px;">`;
+
+  // 左：固定姓名欄（第一列對齊刻度＋覆蓋條的高度）
+  h += `<div style="flex:0 0 76px; min-width:76px; padding-left:8px;">`;
+  h += `<div style="height:32px;"></div>`;   // 對齊刻度(12px)+覆蓋條(18px)+間距
+  segs.forEach(s => {
+    const gapUnfilled = s.isGap && !s.filled;
+    h += `<div style="height:${ROW_H}px; line-height:${ROW_H}px; font-size:11.5px; font-weight:${gapUnfilled?'800':'700'}; color:${gapUnfilled?'#b91c1c':'var(--text)'}; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${s.carry==='prev'?'<span style="color:#4f46e5;">◀</span>':''}${s.name}</div>`;
+  });
+  h += `</div>`;
+
+  // 右：可橫向捲動的時間軸
+  h += `<div class="tl-scroll" style="flex:1; overflow-x:auto; overflow-y:hidden; -webkit-overflow-scrolling:touch; padding-right:8px;">`;
+  h += `<div style="width:${TL_W}px; min-width:100%;">`;
+  // 刻度
+  h += `<div style="display:flex; height:12px; font-size:9.5px; color:var(--text-muted);">`;
+  for(let i = 0; i < 24; i += 2) h += `<div style="width:${HOUR_W*2}px; flex:0 0 ${HOUR_W*2}px;">${i}</div>`;
+  h += `</div>`;
+  // 人力覆蓋條
+  h += `<div style="display:flex; height:18px; margin-bottom:2px; border-radius:4px; overflow:hidden; border:1px solid var(--border);">`;
   for(let i = 0; i < 24; i++) {
     const n = cov[i];
     const bg = n === 0 ? '#fee2e2' : `rgba(26,115,232,${(0.18 + 0.72 * n / maxCov).toFixed(2)})`;
-    h += `<div title="${i}:00　${n} 人" style="flex:1; background:${bg}; border-right:${i%3===2?'1px solid rgba(0,0,0,.08)':'none'};"></div>`;
+    h += `<div title="${i}:00　${n} 人" style="width:${HOUR_W}px; flex:0 0 ${HOUR_W}px; background:${bg}; border-right:${i%3===2?'1px solid rgba(0,0,0,.08)':'none'}; font-size:9px; color:${n>maxCov*0.6?'#fff':'#64748b'}; text-align:center; line-height:18px; font-weight:800;">${n||''}</div>`;
   }
   h += `</div>`;
-  // 刻度
-  h += `<div style="display:flex; margin:0 10px 6px; font-size:9.5px; color:var(--text-muted);">`;
-  for(let i = 0; i < 24; i += 3) h += `<div style="flex:3; text-align:left;">${i}</div>`;
-  h += `</div>`;
-
-  // 每人一列
-  h += `<div style="padding:0 10px 8px;">`;
+  // 每人一條
   if(!segs.length) {
-    h += `<div style="padding:8px 0; text-align:center; color:var(--text-muted); font-size:12.5px;">當日無排班資料</div>`;
+    h += `<div style="height:${ROW_H}px; line-height:${ROW_H}px; color:var(--text-muted); font-size:12px;">當日無排班資料</div>`;
   } else segs.forEach(s => {
     const gapUnfilled = s.isGap && !s.filled;
     const bg = gapUnfilled ? 'repeating-linear-gradient(45deg,#fecaca,#fecaca 4px,#fff 4px,#fff 8px)'
              : s.carry === 'prev' ? '#c7d2fe' : (isHome ? 'var(--primary)' : '#94a3b8');
-    const label = (s.to - s.from) >= 3 ? s.shift : '';
-    h += `<div style="display:flex; align-items:center; gap:6px; padding:2.5px 0;">
-        <div style="flex:0 0 74px; min-width:74px; font-size:11.5px; font-weight:${gapUnfilled?'800':'700'}; color:${gapUnfilled?'#b91c1c':'var(--text)'}; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${s.carry==='prev'?'<span style="color:#4f46e5;">◀</span>':''}${s.name}</div>
-        <div style="flex:1; position:relative; height:17px; background:#f8fafc; border-radius:4px;">
-          <div title="${s.shift}" style="position:absolute; left:${pct(s.from)}; width:${pct(Math.max(0.4,s.to-s.from))}; top:0; bottom:0; background:${bg}; border-radius:4px; color:#fff; font-size:9.5px; font-weight:800; line-height:17px; text-align:center; overflow:hidden;">${label}${s.carry==='next'?' ▶':''}</div>
-        </div>
+    const w = Math.max(0.4, s.to - s.from) * HOUR_W;
+    h += `<div style="position:relative; height:${ROW_H}px;">
+        <div style="position:absolute; inset:1px 0; background:linear-gradient(to right, #f8fafc 0 1px, transparent 1px) 0 0/${HOUR_W*3}px 100%; border-radius:3px;"></div>
+        <div title="${s.shift}" style="position:absolute; left:${s.from*HOUR_W}px; width:${w}px; top:1px; bottom:1px; background:${bg}; border-radius:4px; color:${gapUnfilled?'#b91c1c':'#fff'}; font-size:10px; font-weight:800; line-height:${ROW_H-2}px; text-align:center; overflow:hidden; white-space:nowrap;">${w>=64?s.shift:''}${s.carry==='next'?' ▶':''}</div>
       </div>`;
   });
-  h += `</div>`;
+  h += `</div></div></div>`;
   box.innerHTML = h;
   return box;
+}
+
+/** 三店時間軸的橫向捲動同步（各自捲動就失去同時段對照的意義） */
+function syncDayTimelineScroll() {
+  const els = [...document.querySelectorAll('#dayViewStores .tl-scroll')];
+  let lock = false;
+  els.forEach(el => el.addEventListener('scroll', () => {
+    if(lock) return;
+    lock = true;
+    els.forEach(o => { if(o !== el) o.scrollLeft = el.scrollLeft; });
+    requestAnimationFrame(() => { lock = false; });
+  }, { passive: true }));
 }
 function setDayViewDay(i) { dayViewDayIdx = i; renderDayView(); }
 
