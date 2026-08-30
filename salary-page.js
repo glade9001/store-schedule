@@ -4019,6 +4019,35 @@ function _costStoreColor(store) {
   return _COST_STORE_COLORS[Math.max(0, idx) % _COST_STORE_COLORS.length];
 }
 
+// ===== 該月身分與費率（守歷史不可變鐵則）=====
+// ⚠️ 2026-08-31：支援費率原本「角色取員工現況、金額取當月薪資紀錄」，兩者錯配。
+//    實例：金玲 7 月是工讀(wage 196)、8 月轉正職 → 回頭看 7 月時用「現況＝正職」走底薪公式，
+//    但 7 月那筆工讀紀錄根本沒有 baseSalary → 時薪算成 0 → 她 7 月在美德的 53h 支援費全歸零。
+//    三店 5–8 月共 21 筆、合計少計 $24,908，且畫面印「$0/h」毫無警告。
+//    規則：費率一律用「該月份的身分」算，日後轉正職／調薪／離職都不得改變過去月份的成本。
+function roleOfMonth(salRec, empData, frozen) {
+  // 已發布(凍結)月份 → 以當月薪資紀錄為準；草稿月 → 以員工現況為準（編輯中的真相在 employees）
+  if (frozen && salRec) {
+    if (salRec.payAsPartTime) return ROLE_PART;
+    if (salRec.role) return salRec.role;
+  }
+  if (empData && empData.payAsPartTime) return ROLE_PART;
+  return (empData && empData.role) || (salRec && salRec.role) || '';
+}
+
+// 依身分算時薪。⚠️ 算不出來一律回 null，**絕不可回 0**——
+// 0 會被當成「這筆支援不用錢」靜靜吃掉，UI 的「時薪待確認」警告判的是 != null，0 不會觸發。
+function supportHourlyRate(role, salRec, empData) {
+  if (role === ROLE_PART) {
+    const w = parseFloat((salRec && salRec.wage) || (empData && empData.wage) || 0);
+    return w > 0 ? w : null;
+  }
+  const base   = parseFloat((salRec && salRec.baseSalary)      || (empData && empData.baseSalary)      || 0);
+  const attend = parseFloat((salRec && salRec.fullAttendBonus) || (empData && empData.fullAttendBonus) || 0);
+  const sum = base + attend;
+  return sum > 0 ? sum / 30 / 8 : null;
+}
+
 // supportEmp 格式：'{homeStore}-{empName}'，儲存在接收門市的 weeks collection
 // 支援別人（本店員工去外店）：在其他門市的 records 中找 homeStore === currentStore 的記錄
 function getSupportOut() {
@@ -4042,15 +4071,12 @@ function getSupportOut() {
       if(!emp) return;
       const targetStore = r._store;  // 去支援的那間門市
       const salRec = getSalaryRecord(empName) || {};
-      const isPart = emp.role === ROLE_PART;
       const hours = parseFloat(r.actualHours || 0);
-      let hrRate = 0;
-      if(isPart) {
-        hrRate = parseFloat(salRec.wage || 0);
-      } else {
-        hrRate = (parseFloat(salRec.baseSalary||0) + parseFloat(salRec.fullAttendBonus||0)) / 30 / 8;
-      }
-      result.push({ empName, role: emp.role||'', targetStore, date: wDates[dIdx], hours, hrRate, cost: Math.round(hrRate * hours) });
+      // 身分／費率一律走「該月份」（見 roleOfMonth 註解）；算不出費率回 null，不當成 0
+      const role = roleOfMonth(salRec, emp, salaryData.status === 'published');
+      const hrRate = supportHourlyRate(role, salRec, emp);
+      result.push({ empName, role, targetStore, date: wDates[dIdx], hours, hrRate,
+                    cost: hrRate == null ? null : Math.round(hrRate * hours) });
     });
   });
   return result;
@@ -4085,7 +4111,7 @@ function getSupportIn() {
 
 async function fetchSupportInRates(supportInList) {
   const uniqueStores = [...new Set(supportInList.map(s => s.fromStore))];
-  const salByStore = {}, empByStore = {};
+  const salByStore = {}, empByStore = {}, frozenByStore = {};
   await Promise.all(uniqueStores.map(async store => {
     try {
       const [salSnap, empSnap, accSnap] = await Promise.all([
@@ -4093,6 +4119,8 @@ async function fetchSupportInRates(supportInList) {
         window.db.collection('stores').doc(store).collection('employees').get(),
         window.db.collection('account').where('store','==',store).get().catch(()=>null)
       ]);
+      // 該月是否已凍結：以「來源門市自己那個月的狀態」判斷，不是用本店的
+      frozenByStore[store] = salSnap.exists && salSnap.data().status === 'published';
       salByStore[store] = salSnap.exists ? (salSnap.data().records||[]) : [];
       empByStore[store] = {};
       empSnap.forEach(d => { empByStore[store][d.id] = d.data(); });
@@ -4112,16 +4140,10 @@ async function fetchSupportInRates(supportInList) {
     if(!empData) return;
     const recs = salByStore[s.fromStore] || [];
     const salRec = recs.find(r => r.empName === s.empName);
-    s.role = empData.role || '';
-    if(empData.role === ROLE_PART) {
-      s.hrRate = parseFloat(salRec?.wage || empData.wage || 0);
-    } else {
-      // 有薪資記錄用薪資記錄，否則 fallback 到員工資料底薪
-      const base   = parseFloat(salRec?.baseSalary       || empData.baseSalary       || 0);
-      const attend = parseFloat(salRec?.fullAttendBonus  || empData.fullAttendBonus  || 0);
-      s.hrRate = (base + attend) / 30 / 8;
-    }
-    s.cost = Math.round(s.hrRate * s.hours);
+    // 身分取「該月份」而非現況（見 roleOfMonth）；費率算不出來回 null → UI 顯示「時薪待確認」
+    s.role = roleOfMonth(salRec, empData, !!frozenByStore[s.fromStore]);
+    s.hrRate = supportHourlyRate(s.role, salRec, empData);
+    s.cost = s.hrRate == null ? null : Math.round(s.hrRate * s.hours);
   });
 }
 
@@ -4194,10 +4216,26 @@ async function openCostModal() {
   const supportOut = getSupportOut();
   const supportIn = getSupportIn();
   await fetchSupportInRates(supportIn);
-  renderCostModal(supportOut, supportIn);
+  // ⚠️ 守歷史不可變：已發布月份的支援成本一律讀薪資發布當下凍結的 perfSnapshot，不即時重算。
+  //    重算會被「日後的職稱異動／調薪」污染（2026-08-31：金玲轉正職後，7 月美德的含負擔總成本
+  //    從 256,707 變成 246,318）。明細仍即時列出供對照，但合計以凍結值為準。
+  let frozen = null;
+  if(salaryData.status === 'published') {
+    try {
+      const snap = await window.db.collection('stores').doc(currentStore)
+        .collection('perfSnapshot').doc(currentMonth).get();
+      if(snap.exists) {
+        const d = snap.data() || {};
+        if(d.supportInCost != null || d.supportOutCost != null)
+          frozen = { inCost: Number(d.supportInCost||0), outCost: Number(d.supportOutCost||0),
+                     inHours: Number(d.supportInHours||0), outHours: Number(d.supportOutHours||0) };
+      }
+    } catch(e) {}
+  }
+  renderCostModal(supportOut, supportIn, frozen);
 }
 
-function renderCostModal(supportOut, supportIn) {
+function renderCostModal(supportOut, supportIn, frozen) {
   const pf = v => parseFloat(v||0);
   const comma = v => Math.round(pf(v)).toLocaleString();
 
@@ -4208,11 +4246,13 @@ function renderCostModal(supportOut, supportIn) {
   });
   const totalSalary = salRows.reduce((s, r) => s + r.gross, 0);
 
-  // 被支援合計
-  const totalIn = supportIn.reduce((s, r) => s + (r.cost||0), 0);
-
-  // 支援別人合計
-  const totalOut = supportOut.reduce((s, r) => s + (r.cost||0), 0);
+  // 被支援／支援別人合計：已發布月份用凍結值（frozen），草稿才即時加總
+  const liveIn  = supportIn.reduce((s, r) => s + (r.cost||0), 0);
+  const liveOut = supportOut.reduce((s, r) => s + (r.cost||0), 0);
+  const totalIn  = frozen ? frozen.inCost  : liveIn;
+  const totalOut = frozen ? frozen.outCost : liveOut;
+  const driftIn  = frozen ? (liveIn  - frozen.inCost)  : 0;
+  const driftOut = frozen ? (liveOut - frozen.outCost) : 0;
 
   // 公司負擔合計
   const erRows = empList.map(emp => {
@@ -4298,7 +4338,9 @@ function renderCostModal(supportOut, supportIn) {
       html += `<div class="cost-support-row">${badge}<strong>${getDisplayName(s.empName)}</strong><span style="color:var(--text-muted);font-size:10px;margin-left:4px;">${s.role}</span>　${s.date}　${rateStr}</div>`;
     });
     if(supportIn.some(s => s.cost == null))
-      html += `<div style="font-size:10px;color:var(--text-muted);margin-top:4px;">⚠️ 部分時薪無法取得（外店薪資讀取權限不足）</div>`;
+      html += `<div style="font-size:10px;color:var(--text-muted);margin-top:4px;">⚠️ 部分時薪無法取得（外店薪資讀取權限不足，或該月薪資紀錄缺底薪／時薪）</div>`;
+    if(frozen && driftIn)
+      html += `<div style="font-size:10px;color:#c2410c;margin-top:4px;">🔒 合計採發布當下的凍結值 $${comma(frozen.inCost)}；以現在的員工資料重算會是 $${comma(liveIn)}（差 ${driftIn>0?'+':''}${comma(driftIn)}，多半是事後職稱異動／調薪造成，不影響已發布數字）</div>`;
   }
   html += `</div></div>`;
 
@@ -4312,8 +4354,13 @@ function renderCostModal(supportOut, supportIn) {
   } else {
     supportOut.forEach(s => {
       const badge = `<span class="cost-support-badge" style="background:${_costStoreColor(s.targetStore)};">${s.targetStore}</span>`;
-      html += `<div class="cost-support-row"><strong>${getDisplayName(s.empName)}</strong><span style="color:var(--text-muted);font-size:10px;margin-left:4px;">${s.role}</span> → ${badge}　${s.date}　$${Math.round(s.hrRate)}/h × ${s.hours}h = <strong>$${comma(s.cost)}</strong></div>`;
+      const rateStr = s.hrRate != null ? `$${Math.round(s.hrRate)}/h × ${s.hours}h = <strong>$${comma(s.cost)}</strong>` : `${s.hours}h（時薪待確認）`;
+      html += `<div class="cost-support-row"><strong>${getDisplayName(s.empName)}</strong><span style="color:var(--text-muted);font-size:10px;margin-left:4px;">${s.role}</span> → ${badge}　${s.date}　${rateStr}</div>`;
     });
+    if(supportOut.some(s => s.cost == null))
+      html += `<div style="font-size:10px;color:var(--text-muted);margin-top:4px;">⚠️ 部分時薪無法取得（該月薪資紀錄缺底薪／時薪）</div>`;
+    if(frozen && driftOut)
+      html += `<div style="font-size:10px;color:#c2410c;margin-top:4px;">🔒 合計採發布當下的凍結值 $${comma(frozen.outCost)}；以現在的員工資料重算會是 $${comma(liveOut)}（差 ${driftOut>0?'+':''}${comma(driftOut)}）</div>`;
   }
   html += `</div></div>`;
 
