@@ -4035,9 +4035,29 @@ function roleOfMonth(salRec, empData, frozen) {
   return (empData && empData.role) || (salRec && salRec.role) || '';
 }
 
+// 人工指定費率：settings/supportRateOverrides = { "YYYY-MM": { "門市-員工": 215 } }
+// 用途＝該月薪資紀錄真的查無底薪也查無時薪（例：聯鑫·蔣 2026-05，role 正職但無 baseSalary），
+// 由管理者指定一個成本費率。刻意做成獨立文件而不是去改已發布的薪資紀錄——published 的
+// 薪資是歷史，不能為了算成本去動它（見 feedback：歷史資料不可變）。
+let supportRateOverrides = {};
+function supportRateOverrideOf(homeStore, empName) {
+  const m = supportRateOverrides[currentMonth];
+  if (!m) return null;
+  const v = parseFloat(m[`${homeStore}-${empName}`]);
+  return (isFinite(v) && v > 0) ? v : null;
+}
+async function loadSupportRateOverrides() {
+  try {
+    const snap = await window.db.collection('settings').doc('supportRateOverrides').get();
+    supportRateOverrides = snap.exists ? (snap.data() || {}) : {};
+  } catch(e) { supportRateOverrides = {}; }
+}
+
 // 依身分算時薪。⚠️ 算不出來一律回 null，**絕不可回 0**——
 // 0 會被當成「這筆支援不用錢」靜靜吃掉，UI 的「時薪待確認」警告判的是 != null，0 不會觸發。
-function supportHourlyRate(role, salRec, empData) {
+// override 為人工指定費率，優先於一切推算。
+function supportHourlyRate(role, salRec, empData, override) {
+  if (override != null) return override;
   if (role === ROLE_PART) {
     const w = parseFloat((salRec && salRec.wage) || (empData && empData.wage) || 0);
     return w > 0 ? w : null;
@@ -4074,8 +4094,9 @@ function getSupportOut() {
       const hours = parseFloat(r.actualHours || 0);
       // 身分／費率一律走「該月份」（見 roleOfMonth 註解）；算不出費率回 null，不當成 0
       const role = roleOfMonth(salRec, emp, salaryData.status === 'published');
-      const hrRate = supportHourlyRate(role, salRec, emp);
-      result.push({ empName, role, targetStore, date: wDates[dIdx], hours, hrRate,
+      const ovr = supportRateOverrideOf(currentStore, empName);
+      const hrRate = supportHourlyRate(role, salRec, emp, ovr);
+      result.push({ empName, role, targetStore, date: wDates[dIdx], hours, hrRate, isOverride: ovr != null,
                     cost: hrRate == null ? null : Math.round(hrRate * hours) });
     });
   });
@@ -4142,7 +4163,9 @@ async function fetchSupportInRates(supportInList) {
     const salRec = recs.find(r => r.empName === s.empName);
     // 身分取「該月份」而非現況（見 roleOfMonth）；費率算不出來回 null → UI 顯示「時薪待確認」
     s.role = roleOfMonth(salRec, empData, !!frozenByStore[s.fromStore]);
-    s.hrRate = supportHourlyRate(s.role, salRec, empData);
+    const ovr = supportRateOverrideOf(s.fromStore, s.empName);
+    s.isOverride = ovr != null;
+    s.hrRate = supportHourlyRate(s.role, salRec, empData, ovr);
     s.cost = s.hrRate == null ? null : Math.round(s.hrRate * s.hours);
   });
 }
@@ -4213,6 +4236,7 @@ async function openCostModal() {
   document.getElementById('costModalBody').innerHTML =
     `<div style="text-align:center;padding:30px;color:var(--text-muted);"><div style="width:32px;height:32px;border:3px solid #e2e8f0;border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px;"></div>計算中...</div>`;
   openModal('costModal');
+  await loadSupportRateOverrides();   // getSupportOut 會用到，必須先載入
   const supportOut = getSupportOut();
   const supportIn = getSupportIn();
   await fetchSupportInRates(supportIn);
@@ -4334,7 +4358,8 @@ function renderCostModal(supportOut, supportIn, frozen) {
   } else {
     supportIn.forEach(s => {
       const badge = `<span class="cost-support-badge" style="background:${_costStoreColor(s.fromStore)};">${s.fromStore}</span>`;
-      const rateStr = s.hrRate != null ? `$${Math.round(s.hrRate)}/h × ${s.hours}h = <strong>$${comma(s.cost)}</strong>` : `${s.hours}h（時薪待確認）`;
+      const ovrTag = s.isOverride ? `<span style="font-size:9.5px;font-weight:800;color:#c2410c;background:#fff7ed;border:1px solid #fed7aa;border-radius:4px;padding:1px 4px;margin-left:4px;">指定</span>` : '';
+      const rateStr = (s.hrRate != null ? `$${Math.round(s.hrRate)}/h × ${s.hours}h = <strong>$${comma(s.cost)}</strong>` : `${s.hours}h（時薪待確認）`) + ovrTag;
       html += `<div class="cost-support-row">${badge}<strong>${getDisplayName(s.empName)}</strong><span style="color:var(--text-muted);font-size:10px;margin-left:4px;">${s.role}</span>　${s.date}　${rateStr}</div>`;
     });
     if(supportIn.some(s => s.cost == null))
@@ -4354,7 +4379,8 @@ function renderCostModal(supportOut, supportIn, frozen) {
   } else {
     supportOut.forEach(s => {
       const badge = `<span class="cost-support-badge" style="background:${_costStoreColor(s.targetStore)};">${s.targetStore}</span>`;
-      const rateStr = s.hrRate != null ? `$${Math.round(s.hrRate)}/h × ${s.hours}h = <strong>$${comma(s.cost)}</strong>` : `${s.hours}h（時薪待確認）`;
+      const ovrTag = s.isOverride ? `<span style="font-size:9.5px;font-weight:800;color:#c2410c;background:#fff7ed;border:1px solid #fed7aa;border-radius:4px;padding:1px 4px;margin-left:4px;">指定</span>` : '';
+      const rateStr = (s.hrRate != null ? `$${Math.round(s.hrRate)}/h × ${s.hours}h = <strong>$${comma(s.cost)}</strong>` : `${s.hours}h（時薪待確認）`) + ovrTag;
       html += `<div class="cost-support-row"><strong>${getDisplayName(s.empName)}</strong><span style="color:var(--text-muted);font-size:10px;margin-left:4px;">${s.role}</span> → ${badge}　${s.date}　${rateStr}</div>`;
     });
     if(supportOut.some(s => s.cost == null))
