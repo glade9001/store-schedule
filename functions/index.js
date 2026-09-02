@@ -546,27 +546,12 @@ function weekRangeLabel(wStr) {
   } catch (e) { return wStr; }
 }
 
-exports.onSchedulePublished = onDocumentWritten(
-  { document: "stores/{store}/weeks/{weekStr}", region: "asia-east1", secrets: [LINE_TOKEN] },
-  async (event) => {
-    const before = event.data.before.exists ? event.data.before.data() : {};
-    const after = event.data.after.exists ? event.data.after.data() : {};
-    if (before.published === true || after.published !== true) return; // 只在「剛發布」
-    if (await maintenanceOn(admin.firestore())) return; // 維護模式不發班表通知
-    const store = fixStoreName(event.params.store);
-    const weekStr = event.params.weekStr;
-    const label = weekRangeLabel(weekStr);
-    const records = after.records || [];
-    const db = admin.firestore();
-    const empNames = await getActiveEmpNames(db, store);
-    const so = await supportOutByEmp(db, store, weekStr); // 跨店支援出去的日子
-    await notifyEmployees(
-      db, empNames, store,
-      (name, emp) => `🗓️ ${name}，${store} ${label} 班表已發布\n\n${weekScheduleText(records, emp, weekStr, so[emp])}\n\n詳情請至 App 查看`,
-      LINE_TOKEN.value()
-    );
-  }
-);
+// ✂️ onSchedulePublished 已整支移除（2026-09-02 額度預算化）。
+//    班表「發布」8 月約吃掉 77 則，是額度第二大宗，但它是每週固定時間的常規、完全可預期，
+//    不符合「非預期且有期限」的推播門檻。改用 home.html 的首頁橫幅（homeNextWeekBanner）——
+//    那裡本來就即時訂閱下週的 published，只是過去沒有主動講出來。
+//    ⚠️「已發布之後又被改」才是非預期事件，那條保留（onScheduleChanged → 靜置 10 分鐘後彙整）。
+//    ⚠️ deploy 時 Firebase 會問是否刪除這支雲端函式，答 yes。
 
 // 已發布班表被異動（published→published 且 records 變動）→ 不即時發送，改「延遲通知」：
 // 進 scheduleNotifyQueue 佇列，靜置滿 10 分鐘無新異動才由 scheduledScheduleNotifyFlush 彙整發送；
@@ -597,9 +582,19 @@ exports.onScheduleChanged = onDocumentWritten(
 );
 
 // 彙整某週佇列 → 比對 baseRecs vs 目前班表，只通知「班次有淨變動」的在職員工
-async function flushScheduleQueueEntry(db, store, weekStr, baseRecs, token) {
+// force=true 是店長在班表頁按「立即通知」＝明示要發，不受每日上限限制。
+async function flushScheduleQueueEntry(db, store, weekStr, baseRecs, token, force) {
   const wkSnap = await db.collection("stores").doc(store).collection("weeks").doc(weekStr).get();
   if (!wkSnap.exists || wkSnap.data().published !== true) return { sent: 0 };
+  // 每店每天最多一輪自動異動通知（2026-09-02 額度預算化）：
+  // 排班常常是同一天分好幾次修，每修一輪就整店發一次，8 月光班表就吃掉約 138 則。
+  // 超過上限的異動不會消失——留在佇列外由隔天第一輪一起帶出（比對基準是「上次發送時的班表」）。
+  const dayKey = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+  const capRef = db.collection("scheduleNotifyDaily").doc(`${store}__${dayKey}`);
+  if (!force) {
+    const cap = await capRef.get().catch(() => null);
+    if (cap && cap.exists) return { sent: 0, skipped: "daily-cap" };
+  }
   const curRecs = wkSnap.data().records || [];
   const label = weekRangeLabel(weekStr);
   const active = new Set(await getActiveEmpNames(db, store));
@@ -614,6 +609,9 @@ async function flushScheduleQueueEntry(db, store, weekStr, baseRecs, token) {
     (name, emp) => `🔔 ${name}，${store} ${label} 班表有異動\n\n${weekScheduleText(curRecs, emp, weekStr, so[emp])}\n\n請至 App 確認最新班表`,
     token
   );
+  // 真的送出去才記上限（changed 為 0 時不佔用今天的名額）
+  await capRef.set({ store, weekStr, at: new Date().toISOString(), sent: changed.length, force: !!force },
+    { merge: true }).catch(() => {});
   return { sent: changed.length };
 }
 
@@ -1021,29 +1019,11 @@ exports.scheduledLeaveReminder = onSchedule(
 );
 
 // ===== 班表自動發布（每週五 18:00 台北）：未手動發布者補通知 =====
-exports.scheduledAutoPublishNotify = onSchedule(
-  { schedule: "0 18 * * 5", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN] },
-  async () => {
-    const db = admin.firestore();
-    const token = LINE_TOKEN.value();
-    // 下週（台北）＝ 今日+7 所屬的週字串，對應 weeks doc id
-    const nextWeek = weekStrOfTp(new Date(Date.now() + 8 * 3600000 + 7 * 86400000));
-    const label = weekRangeLabel(nextWeek);
-    const stores = await getAllStores(db);
-    for (const store of stores) {
-      const wSnap = await db.collection("stores").doc(store).collection("weeks").doc(nextWeek).get();
-      if (wSnap.exists && wSnap.data().published === true) continue; // 已手動發布 → onSchedulePublished 已通知
-      const records = wSnap.exists ? (wSnap.data().records || []) : [];
-      const empNames = await getActiveEmpNames(db, store);
-      const so = await supportOutByEmp(db, store, nextWeek); // 跨店支援：本店員工去他店支援 → 顯示支援而非「休」
-      await notifyEmployees(
-        db, empNames, store,
-        (name, emp) => `🗓️ ${name}，${store} ${label} 班表已發布\n\n${weekScheduleText(records, emp, nextWeek, so[emp])}\n\n詳情請至 App 查看`,
-        token
-      );
-    }
-  }
-);
+// ✂️ scheduledAutoPublishNotify 已整支移除（2026-09-02 額度預算化）。
+//    它是「店長沒手動發布時，週五 18:00 補推整週班表給全店」＝ onSchedulePublished 的排程版，
+//    兩者一起砍。前端的 isAutoPublishedHome() 仍照舊把週五 18:00 後的下週視為已發布，
+//    所以員工看得到班表這件事不受影響，只是不再用 LINE 通知。
+//    ⚠️ deploy 時 Firebase 會問是否刪除這支雲端函式，答 yes。
 
 // ===== 每月1號：補發「上個月薪資」通知（該月薪資此時起才可查看）=====
 // 例：8/1 通知 7 月薪資（7 月發布但依規則 8 月才可看）。
@@ -1087,6 +1067,8 @@ function resignAccessUntil(retireDate) {
   const lastDay = new Date(y, m, 0).getDate();
   return `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
 }
+const SALARY_ACK_REMIND_DAYS = 7;   // 兩次提醒最短間隔
+const SALARY_ACK_MAX_REMINDS = 3;   // 每個薪資月份最多提醒幾次
 exports.scheduledSalaryAckReminder = onSchedule(
   { schedule: "0 15 * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN] },
   async () => {
@@ -1143,13 +1125,19 @@ exports.scheduledSalaryAckReminder = onSchedule(
         const ackSnap = await db.collection("salaryAck").doc(`${b.uid}_${ym}`).get().catch(() => null);
         const signed = ackSnap && ackSnap.exists && (ackSnap.data().signedPayHash || "") === (rec.payHash || "");
         if (signed) continue;
-        // 3 天節流（留 1h 緩衝避免每日排程邊界誤判）— 2026-08-17 由 2 天放寬，為省 LINE 額度
+        // 7 天節流 + 每個月份最多提醒 3 次（留 1h 緩衝避免每日排程邊界誤判）
+        // 2026-08-17 由 2 天放寬成 3 天；2026-09-02 額度預算化再放寬成 7 天並加總次數上限——
+        // 沒上限的話，一個從不簽收的人會無限期每 3 天吃掉一則。3 次還不簽就不是通知的問題了，
+        // 交給店長（scheduledManagerDigest 會列未簽收名單）當面處理。
         const remRef = db.collection("salaryAckReminder").doc(`${b.uid}_${ym}`);
         const remSnap = await remRef.get().catch(() => null);
-        const lastAt = (remSnap && remSnap.exists) ? (remSnap.data().lastAt || 0) : 0;
-        if (NOW - lastAt < 3 * 86400000 - 3600000) continue;
-        await linePush(b.lineUserId, `💰 ${disp}，你的 ${ym} 薪資已發布但尚未「簽收」。\n請開啟 App →「查看薪水」完成簽名簽收（每 3 天提醒，簽收後即停止）。`, token);
-        await remRef.set({ uid: b.uid, ym, empName: b.empName, lastAt: NOW }, { merge: true });
+        const rem = (remSnap && remSnap.exists) ? remSnap.data() : {};
+        const lastAt = rem.lastAt || 0;
+        const times = rem.times || 0;
+        if (times >= SALARY_ACK_MAX_REMINDS) continue;
+        if (NOW - lastAt < SALARY_ACK_REMIND_DAYS * 86400000 - 3600000) continue;
+        await linePush(b.lineUserId, `💰 ${disp}，你的 ${ym} 薪資已發布但尚未「簽收」。\n請開啟 App →「查看薪水」完成簽名簽收。\n（第 ${times + 1}/${SALARY_ACK_MAX_REMINDS} 次提醒，簽收後即停止）`, token);
+        await remRef.set({ uid: b.uid, ym, empName: b.empName, lastAt: NOW, times: times + 1 }, { merge: true });
       }
     }
 
@@ -1194,7 +1182,10 @@ exports.scheduledScheduleNotifyFlush = onSchedule(
       const q = d.data();
       const last = q.lastChangeAt && q.lastChangeAt.toMillis ? q.lastChangeAt.toMillis() : 0;
       if (now - last < QUIET_MS) continue; // 尚未靜置滿 10 分鐘 → 等下輪
-      await flushScheduleQueueEntry(db, q.store, q.weekStr, JSON.parse(q.baseRecs || "[]"), token).catch(() => {});
+      const r = await flushScheduleQueueEntry(db, q.store, q.weekStr, JSON.parse(q.baseRecs || "[]"), token).catch(() => null);
+      // 撞到每日上限 → 佇列**不刪**，baseRecs 原封不動留著，隔天第一輪再把「累積的淨變動」一起發。
+      // 若這裡照刪，今天被擋下的異動就永遠不會有人被通知（隔天的基準會變成已改後的班表）。
+      if (r && r.skipped === "daily-cap") continue;
       await d.ref.delete().catch(() => {});
     }
   }
@@ -1218,7 +1209,8 @@ exports.flushScheduleNotify = onCall(
     const qs = await qref.get().catch(() => null);
     if (qs && qs.exists) {
       // 有待發異動 → 依 baseRecs 淨變動只通知有異動者
-      const res = await flushScheduleQueueEntry(db, store, weekStr, JSON.parse(qs.data().baseRecs || "[]"), token);
+      // force=true：店長明示要發，不受「每店每天一輪」上限限制
+      const res = await flushScheduleQueueEntry(db, store, weekStr, JSON.parse(qs.data().baseRecs || "[]"), token, true);
       await qref.delete().catch(() => {});
       return { ok: true, sent: res.sent || 0 };
     }
@@ -1252,21 +1244,10 @@ async function notifyManagersAndAbove(db, text, token) {
 }
 
 // ===== 月底提醒（每月最後一天 09:00）：LINE 通知店長以上「結帳/匯款時間、週轉金上限」=====
-exports.scheduledMonthEndReminder = onSchedule(
-  { schedule: "0 9 * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN] },
-  async () => {
-    const now = new Date(Date.now() + 8 * 3600000); // 台北時間
-    const y = now.getUTCFullYear(), m = now.getUTCMonth();
-    const lastDay = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
-    if (now.getUTCDate() !== lastDay) return; // 僅每月最後一天
-    const db = admin.firestore();
-    await notifyManagersAndAbove(
-      db,
-      "🧾 今天是月底，結帳時間 17:00；匯款時間 17:59 前。\n（週轉金請勿超過留存上限）",
-      LINE_TOKEN.value()
-    );
-  }
-);
+// ✂️ scheduledMonthEndReminder 已整支移除（2026-09-02 額度預算化）。
+//    月底結帳是每月同一天的固定常規、不是例外事件，不值得單獨占一則；
+//    已改成 scheduledManagerDigest 在該月最後一天的其中一個區塊。
+//    ⚠️ deploy 時 Firebase 會問是否刪除這支雲端函式，答 yes。
 
 // ===== 經營績效專區：完成即通知全體 + 每日提醒未輸入者 =====
 function pnlMoney(n){ return Math.round(n || 0).toLocaleString("en-US"); }
@@ -1310,16 +1291,7 @@ function buildPnlText(store, month, cur, prev){
   L.push(`經營報酬 ${pnlMoney(cur.operatingReward)}元`, upDown(cur.operatingReward, prev && prev.operatingReward, "元", true, pnlMoney));
   return L.join("\n");
 }
-// 通知某店「店長/加盟主/admin」(依 users.store 比對，單一 where 免複合索引)
-async function notifyStoreScopedManagers(db, store, text, token){
-  const us = await db.collection("users").where("store", "==", store).get().catch(() => null);
-  if(!us) return;
-  for(const d of us.docs){
-    if(!["manager", "owner", "admin"].includes(d.data().permission)) continue;
-    const b = await db.collection("lineBindings").doc(d.id).get().catch(() => null);
-    if(b && b.exists && b.data().lineUserId) await linePush(b.data().lineUserId, text, token);
-  }
-}
+// ✂️ notifyStoreScopedManagers 已移除：唯一的呼叫者 scheduledPnlReminder 已併入每日摘要。
 
 // 店長輸入/更新某月損益 → 與去年同期比較 → LINE 給全體店長+加盟主
 exports.onPnlSubmitted = onDocumentWritten(
@@ -1354,27 +1326,12 @@ async function pnlSendDay(db, year, month) {
   }
   return 4;
 }
-exports.scheduledPnlReminder = onSchedule(
-  { schedule: "0 9 * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN] },
-  async () => {
-    const now = new Date(Date.now() + 8 * 3600000); // 台北
-    const db = admin.firestore();
-    const provideDay = await pnlSendDay(db, now.getUTCFullYear(), now.getUTCMonth() + 1); // 公司提供報表日
-    if(now.getUTCDate() < provideDay + 1) return; // 收到報表「隔天」09:00 才開始要求輸入
-    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)); d.setUTCMonth(d.getUTCMonth() - 1);
-    const dueMonth = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`; // 上個月
-    if(dueMonth < "2025-07") return;
-    const token = LINE_TOKEN.value();
-    const stores = await getAllStores(db);
-    for(const store of stores){
-      const snap = await db.collection("stores").doc(store).collection("pnl").doc(dueMonth).get().catch(() => null);
-      if(snap && snap.exists) continue; // 已完成 → 不提醒
-      await notifyStoreScopedManagers(db, store,
-        `📊 提醒：${store} 尚未輸入 ${parseInt(dueMonth.split("-")[1])}月 經營績效（損益表）。\n請於 10 號前至 App →「更多管理 → 經營績效專區」完成輸入。`,
-        token);
-    }
-  }
-);
+// ✂️ scheduledPnlReminder 已整支移除（2026-09-02 額度預算化）。
+//    它「沒填就每天念到填為止」而且沒有次數上限——錦花從 2025-08 起就沒輸入過，
+//    等於每月固定燒掉約 25 則在同一件事上。已改成 scheduledManagerDigest 裡的一個區塊
+//    （一樣每天提醒，但跟其他待辦共用同一則，不再額外占額度）。
+//    pnlSendDay() 保留，摘要要用它推算「公司提供報表日」。
+//    ⚠️ deploy 時 Firebase 會問是否刪除這支雲端函式，答 yes。
 
 // ===== 系統維護結束（enabled true→false）→ LINE 通知所有登記「完成後通知我」的使用者，並清除登記 =====
 exports.onMaintenanceEnded = onDocumentWritten(
@@ -1560,39 +1517,23 @@ async function notifyAdmins(db, text, token) {
   return sent;
 }
 
+// 回傳 true=推播成功、false=沒綁定或 LINE 拒收（呼叫端可據此決定要不要留痕/重試）
 async function notifyOneEmp(db, empName, store, text, token) {
-  if (!empName) return;
+  if (!empName) return false;
   const snap = await db.collection("lineBindings").where("empName", "==", empName).get().catch(() => null);
-  if (!snap || snap.empty) return;
+  if (!snap || snap.empty) return false;
   const arr = []; snap.forEach((d) => arr.push(d.data()));
   const b = arr.find((x) => x.store === store) || arr[0];
-  if (b && b.lineUserId) await linePush(b.lineUserId, text, token);
+  if (!b || !b.lineUserId) return false;
+  return await linePush(b.lineUserId, text, token);
 }
 
 // A. 打卡事件 → 成功回執給員工；異常(遲到/早退)加通知店長(接收店+原店)
-exports.onClockPunch = onDocumentWritten(
-  { document: "stores/{store}/attendance/{id}", region: "asia-east1", secrets: [LINE_TOKEN] },
-  async (event) => {
-    if (event.data.before.exists || !event.data.after.exists) return; // 只在新建
-    const r = event.data.after.data();
-    if (!r || !r.empName || !r.type) return;
-    if (r.source && r.source !== "app") return; // 系統缺卡/管理者補登另有通知
-    // ✂️ 打卡成功回執已全面取消（2026-08-17）：員工按下去當場就看到結果，這則 LINE 純屬重複，
-    //    卻是額度第二大宗（8/1–8/17 就 95 則）。LINE 免費方案 200 則/月，留給真正需要行動的通知。
-    // ✂️ 出勤異常（遲到/早退）不再即時通知店長，改由 scheduledWeeklyDigest 每週一彙整。
-    // 剩下的只有「加班申請待審」＝核決流程，不能延後也不受打卡通知開關影響。
-    // 先擋掉非申請案，一般打卡就不必再讀 maintenance/globalConfig（每次打卡省 2 次讀取）。
-    if (r.otIntent !== "apply") return;
-    const db = admin.firestore();
-    if (await maintenanceOn(db)) return;
-    const token = LINE_TOKEN.value();
-    const atStore = r.atStore || fixStoreName(event.params.store);
-    const homeStore = r.homeStore || atStore;
-    const hm = tpHM(r.deviceTs, r.ts);
-    const dn = r.displayName || r.empName;
-    await notifyStoreManagers(db, atStore, `📝 加班申請待審核\n${dn}（${homeStore}）${r.type} ${hm} @${atStore}\n事由：${r.otContent || "—"}\n請至「出勤管理」審核，同意後記得調整排班表。`, token);
-  }
-);
+// ✂️ onClockPunch 已整支移除（2026-09-02）。它最後只剩「加班申請待審→店長」一種推播，
+//    而那已改由 scheduledManagerDigest 每天撈 otStatus==pending 一起催（躺著沒審會被持續提醒，
+//    比「當下一則、之後石沉大海」更不容易漏）。留著等於每筆打卡都白觸發一次函式。
+//    更早之前砍掉的：打卡成功回執（2026-08-17，8/1–8/17 就吃掉 95 則）、遲到/早退即時通知店長。
+//    ⚠️ deploy 時 Firebase 會問是否刪除這支雲端函式，答 yes。
 
 // A-2. 打卡／補登成立 → 自動註銷對應的缺卡標記（2026-08-28）
 // 為什麼需要：缺卡標記是排程在「班別結束後 2 小時」寫下的，但之後不論員工自己補打（下班配對
@@ -1667,7 +1608,12 @@ exports.onPunchResolveMissFlag = onDocumentWritten(
 );
 
 
-// B. 補登/修改申請 → 送出通知店長；核准/駁回通知員工
+// B. 補登/修改申請 → 只有「駁回」才發 LINE。
+// ✂️ 2026-09-02 額度預算化（免費方案 200 則/月）：
+//   ・送出→店長：8 月 170 則，是額度第一大宗。審核本來就是批次工作，改由 scheduledManagerDigest
+//     每天 17:00 一則摘要帶「補登待審 N 筆」，170 → 併入每日一則。
+//   ・核准→員工：8 月 170 筆審核裡**駁回 0 筆**，核准是預期結果、App 內也看得到，這 124 則等於
+//     花額度講一件對方早就知道的事。只有「駁回」才需要員工回頭處理，才值得推播。
 exports.onAttendanceRequest = onDocumentWritten(
   { document: "stores/{store}/attendanceRequests/{id}", region: "asia-east1", secrets: [LINE_TOKEN] },
   async (event) => {
@@ -1675,25 +1621,18 @@ exports.onAttendanceRequest = onDocumentWritten(
     const before = event.data.before.exists ? event.data.before.data() : null;
     const after = event.data.after.exists ? event.data.after.data() : null;
     if (!after) return;
+    if (!(before && before.status === "pending" && after.status === "rejected")) return;
     const token = LINE_TOKEN.value();
     const store = after.atStore || fixStoreName(event.params.store);
-    const dn = after.displayName || after.empName;
     const when = `${after.targetDate || ""} ${after.punchType || ""} ${after.requestedTime || ""}`.trim();
-    if (!before && after.status === "pending") {
-      await notifyStoreManagers(db, store,
-        `📝 出勤${after.type || "補登"}申請\n${dn} 申請：${when}\n原因：${after.reason || "—"}\n請至「出勤管理」審核。`, token);
-      return;
-    }
-    if (before && before.status === "pending" && after.status && after.status !== "pending") {
-      const res = after.status === "approved" ? "✅ 已核准" : "❌ 已駁回";
-      await notifyOneEmp(db, after.empName, after.homeStore || store, `${res}　出勤${after.type || "補登"}申請\n${when}${after.reviewNote ? `\n備註：${after.reviewNote}` : ""}`, token);
-    }
+    await notifyOneEmp(db, after.empName, after.homeStore || store,
+      `❌ 已駁回　出勤${after.type || "補登"}申請\n${when}${after.reviewNote ? `\n備註：${after.reviewNote}` : ""}\n\n👉 重新申請：https://glade9001.github.io/store-schedule/my-attendance.html`, token);
   }
 );
 
 // C. 缺卡排程：每小時，班別結束後 2 小時仍無打卡 → 標記+通知(去重)
 exports.scheduledMissingClock = onSchedule(
-  { schedule: "5 * * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN] },
+  { schedule: "5 * * * *", timeZone: "Asia/Taipei", region: "asia-east1" },
   async () => {
     const db = admin.firestore();
     if (await maintenanceOn(db)) return;
@@ -1702,7 +1641,7 @@ exports.scheduledMissingClock = onSchedule(
     const stage = conf.clockIn && conf.clockIn.stage;
     if (!stage || stage === "off") return; // 關閉不判；其餘依個別員工「開放層級」判定(見下 canClockPerm)
     const stores = (conf.stores || []).filter((s) => s !== "人力支援");
-    const token = LINE_TOKEN.value();
+    // 這支只負責「標記」缺卡，不再推播（推播交給 scheduledMissClockReminder）。
     const nowTp = new Date(Date.now() + 8 * 3600000);
     const ds = nowTp.toISOString().slice(0, 10);
     const nowMin = nowTp.getUTCHours() * 60 + nowTp.getUTCMinutes();
@@ -1782,8 +1721,10 @@ exports.scheduledMissingClock = onSchedule(
           // 缺卡＝沒有打卡時間：不寫 deviceTs/tsMs(否則出勤表會顯示成像有打卡的掃描時間)；等手動補卡才有真時間
           ts: admin.firestore.FieldValue.serverTimestamp(), deviceTs: null, tsMs: null,
         });
-        await notifyOneEmp(db, emp, homeStore, `🔴 缺卡提醒\n你 ${ds} 在 ${store} 的班別 ${sh.shift} ${missWhat}，如有出勤請盡快申請補登。\n\n👉 立即補登：https://glade9001.github.io/store-schedule/my-attendance.html`, token);
-        // ✂️ 店長端即時通知已取消 → 改由 scheduledWeeklyDigest 每週一彙整上週一~日（2026-08-17）
+        // ✂️ 員工端即時通知已取消（2026-09-02）→ 改由 scheduledMissClockReminder 每人每 7 天
+        //    一則「未補清單」。逐張發在 8 月是 164 則，而缺卡幾乎都是一人一天一張，
+        //    改「每天彙整」只能省 1 則（實測），唯一有效的省法是拉長節流間隔。
+        // ✂️ 店長端即時通知已取消 → 改由 scheduledManagerDigest 彙整（2026-08-17）
       }
 
       // 昨日「跨日班(夜班)」的下班卡落在今天：到「下班+2h」才統一判上/下班缺卡，不拆成兩天
@@ -1828,21 +1769,77 @@ exports.scheduledMissingClock = onSchedule(
             // 缺卡＝沒有打卡時間：不寫 deviceTs/tsMs；等手動補卡才有真時間
             ts: admin.firestore.FieldValue.serverTimestamp(), deviceTs: null, tsMs: null,
           });
-          await notifyOneEmp(db, emp, homeStore, `🔴 缺卡提醒\n你 ${dsY} 在 ${store} 的跨日班別 ${sh.shift} ${missWhat}，如有出勤請盡快申請補登。\n\n👉 立即補登：https://glade9001.github.io/store-schedule/my-attendance.html`, token);
-          // ✂️ 店長端即時通知已取消 → 改由 scheduledWeeklyDigest 每週一彙整（2026-08-17）
+          // ✂️ 同上：員工端改由 scheduledMissClockReminder 節流彙整、店長端由 scheduledManagerDigest 催。
         }
       }
     }
   }
 );
 
-// ===== 每週一 09:00：上週(一~日)出勤彙整 → 店長一則 =====
-// 取代原本「每筆缺卡即時通知店長」＋「每次遲到/早退即時通知店長」兩條即時通知。
-// 那兩條在 8/1–8/17 就產生約 100 則，而店長要做的事（提醒員工補登、核對紀錄）本來就是批次處理，
-// 不需要即時。改成一週一則後，店長端從約 200 則/月降到約 13 則/月。
-// 員工端的缺卡提醒維持即時（補登有時效、影響薪資），不動。
-exports.scheduledWeeklyDigest = onSchedule(
-  { schedule: "0 9 * * 1", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN] },
+// ===== 缺卡提醒（員工）：每日 20:00 掃未補清單，每人最多 7 天一則 =====
+// 為什麼是節流而不是「每天彙整一則」：缺卡幾乎都是「一個人一天一張」，8 月實測 164 張缺卡
+// 對應 163 個「人×日」，改成每日彙整只省得到 1 則。唯一有效的省法是拉長間隔——
+// 每 7 天一則 → 52 則/月（省 112）。訊息一次列出「目前所有未補的班」，所以不會漏，只是最晚
+// 7 天才知道；月結前的把關交給店長（scheduledManagerDigest 每天都會列未補清單）。
+const MISS_REMIND_DAYS = 7;
+exports.scheduledMissClockReminder = onSchedule(
+  { schedule: "0 20 * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN] },
+  async () => {
+    const db = admin.firestore();
+    if (await maintenanceOn(db)) return;
+    const cfg = await db.collection("settings").doc("globalConfig").get().catch(() => null);
+    const conf = cfg && cfg.exists ? cfg.data() : {};
+    const stage = conf.clockIn && conf.clockIn.stage;
+    if (!stage || stage === "off") return;
+    const stores = (conf.stores || []).filter((s) => s && s !== "人力支援");
+    const attnSince = (conf.clockIn && conf.clockIn.attnSince) || "";
+    const token = LINE_TOKEN.value();
+    const md = (d) => `${+d.slice(5, 7)}/${+d.slice(8, 10)}`;
+    // empName -> { homeStore, items:[{date, text}] }
+    const pending = {};
+    for (const store of stores) {
+      const snap = await db.collection("stores").doc(store).collection("attendance")
+        .where("type", "==", "缺卡").get().catch(() => null);
+      if (!snap) continue;
+      snap.forEach((d) => {
+        const r = d.data() || {};
+        if (r.voided) return;                              // 已補登/已註銷
+        const ds = r.date || "";
+        if (!ds || (attnSince && ds < attnSince)) return;   // 提醒起始日之前的不再催
+        const emp = r.empName;
+        if (!emp) return;
+        const p = pending[emp] || (pending[emp] = { homeStore: r.homeStore || store, items: [] });
+        p.items.push({ date: ds, text: `${md(ds)} ${store} ${r.shift || ""} ${r.note || "缺卡"}`.replace(/\s+/g, " ").trim() });
+      });
+    }
+    const NOW = Date.now();
+    for (const [emp, p] of Object.entries(pending)) {
+      if (!p.items.length) continue;
+      const ref = db.collection("missClockRemind").doc(emp);
+      const snap = await ref.get().catch(() => null);
+      const lastAt = (snap && snap.exists) ? (snap.data().lastAt || 0) : 0;
+      // 留 1h 緩衝，避免每日排程的邊界誤差讓第 7 天被跳掉
+      if (NOW - lastAt < MISS_REMIND_DAYS * 86400000 - 3600000) continue;
+      p.items.sort((a, b) => a.date.localeCompare(b.date));
+      const list = p.items.slice(0, 20).map((x) => "・" + x.text).join("\n")
+        + (p.items.length > 20 ? `\n…等共 ${p.items.length} 筆` : "");
+      const ok = await notifyOneEmp(db, emp, p.homeStore,
+        `🔴 你有 ${p.items.length} 筆缺卡尚未補登\n${list}\n\n如有出勤請盡快申請補登，未補登會影響工時與薪資計算。\n（每 ${MISS_REMIND_DAYS} 天提醒一次，補完即停）\n\n👉 立即補登：https://glade9001.github.io/store-schedule/my-attendance.html`,
+        token);
+      // 沒綁定 LINE 的人也要記時間，否則每天都會重掃重試一次
+      await ref.set({ empName: emp, lastAt: NOW, count: p.items.length, sent: !!ok }, { merge: true }).catch(() => {});
+    }
+  }
+);
+
+// ===== 店長每日待辦摘要：每天 17:00 一則，沒事就不發 =====
+// 2026-09-02 額度預算化。取代原本六條各自為政的店長端通知（8 月合計約 236 則）：
+//   補登申請待審 170、pnl 未輸入 ~25、上週出勤彙整 13、加班申請待審 9、月底結帳 4、跨店支援另計。
+// 店長要做的事（審補登、催缺卡、輸損益、月底結帳）本來就是批次工作，沒有一件需要三分鐘內反應，
+// 合併後降到「3 店長 × 有事的日子」約 60 則/月。
+// 保留一條例外：跨店支援請求仍即時發（onSupportRequest）——那是要別店的人明天到班，等不到 17:00。
+exports.scheduledManagerDigest = onSchedule(
+  { schedule: "0 17 * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN] },
   async () => {
     const db = admin.firestore();
     if (await maintenanceOn(db)) return;
@@ -1850,58 +1847,145 @@ exports.scheduledWeeklyDigest = onSchedule(
     const cfg = await db.collection("settings").doc("globalConfig").get().catch(() => null);
     const conf = cfg && cfg.exists ? cfg.data() : {};
     const stores = (conf.stores || []).filter((s) => s && s !== "人力支援");
-    // 上週一 ~ 上週日（今天是週一，往前推 7 天即上週一）
-    const nowTp = new Date(Date.now() + 8 * 3600000);
-    const monTp = new Date(nowTp.getTime() - 7 * 86400000);
-    let mon = monTp.toISOString().slice(0, 10);
-    const sun = new Date(monTp.getTime() + 6 * 86400000).toISOString().slice(0, 10);
-    // 提醒起始日：這天以前的缺卡／異常不再提醒（紀錄仍完整保留）。與 home.html 讀同一個設定值。
     const attnSince = (conf.clockIn && conf.clockIn.attnSince) || "";
-    if (attnSince && attnSince > mon) mon = attnSince;
-    if (mon > sun) return; // 整個上週都在起始日之前 → 這週不用發
-    const md = (d) => `${+d.slice(5, 7)}/${+d.slice(8, 10)}`; // 2026-08-10 → 8/10
-    const MAX_LINES = 40; // LINE 單則上限 5000 字；40 行約 1200 字，超過就只列前 N 筆並附總數
-    const listOf = (arr) => arr.sort((a, b) => a.d.localeCompare(b.d) || a.t.localeCompare(b.t))
+    const nowTp = new Date(Date.now() + 8 * 3600000);
+    const today = nowTp.toISOString().slice(0, 10);
+    const isMonday = nowTp.getUTCDay() === 1;
+    const lastDay = new Date(Date.UTC(nowTp.getUTCFullYear(), nowTp.getUTCMonth() + 1, 0)).getUTCDate();
+    const isMonthEnd = nowTp.getUTCDate() === lastDay;
+    const md = (d) => `${+d.slice(5, 7)}/${+d.slice(8, 10)}`;
+    const MAX_LINES = 15; // 一則裡每個區塊最多列 15 行，其餘只給總數（LINE 單則上限 5000 字）
+    const listOf = (arr) => arr.sort((a, b) => (a.d || "").localeCompare(b.d || ""))
       .slice(0, MAX_LINES).map((x) => "・" + x.t).join("\n")
       + (arr.length > MAX_LINES ? `\n…等共 ${arr.length} 筆` : "");
+
+    // 經營績效：到期月份與「開始要求輸入」的日子（沿用原 scheduledPnlReminder 的推算）
+    const provideDay = await pnlSendDay(db, nowTp.getUTCFullYear(), nowTp.getUTCMonth() + 1);
+    const pd = new Date(Date.UTC(nowTp.getUTCFullYear(), nowTp.getUTCMonth(), 1)); pd.setUTCMonth(pd.getUTCMonth() - 1);
+    const pnlDueMonth = `${pd.getUTCFullYear()}-${String(pd.getUTCMonth() + 1).padStart(2, "0")}`;
+    const pnlDue = nowTp.getUTCDate() >= provideDay + 1 && pnlDueMonth >= "2025-07";
+    // 薪資未簽收：只看「最近一個已可查看的月份」，更早的交給店長自己在薪資頁看
+    const ackYM = (() => {
+      const d = new Date(Date.UTC(nowTp.getUTCFullYear(), nowTp.getUTCMonth(), 1)); d.setUTCMonth(d.getUTCMonth() - 1);
+      return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+    })();
+    // empName -> [uid]，一次讀完全部，別在門市迴圈裡對每個人各查一次。
+    // ⚠️ 存成陣列而不是單一 uid：users 實際上有同名重複帳號（2026-09-02 盤點發現渲昊有兩份，
+    //    同店同工號），只取第一個有可能取到那個沒人在用的孤兒 uid → 明明簽收了卻被列成未簽收。
+    const uidsByName = {};
+    const allUsers = await db.collection("users").get().catch(() => null);
+    if (allUsers) allUsers.forEach((d) => {
+      const u = d.data() || {};
+      if (u.empName) (uidsByName[u.empName] = uidsByName[u.empName] || []).push(d.id);
+    });
+
     for (const store of stores) {
-      const snap = await db.collection("stores").doc(store).collection("attendance")
-        .where("date", ">=", mon).where("date", "<=", sun).get().catch(() => null);
-      if (!snap) continue;
-      const miss = [], anom = [];
-      snap.forEach((d) => {
+      const blocks = [];
+
+      // 1. 補登/修改申請待審（不限日期：躺著沒審對員工最不利）
+      const reqSnap = await db.collection("stores").doc(store).collection("attendanceRequests")
+        .where("status", "==", "pending").get().catch(() => null);
+      const reqs = [];
+      if (reqSnap) reqSnap.forEach((d) => {
         const r = d.data() || {};
-        if (r.voided) return; // 店長已註銷（多半是已補登處理掉）→ 不再催
         const dn = r.displayName || r.empName || "";
-        if (r.status === "缺卡" || r.type === "缺卡") {
-          miss.push({ d: r.date, t: `${dn} ${md(r.date)} ${r.shift || ""} ${r.note || "缺卡"}`.replace(/\s+/g, " ").trim() });
-        } else if (r.status === "遲到" || r.status === "早退") {
-          const hm = tpHM(r.deviceTs, r.ts);
-          const tail = r.status === "遲到" ? `遲到 ${r.lateMin || ""} 分` : "早退";
-          anom.push({ d: r.date, t: `${dn} ${md(r.date)} ${r.type} ${hm}（${tail}）` });
-        }
+        reqs.push({ d: r.targetDate || "", t: `${dn} ${r.targetDate || ""} ${r.punchType || ""} ${r.requestedTime || ""}｜${r.reason || "—"}`.replace(/\s+/g, " ").trim() });
       });
-      // 待審加班：刻意不限「上週」。加班申請的 LINE 只在員工打卡當下發一則，之後沒有任何催辦，
-      // 店長若漏看就會無限期躺著；而未審核＝超時不計工時，躺越久對員工越不利。
-      // 所以這裡把「全部尚未審核的」都撈出來催，不受上週區間與 attnSince 影響。（2026-08-28）
+      if (reqs.length) blocks.push(`📝 補登待審 ${reqs.length} 筆\n${listOf(reqs)}`);
+
+      // 2. 加班申請待審（同樣不限日期：未審核＝超時不計工時，躺越久對員工越不利）
       const otSnap = await db.collection("stores").doc(store).collection("attendance")
         .where("otStatus", "==", "pending").get().catch(() => null);
       const ot = [];
-      if (otSnap) {
-        otSnap.forEach((d) => {
-          const r = d.data() || {};
-          if (r.voided) return;
-          const dn = r.displayName || r.empName || "";
-          const ds = r.date || "";
-          ot.push({ d: ds, t: `${dn} ${ds ? md(ds) : ""} ${r.type || ""} ${tpHM(r.deviceTs, r.ts)}｜${r.otContent || "—"}`.replace(/\s+/g, " ").trim() });
-        });
+      if (otSnap) otSnap.forEach((d) => {
+        const r = d.data() || {};
+        if (r.voided) return;
+        const dn = r.displayName || r.empName || "";
+        const ds = r.date || "";
+        ot.push({ d: ds, t: `${dn} ${ds ? md(ds) : ""} ${r.type || ""} ${tpHM(r.deviceTs, r.ts)}｜${r.otContent || "—"}`.replace(/\s+/g, " ").trim() });
+      });
+      if (ot.length) blocks.push(`📝 加班待審 ${ot.length} 筆　未審核＝超時不計工時\n${listOf(ot)}`);
+
+      // 3. 缺卡未補（員工端只有每 7 天一則，店長這裡是月結前的最後把關）
+      // ⚠️ 明細只列近 14 天。實測 2026-09-02 三店累積 54/44/31 筆未補，全列出來每天都是同一批舊資料，
+      //    摘要會直接變成沒人看的雜訊（README 已記過這個教訓：清單一有雜訊，真正該補的也會被忽略）。
+      //    更舊的只用一行講總數，要處理就到出勤管理頁。
+      const MISS_DETAIL_DAYS = 14;
+      const cutoff = new Date(nowTp.getTime() - MISS_DETAIL_DAYS * 86400000).toISOString().slice(0, 10);
+      const missSnap = await db.collection("stores").doc(store).collection("attendance")
+        .where("type", "==", "缺卡").get().catch(() => null);
+      const miss = []; let missOld = 0;
+      if (missSnap) missSnap.forEach((d) => {
+        const r = d.data() || {};
+        if (r.voided) return;
+        const ds = r.date || "";
+        if (!ds || (attnSince && ds < attnSince)) return;
+        if (ds < cutoff) { missOld++; return; }
+        const dn = r.displayName || r.empName || "";
+        miss.push({ d: ds, t: `${dn} ${md(ds)} ${r.shift || ""} ${r.note || "缺卡"}`.replace(/\s+/g, " ").trim() });
+      });
+      if (miss.length || missOld) {
+        let b = miss.length
+          ? `🔴 缺卡未補 ${miss.length} 筆（近 ${MISS_DETAIL_DAYS} 天）　請提醒員工補登\n${listOf(miss)}`
+          : `🔴 缺卡未補（近 ${MISS_DETAIL_DAYS} 天無新增）`;
+        if (missOld) b += `\n・另有 ${missOld} 筆超過 ${MISS_DETAIL_DAYS} 天仍未補，請至出勤管理清理`;
+        blocks.push(b);
       }
-      if (!miss.length && !anom.length && !ot.length) continue; // 沒事就不發，別浪費額度
-      let msg = `📋 ${store} 上週出勤彙整（${md(mon)}–${md(sun)}）\n`;
-      if (miss.length) msg += `\n🔴 缺卡 ${miss.length} 筆　請提醒員工補打卡\n${listOf(miss)}\n`;
-      if (anom.length) msg += `\n⚠️ 出勤異常 ${anom.length} 筆　請提醒員工補紀錄\n${listOf(anom)}\n`;
-      if (ot.length) msg += `\n📝 加班待審 ${ot.length} 筆　未審核＝超時不計工時，請盡快處理\n${listOf(ot)}\n`;
-      msg += `\n👉 出勤管理：https://glade9001.github.io/store-schedule/attendance.html`;
+
+      // 4. 上週出勤異常（遲到/早退）：維持每週一彙整，不必天天重複同一批
+      if (isMonday) {
+        const monTp = new Date(nowTp.getTime() - 7 * 86400000);
+        let mon = monTp.toISOString().slice(0, 10);
+        const sun = new Date(monTp.getTime() + 6 * 86400000).toISOString().slice(0, 10);
+        if (attnSince && attnSince > mon) mon = attnSince;
+        if (mon <= sun) {
+          const aSnap = await db.collection("stores").doc(store).collection("attendance")
+            .where("date", ">=", mon).where("date", "<=", sun).get().catch(() => null);
+          const anom = [];
+          if (aSnap) aSnap.forEach((d) => {
+            const r = d.data() || {};
+            if (r.voided) return;
+            if (r.status !== "遲到" && r.status !== "早退") return;
+            const dn = r.displayName || r.empName || "";
+            const tail = r.status === "遲到" ? `遲到 ${r.lateMin || ""} 分` : "早退";
+            anom.push({ d: r.date, t: `${dn} ${md(r.date)} ${r.type} ${tpHM(r.deviceTs, r.ts)}（${tail}）` });
+          });
+          if (anom.length) blocks.push(`⚠️ 上週出勤異常 ${anom.length} 筆（${md(mon)}–${md(sun)}）\n${listOf(anom)}`);
+        }
+      }
+
+      // 5. 薪資未簽收（員工端提醒有 3 次上限，之後就靠店長當面處理）
+      const salSnap = await db.collection("stores").doc(store).collection("salary").doc(ackYM).get().catch(() => null);
+      if (salSnap && salSnap.exists && (salSnap.data().status || "draft") === "published") {
+        const recs = salSnap.data().records || [];
+        const unsigned = [];
+        for (const r of recs) {
+          if (!r || !r.empName) continue;
+          const uids = uidsByName[r.empName] || [];
+          if (!uids.length) continue;
+          let signed = false;
+          for (const uid of uids) {
+            const ack = await db.collection("salaryAck").doc(`${uid}_${ackYM}`).get().catch(() => null);
+            if (ack && ack.exists && (ack.data().signedPayHash || "") === (r.payHash || "")) { signed = true; break; }
+          }
+          if (!signed) unsigned.push(r.displayName || r.empName);
+        }
+        if (unsigned.length) blocks.push(`💰 ${+ackYM.slice(5)} 月薪資未簽收 ${unsigned.length} 人\n・${unsigned.join("、")}`);
+      }
+
+      // 6. 經營績效未輸入
+      if (pnlDue) {
+        const pSnap = await db.collection("stores").doc(store).collection("pnl").doc(pnlDueMonth).get().catch(() => null);
+        if (!pSnap || !pSnap.exists) {
+          blocks.push(`📊 尚未輸入 ${+pnlDueMonth.slice(5)} 月經營績效（損益表）\n・「更多管理 → 經營績效專區」，請於 10 號前完成`);
+        }
+      }
+
+      // 7. 月底結帳（原 scheduledMonthEndReminder，改成掛在摘要裡）
+      if (isMonthEnd) blocks.push("🧾 今天是月底：結帳 17:00、匯款 17:59 前\n・週轉金請勿超過留存上限");
+
+      if (!blocks.length) continue; // 沒事就不發，別浪費額度
+      const msg = `📋 ${store} 待辦摘要（${md(today)}）\n\n${blocks.join("\n\n")}\n\n👉 出勤管理：https://glade9001.github.io/store-schedule/attendance.html`;
       await notifyStoreManagers(db, store, msg, token);
     }
   }

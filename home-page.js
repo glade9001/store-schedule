@@ -1147,6 +1147,35 @@ let homeCurrentWeek = '';
 let homeCanGoNext = false;
 let homePublishUnsubscribe = null;
 
+// 下週班表已發布的首頁橫幅。
+// 2026-09-02 起「班表已發布」不再發 LINE（免費額度 200 則/月，光這條就吃掉約 77 則，而且它是
+// 每週固定時間的常規、完全可預期）。改由這個橫幅承接——資料本來就已經即時訂閱了，
+// 只是過去沒有主動講出來，員工得自己發現「下週」按鈕變亮。
+// 關掉的狀態記在 localStorage（一人一裝置一週一次），不寫 Firestore：這只是顯示偏好，
+// 沒必要為它增加寫入量，換裝置重看一次也無妨。
+function nextWeekBannerKey(weekStr) {
+  return 'homeNextWeekSeen:' + (currentUser?.empName || '') + ':' + weekStr;
+}
+function dismissNextWeekBanner() {
+  const w = getNextWeekString();
+  try { localStorage.setItem(nextWeekBannerKey(w), '1'); } catch (e) { /* 無痕模式等：關掉就好，不留記錄 */ }
+  const el = document.getElementById('homeNextWeekBanner');
+  if (el) el.style.display = 'none';
+}
+function updateNextWeekBanner(nextWeekStr) {
+  const el = document.getElementById('homeNextWeekBanner');
+  if (!el) return;
+  let seen = false;
+  try { seen = localStorage.getItem(nextWeekBannerKey(nextWeekStr)) === '1'; } catch (e) { /* 讀不到就當沒看過 */ }
+  // 只在「停在本週」時出現：翻到別週還跳「下週已發布」會很錯亂
+  const show = homeCanGoNext && !seen && homeCurrentWeek === getCurrentWeekString();
+  el.style.display = show ? 'flex' : 'none';
+  if (show) {
+    el.onclick = () => { dismissNextWeekBanner(); homeChangeWeek(1); };
+    el.style.cursor = 'pointer';
+  }
+}
+
 function subscribeNextWeekPublish(store, nextWeekStr) {
   if (homePublishUnsubscribe) {
     homePublishUnsubscribe();
@@ -1158,6 +1187,7 @@ function subscribeNextWeekPublish(store, nextWeekStr) {
     if (nextBtn) {
       nextBtn.style.opacity = (homeCanGoNext && homeCurrentWeek === getCurrentWeekString()) ? '1' : '0.3';
     }
+    updateNextWeekBanner(nextWeekStr);
   };
   homePublishUnsubscribe = window.db
     .collection('stores').doc(store)
@@ -1214,6 +1244,7 @@ async function homeChangeWeek(offset) {
   }
 
   homeCurrentWeek = newWeek;
+  updateNextWeekBanner(nextWeek); // 翻到別週就把「下週已發布」橫幅收起來
   await loadMySchedule();
 }
 

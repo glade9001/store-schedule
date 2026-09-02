@@ -755,6 +755,17 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       <!-- 缺卡／出勤異常提醒：近 7 天，資料由 updateHomeAttnAlert() 填入（沒事就整塊隱藏） -->
       <div id="homeAttnAlert" style="display:none; margin-bottom:12px;"></div>
 
+      <!-- 下週班表已發布：取代 2026-09-02 砍掉的「班表已發布」LINE 推播（免費額度 200 則/月不夠用）。
+           由 subscribeNextWeekPublish() 即時開關，關掉後記在 localStorage，同一週不再出現。 -->
+      <div id="homeNextWeekBanner" style="display:none; margin-bottom:12px; background:linear-gradient(135deg,#4285f4,#1a73e8); border-radius:14px; padding:13px 15px; box-shadow:0 3px 12px rgba(66,133,244,.28); align-items:center; gap:12px;">
+        <div style="font-size:26px; line-height:1;">🗓️</div>
+        <div style="flex:1; min-width:0;">
+          <div style="font-size:15px; font-weight:900; color:#fff;">下週班表已發布</div>
+          <div id="homeNextWeekBannerSub" style="font-size:12px; color:rgba(255,255,255,.92); margin-top:2px;">點這裡看你下週的班</div>
+        </div>
+        <button onclick="event.stopPropagation(); dismissNextWeekBanner();" aria-label="關閉" style="background:rgba(255,255,255,.22); border:none; color:#fff; border-radius:8px; width:26px; height:26px; font-size:15px; font-weight:800; cursor:pointer; flex-shrink:0;">×</button>
+      </div>
+
       <div id="announceBannerWrap" style="display:none; margin-bottom:10px;">
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
           <div style="font-size:11px; font-weight:800; color:var(--text-muted); letter-spacing:0.5px;">📢 公告事項</div>
