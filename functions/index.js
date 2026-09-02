@@ -1781,7 +1781,10 @@ exports.scheduledMissingClock = onSchedule(
 // 對應 163 個「人×日」，改成每日彙整只省得到 1 則。唯一有效的省法是拉長間隔——
 // 每 7 天一則 → 52 則/月（省 112）。訊息一次列出「目前所有未補的班」，所以不會漏，只是最晚
 // 7 天才知道；月結前的把關交給店長（scheduledManagerDigest 每天都會列未補清單）。
-const MISS_REMIND_DAYS = 7;
+// 7 天 → 10 天（2026-09-02 收尾）：保留 onPnlSubmitted 的跨店經營績效通知（那是刻意的管理設計，
+// 不是技術冗餘）後預算只剩 1 則餘裕，從這裡騰空間最便宜——店長的每日摘要天天都會列缺卡未補，
+// 員工端這條只是備援，拉長到 10 天不會讓任何一筆缺卡沒人管。
+const MISS_REMIND_DAYS = 10;
 exports.scheduledMissClockReminder = onSchedule(
   { schedule: "0 20 * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN] },
   async () => {
