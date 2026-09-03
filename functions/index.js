@@ -663,20 +663,18 @@ exports.onSupportRequest = onDocumentWritten(
       const emp = e.r.supportEmp.slice(dash + 1);
       const disp = dispMap[emp] || emp;
       const when = `${dateLabel(e.r.day)} ${e.r.shift || ""}`.trim();
+      // ✂️ 2026-09-03：發給「被支援店」（＝外店員工來本店的那一方，requestingStore）的通知全部取消。
+      //    approved／filled 都是**自己發出的請求得到回應**——人是自己要的、缺口是自己開的，
+      //    結果在班表上看得到，屬於「知悉」而非「行動」，不值得占免費額度。
+      //    留下來的兩條都是「對方不知道、不做會出事」：
+      //      request   → 被請求店（借出人的那一方）：不審核，人就不會出現。
+      //      cancelled → 只發被請求店：本來要借出的人被取消了，那邊的班表要收回來。
       if (e.type === "request") {
         await notifyStoreManagers(db, homeStore,
           `🔔 跨店支援請求\n${requestingStore} 需要人力，請求貴店「${disp}」於 ${when} 前往 ${requestingStore} 支援，請至 App 審核。`, token);
-      } else if (e.type === "approved") {
-        await notifyStoreManagers(db, requestingStore,
-          `✅ 跨店支援已核准\n${homeStore} 已核准「${disp}」於 ${when} 到 ${requestingStore} 支援。`, token);
-      } else if (e.type === "filled") {
-        // 別店店長從「跨店支援請求」看板派人支援本店的開放缺口 → 通知缺工店店長
-        await notifyStoreManagers(db, requestingStore,
-          `🤝 待補缺口已有人支援\n${homeStore}「${disp}」將於 ${when} 前往 ${requestingStore} 支援（填補待補缺口）。`, token);
-      } else if (e.type === "cancelled") {
-        const msg = `⚠️ 跨店支援已取消\n「${disp}」（${homeStore}）於 ${when} 支援 ${requestingStore} 的安排已取消／未成立。`;
-        await notifyStoreManagers(db, requestingStore, msg, token);
-        if (homeStore !== requestingStore) await notifyStoreManagers(db, homeStore, msg, token);
+      } else if (e.type === "cancelled" && homeStore !== requestingStore) {
+        await notifyStoreManagers(db, homeStore,
+          `⚠️ 跨店支援已取消\n「${disp}」（${homeStore}）於 ${when} 支援 ${requestingStore} 的安排已取消／未成立。`, token);
       }
     }
   }
@@ -1984,7 +1982,28 @@ exports.scheduledManagerDigest = onSchedule(
         }
       }
 
-      // 7. 月底結帳（原 scheduledMonthEndReminder，改成掛在摘要裡）
+      // 7. 待補缺口（本週＋下週還沒有人認領的 🆘）
+      // 2026-09-03 起「被支援店」不再收到跨店支援的即時通知（approved/filled/cancelled 都砍了），
+      // 所以支援被取消、或開了缺口都沒人認領，那邊會完全無感。這個區塊就是那條路的替代：
+      // 摘要本來就會發，列缺口不多花一則額度，而且比逐事件通知更接近店長真正要看的東西
+      // ——「我現在還缺幾個人」，而不是「剛剛發生了什麼」。
+      const gapWeeks = [weekStrOfTp(nowTp), weekStrOfTp(new Date(nowTp.getTime() + 7 * 86400000))];
+      const gaps = [];
+      for (const wk of gapWeeks) {
+        const wSnap = await db.collection("stores").doc(store).collection("weeks").doc(wk).get().catch(() => null);
+        if (!wSnap || !wSnap.exists) continue;
+        for (const r of (wSnap.data().records || [])) {
+          if (!r || !String(r.name || "").startsWith("🆘")) continue;
+          if (r.supportEmp && r.approvalStatus === "approved") continue; // 已有人認領/核准
+          const di = WEEK_DAYS.indexOf(r.day);
+          let when = r.day || "";
+          if (di >= 0) { const mo = weekMondayDate(wk); const dd = new Date(mo); dd.setDate(mo.getDate() + di); when = `${dd.getMonth() + 1}/${dd.getDate()}（${r.day}）`; }
+          gaps.push({ d: wk + String(di), t: `${when} ${r.shift || ""}${r.approvalStatus === "pending" ? "　審核中" : ""}`.replace(/\s+/g, " ").trim() });
+        }
+      }
+      if (gaps.length) blocks.push(`🆘 待補缺口 ${gaps.length} 格（本週＋下週）　尚無人支援\n${listOf(gaps)}`);
+
+      // 8. 月底結帳（原 scheduledMonthEndReminder，改成掛在摘要裡）
       if (isMonthEnd) blocks.push("🧾 今天是月底：結帳 17:00、匯款 17:59 前\n・週轉金請勿超過留存上限");
 
       if (!blocks.length) continue; // 沒事就不發，別浪費額度
