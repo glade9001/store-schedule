@@ -30,7 +30,16 @@
 - **新增 `tools/externalize-inline-js.js`**：把搬移做成可重複執行的工具，內建四道安全檢查——只動沒有屬性的 `<script>`、`<script src>` 放回原位且**不加 defer/async**（執行順序與時機完全不變）、搬出內容逐位元組回驗、區塊之後不可有依賴它的 HTML。另檢查 `<script`/`</script>` 數量相等，避免字串裡藏 `</script>` 讓切點跑掉。
 - **驗證**：每頁搬完各跑一次 `check-globals`（它會跟著 `src=` 讀外部檔，看到的程式碼與外部化前完全相同）→ 全程 0 可疑；`check-clock-rules` 4237 筆比對相符；上線後逐一 curl 兩個網域，九支新 `.js` 的 shasum 與本機一致。一頁一個 commit，壞了可單獨 revert。
 
-⏳ 還沒做的：**行內 CSS 仍有 118KB**（home 26KB、schedule-V2 16KB…）。要比照處理得先讓 `sw.js` 把 `.css` 也走 network-first——目前 `.css` 會落到最後的 Cache-First 分支，就是「新版 HTML 配舊版樣式」那個踩過的坑。
+#### ⚙️ 載入效能：九頁行內 CSS 也外部化（同日續作）
+
+同樣的道理套用在 CSS：`home` 67→41KB、`schedule-V2` 34→17KB、`leave` 22→9KB、`leave-request` 15→4KB、`todo` 18→7KB、`salary` 28→17KB、`my-salary` 19→8KB、`analytics` 23→13KB、`export` 16→8KB（合計 244→126KB）。5KB 以下的頁面刻意留在行內——省下的位元組不值得多一次往返。
+
+- ⚠️ **先改 `sw.js` 再搬**：`.css` 原本會掉到最後的 Cache-First 分支＝「每次最新 HTML 配鎖在快取裡的舊樣式」，正是 2026-08-17 在 JS 上踩過的同一個坑，而**版面錯亂比 JS 報錯更難聯想到是快取**。現在 `.css` 與 `.js` 共用 network-first 分支。不 bump `CACHE_NAME`：部署空窗期若有舊 SW 用 Cache-First 存過新 `.css`，新 SW 的 network-first 下次載入就會覆寫、會自己痊癒；bump 反而會清掉大家既有的離線快取（含 `clock-page.js`）。
+- **零視覺變化的驗證方式**：每頁把 `<link>` 換回 `<style>`＋CSS 內容後，與改動前**逐位元組相同**（九頁全過）→ 層疊順序與樣式內容完全沒動。`<link>` 都放在原 `<style>` 的位置，各頁只有這一個樣式表。
+- 工具 `tools/externalize-inline-css.js`：拒絕含 `url()`／`@import` 的 CSS（搬出去後相對路徑基準會從 HTML 變成 CSS 檔）。
+- 上線後實際開頁驗證：首頁、代辦事項、班表三頁樣式正常、console 零錯誤。
+
+⏳ 剩餘：小頁面的行內 CSS 約 40KB（clock 3.5KB、attendance 2.7KB…）刻意不動。
 
 
 #### 🐛 跨店支援：支援日在班表上一律顯示成「休」
