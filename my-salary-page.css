@@ -1,0 +1,162 @@
+/* ===== 三欄式滑動版面 ===== */
+.layout-3col-scroll {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  padding-bottom: 10px;
+}
+.layout-3col-scroll .col-card {
+  min-width: 300px;
+  flex: 1;
+  scroll-snap-align: start;
+}
+@media (min-width: 900px) {
+  .layout-3col-scroll {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    overflow-x: visible;
+  }
+}
+.col-card { background: #fff; border: 1.5px solid var(--border); border-radius: 12px; padding: 12px; }
+.col-header { font-size: 14px; font-weight: 900; padding-bottom: 8px; margin-bottom: 12px; border-bottom: 2px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+.col-header.c1 { color: #1e3a8a; border-color: #bfdbfe; background: #eff6ff; padding: 10px; border-radius: 8px; margin: -6px -6px 12px; }
+.col-header.c2 { color: #991b1b; border-color: #fecaca; background: #fef2f2; padding: 10px; border-radius: 8px; margin: -6px -6px 12px; }
+.col-header.c3 { color: #065f46; border-color: #a7f3d0; background: #ecfdf5; padding: 10px; border-radius: 8px; margin: -6px -6px 12px; }
+.salary-input.input-text { width: 100%; text-align: left; font-size: 13px; margin-top: 4px; }
+.btn-sm { background: #e2e8f0; border: none; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 800; cursor: pointer; color: var(--text); }
+.btn-sm.primary { background: #e0e7ff; color: #4f46e5; }
+.btn-sm.danger { background: #fee2e2; color: #dc2626; }
+.btn-sm.accent { background: #dcfce7; color: #16a34a; }
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --primary:#1a73e8;--primary-dark:#1557b0;--accent:#34a853;
+  --danger:#d93025;--warn:#f9ab00;--bg:#f0f4ff;--card:#fff;
+  --text:#1e293b;--text-muted:#64748b;--border:#e2e8f0;
+  --header-h:56px;--radius:14px;
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;color:var(--text);}
+
+/* Loading */
+#loadingOverlay{display:flex;position:fixed;inset:0;background:linear-gradient(135deg,#1a73e8,#0d47a1);z-index:99999;flex-direction:column;justify-content:center;align-items:center;color:white;transition:opacity 0.4s;}
+#loadingOverlay.hidden{opacity:0;pointer-events:none;}
+.spinner{width:40px;height:40px;border:4px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:16px;}
+@keyframes spin{to{transform:rotate(360deg);}}
+#loadingText{font-size:14px;font-weight:600;opacity:0.9;}
+
+/* App Shell */
+#appShell{display:none;flex-direction:column;height:100%;}
+#appShell.active{display:flex;}
+
+/* 二次驗證 overlay */
+#salaryAuthOverlay{display:none;position:fixed;inset:0;background:linear-gradient(160deg,#1a73e8 0%,#0d47a1 40%,#1e293b 100%);z-index:9990;flex-direction:column;justify-content:center;align-items:center;padding:30px;}
+#salaryAuthOverlay.active{display:flex;}
+.salary-auth-card{background:rgba(255,255,255,0.10);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.20);border-radius:24px;padding:32px 28px;width:100%;max-width:380px;text-align:center;}
+.salary-auth-title{color:white;font-size:22px;font-weight:900;margin-bottom:6px;}
+.salary-auth-sub{color:rgba(255,255,255,0.7);font-size:13px;line-height:1.6;margin-bottom:24px;}
+.salary-auth-input{width:100%;padding:14px;border:1.5px solid rgba(255,255,255,0.3);border-radius:12px;background:rgba(255,255,255,0.12);color:white;font-size:15px;outline:none;margin-bottom:8px;box-sizing:border-box;}
+.salary-auth-input::placeholder{color:rgba(255,255,255,0.4);}
+.salary-auth-error{color:#ff6b6b;font-size:13px;min-height:20px;margin-bottom:10px;font-weight:600;}
+.salary-auth-btn{width:100%;padding:14px;border:none;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer;margin-bottom:10px;}
+.salary-auth-btn.primary{background:white;color:#1a73e8;}
+.salary-auth-btn.google{background:rgba(255,255,255,0.15);color:white;border:1.5px solid rgba(255,255,255,0.4);display:flex;align-items:center;justify-content:center;gap:8px;}
+.salary-auth-back{background:none;border:none;color:rgba(255,255,255,0.5);font-size:13px;cursor:pointer;text-decoration:underline;margin-top:4px;}
+
+/* Header */
+.header{background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:white;padding:0 16px;height:var(--header-h);display:flex;align-items:center;gap:10px;flex-shrink:0;box-shadow:0 2px 12px rgba(26,115,232,0.3);}
+.header-back{background:rgba(255,255,255,0.2);border:none;color:white;height:34px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0 12px;gap:4px;}
+.header-title{font-size:17px;font-weight:800;flex:1;}
+.header-badge{background:rgba(255,255,255,0.2);border-radius:8px;padding:4px 10px;font-size:13px;font-weight:700;}
+.status-badge{border-radius:8px;padding:4px 10px;font-size:12px;font-weight:800;}
+.status-draft{background:rgba(255,255,255,0.2);color:white;}
+.status-submitted{background:#fff3e0;color:#e65100;}
+.status-approved{background:#e8f5e9;color:#2e7d32;}
+.status-published{background:#e3f2fd;color:#1565c0;}
+
+/* Month Nav */
+.month-nav{background:white;padding:12px 16px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border);flex-shrink:0;}
+.month-btn{background:#f1f3f4;border:none;border-radius:8px;padding:7px 14px;font-size:14px;font-weight:700;cursor:pointer;color:var(--text);}
+.month-label{flex:1;text-align:center;font-size:16px;font-weight:800;color:var(--primary);}
+.store-select{border:1.5px solid var(--border);border-radius:8px;padding:6px 10px;font-size:13px;background:white;font-weight:600;}
+
+/* Content */
+.content{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:12px 14px calc(env(safe-area-inset-bottom)+20px);}
+
+/* Employee Card */
+.emp-salary-card{background:white;border-radius:var(--radius);margin-bottom:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.06);}
+.emp-salary-header{display:flex;align-items:center;padding:14px 16px;cursor:pointer;gap:10px;}
+.emp-salary-avatar{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,#1a73e8,#0d47a1);color:white;font-size:16px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.emp-salary-info{flex:1;}
+.emp-salary-name{font-size:15px;font-weight:800;}
+.emp-salary-role{font-size:11px;color:var(--text-muted);font-weight:600;}
+.emp-salary-total{font-size:16px;font-weight:900;color:var(--primary);}
+.emp-salary-arrow{font-size:18px;color:var(--text-muted);transition:transform 0.2s;}
+.emp-salary-arrow.open{transform:rotate(90deg);}
+.emp-salary-body{padding:0 16px 16px;border-top:1px solid var(--border);display:none;}
+.emp-salary-body.open{display:block;}
+
+/* Fields */
+.salary-section{margin-top:12px;}
+.salary-section-title{font-size:12px;font-weight:800;color:var(--text-muted);margin-bottom:8px;letter-spacing:0.5px;}
+.salary-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f1f3f4;}
+.salary-row:last-child{border-bottom:none;}
+.salary-row-label{font-size:13px;font-weight:600;color:var(--text);}
+.salary-row-val{font-size:14px;font-weight:800;color:var(--text);}
+.salary-input{width:110px;padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;text-align:right;background:#f8fafc;-moz-appearance:textfield;}
+.salary-input::-webkit-outer-spin-button,.salary-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+.salary-input:focus{outline:none;border-color:var(--primary);}
+.salary-total-row{display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding-top:12px;border-top:2px solid var(--border);}
+.salary-total-label{font-size:14px;font-weight:800;}
+.salary-total-val{font-size:20px;font-weight:900;color:var(--primary);}
+.readonly-tag{font-size:10px;background:#f1f3f4;color:var(--text-muted);padding:2px 6px;border-radius:4px;font-weight:600;}
+
+/* Bottom Action */
+.bottom-action{display:flex;gap:6px;margin-left:4px;}
+.action-btn{padding:8px 14px;border:none;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;flex-shrink:0;}
+.action-btn.primary{background:var(--primary);color:white;}
+.action-btn.accent{background:var(--accent);color:white;}
+.action-btn.warn{background:var(--warn);color:white;}
+.action-btn:disabled{opacity:0.4;cursor:not-allowed;}
+
+/* Toast */
+.toast{position:fixed;bottom:100px;left:50%;transform:translateX(-50%);background:#1e293b;color:white;padding:10px 20px;border-radius:20px;font-size:13px;font-weight:700;z-index:9999;opacity:0;transition:opacity 0.3s;pointer-events:none;white-space:nowrap;}
+.toast.show{opacity:1;}
+
+/* Modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9000;display:flex;align-items:flex-end;justify-content:center;opacity:0;pointer-events:none;transition:opacity 0.3s;}
+.modal-overlay.active{opacity:1;pointer-events:all;}
+.modal-box{background:white;border-radius:22px 22px 0 0;width:100%;max-width:480px;padding:20px 20px 32px;max-height:80vh;overflow-y:auto;}
+.modal-handle{width:36px;height:4px;background:#e2e8f0;border-radius:2px;margin:0 auto 16px;}
+.modal-title{font-size:18px;font-weight:900;margin-bottom:4px;}
+.modal-sub{font-size:13px;color:var(--text-muted);margin-bottom:16px;}
+
+.empty-state{text-align:center;padding:40px 20px;color:var(--text-muted);}
+.empty-icon{font-size:48px;margin-bottom:12px;}
+
+/* 月曆 */
+.cal-wrap{margin-top:12px;border-top:1px solid var(--border);padding-top:12px;}
+.cal-title{font-size:12px;font-weight:800;color:var(--text-muted);margin-bottom:8px;letter-spacing:0.5px;}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;}
+.cal-head{text-align:center;font-size:10px;font-weight:700;color:var(--text-muted);padding:4px 0;}
+.cal-cell{border-radius:6px;padding:4px 2px;text-align:center;min-height:48px;font-size:10px;background:#f8fafc;}
+.cal-cell.work{background:#e8f0fe;}
+.cal-cell.off-day{background:#f1f3f4;}
+.cal-cell.leave{background:#fce8e6;}
+.cal-cell.ot{background:#e8f5e9;}
+.cal-cell-date{font-weight:700;font-size:10px;color:var(--text-muted);margin-bottom:2px;}
+.cal-cell-val{font-size:11px;font-weight:800;}
+.cal-cell.work .cal-cell-val{color:var(--primary);}
+.cal-cell.leave .cal-cell-val{color:var(--danger);}
+.cal-cell.ot .cal-cell-val{color:var(--accent);}
+.cal-summary{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;}
+.cal-summary-item{background:#f1f3f4;border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700;}
+
+/* 排班對照 */
+.schedule-ref{margin-top:8px;border-top:1px solid var(--border);padding-top:10px;}
+.sched-row{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #f8fafc;font-size:12px;}
+.sched-date{width:56px;color:var(--text-muted);font-weight:600;flex-shrink:0;}
+.sched-shift{font-weight:800;color:var(--primary);}
+.sched-off{color:var(--danger);}
+.sched-hours{margin-left:auto;color:var(--text-muted);font-size:11px;}
+.sched-ot{color:var(--accent);font-weight:800;}

@@ -71,7 +71,10 @@ self.addEventListener('fetch', event => {
   //    新頁面呼叫舊檔還沒有的函式就直接炸（實例：attendance.html 叫 shiftDateAdd()，
   //    但使用者快取裡的 shift-utils.js 是加這支函式之前的版本 → Can't find variable）。
   //    靠「改檔就記得進 CACHE_NAME 版號」是不可靠的紀律，改成由架構保證。
-  if(url.pathname.endsWith('.js')) {
+  // ⚠️ `.css` 必須跟 `.js` 走同一條（2026-09-05 把行內 CSS 外部化時加）：
+  //    若讓它掉到最下面的 Cache First，就會變成「每次都拿最新 HTML 配鎖在快取裡的舊樣式」，
+  //    正是 2026-08-17 在 JS 上踩過的那個坑（版面錯亂比 JS 報錯更難聯想到是快取）。
+  if(url.pathname.endsWith('.js') || url.pathname.endsWith('.css')) {
     event.respondWith(
       // ⚠️ 一定要帶 cache:'no-cache'（2026-08-28 加）：
       //    GitHub Pages 對 .js 回 Cache-Control: max-age=600，預設 fetch 會直接吃瀏覽器快取、
