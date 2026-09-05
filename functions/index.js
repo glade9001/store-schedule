@@ -870,6 +870,19 @@ function shiftSpan(shiftStr) {
   const segs = parseShiftSegs(shiftStr);
   return segs.length ? { startH: segs[0].startH, endH: segs[segs.length - 1].endH } : null;
 }
+// 兩個班別字串是不是同一個班：**不可用 === 直接比**。
+// 2026-09-05 實例：缺卡單存 '08-16'、補登卡存 '8-16'，字串不等 → 自動註銷永遠配不上，
+// 那張單子就一直掛在店長與員工的未補清單裡（錦花 8/8 宣妤）。
+// 前導零、空白、兩頭班的段落一律先解析成數值再比。
+function sameShiftStr(a, b) {
+  const A = String(a == null ? "" : a).trim();
+  const B = String(b == null ? "" : b).trim();
+  if (A === B) return true;
+  const pa = parseShiftSegs(A); const pb = parseShiftSegs(B);
+  if (!pa.length || !pb.length) return false;   // 有一邊不是時間班別 → 交給呼叫端的寬鬆規則
+  if (pa.length !== pb.length) return false;
+  return pa.every((x, i) => x.startH === pb[i].startH && x.endH === pb[i].endH);
+}
 // 下班是否落在隔天（含 16-00 這種正好 24:00 收班的，與舊行為 end <= start 一致）
 function shiftIsOvernight(shiftStr) {
   const sp = shiftSpan(shiftStr);
@@ -1564,14 +1577,30 @@ exports.onPunchResolveMissFlag = onDocumentWritten(
     //    2026-08-28 實際踩到：補登完成後缺卡標記完全沒被註銷，log 卻顯示執行成功。
     //    優先用打卡紀錄自己帶的 atStore，退而求其次才修 params。（比照 onClockPunch）
     const store = after.atStore || fixStoreName(event.params.store);
-    const attCol = db.collection("stores").doc(store).collection("attendance");
-    // 跨日班的下班卡 date 是隔天（靠 shiftDate 回指班別當天），故兩天都要撈
-    const snaps = await Promise.all([
-      attCol.where("empName", "==", emp).where("date", "==", anchor).get(),
-      attCol.where("empName", "==", emp).where("date", "==", addDaysStr(anchor, 1)).get(),
-    ]);
-    const docs = [];
-    snaps.forEach((s) => s.forEach((d) => docs.push({ ref: d.ref, d: d.data() || {} })));
+    // ⚠️ 缺卡單與補登卡**不保證在同一個門市**（2026-09-05 用正式資料抓到 4 筆）：
+    //    支援日的缺卡單開在「有排班的那家店」，但補登表單的門市預設是 atStore||本店，
+    //    店長常常就送到另一家去（例：8/11 昊的單在聯鑫、補登寫進錦花；9/1 闆娘的單在美德、
+    //    補登寫進聯鑫）。只查 after.atStore 就永遠配不到那張單，它會一直掛在未補清單上。
+    //    門市只有三家，這裡直接跨店收單與收卡；先查本店，本店沒有相關單子才擴散出去。
+    const cfgSnap = await db.collection("settings").doc("globalConfig").get().catch(() => null);
+    const allStores = ((cfgSnap && cfgSnap.exists ? cfgSnap.data().stores : null) || [])
+      .filter((x) => x && x !== "人力支援");
+    const order = [store, ...allStores.filter((x) => x !== store)];
+    const dayAfter = addDaysStr(anchor, 1);
+    const gather = async (st) => {
+      const col = db.collection("stores").doc(st).collection("attendance");
+      const two = await Promise.all([
+        col.where("empName", "==", emp).where("date", "==", anchor).get(),
+        col.where("empName", "==", emp).where("date", "==", dayAfter).get(),
+      ]);
+      const out = [];
+      two.forEach((sn) => sn.forEach((d) => out.push({ ref: d.ref, d: d.data() || {} })));
+      return out;
+    };
+    let docs = await gather(order[0]);
+    if (!docs.some((x) => x.d.type === "缺卡" && x.d.date === anchor)) {
+      for (const st of order.slice(1)) docs = docs.concat(await gather(st));
+    }
     // 算得上出勤的打卡：「到場」＝沒配對到任何班別，不能拿來抵缺卡
     const punches = docs.filter((x) => (x.d.type === "上班" || x.d.type === "下班") &&
       !x.d.voided && x.d.status !== "到場" && ((x.d.shiftDate || x.d.date) === anchor));
@@ -1579,7 +1608,8 @@ exports.onPunchResolveMissFlag = onDocumentWritten(
     for (const f of flags) {
       const fs = f.d.shift || "";
       // 兩頭班同一天會有兩張標記：班別對得起來才算，對不上的不要互相抵銷
-      const rel = punches.filter((p) => !fs || !p.d.shift || p.d.shift === fs);
+      // ⚠️ 用 sameShiftStr 不可用 ===：'08-16' 與 '8-16' 是同一個班（2026-09-05 實例）
+      const rel = punches.filter((p) => !fs || !p.d.shift || sameShiftStr(p.d.shift, fs));
       const hasIn = rel.some((p) => p.d.type === "上班");
       const hasOut = rel.some((p) => p.d.type === "下班");
       const note = String(f.d.note || "");
@@ -1593,9 +1623,14 @@ exports.onPunchResolveMissFlag = onDocumentWritten(
           voided: true, voidedBy: "system", voidedAt: now, voidReason: "已補登，系統自動註銷",
           editLog: AU({ at: now, by: "system", action: "註銷", reason: "已補登，系統自動註銷" }),
         }, { merge: true });
-      } else if (!done && f.d.voided && f.d.voidedBy === "system") {
+      } else if (!done && f.d.voided && f.d.voidedBy === "system" &&
+                 String(f.d.voidReason || "").includes("已補登")) {
         // 補登的卡又被店長註銷或改掉 → 缺卡要回來，否則這個班就永遠沒人管了。
         // 只還原「系統自己註銷」的；人工註銷（例如改為休假）一律尊重，不覆蓋。
+        // ⚠️ 還要限定「因補登而註銷」的那種：孤兒清理也是 voidedBy=system
+        //    （voidReason='排班已變更，此班別不存在'），那種班根本不存在了，
+        //    復活它等於叫人去補一個沒排的班。2026-09-05 回放正式資料時抓到 1 張會被誤復活
+        //    （聯鑫 8/22 許亞琪 16-00.5）。
         await f.ref.set({
           voided: false, voidedBy: null, voidedAt: null, voidReason: null,
           editLog: AU({ at: now, by: "system", action: "還原", reason: "補登紀錄已失效，缺卡重新成立" }),
@@ -1700,7 +1735,8 @@ exports.scheduledMissingClock = onSchedule(
         const sInfo = statusMap[emp] || {};
         if (!isSupport && ["離職", "調走"].includes(sInfo.status) && (!sInfo.eff || ds >= sInfo.eff)) continue;
         const homeStore = isSupport ? sh.supportEmp.slice(0, sh.supportEmp.indexOf("-")) : store;
-        const empPunches = punches.filter((p) => p.empName === emp);
+        const empPunches = punches.filter((p) => p.empName === emp && !p.voided &&
+          (p.shiftDate || p.date) === ds);
         const hasIn = empPunches.some((p) => p.type === "上班");
         const hasOut = empPunches.some((p) => p.type === "下班");
         if (hasIn && hasOut) continue;
@@ -1736,6 +1772,12 @@ exports.scheduledMissingClock = onSchedule(
       if (yShifts.length) {
         const attSnapY = await db.collection("stores").doc(store).collection("attendance").where("date", "==", dsY).get().catch(() => null);
         const punchesY = []; if (attSnapY) attSnapY.forEach((d) => punchesY.push(d.data()));
+        // ⚠️ 收班在深夜的班，下班卡可能落在昨天也可能落在今天，**不能靠 shiftIsOvernight 二選一**
+        //    （2026-09-05 用正式資料抓到兩筆誤開的缺卡單）：
+        //    ・16-23（非跨夜）→ 員工 00:06 才打下班，卡的 date 是今天 → 只看昨天 → 誤判缺下班
+        //    ・16-00（跨夜）→ 員工 23:37 早退打下班，卡的 date 是昨天 → 只看今天 → 誤判缺下班
+        //    正解＝兩天的打卡合起來，用「班別當天」(shiftDate || date) 歸戶，與 onPunchResolveMissFlag 同一把尺。
+        const yPool = punchesY.concat(punches).filter((p) => (p.shiftDate || p.date) === dsY && !p.voided);
         for (const sh of yShifts) {
           // 門檻換算成「今天的分鐘數」：收班+2h 超過 1440 的部分就是今天的時刻
           if (nowMin < (shiftSpan(sh.shift).endH * 60 + 120) - 1440) continue; // 今天還沒到「下班+2 小時」
@@ -1748,10 +1790,11 @@ exports.scheduledMissingClock = onSchedule(
           const homeStore = isSupport ? sh.supportEmp.slice(0, sh.supportEmp.indexOf("-")) : store;
           // 跨夜班（endH >= 24）的下班卡打在今天；22:00~23:59 收班但沒跨夜的班，上下班都在昨天
           const overnight = shiftIsOvernight(sh.shift);
-          const hasInY = punchesY.some((p) => p.empName === emp && p.type === "上班");
-          const hasOutT = overnight
-            ? punches.some((p) => p.empName === emp && p.type === "下班")
-            : punchesY.some((p) => p.empName === emp && p.type === "下班");
+          // 刻意不比對班別字串：排班若在打卡後被修改，比對會反而生出新的誤判缺卡。
+          // 這裡只要求「同一個人、屬於這一天的班」，與原行為一致。
+          const mine = yPool.filter((p) => p.empName === emp);
+          const hasInY = mine.some((p) => p.type === "上班");
+          const hasOutT = mine.some((p) => p.type === "下班");
           if (hasInY && hasOutT) continue;
           const info = await resolveEmpInfo(db, emp);
           if (!canClockPerm(stage, info.permission)) continue;
