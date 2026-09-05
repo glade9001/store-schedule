@@ -98,18 +98,25 @@ function onInvChange(){
   else if(t==='loss'){ p.textContent=`→ 本月盤損 ${money(amt)} 元（損失，計入損耗）`; p.style.color='#c5221f'; }
   else { p.textContent=`→ 本月盤盈 ${money(amt)} 元（收益，抵減損耗）`; p.style.color='#137333'; }
 }
-// ⚠️ 不要求店長自己打負號（2026-09-05 店長回報「打不出負號」）：
-//    input 帶 inputmode="numeric" 時 Android 跳的是純數字鍵盤，**沒有負號鍵**，
-//    溢餘那個月根本輸入不了。比照旁邊的「盤點結果」改成「選狀態＋填正金額」，
-//    資料庫存的仍是有號數（正＝短少、負＝溢餘），下游圖表與淨損耗公式完全不動。
+// 現金短溢＝照損益表原樣填（有負號就打負號）。刻意不做成「選狀態＋填正金額」——
+// 店長對著損益表抄數字，多一層轉換反而容易搞錯。
+// ⚠️ 但 input 不可以帶 inputmode="numeric"（2026-09-05 店長回報「打不出負號」）：
+//    Android 會跳出純數字鍵盤，**沒有負號鍵**，溢餘那個月根本輸入不了。
+//    拿掉 inputmode 讓 type=number 自己決定鍵盤（含負號），再配一顆 ± 鈕保底，
+//    最後用下方即時預覽把「短少／溢餘」講成人話，讓店長自己核對正負號有沒有抄對。
 function onCashChange(){
-  const t=radioVal('cashType'); const el=document.getElementById('fCash');
-  const amt=Math.abs(num('fCash')||0);
-  el.disabled=(t==='none'); if(t==='none') el.value='';
-  const p=document.getElementById('cashPreview');
-  if(t==='none'||!amt){ p.textContent='→ 本月無短溢'; p.style.color='#64748b'; }
-  else if(t==='over'){ p.textContent=`→ 本月現金溢餘 ${money(amt)} 元（抵減成本）`; p.style.color='#137333'; }
-  else { p.textContent=`→ 本月現金短少 ${money(amt)} 元（費用，計入損耗）`; p.style.color='#c5221f'; }
+  const v=num('fCash'); const p=document.getElementById('cashPreview');
+  if(v==null||v===0){ p.textContent='→ 本月無短溢'; p.style.color='#64748b'; }
+  else if(v>0){ p.textContent=`→ 本月現金短少 ${money(v)} 元（費用，計入損耗）`; p.style.color='#c5221f'; }
+  else { p.textContent=`→ 本月現金溢餘 ${money(-v)} 元（抵減成本）`; p.style.color='#137333'; }
+}
+// ± 鈕：某些 Android 鍵盤（或裝了第三方輸入法）在數字鍵盤上真的找不到負號時的保底。
+function toggleCashSign(){
+  const el=document.getElementById('fCash');
+  const v=num('fCash');
+  if(v==null||v===0){ el.focus(); return; }   // 空值沒有正負可切，直接讓他先打數字
+  el.value=String(-v);
+  onCashChange();
 }
 
 function openEdit(m){
@@ -127,10 +134,7 @@ function openEdit(m){
   document.querySelector(`input[name="invType"][value="${invT}"]`).checked=true;
   document.getElementById('fInv').value=(invT==='none')?'':Math.abs(d.invResult);
   // 現金短溢：直接顯示含負號的數字（正=短少、負=溢餘），照損益表
-  const cd=(d.cashDiff==null)?null:Number(d.cashDiff);
-  const cashT=(cd==null)?'':(cd===0?'none':(cd>0?'short':'over'));
-  document.querySelectorAll('input[name="cashType"]').forEach(r=>{ r.checked=(r.value===cashT); });
-  document.getElementById('fCash').value=(cd==null||cd===0)?'':Math.abs(cd);
+  document.getElementById('fCash').value=(d.cashDiff==null)?'':d.cashDiff;
   onInvChange(); onCashChange();
   document.getElementById('cmpBox').innerHTML='';
   if(pnlCache[m]) viewMode(m); else editMode();   // 已輸入→檢視；待輸入→直接編輯
@@ -163,12 +167,10 @@ async function saveMonth(){
   if(noStocktake){ invResult=null; }
   else { const a=Math.abs(num('fInv')||0); invResult=(invType==='gain')?a:-a; }
   // 現金短溢：照損益表數字直接填(含負號，正=短少/負=溢餘)，未填視為 0
-  const cashType=radioVal('cashType');
-  let cashDiff=0;
-  if(cashType && cashType!=='none'){ const ca=Math.abs(num('fCash')||0); cashDiff=(cashType==='over')?-ca:ca; }
+  let cashDiff=num('fCash'); if(cashDiff==null) cashDiff=0;
   // 必填檢查
-  if([netSales,grossMargin,badGoodsCost,elecCost,miscCost,operatingReward].some(v=>v===null) || !invType || !cashType){
-    toast('請完整填寫營業淨額/毛利率/壞品/電費/雜支/經營報酬，並選盤點狀態與現金短溢狀態'); return;
+  if([netSales,grossMargin,badGoodsCost,elecCost,miscCost,operatingReward].some(v=>v===null) || !invType){
+    toast('請完整填寫營業淨額/毛利率/壞品/電費/雜支/經營報酬，並選盤點狀態'); return;
   }
   showLoading('儲存中…');
   const rec={ store:curStore, month:editMonth, netSales, grossMargin, badGoodsCost, elecCost, miscCost, cashDiff,
