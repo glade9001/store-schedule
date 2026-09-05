@@ -82,9 +82,10 @@ window.onload=async()=>{
       <div style="font-size:17px;font-weight:900;margin-bottom:14px;">補登／修改打卡申請</div>
       <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;line-height:1.6;">送出後需店長審核（會 LINE 通知你結果）。若該日已有同類打卡＝申請修改時間；沒有＝補登。</div>
       <label style="font-size:13px;font-weight:700;">門市</label>
-      <select id="rqStore" style="width:100%;padding:9px;border:1.5px solid var(--border);border-radius:8px;margin:4px 0 10px;"></select>
+      <select id="rqStore" style="width:100%;padding:9px;border:1.5px solid var(--border);border-radius:8px;margin:4px 0 4px;"></select>
+      <div id="rqStoreHint" style="font-size:12px;color:var(--text-muted);margin:0 0 10px;line-height:1.5;"></div>
       <label style="font-size:13px;font-weight:700;">日期</label>
-      <input type="date" id="rqDate" style="width:100%;padding:9px;border:1.5px solid var(--border);border-radius:8px;margin:4px 0 10px;">
+      <input type="date" id="rqDate" onchange="syncReqStore()" style="width:100%;padding:9px;border:1.5px solid var(--border);border-radius:8px;margin:4px 0 10px;">
       <label style="font-size:13px;font-weight:700;">打卡類型</label>
       <select id="rqType" style="width:100%;padding:9px;border:1.5px solid var(--border);border-radius:8px;margin:4px 0 10px;"><option>上班</option><option>下班</option></select>
       <label style="font-size:13px;font-weight:700;">時間</label>
@@ -106,9 +107,30 @@ function openReqModal(){
   const stores=(appConfig.stores||[]).filter(s=>s!=='人力支援');
   const sel=document.getElementById('rqStore');
   sel.innerHTML=stores.map(s=>`<option value="${s}"${s===currentUser.store?' selected':''}>${s}</option>`).join('');
-  document.getElementById('rqDate').value=new Date().toISOString().slice(0,10);
+  const d=new Date();   // ⚠️ 不可用 toISOString()：那是 UTC，台灣 00:00~08:00 會變成「昨天」
+  document.getElementById('rqDate').value=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   document.getElementById('rqTime').value=''; document.getElementById('rqReason').value='';
   document.getElementById('reqModal').style.display='flex';
+  syncReqStore();
+}
+// 門市預設值跟著「那天的排班」走（同 clock.html）：支援日的班在別家店，
+// 照舊的「本店」預設送出去就會送錯店 → 缺卡單配不到、工時也配不起來。
+async function syncReqStore(){
+  const hint=document.getElementById('rqStoreHint'); if(!hint) return;
+  const ds=document.getElementById('rqDate').value;
+  const sel=document.getElementById('rqStore');
+  if(!ds){ hint.textContent=''; return; }
+  hint.textContent='查詢當天排班中…';
+  try{
+    const hits=await findShiftStoresOn(ds, currentUser.empName, currentUser.store||'', appConfig.stores||[]);
+    if(!hits.length){ hint.textContent='當天查無排班，門市請自行選擇。'; return; }
+    const uniq=[...new Set(hits.map(h=>h.store))];
+    if(uniq.length===1) sel.value=uniq[0];
+    const txt=hits.map(h=>`${h.store} ${h.shift}${h.fromPrevDay?'（前一日跨夜班）':''}`).join('、');
+    hint.innerHTML=uniq.length===1
+      ? `✅ 當天排班：<b>${txt}</b>　已自動選好門市`
+      : `⚠️ 當天在多家店有班：<b>${txt}</b>　請自行確認要補哪一家`;
+  }catch(e){ hint.textContent='（查不到當天排班，門市請自行確認）'; }
 }
 async function submitReq(){
   const atStore=document.getElementById('rqStore').value;

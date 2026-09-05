@@ -174,3 +174,47 @@ function punchLateStatus(lateMin, tolMin) {
   if (lateMin > 0) return '警告';
   return '正常';
 }
+
+/**
+ * 某人在某一天「排班在哪一家店」——補登／修改申請表單的門市預設值用。
+ *
+ * 為什麼需要（2026-09-05 從正式資料挖出來）：補登表單原本預設 atStore||本店，
+ * 但支援日那天的班在**別家店**，員工／店長就照預設送錯店。後果有兩個：
+ *   ① 缺卡單開在「有排班的那家店」，補登卡卻進了另一家 → 自動註銷配不到，
+ *      那張單子永遠掛在未補清單上（8/11、8/19、8/28、9/1 四筆實例）。
+ *   ② 工時配對是逐店做的 → 上班卡在 A 店、下班卡在 B 店，兩邊都變成沒配對的孤兒
+ *      （例：闆娘 9/1 在美德只剩一張上班卡）。
+ *
+ * 回傳 [{store, shift, fromPrevDay}]；查不到就回空陣列（呼叫端自行退回舊的預設值）。
+ * 需要 window.db（firebase-init.js 已在各頁先載入）。
+ */
+async function findShiftStoresOn(dateStr, empName, homeStore, stores) {
+  if (!dateStr || !empName || !window.db) return [];
+  var list = (stores || []).filter(function (s) { return s && s !== '人力支援'; });
+  var key = homeStore + '-' + empName;
+  var scan = async function (ds, prev) {
+    var wk = shiftWeekStr(ds), day = shiftDayName(ds);
+    var snaps = await Promise.all(list.map(function (s) {
+      return window.db.collection('stores').doc(s).collection('weeks').doc(wk).get()
+        .catch(function () { return null; });
+    }));
+    var out = [];
+    snaps.forEach(function (sn, i) {
+      if (!sn || !sn.exists) return;
+      (sn.data().records || []).forEach(function (r) {
+        if (r.day !== day) return;
+        if (!parseShiftSegs(r.shift).length) return;   // 排休/指休/特休/補休 不是班
+        // ⚠️ 派出店殘留的 loc=支援X 顯示記錄不算：那天真正的班在接收店（靠 supportEmp 認）
+        var own = r.name === empName && !String(r.location || '').startsWith('支援');
+        var sup = r.supportEmp === key && r.approvalStatus === 'approved';
+        if (!own && !sup) return;
+        if (prev && !shiftIsOvernight(r.shift)) return; // 前一天只收跨夜班（下班落在今天）
+        out.push({ store: list[i], shift: r.shift, fromPrevDay: !!prev });
+      });
+    });
+    return out;
+  };
+  var hits = await scan(dateStr, false);
+  if (hits.length) return hits;
+  return await scan(shiftDateAdd(dateStr, -1), true);   // 跨夜班的下班卡屬前一天那個班
+}

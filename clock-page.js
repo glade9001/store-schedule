@@ -311,9 +311,33 @@ async function saveRemindPref(){
 function openReqModal(){
   const stores=(appConfig.stores||[]).filter(s=>s!=='人力支援');
   document.getElementById('rqStore').innerHTML=stores.map(s=>`<option value="${s}"${s===(atStore||currentUser.store)?' selected':''}>${s}</option>`).join('');
-  document.getElementById('rqDate').value=new Date().toISOString().slice(0,10);
+  document.getElementById('rqDate').value=todayStr();
   document.getElementById('rqTime').value=''; document.getElementById('rqReason').value='';
   document.getElementById('reqModal').style.display='flex';
+  syncReqStore();
+}
+// 門市預設值跟著「那天的排班」走，不是跟著你現在人在哪。
+// 支援日的班在別家店，照舊的預設送出去就會送錯店 → 缺卡單配不到、工時也配不起來。
+// 仍然是可改的下拉，只是把預設值挑對，並把依據寫在下面讓人看得懂。
+async function syncReqStore(){
+  const hint=document.getElementById('rqStoreHint'); if(!hint) return;
+  const ds=document.getElementById('rqDate').value;
+  const sel=document.getElementById('rqStore');
+  if(!ds){ hint.textContent=''; return; }
+  hint.textContent='查詢當天排班中…';
+  try{
+    const hits=await findShiftStoresOn(ds, currentUser.empName, currentUser.store||'', appConfig.stores||[]);
+    if(!hits.length){
+      hint.innerHTML='當天查無排班，門市請自行選擇。';
+      return;
+    }
+    const uniq=[...new Set(hits.map(h=>h.store))];
+    if(uniq.length===1) sel.value=uniq[0];
+    const txt=hits.map(h=>`${h.store} ${h.shift}${h.fromPrevDay?'（前一日跨夜班）':''}`).join('、');
+    hint.innerHTML=uniq.length===1
+      ? `✅ 當天排班：<b>${txt}</b>　已自動選好門市`
+      : `⚠️ 當天在多家店有班：<b>${txt}</b>　請自行確認要補哪一家`;
+  }catch(e){ hint.textContent='（查不到當天排班，門市請自行確認）'; }
 }
 async function submitReq(){
   const st=document.getElementById('rqStore').value;
