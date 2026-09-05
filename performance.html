@@ -128,8 +128,13 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
     <div class="field"><label>門市電費 <span class="unit">元（含在經營報酬內）</span></label><input type="number" id="fElec" inputmode="numeric"></div>
     <div class="field"><label>雜支 <span class="unit">元（含在經營報酬內）</span></label><input type="number" id="fMisc" inputmode="numeric"></div>
     <div class="field">
-      <label>現金短溢 <span class="unit">照損益表「管銷費用」那個數字直接填（含負號）：正＝短少、負＝溢餘</span></label>
-      <input type="number" id="fCash" inputmode="numeric" placeholder="例：損益表寫 500 填 500、寫 -600 填 -600、無填 0" oninput="onCashChange()">
+      <label>現金短溢 <span class="unit">選狀態＋填正金額，系統自動判定正負（對照損益表「管銷費用」：正＝短少、負＝溢餘）</span></label>
+      <div class="chk-row" style="gap:14px;flex-wrap:wrap;">
+        <label><input type="radio" name="cashType" value="short" onchange="onCashChange()"> 短少（少了）</label>
+        <label><input type="radio" name="cashType" value="over" onchange="onCashChange()"> 溢餘（多了）</label>
+        <label><input type="radio" name="cashType" value="none" onchange="onCashChange()"> 本月無短溢</label>
+      </div>
+      <input type="number" id="fCash" inputmode="numeric" placeholder="填正金額，例：損益表寫 500 或 -600 都填數字本身" oninput="onCashChange()">
       <div id="cashPreview" style="font-size:12px;font-weight:800;margin-top:5px;"></div>
     </div>
     <div class="field"><label>經營報酬 <span class="unit">元</span></label><input type="number" id="fReward" inputmode="numeric"></div>
