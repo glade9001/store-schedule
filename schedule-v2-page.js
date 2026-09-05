@@ -2053,9 +2053,9 @@ function buildCellButton(emp, eIdx, day, store, weekStr, isReadonly) {
   }
   let rec = appData.records.find(r => r.name===emp.name && r.day===day && r.week===weekStr);
   let supportOutRec = null;
-  const ownIsOff = rec && (rec.shift === '排休' || rec.shift === '指休');
-  if(!isVirtual && !ownIsOff) {
-    // 只有非休假才考慮跨店支援覆蓋
+  if(!isVirtual) {
+    // ⚠️ 不可因「本店排休/指休」就略過支援班：新模型下派出去支援的人在本店本來就是休假，
+    //    略過會讓整格顯示「休」（同仁回報：支援日在班表上變成休）。產圖(drawSchedule)一直是這個規則。
     supportOutRec = appData.allStoresRecords.find(r =>
       r.supportEmp === `${store}-${emp.name}` && r.day===day && r.week===weekStr && r.approvalStatus==='approved'
     );
@@ -2065,6 +2065,7 @@ function buildCellButton(emp, eIdx, day, store, weekStr, isReadonly) {
   let supportBadge = '';
   const recIsSupportOut = !!(rec && rec.location && rec.location.startsWith('支援'));
   const homeHasShift = rec && rec.shift && rec.shift !== '排休' && rec.shift !== '指休' && !recIsSupportOut;
+  // 整格顯示支援班只是即時衍生（loc=支援X），syncUIToMemory 會跳過不落地，本店那筆排休記錄原樣保留
   const isFullDaySupport = !!supportOutRec && !homeHasShift;
   if(supportOutRec && homeHasShift) {
     // 本店有主班 + 同日去他店支援 → 主班保留可編輯，支援以唯讀標籤呈現

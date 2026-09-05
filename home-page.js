@@ -137,15 +137,39 @@ async function updateHomeClockStatus(){
     });
     // 今日打卡
     let nIn=0,nOut=0;
-    if(att) att.forEach(d=>{ const t=d.data().type; if(t==='上班')nIn++; else if(t==='下班')nOut++; });
+    const countPunch=snap=>{ if(snap) snap.forEach(d=>{ const t=d.data().type; if(t==='上班')nIn++; else if(t==='下班')nOut++; }); };
+    countPunch(att);
+    // 支援日：本店查無班 → 找他店已核准的支援記錄（當天實際上班的門市與打卡紀錄都在那邊）
+    let supportStore='';
+    if(!shifts.length){
+      const others=(appConfig.stores||[]).filter(s=>s!==store);
+      const snaps=await Promise.all(others.map(s2=>
+        window.db.collection('stores').doc(s2).collection('weeks').doc(getCurrentWeekString()).get().catch(()=>null)
+      ));
+      snaps.forEach((sn,i)=>{
+        if(!sn||!sn.exists) return;
+        (sn.data().records||[]).forEach(r=>{
+          if(r.day!==dayName) return;
+          if(r.supportEmp!==`${store}-${emp}`||r.approvalStatus!=='approved') return;
+          supportStore=others[i];
+          parseShiftSegs(r.shift).forEach(g=>shifts.push({shift:r.shift, startMs:shiftTimeMs(dss,g.startH)}));
+        });
+      });
+      if(supportStore){
+        const sAtt=await window.db.collection('stores').doc(supportStore).collection('attendance')
+          .where('date','==',dss).where('empName','==',emp).get().catch(()=>null);
+        countPunch(sAtt);
+      }
+    }
+    const atTail = supportStore ? `（支援 ${supportStore}）` : '';
     if(!shifts.length){ setGreen('🕐','今日無排班｜需要時可打卡'); return; }
     if(nIn>nOut){ setGreen('🟢','上班中，記得打下班卡'); return; }
     if(nIn>0){ setGreen('✅','今日已完成打卡'); return; }
     // 有排班、尚未打上班卡
     shifts.sort((a,b)=>a.startMs-b.startMs);
     const up=shifts.find(s=>Date.now()<=s.startMs+punchWindowMs().inAfter)||shifts[0];
-    if(Date.now()>=up.startMs){ setRed('⚠️',`你今天 ${up.shift} 的班已開始，還沒打上班卡！`); }
-    else { setGreen('🕐',`今天 ${up.shift} 上班，記得準時打卡`); }
+    if(Date.now()>=up.startMs){ setRed('⚠️',`你今天 ${up.shift}${atTail} 的班已開始，還沒打上班卡！`); }
+    else { setGreen('🕐',`今天 ${up.shift}${atTail} 上班，記得準時打卡`); }
   }catch(e){}
 }
 
@@ -1334,7 +1358,7 @@ async function loadMySchedule() {
       dNames.map((day, i) => {
         const rec = myRecs.find(r => r.day === day) || {};
         const shift = rec.shift || '';
-        const isOff = shift === '排休' || shift === '指休';
+        const homeOff = shift === '排休' || shift === '指休';
         const isEmpty = !shift;
         const isToday = dates[i] === todayStr;
 
@@ -1342,21 +1366,27 @@ async function loadMySchedule() {
         const suppRec = supportRecs.find(r => r.day === day);
         const hasSupport = !!suppRec;
 
-        const bg = isOff ? '#fce8e6' : isEmpty && hasSupport ? '#f0fdf4' : isEmpty ? '#f8fafc' : '#e8f0fe';
-        const clr = isOff ? '#d93025' : isEmpty && hasSupport ? '#16a34a' : isEmpty ? '#bbb' : '#1a73e8';
-        const displayShift = isOff ? '休' : shift || (hasSupport ? suppRec.shift || '支援' : '–');
+        // 派去他店支援＝當天實際有上班。本店那格通常是「排休」（人不在本店），
+        // 若讓排休贏就會變成「支援日顯示休」（同仁回報的 bug）。
+        // 規則：本店空白或排休/指休 → 顯示支援班；本店有實班（同日兩頭跑）→ 顯示本店班＋🆘 標記。
+        const showSupport = hasSupport && (isEmpty || homeOff);
+        const isOff = homeOff && !showSupport;
+
+        const bg = showSupport ? '#f0fdf4' : isOff ? '#fce8e6' : isEmpty ? '#f8fafc' : '#e8f0fe';
+        const clr = showSupport ? '#16a34a' : isOff ? '#d93025' : isEmpty ? '#bbb' : '#1a73e8';
+        const displayShift = showSupport ? (suppRec.shift || '支援') : isOff ? '休' : (shift || '–');
 
         return `<div style="text-align:center;background:${bg};border-radius:8px;padding:5px 2px;${isToday ? 'box-shadow:0 0 0 2px var(--primary);' : ''}">
           <div style="font-size:11px;color:${isToday ? 'var(--primary)' : 'var(--text-muted)'};font-weight:${isToday ? 800 : 500};text-align:center;">${dates[i]}</div>
           <div style="font-size:10px;color:var(--text-muted);text-align:center;">${day}</div>
-          <div style="font-size:13px;color:${clr};font-weight:${isEmpty && !hasSupport ? 400 : 900};margin-top:2px;text-align:center;letter-spacing:-0.5px;">${displayShift}</div>
+          <div style="font-size:13px;color:${clr};font-weight:${isEmpty && !showSupport ? 400 : 900};margin-top:2px;text-align:center;letter-spacing:-0.5px;">${displayShift}</div>
           ${rec.note ? `<div style="font-size:9px;color:#0088aa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;">${rec.note}</div>` : ''}
           ${hasSupport ? `<div style="font-size:8px;color:#16a34a;font-weight:700;text-align:center;margin-top:1px;">🆘 ${suppRec._supportStore}</div>` : ''}
         </div>`;
       }).join('') + `</div>`;
 
     if(weekStr === thisWeekStr) {
-      updateTodayShiftBadge(myRecs, dates, dNames, todayStr);
+      updateTodayShiftBadge(myRecs, dates, dNames, todayStr, supportRecs);
     }
   } catch(e) {
     el.innerHTML = `<div style="color:var(--danger);font-size:12px;text-align:center;">載入失敗</div>`;
@@ -1524,8 +1554,15 @@ async function loadMyCalendar() {
         if(di < 0) return;
         const ds = myCalDateStr(w, di);
         // 有支援記錄就補上目的門市，不論 own record 有無 shift
+        // ⚠️ 本店那格通常是「排休」（人不在本店），不可讓它蓋掉支援班 → 否則支援日會顯示「休」
         const prev = dayMap[ds] || {};
-        dayMap[ds] = { shift: prev.shift || r.shift||'', note: prev.note||'', isSupport:true, supportStore: toStore, published: prev.published ?? published };
+        const prevShift = prev.shift || '';
+        const prevOff = prevShift === '排休' || prevShift === '指休';
+        const takeSupport = !prevShift || prevOff;   // 整日外派
+        dayMap[ds] = takeSupport
+          ? { shift: r.shift || prevShift, note: prev.note||'', isSupport:true, supportStore: toStore, published: prev.published ?? published }
+          : { shift: prevShift, note: prev.note||'', isSupport: !!prev.isSupport, supportStore: prev.supportStore || '',
+              supportMark: prev.isSupport ? '' : toStore, published: prev.published ?? published };
       });
     });
   });
@@ -1571,6 +1608,10 @@ function renderMyCalendar(year, month, dayMap) {
           if(info.isSupport && s) {
             inner += `<span style="font-size:9px;color:#16a34a;font-weight:900;display:block;text-align:center;line-height:1.4;">${info.supportStore}</span>`;
             inner += `<span class="my-cal-st su">${s.replace('-','/')}</span>`;
+          } else if(info.supportMark && s) {
+            // 本店有主班＋同日再去他店支援
+            inner += `<span class="my-cal-st w">${s.replace('-','/')}</span>`;
+            inner += `<span style="font-size:9px;color:#16a34a;font-weight:900;display:block;text-align:center;line-height:1.4;">🆘${info.supportMark}</span>`;
           } else if(s === '指休') {
             inner += `<span class="my-cal-st or">休</span>`;
           } else if(s === '排休') {
@@ -1591,15 +1632,24 @@ function renderMyCalendar(year, month, dayMap) {
   grid.innerHTML = html;
 }
 
-function updateTodayShiftBadge(myRecs, dates, dNames, todayStr) {
+function updateTodayShiftBadge(myRecs, dates, dNames, todayStr, supportRecs) {
   const badge = document.getElementById('todayShiftBadge');
   if(!badge) return;
   const todayIdx = dates.findIndex(d => d === todayStr);
   if(todayIdx < 0) { badge.style.display = 'none'; return; }
   const rec = myRecs.find(r => r.day === dNames[todayIdx]) || {};
   const shift = rec.shift || '';
+  // 支援班優先（同 loadMySchedule：本店空白或排休/指休時，今天實際是去他店上班）
+  const supp = (supportRecs || []).find(r => r.day === dNames[todayIdx]);
+  const homeOff = shift === '排休' || shift === '指休';
+  if(supp && (!shift || homeOff)) {
+    badge.textContent = `⏰ ${supp.shift || '支援'}　🆘 ${supp._supportStore}`;
+    badge.style.display = 'inline-block';
+    badge.style.background = 'rgba(255,255,255,0.25)';
+    return;
+  }
   if(!shift) { badge.style.display = 'none'; return; }
-  const isOff = shift === '排休' || shift === '指休';
+  const isOff = homeOff;
   let text = isOff ? '今日休假' : `⏰ ${shift}`;
   if(rec.note) text += `　${rec.note}`;
   badge.textContent = text;

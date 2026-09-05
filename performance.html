@@ -193,7 +193,13 @@ window.onload=async()=>{
   hideLoading();
 };
 
-async function onStoreChange(){ curStore=document.getElementById('storeSel').value; showLoading('載入…'); await loadList(); if(curTab==='analysis')renderAnalysis(); hideLoading(); }
+async function onStoreChange(){
+  curStore=document.getElementById('storeSel').value;
+  // ⚠️ 期間(anaFrom/anaTo)是全域的：換門市不重設的話，會沿用上一家的月份範圍。
+  //    例：美德最新只到 7 月 → 切到有 8 月的聯鑫，anaTo 仍停在 2026-07（在新店也存在故不會被修正）→ 8 月被濾掉不見。
+  anaFrom=''; anaTo='';
+  showLoading('載入…'); await loadList(); if(curTab==='analysis')renderAnalysis(); hideLoading();
+}
 
 async function loadList(){
   pnlCache={}; perfCache={}; cmpData=null;
@@ -306,6 +312,9 @@ async function saveMonth(){
   try{
     await window.db.collection('stores').doc(curStore).collection('pnl').doc(editMonth).set(rec,{merge:true});
     pnlCache[editMonth]=rec;
+    // 新存的月份若比目前分析範圍還新 → 把範圍拉到它，否則剛輸入的月份在統計分析看不到
+    if(anaTo && editMonth>anaTo) anaTo=editMonth;
+    if(anaFrom && editMonth<anaFrom) anaFrom=editMonth;
     // 只有「有去年同期資料」才會通知全體（回填月份無同期→不發送）
     let hasPrev=false;
     try{ const ps=await window.db.collection('stores').doc(curStore).collection('pnl').doc(prevYearMonth(editMonth)).get(); hasPrev=ps.exists; }catch(e){}
