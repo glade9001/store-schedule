@@ -13,6 +13,10 @@ const STATIC_ASSETS = [
   'utils.js',
   'shift-utils.js',
   'salary-calc.js',
+  // ⚠️ clock-page.js 是唯一被預快取的「單頁」JS：打卡支援離線送出（clockPunchOffline），
+  //    但外部化後，若使用者第一次開打卡頁就沒網路，這支還沒進過快取 → 整頁死掉。
+  //    預快取只是保底：.js 走上面的 network-first 分支，每次成功抓取都會覆寫，不會卡舊版。
+  'clock-page.js',
 ];
 
 // ===== 安裝 =====
