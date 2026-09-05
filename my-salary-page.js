@@ -1,0 +1,956 @@
+// ===== 台灣國定假日 2026-2027 =====
+const TW_HOLIDAYS = {
+  "2026-01-01":"元旦",
+  "2026-01-26":"農曆除夕","2026-01-27":"春節","2026-01-28":"春節","2026-01-29":"春節",
+  "2026-02-28":"和平紀念日",
+  "2026-04-04":"兒童節","2026-04-05":"清明節",
+  "2026-05-01":"勞動節",
+  "2026-06-19":"端午節",
+  "2026-09-25":"中秋節",
+  "2026-10-10":"國慶日",
+  "2027-01-01":"元旦",
+  "2027-01-26":"農曆除夕","2027-01-27":"春節","2027-01-28":"春節","2027-01-29":"春節",
+  "2027-02-28":"和平紀念日",
+  "2027-04-04":"兒童節","2027-04-05":"清明節",
+  "2027-05-01":"勞動節",
+  "2027-06-09":"端午節",
+  "2027-10-10":"國慶日"
+};
+
+// 全域變數
+let currentUser = null;
+let appConfig = { stores: [] };
+let currentMonth = ''; 
+let currentStore = '';
+let leaveDataMap = {}; 
+let displayNameMap = {}; 
+let batchDataMap = {}; 
+let compDataMap = {}; 
+let empList = []; 
+let scheduleData = {}; 
+let prevSalaryData = {}; 
+let salaryData = {};
+let myAck = null; // 本人本月簽收狀態（salaryAck）
+const SALARY_ACK_START = '2026-06'; // 薪資簽收制度啟動月（此月起才需簽收；home.html 需同值）
+let currentEmpModal = null; 
+
+const ROLE_PART = '工讀';
+const ROLE_FULL = '正職';
+// 計薪模式覆蓋：payAsPartTime 者計薪走工讀時薪（與 salary.html effSalaryRole 一致）
+function effSalaryRole(emp, rec) {
+  const flag = (emp && emp.payAsPartTime) || (rec && rec.payAsPartTime);
+  return flag ? ROLE_PART : ((emp && emp.role) || (rec && rec.role) || '');
+}
+const ROLE_MANAGER = '店長';
+
+// ===== 輔助工具 =====
+function getMonthHolidays(ym) {
+  return Object.entries(TW_HOLIDAYS)
+    .filter(([k]) => k.startsWith(ym))
+    .map(([k, v]) => ({ date: k, name: v, day: parseInt(k.split('-')[2]) }));
+}
+
+function getMonthWeekendDays(ym) {
+  const [y, m] = ym.split('-').map(Number);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  let sat = 0, sun = 0;
+  for(let d = 1; d <= daysInMonth; d++) {
+    const wd = new Date(y, m-1, d).getDay();
+    if(wd === 6) sat++;
+    if(wd === 0) sun++;
+  }
+  return { sat, sun, total: sat + sun };
+}
+
+function detectHolidayWork(empName, ym) {
+  const holidays = getMonthHolidays(ym);
+  const worked = [];
+  holidays.forEach(h => {
+    let hasWork = false;
+    Object.entries(scheduleData).forEach(([ws, recs]) => {
+      recs.forEach(r => {
+        if(r.name !== empName) return;
+        const wDates = getWeekDatesFromStr(ws);
+        const dIdx = ['週一','週二','週三','週四','週五','週六','週日'].indexOf(r.day);
+        const [hy, hm, hd] = h.date.split('-').map(Number);
+        if(dIdx >= 0 && wDates[dIdx] === `${hm}/${hd}` && r.shift && r.shift !== '排休' && r.shift !== '指休') {
+          hasWork = true;
+        }
+      });
+    });
+    if(hasWork) worked.push(h);
+  });
+  return worked;
+}
+
+function calcMonthOffDays(empName, ym) {
+  // ✅ Bug4修正：只計排休/指休（例休），不含特休/補休
+  // ✅ Bug5修正：時薪另計視為休假，計入已休
+  const [cy, cm] = ym.split('-').map(Number);
+  let offDays = 0;
+  Object.entries(scheduleData).forEach(([ws, recs]) => {
+    recs.forEach(r => {
+      if(r.name !== empName) return;
+      const isRegOff = r.shift === '排休' || r.shift === '指休';
+      const isHourlyOff = r.isHourly === true;
+      if(!isRegOff && !isHourlyOff) return;
+      const wDates = getWeekDatesFromStr(ws);
+      const dIdx = ['週一','週二','週三','週四','週五','週六','週日'].indexOf(r.day);
+      if(dIdx >= 0 && parseInt(wDates[dIdx].split('/')[0]) === cm) offDays++;
+    });
+  });
+  return offDays;
+}
+
+function getDisplayName(empName) {
+  return displayNameMap[empName] || empName;
+}
+
+function openModal(id) {
+  const el = document.getElementById(id);
+  if(el) el.classList.add('active');
+}
+
+function closeModal(id) {
+  const el = document.getElementById(id);
+  if(el) el.classList.remove('active');
+}
+
+function showLoading(msg) {
+  const el = document.getElementById('loadingOverlay');
+  const txt = document.getElementById('loadingText');
+  if(el) el.classList.remove('hidden');
+  if(txt) txt.textContent = msg || '載入中...';
+}
+
+function hideLoading() {
+  const el = document.getElementById('loadingOverlay');
+  if(el) el.classList.add('hidden');
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  if(!t) return;
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+function getPrevMonth(ym) {
+  const [y, m] = ym.split('-').map(Number);
+  if(m === 1) return `${y-1}-12`;
+  return `${y}-${String(m-1).padStart(2,'0')}`;
+}
+
+function getMonthLabel(ym) {
+  const [y, m] = ym.split('-');
+  return `${y} 年 ${parseInt(m)} 月`;
+}
+
+function getMonthWeeks(ym) {
+  // 取得某月份涵蓋的所有 ISO 週次（逐日掃描，確保不漏週）
+  const [y, m] = ym.split('-').map(Number);
+  const weeks = new Set();
+  const daysInMonth = new Date(y, m, 0).getDate();
+  for(let day = 1; day <= daysInMonth; day++) weeks.add(weekStrOfDate(new Date(y, m-1, day)));
+  return [...weeks];
+}
+
+// 週次字串必須是 getWeekDatesFromStr() 的精準反函式（每週以「週一」起算）。
+// 舊寫法直接把日期套年度週次，週界會隨該年 1/1 是星期幾而變 →「月初落在週六/週日」的月份會整週漏抓。
+function week1MondayOf(yr) {
+  const d = new Date(yr, 0, 1), day = d.getDay();
+  d.setDate(d.getDate() + (day <= 4 ? 1 - day : 8 - day));
+  return d;
+}
+function weekStrOfDate(dt) {
+  const mon = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()); // 去掉時間，避免小數天數進位
+  mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));               // 退到該日所屬的週一
+  let yr = mon.getFullYear();
+  if(mon < week1MondayOf(yr)) yr--; else if(mon >= week1MondayOf(yr + 1)) yr++;  // 跨年首尾週
+  const w = Math.round((mon - week1MondayOf(yr)) / 604800000) + 1;
+  return `${yr}-W${String(w).padStart(2,'0')}`;
+}
+  
+function getWeekDatesFromStr(weekStr) {
+  const [yr, wk] = weekStr.split('-W').map(Number);
+  const d = new Date(yr, 0, 1);
+  const day = d.getDay();
+  d.setDate(d.getDate() + (wk-1)*7);
+  const offset = day <= 4 ? 1-day : 8-day;
+  d.setDate(d.getDate() + offset);
+  const res = [];
+  for(let i=0;i<7;i++){
+    res.push(`${d.getMonth()+1}/${d.getDate()}`);
+    d.setDate(d.getDate()+1);
+  }
+  return res;
+}
+
+// ===== 薪資計算核心 =====
+function hourlyRate(rec) { return SalaryCalc.hourlyRate(rec); }
+
+function calcEmpHours(empName) { return SalaryCalc.calcEmpHours(empName, { scheduleData, currentMonth }); }
+
+// 時薪支援時數（與 salary.html 一致）：本月排班中 isHourly=true 的時數
+// 判斷一筆排班記錄是否屬於某員工：本名出勤，或以支援身分（supportEmp='{homeStore}-{empName}'）出勤
+// 與 salary.html 一致——跨店支援記錄在接收店 name 是佔位名，須靠 supportEmp 認人
+function recBelongsTo(r, empName) { return SalaryCalc.recBelongsTo(r, empName); }
+function calcHourlySupportHours(empName) { return SalaryCalc.calcHourlySupportHours(empName, { scheduleData, currentMonth }); }
+
+function calcGross(rec) {
+  if(rec.grossAmt != null) return rec.grossAmt; // ✅ 讀 salary.html 存的實發快照（發給員工多少就顯示多少）
+  // fallback：舊月份無快照 → 即時算
+  const empObj = empList.find(e => e.name === (rec.empName || rec.name || ''));
+  const role = effSalaryRole(empObj, rec);
+  const isPart = role === ROLE_PART;
+  const rph = isPart ? 0 : hourlyRate(rec);
+  const totalH = isPart ? calcEmpHours(rec.empName || rec.name || '').totalH : 0;
+  const hourlySupportAmt = isPart ? 0 : Math.round(calcHourlySupportHours(rec.empName || '') * parseFloat(rec.hourlySupportRate || 0));
+  return SalaryCalc.grossFromParts(rec, { role, totalH, hourlySupportAmt, rph });
+}
+function calcDeduct(rec) { return rec.deductAmt != null ? rec.deductAmt : SalaryCalc.calcDeduct(rec); }
+
+function calcTotal(rec) {
+  if(rec.netAmt != null) return rec.netAmt; // ✅ 讀實發快照
+  return calcGross(rec) - calcDeduct(rec);
+}
+
+function getSalaryRecord(empName) {
+  return salaryData.records.find(r => r.empName === empName);
+}
+
+function buildDefaultRecord(emp) {
+  const prev = prevSalaryData.find(r => r.empName === emp.name) || {};
+  const { totalH, otH } = calcEmpHours(emp.name);
+  const base = { empName: emp.name, role: emp.role || ROLE_PART, payAsPartTime: !!emp.payAsPartTime };
+
+  if(effSalaryRole(emp) === ROLE_PART) {
+    return {
+      ...base,
+      wage: prev.wage !== undefined ? prev.wage : (emp.wage || 0),
+      roleBonus: prev.roleBonus !== undefined ? prev.roleBonus : 0,
+      hours: totalH,
+      holidayHours: prev.holidayHours !== undefined ? prev.holidayHours : 0,
+      extraHours: prev.extraHours !== undefined ? prev.extraHours : 0,
+      laborInsurance: prev.laborInsurance !== undefined ? prev.laborInsurance : (emp.laborInsurance || 0),
+      healthInsurance: prev.healthInsurance !== undefined ? prev.healthInsurance : (emp.healthInsurance || 0),
+      hasDependent: prev.hasDependent !== undefined ? prev.hasDependent : (emp.hasDependent || false),
+      laborPension: prev.laborPension !== undefined ? prev.laborPension : (emp.laborPension || 0),
+      personalSickLeave: 0,
+      otherDeduction: 0, otherDeductionNote: ''
+    };
+  } else {
+    return {
+      ...base,
+      baseSalary: prev.baseSalary || emp.baseSalary || 0,
+      fullAttendBase: prev.fullAttendBase !== undefined ? prev.fullAttendBase : (prev.fullAttendBonus || 0),
+      fullAttendBonus: prev.fullAttendBonus !== undefined ? prev.fullAttendBonus : 0,
+      otherBase: prev.otherBase || 0,
+      roleBonus: prev.roleBonus || 0,
+      mgmtOps: prev.mgmtOps || 0, mgmtQuality: prev.mgmtQuality || 0, mgmtKPI: prev.mgmtKPI || 0, mgmtAccount: prev.mgmtAccount || 0, mgmtLeader: prev.mgmtLeader || 0,
+      laborAllowance: prev.laborAllowance || 0, performance: prev.performance || 0, nightAllowance: prev.nightAllowance || 0, otherBonus: prev.otherBonus || 0,
+      lateMinutes: 0, otHours: otH, restDayOtHours: 0, restDayOtPay: 0, personalSickLeave: 0,
+      laborInsurance: prev.laborInsurance !== undefined ? prev.laborInsurance : (emp.laborInsurance || 0),
+      healthInsurance: prev.healthInsurance !== undefined ? prev.healthInsurance : (emp.healthInsurance || 0),
+      hasDependent: prev.hasDependent !== undefined ? prev.hasDependent : (emp.hasDependent || false),
+      laborPension: prev.laborPension !== undefined ? prev.laborPension : (emp.laborPension || 0),
+      otherDeduction: 0, otherDeductionNote: ''
+    };
+  }
+}
+
+// ===== 載入資料 =====
+async function loadLeaveData() {
+  const year = currentMonth.split('-')[0];
+  const prevYear = String(parseInt(year)-1);
+  leaveDataMap = {};
+  batchDataMap = {};
+  compDataMap = {};
+  try {
+    await Promise.all(empList.map(async emp => {
+      const [leaveSnap, batchSnap, compSnap, compPrevSnap] = await Promise.all([
+        window.db.collection('employees').doc(emp.name).collection('leaves').doc(year).get().catch(()=>null),
+        window.db.collection('employees').doc(emp.name).collection('leaveBatches').get().catch(()=>null),
+        window.db.collection('employees').doc(emp.name).collection('comp').doc(year).get().catch(()=>null),
+        window.db.collection('employees').doc(emp.name).collection('comp').doc(prevYear).get().catch(()=>null)
+      ]);
+      if(leaveSnap?.exists) leaveDataMap[emp.name] = leaveSnap.data();
+      let batches = [];
+      if(batchSnap) batchSnap.forEach(d => batches.push({id:d.id,...d.data()}));
+      batchDataMap[emp.name] = batches.sort((a,b)=>(a.grantDate||'').localeCompare(b.grantDate||''));
+      
+      const cd = compSnap?.exists ? compSnap.data() : { earned:0, used:0 };
+      const cpd = compPrevSnap?.exists ? compPrevSnap.data() : {};
+      const carriedRem = cpd.carried && !cpd.settled ? Math.max(0,(cpd.earned||0)-(cpd.used||0)-(cpd.carriedUsed||0)) : 0;
+      compDataMap[emp.name] = {
+        current: { earned: cd.earned||0, used: cd.used||0, remaining: Math.max(0,(cd.earned||0)-(cd.used||0)), settled: cd.settled||false },
+        carried: carriedRem > 0 ? { remaining: carriedRem, year: prevYear, settled: cpd.settled||false } : null,
+        totalRemaining: Math.max(0,(cd.earned||0)-(cd.used||0)) + carriedRem
+      };
+    }));
+  } catch(e) { console.warn('特補休讀取失敗:', e); }
+}
+
+async function loadSalaryData() {
+  currentStore = document.getElementById('storeSelector').value || currentStore;
+  if(!currentStore) { hideLoading(); return; }
+  document.getElementById('headerStore').textContent = currentStore;
+  showLoading('載入薪資明細...');
+
+  try {
+    let [empSnap, salSnap, prevSalSnap, accSnap] = await Promise.all([
+      window.db.collection('stores').doc(currentStore).collection('employees').get(),
+      window.db.collection('stores').doc(currentStore).collection('salary').doc(currentMonth).get(),
+      window.db.collection('stores').doc(currentStore).collection('salary').doc(getPrevMonth(currentMonth)).get(),
+      window.db.collection('users').where('store','==',currentStore).get().catch(()=>null)
+    ]);
+
+    // 調店後回看歷史薪資：若當月記錄裡找不到本人，掃描其他門市
+    const myEmpName = currentUser?.empName;
+    const hasMyRecord = salSnap.exists &&
+      (salSnap.data().records || []).some(r => r.empName === myEmpName);
+    if(!hasMyRecord && myEmpName) {
+      const otherStores = (appConfig.stores || []).filter(s => s !== currentStore);
+      for(const s of otherStores) {
+        const snap = await window.db.collection('stores').doc(s).collection('salary').doc(currentMonth).get().catch(()=>null);
+        if(snap?.exists && (snap.data().records || []).some(r => r.empName === myEmpName)) {
+          currentStore = s;
+          document.getElementById('storeSelector').value = s;
+          document.getElementById('headerStore').textContent = s;
+          [empSnap, salSnap, prevSalSnap, accSnap] = await Promise.all([
+            window.db.collection('stores').doc(s).collection('employees').get(),
+            snap,
+            window.db.collection('stores').doc(s).collection('salary').doc(getPrevMonth(currentMonth)).get().catch(()=>({ exists:false })),
+            window.db.collection('users').where('store','==',s).get().catch(()=>null)
+          ]);
+          break;
+        }
+      }
+    }
+
+    displayNameMap = {};
+    if(accSnap) accSnap.forEach(d => {
+      const acc = d.data();
+      if(acc.empName && acc.displayName) displayNameMap[acc.empName] = acc.displayName;
+    });
+
+    empList = [];
+    // ⚠️ 2026-08-28 修：這裡原本比對「月底」(salMonthEnd)，與店長端 salary.html 比對「月初」不一致
+    //    → 8/15 離職的員工看自己最後一個月薪資會被排除，畫面顯示「找不到您的薪資紀錄」，
+    //    正好打死「離職者期限內只能看薪資」的整個設計。改成與店長端完全同一條規則。
+    const salMonthStart = `${currentMonth}-01`;
+    empSnap.forEach(d => {
+      const data = d.data();
+      const status = data.status;
+      const effectDate = data.retireDate || data.transferDate;
+      // 生效日當天(含)之後就不屬本月；月中離職者仍留在最後一個月
+      const isEffective = ['離職','調走'].includes(status) && (!effectDate || effectDate <= salMonthStart);
+      if(!isEffective) empList.push({ name: d.id, ...data });
+    });
+    empList.sort((a,b) => (a.sortKey||0)-(b.sortKey||0));
+
+    salaryData = salSnap.exists ? salSnap.data() : { status: 'draft', records: [] };
+    if(!salaryData.records) salaryData.records = [];
+    prevSalaryData = prevSalSnap.exists ? (prevSalSnap.data().records || []) : [];
+
+    // 歷史月份鎖定職稱：過去月份且該員當月已有薪資記錄 → 職稱以記錄為準，
+    // 避免升遷/降職後回頭看舊月，職稱標籤與計算基準不一致
+    const nowYM = new Date().toISOString().slice(0,7);
+    if(currentMonth < nowYM) {
+      empList.forEach(e => {
+        const histRec = salaryData.records.find(r => r.empName === e.name);
+        if(histRec && histRec.role) e.role = histRec.role;
+      });
+    }
+
+    scheduleData = {};
+    const monthWeeks = getMonthWeeks(currentMonth);
+    const allStores = appConfig.stores || [currentStore];
+
+    await Promise.all(allStores.flatMap(store =>
+      monthWeeks.map(ws =>
+        window.db.collection('stores').doc(store).collection('weeks').doc(ws).get()
+          .then(snap => {
+            if(!snap.exists) return;
+            const recs = snap.data().records || [];
+            const tagged = recs.map(r => ({ ...r, _store: store }));
+            if(!scheduleData[ws]) scheduleData[ws] = [];
+            tagged.forEach(r => {
+              // ✅ 與 salary.html 對齊：去重身分含 supportEmp，避免同名佔位支援記錄被誤刪
+              const exists = scheduleData[ws].find(e => e.name === r.name && e.day === r.day && e._store === currentStore && (e.supportEmp||'') === (r.supportEmp||''));
+              if(!exists) scheduleData[ws].push(r);
+            });
+          })
+          .catch(()=>{})
+      )
+    ));
+
+    updateStatusBadge();
+    await loadLeaveData();
+    await loadMyAck();
+    renderEmpList();
+  } catch(e) {
+    console.error('loadSalaryData 失敗:', e);
+    showToast('❌ 載入失敗：' + e.message);
+    document.getElementById('empList').innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><div style="font-weight:700;">載入失敗</div><div style="font-size:12px;margin-top:4px;">${e.message}</div></div>`;
+  }
+  hideLoading();
+}
+
+// ===== UI 渲染與事件 =====
+function changeMonth(offset) {
+  const [y, m] = currentMonth.split('-').map(Number);
+  let nm = m + offset, ny = y;
+  if(nm < 1) { ny--; nm = 12; }
+  if(nm > 12) { ny++; nm = 1; }
+  const now = new Date();
+  const nowYM = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  const newYM = `${ny}-${String(nm).padStart(2,'0')}`;
+
+  if(newYM >= nowYM) { showToast('⚠️ 當月薪資需等到下個月才可查看'); return; }
+  
+  // 員工限制只能看過去 12 個月
+  if(offset < 0) {
+    const limitDate = new Date(now.getFullYear(), now.getMonth() - 12, 1);
+    const limitYM = `${limitDate.getFullYear()}-${String(limitDate.getMonth()+1).padStart(2,'0')}`;
+    if(newYM < limitYM) { showToast('⚠️ 最多只能查閱近12個月的薪資'); return; }
+  }
+
+  currentMonth = newYM;
+  document.getElementById('monthLabel').textContent = getMonthLabel(currentMonth);
+  loadSalaryData();
+}
+
+function updateHeaderInfo() {
+  if(!currentUser) return;
+  const PERM_LABELS = { 'employee':'員工', 'manager':'店長', 'owner':'加盟主', 'admin':'系統管理者' };
+  const name = currentUser.displayName || currentUser.empName || currentUser.username || '';
+  const permText = PERM_LABELS[currentUser.permission] || currentUser.permission || '';
+  const storeText = currentUser.store || '全門市';
+  document.getElementById('headerUserInfo').textContent = name ? `${name}・${permText}・${storeText}` : `${permText}・${storeText}`;
+}
+
+function updateStatusBadge() {
+  const badge = document.getElementById('statusBadge');
+  const s = salaryData.status || 'draft';
+  const map = { draft:'草稿', submitted:'已送出', approved:'已審核', published:'已發布' };
+  badge.textContent = map[s] || '草稿';
+  badge.className = `status-badge status-${s}`;
+}
+
+// ===== 薪資簽收（步驟3）=====
+async function loadMyAck() {
+  myAck = null;
+  if(!currentUser?.uid || (salaryData.status||'draft') !== 'published') return;
+  if(currentMonth < SALARY_ACK_START) return; // 早於啟動月不需簽
+  try {
+    const doc = await window.db.collection('salaryAck').doc(`${currentUser.uid}_${currentMonth}`).get();
+    if(doc.exists) myAck = doc.data();
+  } catch(e) { console.error('loadMyAck 失敗', e); }
+}
+// 簽收狀態：na(不需簽)/unsigned/signed/resign(薪資已更新需重簽)
+function getAckState(rec) {
+  if((salaryData.status||'draft') !== 'published') return 'na';
+  if(currentMonth < SALARY_ACK_START) return 'na';
+  if(!myAck) return 'unsigned';
+  return (myAck.signedPayHash || '') === (rec.payHash || '') ? 'signed' : 'resign';
+}
+function fmtSignedAt(iso){
+  if(!iso) return ''; const d=new Date(iso);
+  return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+function renderSignBlock(state){
+  const wrap = h => `<div style="padding:10px 14px;border-top:1px solid var(--border);">${h}</div>`;
+  if(state === 'signed')
+    return wrap(`<div style="font-size:13px;color:#2e7d32;font-weight:700;">✅ 已於 ${fmtSignedAt(myAck.signedAt)} 簽收 <span onclick="event.stopPropagation();viewMySignature()" style="color:#1a73e8;text-decoration:underline;cursor:pointer;margin-left:6px;">看簽名</span></div>`);
+  if(state === 'resign')
+    return wrap(`<div style="font-size:13px;color:#e65100;font-weight:800;margin-bottom:6px;">🟠 薪資已更新，請重新簽收</div><button onclick="event.stopPropagation();openSignatureModal()" style="width:100%;padding:11px;background:#e65100;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;cursor:pointer;">✍️ 重新簽名簽收</button>`);
+  if(state === 'unsigned')
+    return wrap(`<button onclick="event.stopPropagation();openSignatureModal()" style="width:100%;padding:11px;background:var(--danger,#d93025);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;cursor:pointer;">✍️ 簽名簽收</button>`);
+  return '';
+}
+
+// 渲染員工列表：強制過濾本人與發布狀態
+function renderEmpList() {
+  const el = document.getElementById('empList');
+  const status = salaryData.status || 'draft';
+
+  // 收回發布即消失邏輯：若狀態不是已發布，員工端隱藏內容
+  if (status !== 'published') {
+    el.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">⏳</div>
+        <div style="font-weight:700;">${currentMonth.replace('-','年')}月薪資計算中</div>
+        <div style="font-size:12px;margin-top:4px;">請待管理員發布後查看。</div>
+      </div>`;
+    return;
+  }
+
+  // 僅過濾出本人的紀錄
+  let emps = empList.filter(e => e.name === currentUser.empName);
+
+  if (emps.length === 0) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">👤</div><div>找不到您的薪資紀錄</div></div>`;
+    return;
+  }
+
+  // 渲染個人卡片
+  el.innerHTML = emps.map((emp, idx) => {
+    let rec = getSalaryRecord(emp.name) || buildDefaultRecord(emp);
+    const total = calcTotal(rec);
+    const signBlock = renderSignBlock(getAckState(rec));
+    return `
+      <div class="emp-salary-card">
+        <div class="emp-salary-header" onclick="openEmpModal('${emp.name.replace(/'/g, "\\'")}')">
+          <div class="emp-salary-avatar" style="background:linear-gradient(135deg,#1a73e8,#0d47a1);">${getDisplayName(emp.name)[0]}</div>
+          <div class="emp-salary-info">
+            <div class="emp-salary-name">${getDisplayName(emp.name)}</div>
+            <div class="emp-salary-role">${currentMonth.replace('-','年')}月 · 薪資明細已發布</div>
+          </div>
+          <div class="emp-salary-total">$${total.toLocaleString()}</div>
+          <div style="font-size:18px;color:var(--text-muted);">›</div>
+        </div>
+        ${signBlock}
+      </div>`;
+  }).join('');
+}
+
+function openEmpModal(empName) {
+  currentEmpModal = empName;
+  const emp = empList.find(e => e.name === empName);
+  if(!emp) return;
+  let rec = getSalaryRecord(empName) || buildDefaultRecord(emp);
+  
+  const total = calcTotal(rec);
+
+  document.getElementById('empModalTitle').textContent = getDisplayName(empName);
+  document.getElementById('empModalRole').textContent = `${emp.role||''} · ${currentMonth.replace('-','年')}月`;
+  document.getElementById('empModalTotal').textContent = `$${total.toLocaleString()}`;
+  
+  // 直接渲染一頁式三欄內容，my-salary 為唯讀檢視
+  document.getElementById('empModalBody').innerHTML = renderSalaryForm(emp, rec, 0, true);
+
+  openModal('empEditModal');
+}
+
+function closeEmpModal() {
+  closeModal('empEditModal');
+  currentEmpModal = null;
+}
+
+// ===== 簽名板 =====
+let _sigCtx=null, _sigDrawing=false, _sigHasInk=false;
+function openSignatureModal(){ openModal('signatureModal'); setTimeout(initSigCanvas, 60); }
+function closeSignatureModal(){ closeModal('signatureModal'); }
+function initSigCanvas(){
+  const c=document.getElementById('sigCanvas');
+  const rect=c.getBoundingClientRect();
+  const dpr=window.devicePixelRatio||1;
+  c.width=rect.width*dpr; c.height=rect.height*dpr;
+  _sigCtx=c.getContext('2d');
+  _sigCtx.scale(dpr,dpr);
+  _sigCtx.lineWidth=2.5; _sigCtx.lineCap='round'; _sigCtx.lineJoin='round'; _sigCtx.strokeStyle='#1a1a1a';
+  _sigHasInk=false;
+  const pos=e=>{ const r=c.getBoundingClientRect(); const t=e.touches?e.touches[0]:e; return { x:t.clientX-r.left, y:t.clientY-r.top }; };
+  const start=e=>{ e.preventDefault(); _sigDrawing=true; const p=pos(e); _sigCtx.beginPath(); _sigCtx.moveTo(p.x,p.y); };
+  const move=e=>{ if(!_sigDrawing) return; e.preventDefault(); const p=pos(e); _sigCtx.lineTo(p.x,p.y); _sigCtx.stroke(); _sigHasInk=true; };
+  const end=()=>{ _sigDrawing=false; };
+  c.onmousedown=start; c.onmousemove=move; c.onmouseup=end; c.onmouseleave=end;
+  c.ontouchstart=start; c.ontouchmove=move; c.ontouchend=end;
+}
+function clearSignature(){
+  if(!_sigCtx) return; const c=document.getElementById('sigCanvas');
+  _sigCtx.clearRect(0,0,c.width,c.height); _sigHasInk=false;
+}
+async function confirmSignature(){
+  if(!_sigHasInk){ alert('請先簽名'); return; }
+  const emp=empList.find(e=>e.name===currentUser.empName);
+  const rec=emp?getSalaryRecord(emp.name):null;
+  if(!rec){ alert('找不到您的薪資紀錄'); return; }
+  const dataUrl=document.getElementById('sigCanvas').toDataURL('image/png');
+  showLoading('簽收中...');
+  try{
+    const id=`${currentUser.uid}_${currentMonth}`;
+    await window.db.collection('salaryAck').doc(id).set({
+      uid:currentUser.uid, empName:currentUser.empName, store:currentStore, month:currentMonth,
+      signedPayHash: rec.payHash||'', signedAt: new Date().toISOString()
+    });
+    await window.db.collection('salaryAckSig').doc(id).set({ signatureDataUrl:dataUrl });
+    closeSignatureModal();
+    await loadMyAck();
+    renderEmpList();
+    showToast('✅ 已完成簽收');
+  }catch(e){ showToast('❌ 簽收失敗：'+e.message); }
+  hideLoading();
+}
+async function viewMySignature(){
+  showLoading('載入簽名...');
+  try{
+    const doc=await window.db.collection('salaryAckSig').doc(`${currentUser.uid}_${currentMonth}`).get();
+    hideLoading();
+    if(doc.exists && doc.data().signatureDataUrl){
+      document.getElementById('viewSigImg').src=doc.data().signatureDataUrl;
+      openModal('viewSigModal');
+    } else { showToast('找不到簽名圖'); }
+  }catch(e){ hideLoading(); showToast('❌ 載入失敗'); }
+}
+
+// 核心：一頁三欄橫向滑動佈局
+function renderSalaryForm(emp, rec, idx, readonly) {
+  const isPart = effSalaryRole(empList.find(e=>e.name===(rec.empName||rec.name||'')), rec) === ROLE_PART; // ✅ 與 salary.html 對齊：payAsPartTime 亦視為工讀
+  const { totalH } = calcEmpHours(emp.name);
+  const rph = isPart ? 0 : hourlyRate(rec);
+  const gross = calcGross(rec);
+  const deduct = calcDeduct(rec);
+
+  // 輔助函式：若數值為 0 則不顯示該行
+  const fieldIfExist = (label, val, unit="$") => {
+    if (!val || val === 0) return '';
+    return `<div class="salary-row"><span class="salary-row-label">${label}</span><span class="salary-row-val">${unit}${val.toLocaleString()}</span></div>`;
+  };
+
+  // --- 欄位 1：考勤 ---
+  const leaveInfo = leaveDataMap[emp.name] || {};
+  const remainComp = (typeof leaveInfo.earnedComp==='number') ? (leaveInfo.earnedComp-leaveInfo.usedComp) : '--';
+  const annualDays = leaveInfo.annualDays ?? '--';
+  const usedAnnual = leaveInfo.usedAnnual ?? '--';
+  const remainAnnual = (typeof annualDays==='number' && typeof usedAnnual==='number') ? annualDays-usedAnnual : '--';
+  
+  let col1 = `<div class="col-card">
+    <div class="col-header c3">1. 考勤紀錄與餘額</div>
+    <div class="salary-row"><span class="salary-row-label">平日加班時數</span><span class="salary-row-val">${rec.otHours||0} h</span></div>
+    <div class="salary-row"><span class="salary-row-label">遲到分鐘數</span><span class="salary-row-val">${rec.lateMinutes||0} m</span></div>
+    <div class="salary-row" style="margin-top:8px; background:#f0f9ff; padding:8px; border-radius:8px;">
+      <span class="salary-row-label">剩餘補休天數</span><span class="salary-row-val" style="color:var(--accent); font-weight:800;">${remainComp} 天</span>
+    </div>
+    <div class="salary-row"><span class="salary-row-label">特休(發/用/剩)</span><span class="salary-row-val">${annualDays}/${usedAnnual}/${remainAnnual}</span></div>
+    <div style="border-top:1px solid #eee; margin:12px 0;"></div>
+    ${renderCalendar(emp.name, effSalaryRole(emp, rec))}
+  </div>`;
+
+  // --- 欄位 2：薪資 ---
+  let col2 = `<div class="col-card">
+    <div class="col-header c1">2. 薪資項目</div>
+    ${isPart ? `<div class="salary-row"><span class="salary-row-label">本薪 (${totalH}h)</span><span class="salary-row-val">$${Math.round(totalH*(rec.wage||0)).toLocaleString()}</span></div>` : `<div class="salary-row"><span class="salary-row-label">本薪 (底薪)</span><span class="salary-row-val">$${(rec.baseSalary||0).toLocaleString()}</span></div>`}
+    ${isPart ? fieldIfExist(`國假加給 (${rec.holidayHours||0}h×1)`, Math.round((rec.wage||0) * parseFloat(rec.holidayHours||0))) : ''}
+    ${isPart ? fieldIfExist(`額外時數 (${rec.extraHours||0}h)`, Math.round((rec.wage||0) * parseFloat(rec.extraHours||0))) : ''}
+    ${fieldIfExist('全勤獎金', rec.fullAttendBonus)}
+    ${fieldIfExist('職務津貼', rec.roleBonus)}
+    ${(()=>{ // 平日加班費：與 calcGross 一致（支援自訂加班時薪）
+      const hasCustom = rec.customOtEnabled === true;
+      const otRate = hasCustom ? parseFloat(rec.customOtRate||0) : Math.ceil(rph);
+      const otMult = hasCustom ? (rec.customOtX134 !== false ? 1.34 : 1) : 1.34;
+      return fieldIfExist('平日加班費', Math.ceil(otRate * otMult * parseFloat(rec.otHours||0)));
+    })()}
+    ${fieldIfExist('時薪支援費', Math.round(calcHourlySupportHours(rec.empName||emp.name||'') * parseFloat(rec.hourlySupportRate||0)))}
+    ${fieldIfExist('補貼/其他', (parseFloat(rec.nightAllowance||0) + parseFloat(rec.laborAllowance||0) + parseFloat(rec.otherBonus||0)))}
+    <div class="salary-total-row">
+      <span class="salary-total-label">應發薪資總計</span>
+      <span class="salary-total-val" style="color:var(--primary);">$${gross.toLocaleString()}</span>
+    </div>
+  </div>`;
+
+  // --- 欄位 3：代扣 ---
+  let col3 = `<div class="col-card">
+    <div class="col-header c2">3. 代扣項目</div>
+    <div class="salary-row"><span class="salary-row-label">勞保費</span><span class="salary-row-val">$${(rec.laborInsurance||0).toLocaleString()}</span></div>
+    <div class="salary-row"><span class="salary-row-label">健保費 (含眷屬)</span><span class="salary-row-val">$${((rec.healthInsurance||0) + (rec.dependentInsurance||0)).toLocaleString()}</span></div>
+    <div class="salary-row"><span class="salary-row-label">勞退個人自提</span><span class="salary-row-val">$${(rec.laborPension||0).toLocaleString()}</span></div>
+    ${fieldIfExist('其他扣款', rec.otherDeduction)}
+    <div class="salary-total-row">
+      <span class="salary-total-label">代扣合計</span>
+      <span class="salary-total-val" style="color:var(--danger);">-$${deduct.toLocaleString()}</span>
+    </div>
+    ${(()=>{
+      const lEr = rec.laborEr||0, hEr = rec.healthEr||0, pEr = rec.pensionEr||0;
+      const total = lEr + hEr + pEr;
+      if(!total) return '';
+      const row = (label, val) => val > 0
+        ? `<div style="display:flex;justify-content:space-between;font-size:11px;color:#94a3b8;padding:2px 0;">
+             <span>${label}</span><span>$${val.toLocaleString()}</span></div>` : '';
+      return `<div style="margin-top:12px;padding:10px;background:#f8fafc;border-radius:8px;border:1px dashed #cbd5e1;">
+        <div style="font-size:11px;font-weight:800;color:#94a3b8;margin-bottom:6px;letter-spacing:0.3px;">公司負擔備註欄</div>
+        ${row('勞保（公司付）', lEr)}
+        ${row('健保（公司付）', hEr)}
+        ${row('勞退提撥（公司）', pEr)}
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:#94a3b8;padding-top:6px;margin-top:4px;border-top:1px solid #e2e8f0;font-weight:800;">
+          <span>小計</span><span>$${total.toLocaleString()}</span>
+        </div>
+        <div style="margin-top:8px;font-size:10px;color:#94a3b8;line-height:1.6;background:#fff;border-radius:6px;padding:6px 8px;border:1px solid #e2e8f0;">
+          ⚠️ 注意：此區塊為「公司負擔額備註欄」，非員工扣款項目。實領薪資計算公式已排除此區金額，特此說明。
+        </div>
+      </div>`;
+    })()}
+  </div>`;
+
+  return `<div class="layout-3col-scroll">${col1}${col2}${col3}</div>
+    <div style="text-align:center; font-size:11px; color:var(--text-muted); margin-top:15px; border-top:1px solid #eee; padding-top:10px;">
+      💡 電腦版可直接查閱，手機版請左右滑動分欄
+    </div>`;
+}
+
+function buildCalendarData(empName, role) {
+  const [y, m] = currentMonth.split('-').map(Number);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const dayNames = ['週一','週二','週三','週四','週五','週六','週日'];
+  
+  const empRecs = {};
+  Object.entries(scheduleData).forEach(([ws, recs]) => {
+    recs.forEach(r => {
+      if(r.name !== empName) return;
+      const wDates = getWeekDatesFromStr(ws);
+      const dIdx = dayNames.indexOf(r.day);
+      if(dIdx < 0) return;
+      const dateStr = wDates[dIdx];
+      if(!dateStr) return;
+      const [dm, dd] = dateStr.split('/').map(Number);
+      if(dm !== m) return;
+      empRecs[dd] = r;
+    });
+  });
+  return { empRecs, daysInMonth, firstWeekday: new Date(y, m-1, 1).getDay() };
+}
+
+function renderCalendar(empName, role) {
+  const { empRecs, daysInMonth, firstWeekday } = buildCalendarData(empName, role);
+  const [cy, cm] = currentMonth.split('-').map(Number);
+  const isPartTime = role === ROLE_PART;
+  const dayLabels = ['一','二','三','四','五','六','日'];
+  const startOffset = firstWeekday === 0 ? 6 : firstWeekday - 1;
+  
+  let totalH = 0, totalOT = 0, totalOff = 0, workDays = 0;
+  // ✅ Bug3修正：細分統計
+  let offRegular = 0, offCompAnnual = 0, offHourly = 0;
+  
+  const heads = dayLabels.map(d => `<div class="cal-head">${d}</div>`).join('');
+  const empties = Array(startOffset).fill('<div class="cal-cell"></div>').join('');
+  
+  const cells = Array.from({length: daysInMonth}, (_, i) => {
+    const d = i + 1;
+    const rec = empRecs[d];
+    const shift = rec?.shift || '';
+    const h = parseFloat(rec?.actualHours || 0);
+    const isRegOff = shift === '排休' || shift === '指休';
+    const isAnnual = shift === '特休';
+    const isComp   = shift === '補休';
+    const isOff    = isRegOff || isAnnual || isComp;
+    const isHourlyDay = rec?.isHourly || false;
+    const isOT = rec?.isOT || h > 8;
+    const otH = isOT ? Math.max(0, h-8) : 0;
+
+    const weekday = new Date(cy, cm-1, d).getDay();
+    const isWeekend = weekday === 0 || weekday === 6;
+
+    if(isOff) {
+      totalOff++;
+      if(isRegOff) offRegular++;
+      else offCompAnnual++;
+    }
+    // ✅ Bug5修正：時薪另計視為休假
+    else if(isHourlyDay) { totalOff++; offHourly++; }
+    else if(shift) { workDays++; totalH += h; totalOT += otH; }
+
+    let cellClass = 'cal-cell';
+    let valHtml = '';
+    let cellStyle = '';
+
+    const dateStr2 = `${String(cy).padStart(4,'0')}-${String(cm).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const holiday = TW_HOLIDAYS[dateStr2];
+    const isHoliday = !!holiday;
+
+    if(isWeekend && !shift && !isHourlyDay) cellStyle += 'background:#f1f3f4;';
+
+    if(isHourlyDay) {
+      cellClass += ' leave';
+      // ✅ Bug5修正：顯示「時薪另計」
+      valHtml = `<div class="cal-cell-val" style="color:#7c3aed;font-size:9px;font-weight:800;line-height:1.2;">時薪<br>另計</div>`;
+    } else if(isAnnual) {
+      cellStyle += 'background:#f5f3ff;border:1.5px solid #c4b5fd;';
+      valHtml = `<div class="cal-cell-val" style="color:#7c3aed;font-size:10px;font-weight:800;">特休</div>`;
+    } else if(isComp) {
+      cellStyle += 'background:#ecfeff;border:1.5px solid #a5f3fc;';
+      valHtml = `<div class="cal-cell-val" style="color:#0891b2;font-size:10px;font-weight:800;">補休</div>`;
+    } else if(isRegOff) {
+      cellClass += ' leave';
+      valHtml = `<div class="cal-cell-val" style="font-size:11px;">休</div>`;
+    } else if(shift) {
+      if(isOT && !isPartTime) {
+        cellClass += ' ot';
+        valHtml = isPartTime
+          ? `<div class="cal-cell-val">${h}h</div>`
+          : `<div class="cal-cell-val" style="font-size:10px;font-weight:800;">加班</div><div style="font-size:9px;color:var(--accent);font-weight:800;">+${Math.round(otH*10)/10}h</div>`;
+      } else {
+        cellClass += ' work';
+        valHtml = isPartTime
+          ? `<div class="cal-cell-val">${h}h</div>`
+          : `<div class="cal-cell-val">✓</div>`;
+      }
+    }
+
+    if(isHoliday && !isOff) cellStyle += 'border:1.5px solid #fca5a5;';
+    if(isHoliday && isRegOff) cellStyle += 'background:#fce8e6;';
+    // ✅ Bug2修正：顯示國定假日完整名稱
+    const holidayBadge = isHoliday
+      ? `<div style="font-size:8px;color:#c0392b;font-weight:800;line-height:1.2;margin-top:1px;word-break:keep-all;">${holiday}</div>`
+      : '';
+
+    return `<div class="${cellClass}" style="${cellStyle}">
+      <div class="cal-cell-date" style="${isHoliday ? 'color:#c0392b;font-weight:900;' : isWeekend ? 'color:#94a3b8;' : ''}">${d}</div>
+      ${valHtml}
+      ${holidayBadge}
+    </div>`;
+  }).join('');
+  
+  const totalR = Math.round(totalH*10)/10;
+  const totalOTR = Math.round(totalOT*10)/10;
+  
+  // ✅ Bug3修正：統計欄位重構
+  let summaryHtml = '';
+  if(isPartTime) {
+    summaryHtml = `
+      <div class="cal-summary-item">⏱️ 出勤時數 ${totalR}h</div>
+      <div class="cal-summary-item" style="color:var(--danger);">😴 例休 ${offRegular}天</div>
+      ${offCompAnnual > 0 ? `<div class="cal-summary-item" style="color:#7c3aed;">📋 補特休 ${offCompAnnual}天</div>` : ''}
+      ${offHourly > 0 ? `<div class="cal-summary-item" style="color:#7c3aed;">⏱️ 時薪另計 ${offHourly}天</div>` : ''}`;
+  } else {
+    summaryHtml = `
+      <div class="cal-summary-item">📅 出勤 ${workDays}天</div>
+      <div class="cal-summary-item" style="color:var(--danger);">😴 例休 ${offRegular}天</div>
+      <div class="cal-summary-item" style="color:var(--accent);">⚡ 加班 ${totalOTR}h</div>
+      ${offCompAnnual > 0 ? `<div class="cal-summary-item" style="color:#7c3aed;">📋 補特休 ${offCompAnnual}天</div>` : ''}
+      ${offHourly > 0 ? `<div class="cal-summary-item" style="color:#7c3aed;">⏱️ 時薪另計 ${offHourly}天</div>` : ''}`;
+  }
+  
+  return `<div class="cal-wrap">
+    <div class="cal-title">📅 ${currentMonth.replace('-','年')}月 出勤月曆</div>
+    <div class="cal-grid">
+      ${heads}${empties}${cells}
+    </div>
+    <div class="cal-summary">${summaryHtml}</div>
+  </div>`;
+}
+
+// ===== 薪資頁身分驗證 =====
+function showSalaryAuth(hasPassword) {
+  document.getElementById('salaryAuthConfirmBtn').style.display = hasPassword ? '' : 'none';
+  document.getElementById('salaryAuthPwd').style.display = hasPassword ? '' : 'none';
+  document.getElementById('salaryAuthGoogleBtn').style.display = hasPassword ? 'none' : 'flex';
+  document.getElementById('salaryAuthOverlay').classList.add('active');
+  if(hasPassword) setTimeout(() => document.getElementById('salaryAuthPwd').focus(), 100);
+}
+
+async function verifySalaryAuth() {
+  const pwd = document.getElementById('salaryAuthPwd').value;
+  const errEl = document.getElementById('salaryAuthErr');
+  if(!pwd) { errEl.textContent = '請輸入密碼'; return; }
+  errEl.textContent = '';
+  try {
+    await authReauthenticate(pwd);
+    document.getElementById('salaryAuthOverlay').classList.remove('active');
+    await _initSalaryShell();
+  } catch(e) {
+    console.error('[salaryAuth]', e.code, e.message);
+    const msg = (e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential')
+      ? '密碼錯誤，請重新輸入'
+      : e.code === 'auth/too-many-requests'
+      ? '嘗試次數過多，請稍後再試'
+      : e.code === 'auth/network-request-failed'
+      ? '網路連線失敗，請重試'
+      : e.code === 'auth/user-disabled'
+      ? '帳號已停用，請聯絡管理員'
+      : '驗證失敗，請重試';
+    errEl.textContent = msg;
+    document.getElementById('salaryAuthPwd').value = '';
+    document.getElementById('salaryAuthPwd').focus();
+  }
+}
+
+async function verifySalaryGoogle() {
+  const errEl = document.getElementById('salaryAuthErr');
+  errEl.textContent = '';
+  try {
+    await authReauthenticate(null);
+    document.getElementById('salaryAuthOverlay').classList.remove('active');
+    await _initSalaryShell();
+  } catch(e) {
+    if(e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request') return;
+    errEl.textContent = e.code === 'auth/network-request-failed' ? '網路連線失敗，請重試' : '驗證失敗，請重試';
+  }
+}
+
+async function _initSalaryShell() {
+  showLoading('載入系統設定...');
+  try {
+    const cachedConfig = localStorage.getItem('appConfig');
+    if(cachedConfig) try { appConfig = JSON.parse(cachedConfig); } catch(e) {}
+    try {
+      const snap = await Promise.race([
+        window.db.collection('settings').doc('globalConfig').get(),
+        new Promise((_,rej) => setTimeout(()=>rej(new Error('timeout')),5000))
+      ]);
+      if(snap.exists) { appConfig = snap.data(); localStorage.setItem('appConfig', JSON.stringify(appConfig)); }
+    } catch(e) {}
+
+    // 規則：薪資永遠顯示「上個曆月」，當月薪資需等到下個月才可查看
+    const now = new Date();
+    const prevM = now.getMonth() === 0 ? 12 : now.getMonth();
+    const prevY = now.getMonth() === 0 ? now.getFullYear()-1 : now.getFullYear();
+    currentMonth = `${prevY}-${String(prevM).padStart(2,'0')}`;
+    // 允許 ?month=YYYY-MM 直接跳到指定月（首頁待簽收提醒用）
+    const _qMonth = new URLSearchParams(location.search).get('month');
+    if(_qMonth && /^\d{4}-\d{2}$/.test(_qMonth)) currentMonth = _qMonth;
+    document.getElementById('monthLabel').textContent = getMonthLabel(currentMonth);
+
+    const sel = document.getElementById('storeSelector');
+    (appConfig.stores || []).forEach(s => sel.innerHTML += `<option value="${s}">${s}</option>`);
+
+    currentStore = currentUser.store || appConfig.stores[0] || '';
+    sel.value = currentStore;
+
+    if(!currentStore) {
+      hideLoading();
+      alert('無法取得門市資料，請返回首頁重新登入');
+      window.location.replace('home.html');
+      return;
+    }
+
+    document.getElementById('appShell').classList.add('active');
+    updateHeaderInfo();
+
+    let isPreview = false;
+    if(sessionStorage.getItem('isPreviewMode') === '1') {
+      const realStr  = localStorage.getItem('currentUser');
+      const sessStr  = sessionStorage.getItem('currentUser');
+      if(realStr && sessStr) {
+        try {
+          const real = JSON.parse(realStr);
+          const sess = JSON.parse(sessStr);
+          isPreview = real.permission !== sess.permission;
+        } catch(e) {}
+      }
+    }
+    const previewBanner = document.getElementById('salaryPreviewBanner');
+    if(previewBanner) previewBanner.style.display = isPreview ? 'block' : 'none';
+    hideLoading();
+    await loadSalaryData();
+  } catch(e) {
+    hideLoading();
+    alert('載入失敗：' + e.message);
+  }
+}
+
+// ===== 系統初始化 =====
+window.onload = async () => {
+  showLoading('驗證登入狀態...');
+  const saved = localStorage.getItem('currentUser') || sessionStorage.getItem('currentUser');
+  if(!saved) { window.location.replace('home.html'); return; }
+  try { currentUser = JSON.parse(saved); } catch(e) { window.location.replace('home.html'); return; }
+
+  const _fbAuth = await new Promise(r => { const u = firebase.auth().onAuthStateChanged(fb => { u(); r(fb); }); });
+  if (!_fbAuth) { localStorage.removeItem('currentUser'); sessionStorage.removeItem('currentUser'); window.location.replace('home.html'); return; }
+
+  hideLoading();
+  const hasPassword = _fbAuth.providerData.some(p => p.providerId === 'password');
+  showSalaryAuth(hasPassword);
+};
