@@ -8,6 +8,31 @@
 
 ### 2026-09-05（六）
 
+#### ⚙️ 載入效能：九頁行內 JS 外部化，每次開頁少下載 370KB
+
+`sw.js` 對 HTML 是 `fetch(cache:'no-cache')`＝**每次開頁都完整下載**；對 `.js` 是普通 network-first，瀏覽器 HTTP 快取仍生效（GitHub Pages 回 `ETag` + `max-age=600`）。所以把行內 JS 搬出去＝把大部分位元組從「每次全下載」變成「304 空回應」。8/28 已處理 salary/schedule-V2/home，這次把剩下的九頁一次做完：
+
+| 頁面 | HTML 前 → 後 |
+|---|---|
+| employee-mgmt | 81KB → 24KB |
+| leave-request | 66KB → 16KB |
+| clock | 55KB → 11KB |
+| my-salary | 63KB → 19KB |
+| attendance | 46KB → 8KB |
+| owner-dashboard | 43KB → 6KB |
+| performance | 44KB → 11KB |
+| settings | 60KB → 27KB |
+| todo | 51KB → 18KB |
+
+合計 511KB → 140KB。**全專案已無 ≥8KB 的行內 JS 區塊。**
+
+- **`clock-page.js` 額外進 `sw.js` 的 `STATIC_ASSETS` 預快取**：打卡頁支援離線送出，外部化後若使用者「第一次開打卡頁就沒網路」，這支還沒進過快取會讓整頁死掉。預快取只是保底——`.js` 走 fetch handler 的 network-first 分支，每次成功抓取都會覆寫，不會卡在舊版（不是 Cache-First）。
+- **新增 `tools/externalize-inline-js.js`**：把搬移做成可重複執行的工具，內建四道安全檢查——只動沒有屬性的 `<script>`、`<script src>` 放回原位且**不加 defer/async**（執行順序與時機完全不變）、搬出內容逐位元組回驗、區塊之後不可有依賴它的 HTML。另檢查 `<script`/`</script>` 數量相等，避免字串裡藏 `</script>` 讓切點跑掉。
+- **驗證**：每頁搬完各跑一次 `check-globals`（它會跟著 `src=` 讀外部檔，看到的程式碼與外部化前完全相同）→ 全程 0 可疑；`check-clock-rules` 4237 筆比對相符；上線後逐一 curl 兩個網域，九支新 `.js` 的 shasum 與本機一致。一頁一個 commit，壞了可單獨 revert。
+
+⏳ 還沒做的：**行內 CSS 仍有 118KB**（home 26KB、schedule-V2 16KB…）。要比照處理得先讓 `sw.js` 把 `.css` 也走 network-first——目前 `.css` 會落到最後的 Cache-First 分支，就是「新版 HTML 配舊版樣式」那個踩過的坑。
+
+
 #### 🐛 跨店支援：支援日在班表上一律顯示成「休」
 
 同仁回報「支援都會變休」。實例：潘奕廷 9/11（週五）聯鑫記錄是 `排休`、美德那格是 `23-07 supportEmp=聯鑫-潘 approved`，首頁卻顯示「休 🆘美德」。
