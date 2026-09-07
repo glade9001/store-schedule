@@ -64,11 +64,14 @@ async function loadAll(){
     try{const p=await window.db.collection('stores').doc(s).collection('pnl').get();p.forEach(d=>DATA[s].pnl[d.id]=d.data());}catch(e){}
     try{const q=await window.db.collection('stores').doc(s).collection('perfSnapshot').get();q.forEach(d=>DATA[s].perf[d.id]=d.data());}catch(e){}
     try{const mo=await window.db.collection('stores').doc(s).collection('monthly').get();mo.forEach(d=>DATA[s].monthly[d.id]=d.data());}catch(e){}
+    DATA[s].amort=window.PnlLoss?window.PnlLoss.build(DATA[s].pnl):{};
   }
 }
 function allMonths(){const set=new Set();STORES.forEach(s=>Object.keys(DATA[s].pnl||{}).forEach(k=>{if(/^\d{4}-\d{2}$/.test(k))set.add(k);}));return[...set].sort();}
 function pnlOf(s,m){return DATA[s]&&DATA[s].pnl[m];}
 function perfOf(s,m){return (DATA[s]&&!PERF_EXCLUDE.has(m))?DATA[s].perf[m]:null;}
+// 盤損攤提：盤點 60~90 天一次，盤損屬整個區間 → 攤到每個月，口徑見 pnl-loss.js
+function amortOf(s,m){return (DATA[s]&&DATA[s].amort)?DATA[s].amort[m]:null;}
 
 // ===== 主渲染 =====
 async function renderAll(m){
@@ -173,6 +176,15 @@ function renderOverview(m){
 // ===== 店長管理力計分卡（benchmark 對標分數 0-100 × 權重；獲益優先）=====
 function renderScorecard(m,extra){
   const clamp=x=>Math.max(0,Math.min(100,x));
+  // 💰 獲利貢獻＝率分×0.7＋額分×0.3。純比率會讓不同規模的店在天花板上同分
+  //（2026-08：聯鑫 $96,369 與美德 $49,075 餘裕率同為 2.5% → 都是 100 分），故納入絕對金額。
+  const SURPLUS_FULL=100000;   // 餘裕金額拿滿分的門檻
+  const SURPLUS_RATE_FULL=4;   // 餘裕率拿滿分的門檻(%)，原為 2.5% 太低
+  const surplusSc=(v,r)=>{
+    const rateSc=clamp(50+v*(50/SURPLUS_RATE_FULL));
+    const absSc=(r.surplusAbs!=null)?clamp(r.surplusAbs/SURPLUS_FULL*100):null;
+    return absSc==null?rateSc:rateSc*0.7+absSc*0.3;
+  };
   const rows=STORES.map(s=>{
     const pn=pnlOf(s,m), pf=perfOf(s,m), ex=extra[s]||{};
     const net=pn?n(pn.netSales):null, labor=pf?n(pf.laborCost):null, hours=pf?n(pf.totalHours):null, rew=pn?n(pn.operatingReward):null;
@@ -181,11 +193,11 @@ function renderScorecard(m,extra){
     const head=ex.head||null;
     const curRate=(labor!=null&&net)? labor/net*100 : null;
     const rateY=(laborY!=null&&netY)? laborY/netY*100 : null;
-    // 淨損耗率 =（壞品 − 盤損 − 現金短溢）÷ 營收；盤損/現金短溢帶負號＝損失，正負自帶
-    let lossRate=null;
-    if(pn && net){ lossRate=(n(pn.badGoodsCost) - n(pn.invResult) + n(pn.cashDiff))/net*100; }
+    // 淨損耗率 =（壞品 − 攤提盤損 ＋ 現金短少）÷ 營收；盤損按盤點區間攤提，故無盤點月也可比
+    const am=amortOf(s,m);
+    const lossRate=window.PnlLoss?window.PnlLoss.lossRate(pn,am):null;
     return {
-      s, net, rew, head, turnover:ex.turnover, late:ex.late, law:ex.law,
+      s, net, rew, head, turnover:ex.turnover, late:ex.late, law:ex.law, amort:am,
       perHr:(net!=null&&hours)? net/hours : null,
       surplusAbs:(rew!=null&&labor!=null)? rew-labor : null,
       surplusRate:(rew!=null&&labor!=null&&net)? (rew-labor)/net*100 : null,        // 餘裕率(貢獻率)
@@ -198,18 +210,18 @@ function renderScorecard(m,extra){
   });
   // 每維度：val 取值、sc benchmark 0-100 分數、w 權重（獲益優先）
   const dims=[
-    {key:'surplusRate', w:1.3, ic:'💰', name:'獲利貢獻（餘裕率）', val:r=>r.surplusRate, sc:v=>clamp(50+v*20), fmt:v=>`餘裕率 ${v>=0?'+':''}${v.toFixed(1)}%`, sub:r=>`餘裕 $${r.surplusAbs!=null?money(r.surplusAbs):'—'}（未扣稅/水電/租金）`},
-    {key:'lossRate', w:1.0, ic:'🛡️', name:'損耗控制（淨損耗率）', val:r=>r.lossRate, sc:v=>clamp(100-Math.max(0,v-1)/0.5*15), fmt:v=>`淨損耗率 ${v.toFixed(2)}%`, sub:r=>'壞品＋盤損＋現金短少 ÷ 營收（損耗加總，越低越好）'},
+    {key:'surplusRate', w:1.3, ic:'💰', name:'獲利貢獻（餘裕率×金額）', val:r=>r.surplusRate, sc:surplusSc, fmt:v=>`餘裕率 ${v>=0?'+':''}${v.toFixed(1)}%`, sub:r=>`餘裕 $${r.surplusAbs!=null?money(r.surplusAbs):'—'}（未扣稅/水電/租金）· 率分 ${Math.round(clamp(50+r.surplusRate*(50/SURPLUS_RATE_FULL)))}×0.7 ＋ 額分 ${r.surplusAbs!=null?Math.round(clamp(r.surplusAbs/SURPLUS_FULL*100)):'—'}×0.3`},
+    {key:'lossRate', w:1.0, ic:'🛡️', name:'損耗控制（淨損耗率）', val:r=>r.lossRate, sc:v=>clamp(100-Math.max(0,v-1)/0.5*15), fmt:v=>`淨損耗率 ${v.toFixed(2)}%`, sub:r=>`壞品＋盤損＋現金短少 ÷ 營收（越低越好）· ${window.PnlLoss?window.PnlLoss.note(r.amort):''}`},
     {key:'salesYoY', w:1.0, ic:'📈', name:'業績成長（營收YoY）', val:r=>r.salesYoY, sc:v=>clamp(50+v*5), fmt:v=>`營收 YoY ${v>0?'+':''}${v.toFixed(1)}%`, sub:r=>`本月營收 $${r.net!=null?money(r.net):'—'}`},
     {key:'laborRate', w:0.6, ic:'📐', name:'人事費率水準', val:r=>r.laborRate, sc:v=>clamp(100-Math.max(0,v-9)*10), fmt:v=>`人事費率 ${v.toFixed(1)}%`, sub:r=>'含公司負擔÷營業淨額（越低越好）'},
-    {key:'law', w:0.5, ic:'⚖️', name:'合規紀律', val:r=>r.law, sc:v=>clamp(100-v*15), fmt:v=>`知情放行 ${v} 次`, sub:r=>'越少越守法'},
-    {key:'lateRate', w:0.5, ic:'⏰', name:'團隊出勤紀律（每人）', val:r=>r.lateRate, sc:v=>clamp(100-v/0.5*20), fmt:v=>`出勤異常 ${v.toFixed(2)} 次/人`, sub:r=>`遲到/早退/缺卡 ${r.late!=null?r.late:'—'} 次 · ${r.head||'—'} 人`},
+    {key:'law', w:0.3, ic:'⚖️', name:'合規紀律', val:r=>r.law, sc:v=>clamp(100-v*15), fmt:v=>`知情放行 ${v} 次`, sub:r=>'越少越守法'},
+    {key:'lateRate', w:0.3, ic:'⏰', name:'團隊出勤紀律（每人）', val:r=>r.lateRate, sc:v=>clamp(100-v/0.5*20), fmt:v=>`出勤異常 ${v.toFixed(2)} 次/人`, sub:r=>`遲到/早退/缺卡 ${r.late!=null?r.late:'—'} 次 · ${r.head||'—'} 人`},
     {key:'perHr', w:0.3, ic:'🏭', name:'坪效（每工時營收）', val:r=>r.perHr, sc:v=>clamp(50+(v-1500)/100*4), fmt:v=>`每工時營收 $${money(v)}`, sub:r=>'營業淨額÷總工時'},
     {key:'laborImprove', w:0.6, ic:'📉', name:'人事費率改善（同期）', val:r=>r.laborImprove, sc:v=>clamp(50+v*15), fmt:v=>`費率同期 ${v>=0?'↓改善 '+v.toFixed(1):'↑惡化 '+Math.abs(v).toFixed(1)}pt`, sub:r=>'需去年同期人事資料'},
   ];
   // 計分：benchmark 分數 × 權重 加總
   const total={}, scMap={}; STORES.forEach(s=>{total[s]=0;scMap[s]={};});
-  rows.forEach(r=>{ dims.forEach(d=>{ const v=d.val(r); const sc=(v!=null)?d.sc(v):null; scMap[r.s][d.key]=sc; if(sc!=null) total[r.s]+=sc*d.w; }); });
+  rows.forEach(r=>{ dims.forEach(d=>{ const v=d.val(r); const sc=(v!=null)?d.sc(v,r):null; scMap[r.s][d.key]=sc; if(sc!=null) total[r.s]+=sc*d.w; }); });
   const placeOf=s=>1+STORES.filter(o=>total[o]>total[s]).length;
   const ranked=[...STORES].sort((a,b)=>total[b]-total[a]);
   const scColor=sc=> sc==null?'#cbd5e1' : sc>=75?'#137333' : sc<40?'#c5221f':'#334155';
@@ -234,7 +246,7 @@ function renderScorecard(m,extra){
     });
     detail+=`</div>`;
   });
-  return head+tbl+`<div class="note"><b>計分＝各指標對「固定標準」打 0–100 分 × 權重加總</b>（不跟另兩家比名次，故不受單一離群值扭曲）。<b>獲益優先權重</b>：💰餘裕率 ×1.3、🛡️損耗控制 ×1.0、📈業績成長 ×1.0、📐人事費率 ×0.6、⚖️合規 ×0.5、⏰出勤 ×0.5、🏭坪效 ×0.3、📉費率改善 ×0.6。<b>餘裕率＝門市貢獻率（經營報酬−人事，未扣稅/水電/租金），非最終淨利</b>——稅/租金非店長可控，排除較公平。缺去年同期或打卡資料顯示「資料累積中」不計分。</div>`+detail;
+  return head+tbl+`<div class="note"><b>計分＝各指標對「固定標準」打 0–100 分 × 權重加總</b>（不跟另兩家比名次，故不受單一離群值扭曲）。<b>獲益優先權重</b>：💰獲利貢獻 ×1.3、🛡️損耗控制 ×1.0、📈業績成長 ×1.0、📐人事費率 ×0.6、📉費率改善 ×0.6、⚖️合規 ×0.3、⏰出勤 ×0.3、🏭坪效 ×0.3。<b>💰獲利貢獻＝餘裕率分 ×0.7 ＋ 餘裕金額分 ×0.3</b>（率滿分 4%、額滿分 $100,000）——只看比率會讓規模不同的兩家在天花板上同分。<b>餘裕率＝門市貢獻率（經營報酬−人事，未扣稅/水電/租金），非最終淨利</b>——稅/租金非店長可控，排除較公平。缺去年同期或打卡資料顯示「資料累積中」不計分。<b>盤損按盤點區間攤提</b>（盤點 60~90 天一次，盤損整筆記在盤點當月會讓該月店長背整個區間、其餘月份又虛高），未盤點區間沿用上次月均估算。</div>`+detail;
 }
 // ===== 決策警示 =====
 function renderAlerts(m,extra){
@@ -244,6 +256,8 @@ function renderAlerts(m,extra){
     if(pn&&pf&&n(pn.netSales)){ const rate=n(pf.laborCost)/n(pn.netSales)*100; if(rate>35) alerts.push({c:'a-red',t:`${s} 人事費率偏高 ${rate.toFixed(1)}%（>35%）`}); }
     if(pn&&pf){ const sur=n(pn.operatingReward)-n(pf.laborCost); if(sur<0) alerts.push({c:'a-red',t:`${s} 門市餘裕為負 ${money(sur)}（報酬不足以支應人事）`}); }
     if(pn&&n(pn.netSales)&&n(pn.badGoodsCost)){ const br=n(pn.badGoodsCost)/n(pn.netSales)*100; if(br>3) alerts.push({c:'a-warn',t:`${s} 壞品率偏高 ${br.toFixed(1)}%（>3%）`}); }
+    if(window.PnlLoss){ const lr=window.PnlLoss.lossRate(pn,amortOf(s,m)); const am=amortOf(s,m);
+      if(lr!=null&&lr>2.5) alerts.push({c:'a-warn',t:`${s} 淨損耗率偏高 ${lr.toFixed(2)}%（>2.5%，含攤提盤損${am&&am.est?'估算':''}）`}); }
     if(ex.law>=3) alerts.push({c:'a-warn',t:`${s} 排班知情放行 ${ex.law} 次，留意勞基法合規`});
     if(ex.late>=5) alerts.push({c:'a-warn',t:`${s} 本月遲到/缺卡 ${ex.late} 次，關注團隊出勤`});
   });
@@ -263,8 +277,8 @@ function openScoreHelp(){
   <div style="font-size:12px;color:#64748b;margin-bottom:12px;line-height:1.6;"><b>計分方式</b>：每個指標對「<b>固定標準</b>」打 <b>0–100 分</b>（不是跟另兩家比名次），再 <b>× 權重</b> 加總排名。好處：分數直接反映「多好/多差」，又不會被單一離群值或單月異常扭曲。整體<b>以加盟主獲益為優先</b>。</div>
 
   <div style="font-weight:900;font-size:13px;color:#4338ca;margin:6px 0 2px;">📌 各指標代表什麼</div>
-  ${item('💰','獲利貢獻（餘裕率）','（經營報酬 − 含支援人事成本）÷ 營收＝門市替加盟主留下的貢獻率。<b>正＝賺、負＝虧</b>，虧損自然低分。⚠️此為「門市貢獻率」，<b>未扣稅/水電/租金，非最終淨利</b>——這些非店長可控，排除較公平。')}
-  ${item('🛡️','損耗控制（淨損耗率）','（壞品＋盤損＋現金短少）÷ 營收。店長最可控、最直接侵蝕獲利的破口（越低越好）。')}
+  ${item('💰','獲利貢獻（餘裕率×金額）','（經營報酬 − 含支援人事成本）÷ 營收＝門市替加盟主留下的貢獻率。<b>正＝賺、負＝虧</b>，虧損自然低分。⚠️此為「門市貢獻率」，<b>未扣稅/水電/租金，非最終淨利</b>——這些非店長可控，排除較公平。')}
+  ${item('🛡️','損耗控制（淨損耗率）','（壞品＋盤損＋現金短少）÷ 營收。店長最可控、最直接侵蝕獲利的破口（越低越好）。盤點約 60~90 天一次，盤損會平均攤到它涵蓋的每個月，所以無盤點的月份一樣有分數、也能跟盤點月互相比較。')}
   ${item('📈','業績成長（營收 YoY）','本月營收 vs <b>去年同月</b>成長率。同月比同月，消除規模與淡旺季，衡量把生意做大的能力。')}
   ${item('📐','人事費率水準','人事成本 ÷ 營收。超商最關鍵的成本指標，越低越有效率（可直接跨店比）。')}
   ${item('⚖️','合規紀律','排班觸犯勞基法軟性規則、店長「知情放行」次數，越少越守法。')}
@@ -273,11 +287,11 @@ function openScoreHelp(){
   ${item('📉','人事費率改善（同期）','人事費率 vs 去年同月降了多少。需去年同期人事資料，2025 年尚無、將於累積後啟用。')}
 
   <div style="font-weight:900;font-size:13px;color:#4338ca;margin:14px 0 2px;">⚖️ 權重（獲益優先）</div>
-  ${wt('💰 獲利貢獻(餘裕率)',1.3,'加盟主實際貢獻，最重要 → 最高。')}
+  ${wt('💰 獲利貢獻(餘裕率×金額)',1.3,'加盟主實際貢獻，最重要 → 最高。率分七成＋金額分三成，避免大小店在天花板同分。')}
   ${wt('🛡️ 損耗控制',1.0,'最可控、直接吃獲利。')}
   ${wt('📈 業績成長',1.0,'把餅做大＝未來獲益。')}
   ${wt('📐 人事費率水準',0.6,'最大可控成本(部分已在餘裕率)。')}
-  ${wt('⚖️ 合規 / ⏰ 出勤',0.5,'風險與團隊管理。')}
+  ${wt('⚖️ 合規 / ⏰ 出勤',0.3,'風險與團隊管理，屬過程指標故低於獲益指標。')}
   ${wt('🏭 坪效',0.3,'生產力(輔助)。')}
   ${wt('📉 費率改善',0.6,'同期效率(資料累積中)。')}
 
@@ -332,15 +346,17 @@ function reviewSnapshot(m){
   const my=ymMinus12(m);
   let net=0,rew=0,sur=0,rateNum=0,rateDen=0,netY=0,hasLabor=false,hasPrev=false;
   const stores=STORES.map(s=>{
-    const pn=pnlOf(s,m), pf=perfOf(s,m), pnY=pnlOf(s,my);
+    const pn=pnlOf(s,m), pf=perfOf(s,m), pnY=pnlOf(s,my), am=amortOf(s,m);
     const netS=pn?n(pn.netSales):null, labor=pf?n(pf.laborCost):null, hrs=pf?n(pf.totalHours):null, rewS=pn?n(pn.operatingReward):null;
     if(pn){ net+=n(pn.netSales); rew+=n(pn.operatingReward); }
     if(pn&&pf){ sur+=n(pn.operatingReward)-n(pf.laborCost); rateNum+=n(pf.laborCost); rateDen+=n(pn.netSales); hasLabor=true; }
     if(pnY){ netY+=n(pnY.netSales); hasPrev=true; }
     return { s, netSales:netS, salesYoY:(netS!=null&&pnY&&n(pnY.netSales))?(netS-n(pnY.netSales)):null,
       grossMargin:pn?n(pn.grossMargin):null, laborRate:(labor!=null&&netS)?labor/netS*100:null,
-      perHr:(netS!=null&&hrs)?Math.round(netS/hrs):null, netBad:pn?(n(pn.badGoodsCost)-n(pn.invResult)+n(pn.cashDiff)):null,
-      invResult:(pn&&pn.invResult!=null)?n(pn.invResult):null, surplus:(rewS!=null&&labor!=null)?rewS-labor:null };
+      perHr:(netS!=null&&hrs)?Math.round(netS/hrs):null,
+      netBad:window.PnlLoss?window.PnlLoss.netLoss(pn,am):null,
+      invAmort:(am&&am.amort!=null)?Math.round(am.amort):null, invEst:!!(am&&am.est),
+      surplus:(rewS!=null&&labor!=null)?rewS-labor:null };
   });
   return { overview:{ net, rew, sur:hasLabor?sur:null, rate:rateDen>0?rateNum/rateDen*100:null, salesYoY:hasPrev?(net-netY):null }, stores };
 }

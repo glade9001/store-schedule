@@ -1,4 +1,4 @@
-let currentUser=null, appConfig={}, curStore='', pnlCache={}, perfCache={}, editMonth='';
+let currentUser=null, appConfig={}, curStore='', pnlCache={}, perfCache={}, amortCache={}, editMonth='';
 const PERF_EXCLUDE=new Set(['2026-04']); // 2026/4 系統剛上線、薪資未完整結算，人事成本一律不列入分析
 const START='2025-07';
 const isAdminOwner=()=>['owner','admin'].includes(currentUser?.permission);
@@ -56,7 +56,7 @@ async function onStoreChange(){
 }
 
 async function loadList(){
-  pnlCache={}; perfCache={}; cmpData=null;
+  pnlCache={}; perfCache={}; amortCache={}; cmpData=null;
   try{
     const snap=await window.db.collection('stores').doc(curStore).collection('pnl').get();
     snap.forEach(d=>pnlCache[d.id]=d.data());
@@ -65,6 +65,8 @@ async function loadList(){
     const ps=await window.db.collection('stores').doc(curStore).collection('perfSnapshot').get();
     ps.forEach(d=>perfCache[d.id]=d.data());
   }catch(e){}
+  // 盤損按盤點區間攤提（盤點 60~90 天一次），口徑見 pnl-loss.js
+  amortCache=window.PnlLoss?window.PnlLoss.build(pnlCache):{};
   renderList();
 }
 
@@ -336,7 +338,7 @@ async function renderStoreTrend(){
   const series=sts.map(s=>({name:s,color:STORE_COLORS[s]||'#888',values:months.map(m=>{
     const pn=(cmpData[s]||{}).pnl[m];
     const pf=PERF_EXCLUDE.has(m)?null:(cmpData[s]||{}).perf[m];
-    return M.get(pn, pf);
+    return M.get(pn, pf, ((cmpData[s]||{}).amort||{})[m]);
   })}));
   // 聚合線：門市餘裕用「總計」，其餘用「平均」
   const isSum=M.agg==='sum';
@@ -399,7 +401,7 @@ function renderAnalysis(){
     +chart('門市電費（元）','elecCost',money,'#0891b2','')
     +chart('雜支（元）','miscCost',money,'#7c3aed','')
     +chart('現金短少（元，正＝短少為成本）','cashDiff',money,'#c0620f','')
-    +`<div class="chart-card"><div class="chart-title">淨損耗（壞品＋盤損＋現金短少，元，越低越好）</div>${lineChart(pts.map(p=>({label:lbl(p.m),value:p.d?((p.d.badGoodsCost||0)-(p.d.invResult||0)+(p.d.cashDiff||0)):null})),{fmt:money,color:'#b91c1c'})}</div>`
+    +`<div class="chart-card"><div class="chart-title">淨損耗（壞品＋盤損＋現金短少，元，越低越好）</div>${lineChart(pts.map(p=>({label:lbl(p.m),value:window.PnlLoss?window.PnlLoss.netLoss(p.d,amortCache[p.m]):null,detail:window.PnlLoss?window.PnlLoss.note(amortCache[p.m]):''})),{fmt:money,color:'#b91c1c'})}<div style="font-size:11px;color:var(--text-muted);margin-top:6px;">盤點約 60~90 天一次，盤損已平均攤提到它涵蓋的每個月，故各月可互相比較；尚未盤點的月份沿用上次區間月均估算。</div></div>`
     +`<div style="font-size:12px;color:var(--text-muted);font-weight:700;margin:8px 4px 8px;">📈 人力效率（含支援，需該月薪資已結算，2026/5 起；2026/4 系統剛上線不列入）</div>`
     +derived('人事費率（人事成本÷營業淨額 %，越低越好）','#9334e6',(pf,pn)=>pf.laborCost/pn.netSales*100,v=>v.toFixed(1),'%')
     +derived('每工時營收（營業淨額÷總工時，元/h）','#0891b2',(pf,pn)=>pf.totalHours?pn.netSales/pf.totalHours:null,v=>Math.round(v).toLocaleString('en-US'),'')
@@ -429,7 +431,7 @@ const METRICS={
   elecCost:{t:'門市電費(元)',fmt:money,get:(pn,pf)=>pn?pn.elecCost:null,agg:'sum'},
   miscCost:{t:'雜支(元)',fmt:money,get:(pn,pf)=>pn?pn.miscCost:null,agg:'sum'},
   cashDiff:{t:'現金短少(元)',fmt:money,get:(pn,pf)=>pn?pn.cashDiff:null,agg:'sum'},
-  netLoss:{t:'淨損耗(元)',fmt:money,get:(pn,pf)=>pn?((pn.badGoodsCost||0)-(pn.invResult||0)+(pn.cashDiff||0)):null,agg:'sum'},
+  netLoss:{t:'淨損耗(元,含攤提盤損)',fmt:money,get:(pn,pf,am)=>window.PnlLoss?window.PnlLoss.netLoss(pn,am):null,agg:'sum'},
   laborRate:{t:'人事費率(%)',fmt:v=>v.toFixed(1),get:(pn,pf)=>(pn&&pf&&pn.netSales)?pf.laborCost/pn.netSales*100:null},
   revPerHour:{t:'每工時營收',fmt:money,get:(pn,pf)=>(pn&&pf&&pf.totalHours)?pn.netSales/pf.totalHours:null},
   surplus:{t:'門市餘裕(報酬−人事)',fmt:money,get:(pn,pf)=>(pn&&pf)?pn.operatingReward-pf.laborCost:null,agg:'sum'}
@@ -440,6 +442,7 @@ async function loadAllForCompare(){
   for(const s of (appConfig.stores||[])){
     cmpData[s]={pnl:{},perf:{}};
     try{const p=await window.db.collection('stores').doc(s).collection('pnl').get();p.forEach(d=>cmpData[s].pnl[d.id]=d.data());}catch(e){}
+    cmpData[s].amort=window.PnlLoss?window.PnlLoss.build(cmpData[s].pnl):{};
     try{const q=await window.db.collection('stores').doc(s).collection('perfSnapshot').get();q.forEach(d=>cmpData[s].perf[d.id]=d.data());}catch(e){}
   }
 }

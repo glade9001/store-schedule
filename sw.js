@@ -1,7 +1,7 @@
 // ===== 莉學商行 Service Worker =====
 // 策略：HTML 永遠走網路，靜態資源才快取
 
-const CACHE_NAME = 'lixue-static-v12';
+const CACHE_NAME = 'lixue-static-v13';
 
 // 快取靜態資源（相對於 sw.js 位置，故 web.app 與 github.io 皆適用）
 const STATIC_ASSETS = [
@@ -13,6 +13,7 @@ const STATIC_ASSETS = [
   'utils.js',
   'shift-utils.js',
   'salary-calc.js',
+  'pnl-loss.js',
   // ⚠️ clock-page.js 是唯一被預快取的「單頁」JS：打卡支援離線送出（clockPunchOffline），
   //    但外部化後，若使用者第一次開打卡頁就沒網路，這支還沒進過快取 → 整頁死掉。
   //    預快取只是保底：.js 走上面的 network-first 分支，每次成功抓取都會覆寫，不會卡舊版。

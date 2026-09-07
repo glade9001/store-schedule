@@ -97,14 +97,14 @@ function fmtYoY(cur){ if(cur==null) return '<span style="color:#94a3b8;">—</sp
       <td>${cell(r.laborRate!=null?r.laborRate.toFixed(1):null,'%')}</td>
       <td>${cell(r.perHr!=null?money(r.perHr):null)}</td>
       <td>${cell(r.netBad!=null?money(r.netBad):null)}</td>
-      <td>${cell(r.invResult!=null?money(r.invResult):null,'',r.invResult<0?'#c5221f':'')}</td>
+      <td>${(()=>{const iv=(r.invAmort!=null)?r.invAmort:r.invResult;return cell(iv!=null?money(iv)+(r.invAmort!=null&&r.invEst?'*':''):null,'',iv<0?'#c5221f':'');})()}</td>
       <td>${cell(r.surplus!=null?money(r.surplus):null,'',r.surplus!=null?(r.surplus>=0?'#137333':'#c5221f'):'')}</td>
     </tr>`;
   });
   const tbl=`<div class="scroll"><table>
-    <thead><tr><th>門市</th><th>營業淨額</th><th>營收YoY</th><th>毛利率</th><th>人事費率</th><th>每工時營收</th><th>淨損耗</th><th>盤損</th><th>門市餘裕</th></tr></thead>
+    <thead><tr><th>門市</th><th>營業淨額</th><th>營收YoY</th><th>毛利率</th><th>人事費率</th><th>每工時營收</th><th>淨損耗</th><th>盤損(月攤)</th><th>門市餘裕</th></tr></thead>
     <tbody>${rows}</tbody></table></div>
-    <div style="font-size:10.5px;color:#94a3b8;margin-top:6px;">淨損耗＝壞品＋盤損＋現金短少（含損耗全項）；現金短少正數＝費用；門市餘裕＝經營報酬−含支援調整的人事成本（未扣稅/水電/租金）。</div>`;
+    <div style="font-size:10.5px;color:#94a3b8;margin-top:6px;">淨損耗＝壞品＋盤損＋現金短少（含損耗全項）；盤點約 60~90 天一次，盤損已平均攤提到它涵蓋的每個月，標 * 者為尚未盤點、沿用上次區間月均的估算；現金短少正數＝費用；門市餘裕＝經營報酬−含支援調整的人事成本（未扣稅/水電/租金）。</div>`;
 
   const expStr=exp?new Date(exp).toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'';
   document.getElementById('wrap').innerHTML=`
