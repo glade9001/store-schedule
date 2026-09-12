@@ -168,7 +168,7 @@ function renderList() {
         <div class="sheet-sub">${esc(s.storeName || '未填門市')} · 盤點日 ${s.auditDate || '--'} · ${emps} 人 · 輪班 ${mdOf(s.rangeStart || '--')}~${mdOf(s.rangeEnd || '--')}</div>
         <div class="sheet-sub">建立者：${esc(s.createdBy || '--')}${canEditSheet(s) ? '' : ' <span class="ro-tag">唯讀</span>'}</div>
       </div>
-      <button class="sheet-copy" title="複製整份" onclick="copySheet('${s.id}',event)">📄</button>
+      <button class="sheet-copy" onclick="copySheet('${s.id}',event)">📄 複製</button>
       <div class="sheet-arrow">›</div>
     </div>`;
   }).join('');
