@@ -1375,6 +1375,49 @@ function buildOutput(kind) {
 // ── 職員輪班表（每週一張）──
 // 直接用排班系統的產圖函式（schedule-draw.js），格式與莉學商行現行輪班表完全一致。
 // ⚠️ 不要在這裡另外畫一份表：兩邊只要各寫一份，遲早長不一樣。
+/** 班表下方的確認文字（盤點用；排班系統的表不加這段） */
+function shiftFooterText() {
+  return '排班時數中包含休憩時間；上述排班出勤日期及時間（包含國定假日），已經當事人確認與同意上述班表若有異動，當事人須於異動處加註簽名，同意請於下方空白處簽名：';
+}
+
+/**
+ * 在既有的輪班表產圖下方追加確認文字與簽名空白區。
+ *
+ * ⚠️ 刻意用「疊一張更高的畫布」而不是改 drawScheduleCanvas：
+ *    那支是與排班系統共用的（schedule-draw.js），動它等於同時改到排班頁印出來的表。
+ *    這段文字只有盤點資料要，所以留在這裡。
+ */
+function appendShiftFooter(base) {
+  const font = '"Microsoft JhengHei", "PingFang TC", sans-serif';
+  const margin = 50;
+  const maxW = base.width - margin * 2;
+  const lineH = 34;
+  const signH = 260;                       // 簽名空白處（要留得下好幾個人簽）
+
+  const probe = document.createElement('canvas').getContext('2d');
+  probe.font = `bold 24px ${font}`;
+  const lines = calcCanvasLines(probe, shiftFooterText(), maxW);
+
+  const out = document.createElement('canvas');
+  out.width = base.width;
+  out.height = base.height + 24 + lines * lineH + signH;
+  const ctx = out.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, out.width, out.height);
+  ctx.drawImage(base, 0, 0);
+
+  ctx.fillStyle = '#000';
+  ctx.font = `bold 24px ${font}`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  canvasDrawWrappedText(ctx, shiftFooterText(), margin, base.height + 24 + lineH / 2, maxW, lineH);
+
+  // 簽名空白處：畫外框，裡面留白讓人簽
+  const boxY = base.height + 24 + lines * lineH + 14;
+  ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+  ctx.strokeRect(margin, boxY, maxW, signH - 40);
+  return out;
+}
+
 function buildShiftDoc() {
   const emps = (sheet.employees || []).map(e => ({ name: e.name }));
   return weekBlocks(sheet.rangeStart, sheet.rangeEnd).map(week => {
@@ -1394,8 +1437,9 @@ function buildShiftDoc() {
       });
     });
     const weekDates = week.map(mdOf);
-    const canvas = document.createElement('canvas');
-    drawScheduleCanvas(canvas, sheet.storeName, shiftWeekStr(week[0]), records, emps, weekDates, records);
+    const base = document.createElement('canvas');
+    drawScheduleCanvas(base, sheet.storeName, shiftWeekStr(week[0]), records, emps, weekDates, records);
+    const canvas = appendShiftFooter(base);
     return `<div class="doc doc-shift"><img src="${canvas.toDataURL('image/png')}" style="width:100%;display:block;"></div>`;
   }).join('');
 }
