@@ -967,7 +967,7 @@ function renderPunch() {
   const rows = punchRows(empId);
   const workRows = rows.filter(r => r.hours > 0 && !r.isAudit);
 
-  bulk.innerHTML = workRows.length ? `
+bulk.innerHTML = workRows.length ? `
     <div class="bulk-box">
       <div class="bulk-line">
         <span class="bulk-label">帶入小時</span>
@@ -985,6 +985,15 @@ function renderPunch() {
         <button class="btn-mini" onclick="applyChecked('in')">→ 簽到（<span id="cntIn">0</span>）</button>
         <button class="btn-mini" onclick="applyChecked('out')">→ 簽退（<span id="cntOut">0</span>）</button>
       </div>
+
+      <!-- ==== 新增的隨機分鐘區塊 ==== -->
+      <div class="bulk-line">
+        <span class="bulk-label">隨機分鐘</span>
+        <button class="btn-mini" onclick="applyRandomMinutes('in')">🎲 簽到 (51-59)</button>
+        <button class="btn-mini" onclick="applyRandomMinutes('out')">🎲 簽退 (01-09)</button>
+      </div>
+      <!-- ============================ -->
+
       <div class="bulk-line">
         <button class="btn-mini danger" onclick="clearPunch('${empId}')">清空此人本月已填時間</button>
       </div>
@@ -1096,6 +1105,33 @@ function applyChecked(kind) {
   renderPunch();
   const what = (h !== null && m !== null) ? '時間' : (h !== null ? '小時' : '分鐘');
   toast(`已套用 ${picked.length} 天的${kind === 'in' ? '簽到' : '簽退'}${what}`);
+}
+
+/**
+ * 隨機產生分鐘數並套用到已勾選的格子
+ * 簽到 (in): 51~59
+ * 簽退 (out): 01~09
+ */
+function applyRandomMinutes(kind) {
+  if (!canEditSheet()) return;
+  const empId = document.getElementById('fPunchEmp').value;
+  const picked = [...document.querySelectorAll('.pk-' + kind + ':checked')].map(c => c.getAttribute('data-date'));
+  if (!picked.length) { toast('請先勾選要填入的日期'); return; }
+
+  picked.forEach(d => {
+    // 簽到：產生 51~59 的亂數 (Math.random() * 9 會產生 0~8，加 51 變為 51~59)
+    // 簽退：產生 1~9 的亂數 (Math.random() * 9 會產生 0~8，加 1 變為 1~9)
+    const randomM = kind === 'in' 
+      ? Math.floor(Math.random() * 9) + 51 
+      : Math.floor(Math.random() * 9) + 1;
+      
+    // 呼叫原本的 setPunchPart 將產生的分鐘寫入該格
+    setPunchPart(d, empId, kind, 'M', randomM);
+  });
+  
+  // 重新渲染畫面並提示
+  renderPunch();
+  toast(`已套用 ${picked.length} 天的${kind === 'in' ? '簽到' : '簽退'}隨機分鐘`);
 }
 
 /** 寫入單一格（時或分）；超出範圍就清掉並提示 */
