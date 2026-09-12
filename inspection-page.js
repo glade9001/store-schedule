@@ -1186,8 +1186,30 @@ function dayHours(emp, d) {
   let actual = null;
   if (tIn && tOut) {
     let mi = toMin(tIn), mo = toMin(tOut);
+
+    // ==== 新增：前後 15 分鐘緩衝判定 ====
+    const sp = shiftSpan(sh);
+    if (sp) {
+      // 取得排定的簽到與簽退分鐘數 (shiftSpan 已處理跨夜，如 23-07 的 endH 會是 31)
+      let sIn = sp.startH * 60;
+      let sOut = sp.endH * 60;
+      
+      // 檢查實際簽到是否在緩衝內 (考量跨日的 24 小時循環)
+      const diffIn = Math.min(Math.abs(mi - (sIn % 1440)), 1440 - Math.abs(mi - (sIn % 1440)));
+      if (diffIn <= 15) mi = sIn; // 若在 15 分鐘內，計薪起點以排定時間為準
+      
+      // 檢查實際簽退是否在緩衝內
+      const diffOut = Math.min(Math.abs(mo - (sOut % 1440)), 1440 - Math.abs(mo - (sOut % 1440)));
+      if (diffOut <= 15) mo = sOut; // 若在 15 分鐘內，計薪終點以排定時間為準
+    }
+    // ===================================
+
     if (mo <= mi) mo += 1440;                     // 跨夜：下班落在隔天
-    actual = Math.round((mo - mi) / 60 * 100) / 100;
+    
+    // ⚠️ 零頭未滿半小時一律捨去（無條件捨去到 0.5）：22:52~07:05 算 8.0 不是 8.22。
+    //    捨去而不是四捨五入 —— 工時是計薪基準，寧可少算也不要算出沒做滿的時數。
+    //    出勤記錄表與薪資單共用這個值，兩張紙才對得起來。
+    actual = Math.floor((mo - mi) / 60 * 2) / 2;
   }
   return { shift: sh, sched, actual, eff: actual == null ? sched : actual };
 }
