@@ -1401,51 +1401,159 @@ function buildShiftDoc() {
 }
 
 // ── 出勤記錄表（一人一張）──
-function buildAttendDoc() {
+// 與輪班表一樣走 canvas 產圖：手機長按圖片就能直接存檔／傳送，HTML 表格做不到這件事。
+// ⚠️ 產圖與列印共用同一張圖，不要為了列印再畫一份 HTML —— 兩份版面遲早長不一樣。
+
+function drawAttendanceCanvas(canvas, emp) {
+  const font = '"Microsoft JhengHei", "PingFang TC", sans-serif';
   const [y, m] = sheet.salaryMonth.split('-').map(Number);
-  return (sheet.employees || []).map(e => {
-    const st = monthStat(e);
-    const rows = monthDays(sheet.salaryMonth).map(d => {
-      const wd = DAY_NAMES[dayIdx(d)];
-      const dd = +d.split('-')[2];
-      const holCls = isHoliday(d) ? ' class="hol"' : '';
-      if (d === sheet.auditDate) return `<tr${holCls}><td>${dd}</td><td>${wd}</td><td colspan="5" class="off">—</td></tr>`;
-      const h = dayHours(e, d);
-      const sh = (sheet.schedule[d] || {})[e.id] || '';
-      if (!h.eff) {
-        return `<tr${holCls}><td>${dd}</td><td>${wd}</td><td class="off">${sh === OFF ? OFF : ''}</td><td class="off"></td><td class="off"></td><td class="off"></td><td>${isHoliday(d) ? holidayMap[d] : ''}</td></tr>`;
-      }
-      const p = (sheet.punches[d] || {})[e.id] || {};
+  const days = monthDays(sheet.salaryMonth);
+  const st = monthStat(emp);
+
+  const W = 1240, margin = 40, tableW = W - margin * 2;
+  const COLS = [
+    { k: 'd', label: '日', w: 62 },
+    { k: 'w', label: '星期', w: 74 },
+    { k: 's', label: '班別', w: 132 },
+    { k: 'in', label: '簽到', w: 132 },
+    { k: 'out', label: '簽退', w: 168 },
+    { k: 'h', label: '工時', w: 92 },
+    { k: 'n', label: '備註', w: tableW - (62 + 74 + 132 + 132 + 168 + 92) },
+  ];
+  const titleH = 150, headH = 52, rowH = 40;
+  const footH = 170;
+  const H = titleH + headH + days.length * rowH + footH;
+
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+  ctx.textBaseline = 'middle';
+
+  // ===== 標題 =====
+  ctx.textAlign = 'center'; ctx.fillStyle = '#000';
+  ctx.font = `900 42px ${font}`;
+  ctx.fillText(`民國 ${rocOf(y)} 年 ${m} 月 出勤記錄表`, W / 2, 48);
+  ctx.font = `bold 24px ${font}`;
+  ctx.fillText(sheet.storeName || '', W / 2, 88);
+
+  ctx.textAlign = 'left';
+  ctx.font = `bold 22px ${font}`;
+  ctx.fillText(`門市：${sheet.storeName || ''}`, margin, 124);
+  ctx.fillText(`姓名：${emp.name}`, margin + 380, 124);
+  ctx.fillText(`職稱：${emp.role}`, margin + 700, 124);
+
+  // ===== 表頭 =====
+  const top = titleH;
+  const colX = []; let x = margin;
+  COLS.forEach(c => { colX.push(x); x += c.w; });
+  ctx.fillStyle = '#e8eaed';
+  ctx.fillRect(margin, top, tableW, headH);
+  ctx.fillStyle = '#000'; ctx.textAlign = 'center';
+  ctx.font = `900 22px ${font}`;
+  COLS.forEach((c, i) => ctx.fillText(c.label, colX[i] + c.w / 2, top + headH / 2));
+
+  // ===== 資料列 =====
+  days.forEach((d, i) => {
+    const rowY = top + headH + i * rowH;
+    const isAudit = d === sheet.auditDate;
+    const h = dayHours(emp, d);
+    const shift = (sheet.schedule[d] || {})[emp.id] || '';
+    const p = (sheet.punches[d] || {})[emp.id] || {};
+    const hol = isHoliday(d);
+
+    if (hol) { ctx.fillStyle = '#fdecea'; ctx.fillRect(margin, rowY, tableW, rowH); }
+    else if (!h.eff) { ctx.fillStyle = '#f5f6f7'; ctx.fillRect(margin, rowY, tableW, rowH); }
+
+    const cy = rowY + rowH / 2;
+    ctx.textAlign = 'center';
+    ctx.font = `bold 21px ${font}`;
+    ctx.fillStyle = hol ? '#a50e0e' : '#000';
+    ctx.fillText(String(+d.split('-')[2]), colX[0] + COLS[0].w / 2, cy);
+    ctx.fillText(DAY_NAMES[dayIdx(d)], colX[1] + COLS[1].w / 2, cy);
+
+    ctx.fillStyle = '#000';
+    ctx.font = `21px ${font}`;
+    if (isAudit) {
+      ctx.fillStyle = '#666';
+      ctx.fillText('—', colX[2] + COLS[2].w / 2, cy);
+    } else if (!h.eff) {
+      ctx.fillStyle = '#555';
+      ctx.fillText(shift === OFF ? OFF : '', colX[2] + COLS[2].w / 2, cy);
+    } else {
+      ctx.fillText(shift, colX[2] + COLS[2].w / 2, cy);
       const tIn = punchTime(p, 'in'), tOut = punchTime(p, 'out');
-      const over = shiftIsOvernight(sh);
-      const notes = [];
-      if (isHoliday(d)) notes.push(holidayMap[d] + '出勤');
-      if (h.actual == null) notes.push('未填簽到／簽退，工時依排定班別');
-      return `<tr${holCls}>
-        <td>${dd}</td><td>${wd}</td><td>${sh}</td>
-        <td>${tIn}</td>
-        <td>${tOut ? tOut + (over ? '<span style="font-size:9.5px;">(次日)</span>' : '') : ''}</td>
-        <td${h.actual == null ? ' style="color:#555;"' : ''}>${h.eff ? h.eff.toFixed(1) : ''}</td>
-        <td style="font-size:10.5px;">${notes.join('；')}</td>
-      </tr>`;
-    }).join('');
-    return `<div class="doc">
-      <div class="doc-title">民國 ${rocOf(y)} 年 ${m} 月 出勤記錄表</div>
-      <div class="doc-sub">${esc(sheet.storeName)}</div>
-      <div class="doc-meta">
-        <span>門市：<b>${esc(sheet.storeName)}</b></span>
-        <span>姓名：<b>${esc(e.name)}</b></span>
-        <span>職稱：<b>${e.role}</b></span>
-      </div>
-      <table class="doc-tbl">
-        <tr><th style="width:34px;">日</th><th style="width:44px;">星期</th><th style="width:68px;">班別</th>
-            <th style="width:76px;">簽到</th><th style="width:86px;">簽退</th><th style="width:52px;">工時</th><th style="width:200px;">備註</th></tr>
-        ${rows}
-      </table>
-      <div class="doc-stat"><span>出勤天數：${st.workDays} 天</span><span>總工時：${st.hours.toFixed(1)} 小時</span>
-        <span>國定假日出勤：${st.holDays} 天 / ${st.holHours.toFixed(1)} 小時</span></div>
-      <div class="doc-foot"><div class="sign-line">員工簽名</div><div class="sign-line">店長</div></div>
-    </div>`;
+      ctx.fillText(tIn, colX[3] + COLS[3].w / 2, cy);
+      if (tOut) {
+        const over = shiftIsOvernight(shift);
+        if (over) {
+          ctx.font = `21px ${font}`;
+          const tw = ctx.measureText(tOut).width;
+          ctx.textAlign = 'left';
+          const sx = colX[4] + COLS[4].w / 2 - (tw + 46) / 2;
+          ctx.fillText(tOut, sx, cy);
+          ctx.font = `15px ${font}`; ctx.fillStyle = '#555';
+          ctx.fillText('(次日)', sx + tw + 4, cy + 1);
+          ctx.fillStyle = '#000'; ctx.textAlign = 'center'; ctx.font = `21px ${font}`;
+        } else {
+          ctx.fillText(tOut, colX[4] + COLS[4].w / 2, cy);
+        }
+      }
+      ctx.fillStyle = h.actual == null ? '#555' : '#000';
+      ctx.fillText(h.eff.toFixed(1), colX[5] + COLS[5].w / 2, cy);
+      ctx.fillStyle = '#000';
+    }
+
+    // 備註
+    const notes = [];
+    if (isAudit) notes.push('盤點日，不列出勤紀錄');
+    if (hol && h.eff) notes.push(holidayMap[d] + '出勤');
+    else if (hol) notes.push(holidayMap[d]);
+    if (h.eff && h.actual == null) notes.push('未填簽到／簽退，工時依排定班別');
+    if (notes.length) {
+      ctx.textAlign = 'left';
+      ctx.font = `17px ${font}`;
+      ctx.fillStyle = hol ? '#a50e0e' : '#555';
+      ctx.fillText(notes.join('；'), colX[6] + 10, cy);
+      ctx.fillStyle = '#000';
+    }
+  });
+
+  // ===== 格線 =====
+  const tableH = headH + days.length * rowH;
+  ctx.strokeStyle = '#000'; ctx.lineWidth = 2.5;
+  ctx.strokeRect(margin, top, tableW, tableH);
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= days.length; i++) {
+    const ly = top + headH + i * rowH;
+    ctx.beginPath(); ctx.moveTo(margin, ly); ctx.lineTo(margin + tableW, ly); ctx.stroke();
+  }
+  colX.slice(1).forEach(cx => {
+    ctx.beginPath(); ctx.moveTo(cx, top); ctx.lineTo(cx, top + tableH); ctx.stroke();
+  });
+
+  // ===== 統計與簽名 =====
+  const fy = top + tableH + 42;
+  ctx.textAlign = 'left'; ctx.fillStyle = '#000';
+  ctx.font = `900 23px ${font}`;
+  ctx.fillText(`出勤天數：${st.workDays} 天`, margin, fy);
+  ctx.fillText(`總工時：${st.hours.toFixed(1)} 小時`, margin + 300, fy);
+  ctx.fillText(`國定假日出勤：${st.holDays} 天 / ${st.holHours.toFixed(1)} 小時`, margin + 620, fy);
+
+  const sy = fy + 90;
+  ctx.lineWidth = 1.5;
+  [['員工簽名', margin, 420], ['店長', margin + 600, 420]].forEach(([label, sx, sw]) => {
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + sw, sy); ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.font = `21px ${font}`;
+    ctx.fillText(label, sx + sw / 2, sy + 26);
+  });
+}
+
+function buildAttendDoc() {
+  return (sheet.employees || []).map(e => {
+    const canvas = document.createElement('canvas');
+    drawAttendanceCanvas(canvas, e);
+    return `<div class="doc doc-img"><img src="${canvas.toDataURL('image/png')}" style="width:100%;display:block;"></div>`;
   }).join('');
 }
 

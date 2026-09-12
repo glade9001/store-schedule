@@ -130,6 +130,7 @@ table.punch input.filled{border-color:var(--primary);}
 .doc{background:#fff;width:100%;max-width:1000px;margin:0 auto 20px;padding:26px 30px;box-shadow:0 2px 14px rgba(0,0,0,.25);color:#000;}
 .doc-landscape{max-width:1320px;}
 .doc-shift{max-width:1500px;padding:10px;}
+.doc-img{padding:10px;}
 .doc-title{text-align:center;font-size:24px;font-weight:900;letter-spacing:2px;margin-bottom:4px;}
 .doc-sub{text-align:center;font-size:13px;margin-bottom:14px;color:#333;}
 .doc-meta{display:flex;flex-wrap:wrap;gap:4px 26px;font-size:12.5px;margin-bottom:10px;}
@@ -160,6 +161,7 @@ table.doc-tbl th.rot{font-size:10.5px;padding:4px 2px;}
   /* 輪班表是 1500px 寬的產圖，直式印會縮到很小 → 指定橫式頁 */
   @page shift-land{size:A4 landscape;margin:8mm;}
   .doc-shift{page:shift-land;padding:0;}
+  .doc-img{padding:0;}
   .doc.lscape-page{page-break-after:always;}
   /* 薪資單：一張 A4 兩人，上下各半 */
   .payslip-page{height:277mm;display:flex;flex-direction:column;}
