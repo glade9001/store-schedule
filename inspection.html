@@ -52,10 +52,14 @@
       <div class="field"><label>盤點名稱</label><input type="text" id="fTitle" placeholder="例：2026 秋季盤點" oninput="onField()"></div>
       <div class="field"><label>門市名稱<span class="hint-inline">印在所有表單上，自行輸入</span></label><input type="text" id="fStore" placeholder="例：示範門市" oninput="onField()"></div>
       <div class="field"><label>盤點日</label><input type="date" id="fAuditDate" onchange="onAuditDateChange()"></div>
-      <div class="field"><label>輪班表週數<span class="hint-inline">不含盤點當週，往前推</span></label>
+      <div class="field"><label>往前推幾週<span class="hint-inline">輪班表含盤點當週，再往前推這麼多週</span></label>
         <select id="fWeeks" onchange="onAuditDateChange()">
-          <option value="4">4 週</option><option value="5">5 週</option><option value="6" selected>6 週</option>
-          <option value="7">7 週</option><option value="8">8 週</option>
+          <option value="3">3 週（共 4 週）</option>
+          <option value="4">4 週（共 5 週）</option>
+          <option value="5">5 週（共 6 週）</option>
+          <option value="6" selected>6 週（共 7 週）</option>
+          <option value="7">7 週（共 8 週）</option>
+          <option value="8">8 週（共 9 週）</option>
         </select>
       </div>
       <div class="field"><label>出勤記錄表／薪資單月份</label><select id="fSalaryMonth" onchange="onField()"></select></div>
@@ -83,6 +87,7 @@
       <div class="hint">每週一張表。空白＝未排，「休」會印在輪班表與出勤記錄表上。<br>
         薪資月份若有日子落在輪班表期間之外（例：9/20 盤點→輪班表 8/17 起，但出勤表要整個 8 月），那幾週一樣要填，否則出勤記錄表會開天窗。</div>
       <div id="monthSummary"></div>
+      <div id="lawCheck"></div>
       <div class="tool-row edit-only">
         <button class="btn-mini danger" onclick="clearSchedule()">清空全部</button>
       </div>

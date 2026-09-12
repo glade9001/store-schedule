@@ -223,7 +223,8 @@ td.tcell.done input{border-color:var(--primary);font-weight:700;}
 td.tcell .colon{font-weight:800;color:var(--text-muted);margin:0 2px;}
 .nextday{font-size:10px;color:var(--text-muted);text-align:center;}
 .bulk-sub{font-weight:600;opacity:.75;font-size:10.5px;font-family:ui-monospace,Menlo,monospace;}
-.bulk-line input#bkH{width:52px;}
+.bulk-line input#bkH,.bulk-line input#bkM{width:48px;}
+.bulk-line .colon{font-weight:800;color:var(--text-muted);}
 
 /* ── 複製整份 ── */
 .btn-copy-sheet{width:100%;height:40px;background:#fff;color:var(--primary-dark);border:1.5px solid var(--primary);
@@ -241,3 +242,17 @@ td.tcell .colon{font-weight:800;color:var(--text-muted);margin:0 2px;}
   color:var(--primary-dark);border-radius:9px;font-size:12.5px;font-weight:800;cursor:pointer;
   font-family:inherit;line-height:1;white-space:nowrap;}
 .sheet-copy:active{background:#effcf9;}
+
+/* ── 排班檢查（勞基法）── */
+.law-ok{background:#e6f4ea;border:1px solid #b7e1c1;border-radius:10px;padding:9px 12px;
+  font-size:12.5px;font-weight:700;color:#137333;margin-bottom:11px;}
+.law-box{background:#fff8f7;border:1.5px solid #f6c7c3;border-radius:10px;padding:10px 12px;margin-bottom:11px;}
+.law-title{font-size:13px;font-weight:800;color:#c5221f;margin-bottom:7px;}
+.law-emp{font-size:12px;margin-bottom:7px;line-height:1.7;}
+.law-emp b{color:var(--text);}
+.law-item{padding-left:6px;}
+.law-item.error{color:#c5221f;}
+.law-item.warn{color:#8a5a1a;}
+.law-foot{font-size:10.5px;color:var(--text-muted);border-top:1px dashed #f6c7c3;padding-top:6px;margin-top:4px;line-height:1.6;}
+.bulk-cnt{font-weight:800;font-size:10.5px;opacity:.85;}
+.btn-mini:disabled{opacity:.4;cursor:default;}

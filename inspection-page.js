@@ -71,10 +71,13 @@ function showLoad(msg) {
 }
 function hideLoad() { document.getElementById('loadingOverlay').classList.add('hidden'); }
 
-/** 期間：不含盤點當週，往前 weeks 週（一～日） */
+/**
+ * 輪班表期間：含盤點當週，再往前推 weeks 週（每段都是週一～週日）
+ * 例：9/20（週日）盤點、往前 4 週 → 8/17（一）~ 9/20（日），共 5 週
+ */
 function computeRange(auditDate, weeks) {
   const mon = mondayOf(auditDate);
-  return { start: shiftDateAdd(mon, -7 * (+weeks || 4)), end: shiftDateAdd(mon, -1) };
+  return { start: shiftDateAdd(mon, -7 * (+weeks || 4)), end: shiftDateAdd(mon, 6) };
 }
 function dateList(start, end) {
   const out = [];
@@ -450,7 +453,7 @@ function renderRange() {
   const sm = sheet.salaryMonth;
   const hols = monthDays(sm).filter(isHoliday);
   document.getElementById('rangeBox').innerHTML = `
-    <div>輪班表期間：<b>${r.start}（${DAY_NAMES[dayIdx(r.start)]}）～ ${r.end}（${DAY_NAMES[dayIdx(r.end)]}）</b>　共 ${days} 天 / ${days / 7} 週</div>
+    <div>輪班表期間：<b>${r.start}（${DAY_NAMES[dayIdx(r.start)]}）～ ${r.end}（${DAY_NAMES[dayIdx(r.end)]}）</b>　共 ${days} 天 / ${days / 7} 週（含盤點當週）</div>
     <div>出勤記錄表＋薪資單：<b>${sm.split('-')[0]} 年 ${+sm.split('-')[1]} 月整月</b></div>
     <div>該月國定假日：<b>${hols.length ? hols.map(h => `${mdOf(h)} ${holidayMap[h]}`).join('、') : '無'}</b></div>
     <div style="color:#64748b;font-size:11.5px;margin-top:4px;">盤點當日（${sheet.auditDate}）不列出勤紀錄。</div>`;
@@ -718,9 +721,135 @@ function renderMonthSummary() {
   }).join('');
 }
 
+// ===== 排班檢查（勞基法）=====
+// 語意與排班頁 schedule-v2-page.js 的軟擋一致：
+//   §34 輪班間隔 11 小時（只算「跨工作日」的休息，同日兩頭班由當日工時把關）
+//   §36 七休一（連續出勤 7 天）
+//   休假日數＝當月週六＋週日天數（正職的例假／休息日基準，與薪資頁 getMonthWeekendDays 同源）
+// ⚠️ 這裡是「整份掃一遍」，不是編輯當下的單格檢查，所以連續天數可以跨週正確計算
+//    （排班頁那支為了即時性只看本週，跨週的連續出勤看不到）。
+
+function MIN_REST_H() { return 11; }
+function MAX_CONSECUTIVE_DAYS() { return 6; }   // 第 7 天就違反七休一
+
+/** 某人在某日是否有實際工作的班（休假／空白／非時間班別都不算） */
+function worksOn(emp, d) {
+  const v = (sheet.schedule[d] || {})[emp.id];
+  return !!(v && v !== OFF && shiftTotalHours(v) > 0);
+}
+
+/** 掃描範圍：排班涵蓋的所有日子（輪班期間 ∪ 薪資月份） */
+function checkDates() {
+  const b = scopeBounds();
+  return dateList(b.start, b.end).filter(inScope);
+}
+
+/** ① 正職休假日數是否等於當月六日天數（只檢查完整涵蓋在範圍內的月份） */
+function checkOffDays(emp) {
+  if (emp.role === '工讀') return [];       // 工讀不適用月休基準
+  const dates = checkDates();
+  const inSet = new Set(dates);
+  const months = [...new Set(dates.map(d => d.slice(0, 7)))];
+  const out = [];
+  months.forEach(ym => {
+    const days = monthDays(ym);
+    if (!days.every(d => inSet.has(d))) return;          // 月份沒填滿就不比，否則一定是假警報
+    const off = days.filter(d => (sheet.schedule[d] || {})[emp.id] === OFF).length;
+    const blank = days.filter(d => !(sheet.schedule[d] || {})[emp.id]).length;
+    const need = monthWeekendDays(ym).total;
+    const m = +ym.split('-')[1];
+    if (blank) {
+      out.push({ level: 'warn', rule: 'offDays', emp: emp.name,
+        msg: `${m} 月還有 ${blank} 天沒排，休假日數還算不準（目前休 ${off} 天／應休 ${need} 天）` });
+    } else if (off !== need) {
+      const diff = off - need;
+      out.push({ level: 'error', rule: 'offDays', emp: emp.name,
+        msg: `${m} 月休假 ${off} 天，與當月六日天數 ${need} 天${diff > 0 ? `不符（多休 ${diff} 天）` : `不符（少休 ${-diff} 天）`}` });
+    }
+  });
+  return out;
+}
+
+/** ② 連續上班天數（達 7 天即違反七休一） */
+function checkConsecutive(emp) {
+  const dates = checkDates();
+  const out = [];
+  let run = [];
+  const flush = () => {
+    if (run.length > MAX_CONSECUTIVE_DAYS()) {
+      out.push({ level: 'error', rule: 'consecutive', emp: emp.name,
+        msg: `${mdOf(run[0])}~${mdOf(run[run.length - 1])} 連續上班 ${run.length} 天（七休一）` });
+    }
+    run = [];
+  };
+  dates.forEach((d, i) => {
+    // 日期不連續（範圍有斷）也要把目前這串收掉，不能誤接成一長串
+    if (i > 0 && d !== shiftDateAdd(dates[i - 1], 1)) flush();
+    if (worksOn(emp, d)) run.push(d); else flush();
+  });
+  flush();
+  return out;
+}
+
+/** ③ 前後班休息時間是否 ≥ 11 小時 */
+function checkRestGaps(emp) {
+  const dates = checkDates().filter(d => worksOn(emp, d));
+  const out = [];
+  for (let i = 1; i < dates.length; i++) {
+    const prevD = dates[i - 1], curD = dates[i];
+    const prevS = shiftSpan((sheet.schedule[prevD] || {})[emp.id]);
+    const curS = shiftSpan((sheet.schedule[curD] || {})[emp.id]);
+    if (!prevS || !curS) continue;
+    // 跨夜班的 endH 會 > 24，shiftTimeMs 直接吃得下，不必自己加一天
+    const gap = (shiftTimeMs(curD, curS.startH) - shiftTimeMs(prevD, prevS.endH)) / 3600000;
+    if (gap >= MIN_REST_H()) continue;
+    const g = Math.round(gap * 10) / 10;
+    // ⚠️ 間隔剛好 0 是「下班後直接接下一班」，不是時間重疊；兩者在勞檢上的說法不一樣，不能混著寫
+    const msg = g < 0
+      ? `${mdOf(prevD)} 的班還沒下班，${mdOf(curD)} 的班就開始了（時間重疊 ${-g} 小時）`
+      : g === 0
+        ? `${mdOf(prevD)} 下班後直接接 ${mdOf(curD)} 的班（中間 0 小時休息）`
+        : `${mdOf(prevD)} → ${mdOf(curD)} 只隔 ${g} 小時（未達 11 小時休息）`;
+    out.push({ level: 'error', rule: 'rest11h', emp: emp.name, msg });
+  }
+  return out;
+}
+
+/** 三項一起跑，依人分組 */
+function runComplianceChecks() {
+  const out = [];
+  (sheet.employees || []).forEach(e => {
+    out.push(...checkOffDays(e), ...checkConsecutive(e), ...checkRestGaps(e));
+  });
+  return out;
+}
+
+function renderCompliancePanel() {
+  const box = document.getElementById('lawCheck');
+  if (!box) return;
+  if (!(sheet.employees || []).length) { box.innerHTML = ''; return; }
+  const issues = runComplianceChecks();
+  if (!issues.length) {
+    box.innerHTML = `<div class="law-ok">✅ 檢查通過：休假日數、七休一、輪班間隔 11 小時都沒問題</div>`;
+    return;
+  }
+  const errs = issues.filter(i => i.level === 'error');
+  const byEmp = {};
+  issues.forEach(i => { (byEmp[i.emp] = byEmp[i.emp] || []).push(i); });
+  box.innerHTML = `<div class="law-box">
+    <div class="law-title">⚠️ 排班檢查：${errs.length} 項不符${issues.length - errs.length ? `、${issues.length - errs.length} 項待確認` : ''}</div>
+    ${Object.entries(byEmp).map(([nm, list]) => `
+      <div class="law-emp"><b>${esc(nm)}</b>
+        ${list.map(i => `<div class="law-item ${i.level}">・${esc(i.msg)}</div>`).join('')}
+      </div>`).join('')}
+    <div class="law-foot">檢查項目：正職休假日數＝當月六日天數、連續上班不得達 7 天、前後班休息 ≥ 11 小時</div>
+  </div>`;
+}
+
 // ===== 步驟 3：排班 =====
 function renderSchedule() {
   renderMonthSummary();
+  renderCompliancePanel();
   const emps = sheet.employees || [];
   const wrap = document.getElementById('schedWrap');
   if (!emps.length) { wrap.innerHTML = '<div class="empty">請先到「② 人員」新增被盤點人員</div>'; return; }
@@ -837,17 +966,12 @@ function renderPunch() {
   if (!empId) { wrap.innerHTML = '<div class="empty">請先新增人員</div>'; bulk.innerHTML = ''; return; }
   const rows = punchRows(empId);
   const workRows = rows.filter(r => r.hours > 0 && !r.isAudit);
-  const shiftsUsed = [...new Set(workRows.map(r => r.shift))];
 
   bulk.innerHTML = workRows.length ? `
     <div class="bulk-box">
       <div class="bulk-line">
         <span class="bulk-label">帶入小時</span>
-        ${shiftsUsed.map(sh => {
-          const dh = shiftDefaultHours(sh);
-          return `<button class="btn-mini" onclick="fillShiftHours('${sh}')">${sh} 班　<span class="bulk-sub">${dh ? pad(dh.inH) + ':－ / ' + pad(dh.outH) + ':－' : ''}</span></button>`;
-        }).join('')}
-        ${shiftsUsed.length > 1 ? `<button class="btn-mini" onclick="fillShiftHours('')">全部班別</button>` : ''}
+        <button class="btn-mini" onclick="fillShiftHours('')">🕐 依班別帶入（${workRows.length} 天）</button>
       </div>
       <div class="bulk-line"><span class="bulk-hint">按班別帶入「小時」後，分鐘逐日自己填（例：14:<b>52</b>）。已填的小時不會被覆蓋。</span></div>
       <div class="bulk-line">
@@ -856,8 +980,10 @@ function renderPunch() {
         <button class="btn-mini" onclick="checkAll('out',true)">全選簽退</button>
         <button class="btn-mini danger" onclick="checkAll('in',false);checkAll('out',false)">取消</button>
         <input type="text" inputmode="numeric" maxlength="2" id="bkH" placeholder="時">
-        <button class="btn-mini" onclick="applyCheckedHour('in')">→ 簽到（<span id="cntIn">0</span>）</button>
-        <button class="btn-mini" onclick="applyCheckedHour('out')">→ 簽退（<span id="cntOut">0</span>）</button>
+        <span class="colon">:</span>
+        <input type="text" inputmode="numeric" maxlength="2" id="bkM" placeholder="分">
+        <button class="btn-mini" onclick="applyChecked('in')">→ 簽到（<span id="cntIn">0</span>）</button>
+        <button class="btn-mini" onclick="applyChecked('out')">→ 簽退（<span id="cntOut">0</span>）</button>
       </div>
       <div class="bulk-line">
         <button class="btn-mini danger" onclick="clearPunch('${empId}')">清空此人本月已填時間</button>
@@ -947,17 +1073,29 @@ function fillShiftHours(shift) {
   toast(cnt ? `已帶入 ${cnt} 天的小時，分鐘請逐日填` : '這些日子的小時都填過了');
 }
 
-/** 把指定「小時」套到已勾選的那幾格（處理例外，例如提前一小時到班） */
-function applyCheckedHour(kind) {
+/**
+ * 把指定的時／分套到已勾選的那幾格。
+ * 時與分可以只填一個（例如整批只要改小時，分鐘維持逐日手填）。
+ */
+function applyChecked(kind) {
   if (!canEditSheet()) return;
   const empId = document.getElementById('fPunchEmp').value;
-  const h = document.getElementById('bkH').value.trim();
-  if (h === '' || !(parseInt(h, 10) >= 0 && parseInt(h, 10) <= 23)) { toast('請填 0~23 的小時'); return; }
+  const hRaw = document.getElementById('bkH').value.trim();
+  const mRaw = document.getElementById('bkM').value.trim();
+  if (hRaw === '' && mRaw === '') { toast('請先填要套用的時或分'); return; }
+  const h = hRaw === '' ? null : parseInt(hRaw.replace(/[^0-9]/g, ''), 10);
+  const m = mRaw === '' ? null : parseInt(mRaw.replace(/[^0-9]/g, ''), 10);
+  if (h !== null && !(h >= 0 && h <= 23)) { toast('小時請填 0~23'); return; }
+  if (m !== null && !(m >= 0 && m <= 59)) { toast('分鐘請填 0~59'); return; }
   const picked = [...document.querySelectorAll('.pk-' + kind + ':checked')].map(c => c.getAttribute('data-date'));
-  if (!picked.length) { toast('請先勾選要套用的日期'); return; }
-  picked.forEach(d => setPunchPart(d, empId, kind, 'H', h));
+  if (!picked.length) { toast('請先勾選要填入的日期'); return; }
+  picked.forEach(d => {
+    if (h !== null) setPunchPart(d, empId, kind, 'H', h);
+    if (m !== null) setPunchPart(d, empId, kind, 'M', m);
+  });
   renderPunch();
-  toast(`已套用 ${picked.length} 天的${kind === 'in' ? '簽到' : '簽退'}小時`);
+  const what = (h !== null && m !== null) ? '時間' : (h !== null ? '小時' : '分鐘');
+  toast(`已套用 ${picked.length} 天的${kind === 'in' ? '簽到' : '簽退'}${what}`);
 }
 
 /** 寫入單一格（時或分）；超出範圍就清掉並提示 */
