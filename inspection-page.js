@@ -168,6 +168,7 @@ function renderList() {
         <div class="sheet-sub">${esc(s.storeName || '未填門市')} · 盤點日 ${s.auditDate || '--'} · ${emps} 人 · 輪班 ${mdOf(s.rangeStart || '--')}~${mdOf(s.rangeEnd || '--')}</div>
         <div class="sheet-sub">建立者：${esc(s.createdBy || '--')}${canEditSheet(s) ? '' : ' <span class="ro-tag">唯讀</span>'}</div>
       </div>
+      <button class="sheet-copy" title="複製整份" onclick="copySheet('${s.id}',event)">📄</button>
       <div class="sheet-arrow">›</div>
     </div>`;
   }).join('');
@@ -335,52 +336,17 @@ function applyReadonlyUI() {
   if (banner) banner.style.display = ro ? 'block' : 'none';
   document.querySelectorAll('#editView input, #editView select, #empModal input, #empModal select')
     .forEach(el => { el.disabled = ro; });
-  // 複製整份在唯讀下也要能用（複本歸自己、原件不動），所以把它的欄位放回來
-  document.querySelectorAll('#copyModal input, #copyModal select').forEach(el => { el.disabled = false; });
-  const cpEmps = document.getElementById('cpEmps');
-  if (cpEmps) cpEmps.disabled = true;   // 人員必選，維持停用
   document.querySelectorAll('.edit-only').forEach(el => { el.style.display = ro ? 'none' : ''; });
 }
 
 // ===== 複製整份 =====
-// 開放給唯讀檢視者用（複本歸自己，原件不動），所以按鈕不掛 edit-only。
-
-function openCopyModal() {
-  if (!sheet) return;
-  document.getElementById('cpTitle').value = (sheet.title || '未命名盤點') + ' - 複本';
-  document.getElementById('cpStore').value = sheet.storeName || '';
-  document.getElementById('cpWeeks').value = '0';
-  document.getElementById('cpSched').checked = true;
-  document.getElementById('cpPunch').checked = false;
-  // ⚠️ 這個 modal 的欄位不可被唯讀模式停用（複製本來就允許在唯讀下做）
-  document.getElementById('copyModal').classList.add('open');
-  renderCopyPreview();
-}
-function closeCopyModal() { document.getElementById('copyModal').classList.remove('open'); }
-
-/** 平移後的日期預覽：先讓人看到會變成什麼，再決定要不要建 */
-function renderCopyPreview() {
-  const d = (+document.getElementById('cpWeeks').value || 0) * 7;
-  const audit = shiftDateAdd(sheet.auditDate, d);
-  const rs = shiftDateAdd(sheet.rangeStart, d), re = shiftDateAdd(sheet.rangeEnd, d);
-  const sm = prevMonthOf(audit);
-  const withPunch = document.getElementById('cpPunch').checked;
-  const withSched = document.getElementById('cpSched').checked;
-  const hols = monthDays(sm).filter(isHoliday);
-  document.getElementById('cpPreview').innerHTML = `
-    <div>盤點日：<b>${audit}</b>（${DAY_NAMES[dayIdx(audit)]}）</div>
-    <div>輪班表期間：<b>${rs} ～ ${re}</b></div>
-    <div>出勤／薪資月份：<b>${sm.split('-')[0]} 年 ${+sm.split('-')[1]} 月</b>　國假：${hols.length ? hols.map(mdOf).join('、') : '無'}</div>
-    <div>人員 <b>${(sheet.employees || []).length}</b> 人${withSched ? '、含排班' : '、不含排班'}${withPunch ? '、含出勤時間' : ''}</div>
-    ${d && withPunch ? '<div style="color:#c5221f;">⚠️ 出勤時間會跟著平移到新日期，記得逐日核對是否符合實際。</div>' : ''}
-    ${d ? '' : '<div style="color:#64748b;font-size:11.5px;">日期與原件相同，之後在步驟①改盤點日的話，落在新範圍外的排班會被清掉。</div>'}`;
-}
+// 放在清單頁，按一下直接產生一份新的（不跳對話框）。
+// 唯讀檢視他人的盤點時也能複製——複本歸自己、原件不動。
 
 /**
  * 產生複本內容（純函式，不碰 DOM —— 日期平移最容易出錯，要能單獨測）
  * @param {object} src 原盤點
  * @param {number} days 平移天數（一律是 7 的倍數，星期幾才對得上）
- * @param {object} opt {title, storeName, withSched, withPunch, ownerUid, createdBy}
  */
 function buildCopyPayload(src, days, opt) {
   const shiftMap = m => {
@@ -392,45 +358,49 @@ function buildCopyPayload(src, days, opt) {
   const now = new Date().toISOString();
   return {
     title: opt.title,
-    storeName: opt.storeName,
+    storeName: src.storeName || '',
     auditDate: audit,
     weeks: +src.weeks || 6,
     rangeStart: shiftDateAdd(src.rangeStart, days),
     rangeEnd: shiftDateAdd(src.rangeEnd, days),
-    salaryMonth: prevMonthOf(audit),
+    salaryMonth: days ? prevMonthOf(audit) : (src.salaryMonth || prevMonthOf(audit)),
     // 員工 id 沿用即可：schedule/punches 以 id 對位，換了反而要整份重寫
     employees: JSON.parse(JSON.stringify(src.employees || [])),
-    schedule: opt.withSched ? shiftMap(src.schedule) : {},
-    punches: (opt.withSched && opt.withPunch) ? shiftMap(src.punches) : {},
+    schedule: shiftMap(src.schedule),
+    punches: shiftMap(src.punches),
     ownerUid: opt.ownerUid, createdBy: opt.createdBy, createdAt: now,
     updatedAt: now, updatedBy: opt.createdBy,
   };
 }
 
-async function doCopy() {
-  const title = document.getElementById('cpTitle').value.trim();
-  if (!title) { toast('請填新盤點名稱'); return; }
-  const days = (+document.getElementById('cpWeeks').value || 0) * 7;
-  const copy = buildCopyPayload(sheet, days, {
-    title,
-    storeName: document.getElementById('cpStore').value.trim(),
-    withSched: document.getElementById('cpSched').checked,
-    withPunch: document.getElementById('cpPunch').checked,
+/** 複本名稱：同名時自動累加「複本 2、複本 3…」 */
+function copyTitleOf(base) {
+  const root = String(base || '未命名盤點').replace(/\s*-\s*複本\s*\d*$/, '');
+  const used = new Set(sheets.map(s => s.title));
+  let t = root + ' - 複本';
+  for (let i = 2; used.has(t); i++) t = `${root} - 複本 ${i}`;
+  return t;
+}
+
+async function copySheet(id, ev) {
+  if (ev) ev.stopPropagation();
+  const src = sheets.find(s => s.id === id);
+  if (!src) { toast('找不到這份盤點'); return; }
+  const copy = buildCopyPayload(src, 0, {
+    title: copyTitleOf(src.title),
     ownerUid: myUid,
     createdBy: currentUser.empName || currentUser.username || '',
   });
-  showLoad('建立複本中…');
+  showLoad('複製中…');
   try {
-    const id = window.db.collection('inspectionSheets').doc().id;
-    await withTimeout(window.db.collection('inspectionSheets').doc(id).set(copy), 12000);
-    closeCopyModal(); hideLoad();
-    dirty = false;
-    sheet = { id, ...copy };
-    openEditor();
-    toast('已建立複本，現在編輯的是複本');
+    const newId = window.db.collection('inspectionSheets').doc().id;
+    await withTimeout(window.db.collection('inspectionSheets').doc(newId).set(copy), 12000);
+    await loadSheets();
+    hideLoad();
+    toast(`已複製為「${copy.title}」`);
   } catch (e) {
     hideLoad();
-    toast(e.message === 'timeout' ? '建立逾時，請檢查網路' : '建立失敗：' + e.message);
+    toast(e.message === 'timeout' ? '複製逾時，請檢查網路' : '複製失敗：' + e.message);
   }
 }
 
@@ -457,6 +427,7 @@ function onField() {
 function onAuditDateChange() {
   const d = document.getElementById('fAuditDate').value;
   if (!d) return;
+  const oldAudit = sheet.auditDate;
   const w = +document.getElementById('fWeeks').value;
   const r = computeRange(d, w);
   sheet.auditDate = d; sheet.weeks = w; sheet.rangeStart = r.start; sheet.rangeEnd = r.end;
@@ -469,7 +440,7 @@ function onAuditDateChange() {
   // ⚠️ 換盤點日後舊月份可能已不在清單裡：不可沿用，否則使用者以為在編 8 月、其實寫進別的月
   sel.value = [...months].includes(keep) ? keep : prevMonthOf(d);
   sheet.salaryMonth = sel.value;
-  purgeOutOfScope();
+  if (oldAudit && oldAudit !== d) offerShiftDates(oldAudit, d);
   renderRange();
   markDirty();
 }
@@ -682,14 +653,31 @@ const inSalaryMonth = d => d.slice(0, 7) === sheet.salaryMonth;
 const inScope = d => inShiftRange(d) || inSalaryMonth(d);
 
 /**
- * 清掉落在範圍外的排班與出勤時間。
- * ⚠️ 判斷用「輪班期間 ∪ 薪資月份」：只比輪班期間會把 8/1~8/16 那種
- *    「不在輪班表上、但出勤表與薪資要用」的日子整段刪掉。
+ * 盤點日改變時，把既有的班表與出勤時間一起平移。
+ *
+ * ⚠️ 這裡原本是「把範圍外的資料刪掉」，改掉了：一鍵複製出來的複本沿用原日期，
+ *    使用者接著改盤點日就會把整份班表清光，複製等於白做。
+ *    現在改成問要不要平移；不平移就原樣留著（範圍外的資料不會被印出來，留著無害）。
+ * ⚠️ 只在差距是整數週時才提議平移——班表是照週一~週日排的，
+ *    差幾天的平移會讓每個人的星期幾整排錯位。
  */
-function purgeOutOfScope() {
-  ['schedule', 'punches'].forEach(key => {
-    Object.keys(sheet[key] || {}).forEach(d => { if (!inScope(d)) delete sheet[key][d]; });
-  });
+function offerShiftDates(oldAudit, newAudit) {
+  const days = Math.round((parseD(mondayOf(newAudit)) - parseD(mondayOf(oldAudit))) / 86400000);
+  if (!days || days % 7 !== 0) return false;
+  const hasData = Object.keys(sheet.schedule || {}).length > 0;
+  if (!hasData) return false;
+  const wk = Math.abs(days / 7);
+  const dir = days > 0 ? '往後' : '往前';
+  if (!confirm(`盤點日${dir}移了 ${wk} 週。\n要把現有的班表與出勤時間一起${dir}平移 ${wk} 週嗎？\n\n（按取消＝資料留在原本的日期上）`)) return false;
+  const shiftMap = m => {
+    const out = {};
+    Object.keys(m || {}).forEach(dt => { out[shiftDateAdd(dt, days)] = m[dt]; });
+    return out;
+  };
+  sheet.schedule = shiftMap(sheet.schedule);
+  sheet.punches = shiftMap(sheet.punches);
+  toast(`班表與出勤時間已${dir}平移 ${wk} 週`);
+  return true;
 }
 
 /**

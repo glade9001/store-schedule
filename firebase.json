@@ -9,6 +9,17 @@
       "functions/**",
       "firestore.rules",
       "README.md"
+    ],
+    "headers": [
+      {
+        "source": "**/*.@(html|js|css)",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
+      }
     ]
   },
   "functions": {

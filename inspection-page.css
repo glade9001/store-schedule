@@ -235,3 +235,8 @@ td.tcell .colon{font-weight:800;color:var(--text-muted);margin:0 2px;}
 .ord-btn{width:28px;height:28px;border:1px solid var(--border);background:#fff;border-radius:7px;
   font-size:13px;font-weight:800;color:var(--primary-dark);cursor:pointer;font-family:inherit;padding:0;line-height:1;}
 .ord-btn:disabled{opacity:.3;cursor:default;}
+
+/* ── 清單卡片上的複製鈕 ── */
+.sheet-copy{flex:0 0 auto;width:36px;height:36px;border:1px solid var(--border);background:#fff;border-radius:9px;
+  font-size:16px;cursor:pointer;padding:0;line-height:1;}
+.sheet-copy:active{background:#f1f5f9;}
