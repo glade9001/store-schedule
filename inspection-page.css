@@ -65,13 +65,13 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
 .sheet-arrow{color:#ccc;font-size:16px;}
 .empty{text-align:center;color:var(--text-muted);font-size:13px;padding:28px 10px;}
 
-.emp-row{display:flex;align-items:center;gap:10px;padding:11px 2px;border-bottom:1px solid var(--border);cursor:pointer;}
+.emp-row{display:flex;align-items:center;gap:8px;padding:11px 2px;border-bottom:1px solid var(--border);cursor:pointer;}
 .emp-row:last-child{border-bottom:none;}
-.emp-name{font-size:14px;font-weight:800;flex:1;}
+.emp-name{font-size:14px;font-weight:800;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .emp-badge{font-size:11px;font-weight:800;padding:3px 9px;border-radius:20px;}
 .badge-full{background:#e6f4ea;color:#137333;}
 .badge-part{background:#e8f0fe;color:#1557b0;}
-.emp-money{font-size:11.5px;color:var(--text-muted);}
+.emp-money{font-size:11.5px;color:var(--text-muted);flex:0 0 auto;white-space:nowrap;}
 
 .week-block{margin-bottom:16px;}
 .week-head{font-size:12.5px;font-weight:800;color:var(--primary-dark);margin-bottom:6px;}
@@ -224,3 +224,14 @@ td.tcell .colon{font-weight:800;color:var(--text-muted);margin:0 2px;}
 .nextday{font-size:10px;color:var(--text-muted);text-align:center;}
 .bulk-sub{font-weight:600;opacity:.75;font-size:10.5px;font-family:ui-monospace,Menlo,monospace;}
 .bulk-line input#bkH{width:52px;}
+
+/* ── 複製整份 ── */
+.btn-copy-sheet{width:100%;height:40px;background:#fff;color:var(--primary-dark);border:1.5px solid var(--primary);
+  border-radius:10px;font-size:13.5px;font-weight:800;cursor:pointer;font-family:inherit;margin-top:10px;}
+
+/* ── 人員排序 ── */
+.emp-ord{width:20px;flex:0 0 auto;font-size:11.5px;font-weight:800;color:var(--text-muted);text-align:center;}
+.emp-move{display:flex;gap:4px;flex:0 0 auto;}
+.ord-btn{width:28px;height:28px;border:1px solid var(--border);background:#fff;border-radius:7px;
+  font-size:13px;font-weight:800;color:var(--primary-dark);cursor:pointer;font-family:inherit;padding:0;line-height:1;}
+.ord-btn:disabled{opacity:.3;cursor:default;}

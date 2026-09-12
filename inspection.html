@@ -60,6 +60,7 @@
       </div>
       <div class="field"><label>出勤記錄表／薪資單月份</label><select id="fSalaryMonth" onchange="onField()"></select></div>
       <div class="range-box" id="rangeBox"></div>
+      <button class="btn-copy-sheet" onclick="openCopyModal()">📄 複製整份</button>
       <button class="btn-del-sheet edit-only" onclick="deleteSheet()">🗑 刪除這份盤點</button>
     </div>
     <div class="step-nav"><span></span><button class="btn-next" onclick="gotoStep(2)">下一步：人員 →</button></div>
@@ -173,6 +174,39 @@
       <button class="btn-del edit-only" id="empDelBtn" onclick="deleteEmp()">刪除</button>
       <button class="btn-cancel" onclick="closeEmpEdit()">取消</button>
       <button class="btn-primary edit-only" onclick="saveEmp()">儲存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════ 複製整份 ════════ -->
+<div class="modal" id="copyModal">
+  <div class="modal-box">
+    <div class="modal-title">📄 複製整份盤點</div>
+    <div class="modal-body">
+      <div class="hint">複製成一份新的盤點，原本那份不動。複本一律歸你所有。</div>
+      <div class="field"><label>新盤點名稱</label><input type="text" id="cpTitle"></div>
+      <div class="field"><label>門市名稱</label><input type="text" id="cpStore"></div>
+      <div class="field"><label>日期整體平移<span class="hint-inline">以週為單位，星期幾才對得上</span></label>
+        <select id="cpWeeks" onchange="renderCopyPreview()">
+          <option value="0">不平移（沿用原日期）</option>
+          <option value="4">往後 4 週</option>
+          <option value="6">往後 6 週</option>
+          <option value="8">往後 8 週</option>
+          <option value="12">往後 12 週</option>
+          <option value="-4">往前 4 週</option>
+          <option value="-6">往前 6 週</option>
+          <option value="-8">往前 8 週</option>
+        </select>
+      </div>
+      <div class="sub-title">要複製的內容</div>
+      <label class="chk-line"><input type="checkbox" id="cpEmps" checked disabled><span>人員（含薪資項目與投保級距）</span></label>
+      <label class="chk-line"><input type="checkbox" id="cpSched" checked onchange="renderCopyPreview()"><span>排班</span></label>
+      <label class="chk-line"><input type="checkbox" id="cpPunch" onchange="renderCopyPreview()"><span>出勤時間（簽到／簽退）</span></label>
+      <div class="range-box" id="cpPreview"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-cancel" onclick="closeCopyModal()">取消</button>
+      <button class="btn-primary" onclick="doCopy()">建立複本</button>
     </div>
   </div>
 </div>

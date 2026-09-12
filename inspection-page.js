@@ -335,7 +335,103 @@ function applyReadonlyUI() {
   if (banner) banner.style.display = ro ? 'block' : 'none';
   document.querySelectorAll('#editView input, #editView select, #empModal input, #empModal select')
     .forEach(el => { el.disabled = ro; });
+  // 複製整份在唯讀下也要能用（複本歸自己、原件不動），所以把它的欄位放回來
+  document.querySelectorAll('#copyModal input, #copyModal select').forEach(el => { el.disabled = false; });
+  const cpEmps = document.getElementById('cpEmps');
+  if (cpEmps) cpEmps.disabled = true;   // 人員必選，維持停用
   document.querySelectorAll('.edit-only').forEach(el => { el.style.display = ro ? 'none' : ''; });
+}
+
+// ===== 複製整份 =====
+// 開放給唯讀檢視者用（複本歸自己，原件不動），所以按鈕不掛 edit-only。
+
+function openCopyModal() {
+  if (!sheet) return;
+  document.getElementById('cpTitle').value = (sheet.title || '未命名盤點') + ' - 複本';
+  document.getElementById('cpStore').value = sheet.storeName || '';
+  document.getElementById('cpWeeks').value = '0';
+  document.getElementById('cpSched').checked = true;
+  document.getElementById('cpPunch').checked = false;
+  // ⚠️ 這個 modal 的欄位不可被唯讀模式停用（複製本來就允許在唯讀下做）
+  document.getElementById('copyModal').classList.add('open');
+  renderCopyPreview();
+}
+function closeCopyModal() { document.getElementById('copyModal').classList.remove('open'); }
+
+/** 平移後的日期預覽：先讓人看到會變成什麼，再決定要不要建 */
+function renderCopyPreview() {
+  const d = (+document.getElementById('cpWeeks').value || 0) * 7;
+  const audit = shiftDateAdd(sheet.auditDate, d);
+  const rs = shiftDateAdd(sheet.rangeStart, d), re = shiftDateAdd(sheet.rangeEnd, d);
+  const sm = prevMonthOf(audit);
+  const withPunch = document.getElementById('cpPunch').checked;
+  const withSched = document.getElementById('cpSched').checked;
+  const hols = monthDays(sm).filter(isHoliday);
+  document.getElementById('cpPreview').innerHTML = `
+    <div>盤點日：<b>${audit}</b>（${DAY_NAMES[dayIdx(audit)]}）</div>
+    <div>輪班表期間：<b>${rs} ～ ${re}</b></div>
+    <div>出勤／薪資月份：<b>${sm.split('-')[0]} 年 ${+sm.split('-')[1]} 月</b>　國假：${hols.length ? hols.map(mdOf).join('、') : '無'}</div>
+    <div>人員 <b>${(sheet.employees || []).length}</b> 人${withSched ? '、含排班' : '、不含排班'}${withPunch ? '、含出勤時間' : ''}</div>
+    ${d && withPunch ? '<div style="color:#c5221f;">⚠️ 出勤時間會跟著平移到新日期，記得逐日核對是否符合實際。</div>' : ''}
+    ${d ? '' : '<div style="color:#64748b;font-size:11.5px;">日期與原件相同，之後在步驟①改盤點日的話，落在新範圍外的排班會被清掉。</div>'}`;
+}
+
+/**
+ * 產生複本內容（純函式，不碰 DOM —— 日期平移最容易出錯，要能單獨測）
+ * @param {object} src 原盤點
+ * @param {number} days 平移天數（一律是 7 的倍數，星期幾才對得上）
+ * @param {object} opt {title, storeName, withSched, withPunch, ownerUid, createdBy}
+ */
+function buildCopyPayload(src, days, opt) {
+  const shiftMap = m => {
+    const out = {};
+    Object.keys(m || {}).forEach(dt => { out[shiftDateAdd(dt, days)] = JSON.parse(JSON.stringify(m[dt])); });
+    return out;
+  };
+  const audit = shiftDateAdd(src.auditDate, days);
+  const now = new Date().toISOString();
+  return {
+    title: opt.title,
+    storeName: opt.storeName,
+    auditDate: audit,
+    weeks: +src.weeks || 6,
+    rangeStart: shiftDateAdd(src.rangeStart, days),
+    rangeEnd: shiftDateAdd(src.rangeEnd, days),
+    salaryMonth: prevMonthOf(audit),
+    // 員工 id 沿用即可：schedule/punches 以 id 對位，換了反而要整份重寫
+    employees: JSON.parse(JSON.stringify(src.employees || [])),
+    schedule: opt.withSched ? shiftMap(src.schedule) : {},
+    punches: (opt.withSched && opt.withPunch) ? shiftMap(src.punches) : {},
+    ownerUid: opt.ownerUid, createdBy: opt.createdBy, createdAt: now,
+    updatedAt: now, updatedBy: opt.createdBy,
+  };
+}
+
+async function doCopy() {
+  const title = document.getElementById('cpTitle').value.trim();
+  if (!title) { toast('請填新盤點名稱'); return; }
+  const days = (+document.getElementById('cpWeeks').value || 0) * 7;
+  const copy = buildCopyPayload(sheet, days, {
+    title,
+    storeName: document.getElementById('cpStore').value.trim(),
+    withSched: document.getElementById('cpSched').checked,
+    withPunch: document.getElementById('cpPunch').checked,
+    ownerUid: myUid,
+    createdBy: currentUser.empName || currentUser.username || '',
+  });
+  showLoad('建立複本中…');
+  try {
+    const id = window.db.collection('inspectionSheets').doc().id;
+    await withTimeout(window.db.collection('inspectionSheets').doc(id).set(copy), 12000);
+    closeCopyModal(); hideLoad();
+    dirty = false;
+    sheet = { id, ...copy };
+    openEditor();
+    toast('已建立複本，現在編輯的是複本');
+  } catch (e) {
+    hideLoad();
+    toast(e.message === 'timeout' ? '建立逾時，請檢查網路' : '建立失敗：' + e.message);
+  }
 }
 
 async function deleteSheet() {
@@ -394,14 +490,20 @@ function renderEmps() {
   const box = document.getElementById('empList');
   const emps = sheet.employees || [];
   if (!emps.length) { box.innerHTML = '<div class="empty">還沒有人員</div>'; return; }
-  box.innerHTML = emps.map(e => {
+  // 順序＝輪班表的列順序、出勤表與薪資單的頁順序，所以要能調
+  box.innerHTML = emps.map((e, i) => {
     const money = e.role === '工讀'
       ? `時薪 $${n(e.wage) || DEFAULT_WAGE}`
       : `底薪 $${comma(n(e.baseSalary))}`;
     return `<div class="emp-row" onclick="openEmpEdit('${e.id}')">
+      <span class="emp-ord">${i + 1}</span>
       <span class="emp-name">${esc(e.name)}</span>
       <span class="emp-badge ${e.role === '工讀' ? 'badge-part' : 'badge-full'}">${e.role}</span>
       <span class="emp-money">${money}${e.insuranceGrade === -1 ? '・未投保' : e.insuranceGrade == null ? '・未設級距' : ''}</span>
+      <span class="emp-move edit-only">
+        <button class="ord-btn" ${i === 0 ? 'disabled' : ''} onclick="event.stopPropagation();moveEmp('${e.id}',-1)">↑</button>
+        <button class="ord-btn" ${i === emps.length - 1 ? 'disabled' : ''} onclick="event.stopPropagation();moveEmp('${e.id}',1)">↓</button>
+      </span>
       <span class="sheet-arrow">›</span>
     </div>`;
   }).join('');
@@ -443,6 +545,17 @@ function onGradeChange(keepSel) {
     <div class="grade-row"><span>健保費（個人）</span><b>$${comma(health)}</b>${noHealth ? ' <span class="grade-tag">未投保</span>' : ''}</div>
     ${depCount ? `<div class="grade-row"><span>眷屬健保 ×${depCount}</span><b>$${comma(health * depCount)}</b></div>` : ''}
     <div class="grade-row muted"><span>雇主負擔：勞保 $${comma(g.laborEr)}・健保 $${comma(noHealth ? 0 : g.healthEr)}・勞退提撥 $${comma(g.pension)}</span></div>`;
+}
+
+/** 調整人員順序（輪班表列序／出勤表與薪資單的頁序都吃這個） */
+function moveEmp(id, dir) {
+  if (!canEditSheet()) return;
+  const list = sheet.employees || [];
+  const i = list.findIndex(e => e.id === id);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= list.length) return;
+  [list[i], list[j]] = [list[j], list[i]];
+  markDirty(); renderEmps(); applyReadonlyUI();
 }
 
 function onRoleChange() {
