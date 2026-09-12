@@ -21,16 +21,49 @@ service cloud.firestore {
       allow read: if request.time < resource.data.expiresAt;
     }
 
+    // ── inspectionSheets：盤點資料 ───────────────────────
+    // 店長以上可讀；但店長只能改／刪**自己建立的**（ownerUid == 自己），加盟主以上不限。
+    // ⚠️ 只擋介面沒有用：開 console 就能直接寫 Firestore，所以權限一定要落在這裡。
+    // ⚠️ 一律用 .get(key, default)：直接存取不存在的欄位會讓規則報錯→拒絕整條（專案舊傷）。
+    //    舊資料若沒有 ownerUid，店長會被擋下（安全的預設），由加盟主處理。
+    match /inspectionSheets/{sheetId} {
+      function perm() {
+        return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('permission', '');
+      }
+      function isOwnerUp() { return perm() in ['owner', 'admin']; }
+      function isMine()    { return resource.data.get('ownerUid', '') == request.auth.uid; }
+
+      allow read: if request.auth != null && perm() in ['manager', 'owner', 'admin'];
+
+      allow create: if request.auth != null && perm() in ['manager', 'owner', 'admin']
+                    && (isOwnerUp() || request.resource.data.get('ownerUid', '') == request.auth.uid);
+
+      // 店長改自己的可以，但不能把 ownerUid 改成別人（等於偷換擁有者）
+      allow update: if request.auth != null
+                    && (isOwnerUp() ||
+                        (perm() == 'manager' && isMine()
+                         && request.resource.data.get('ownerUid', '') == resource.data.get('ownerUid', '')));
+
+      allow delete: if request.auth != null && (isOwnerUp() || (perm() == 'manager' && isMine()));
+    }
+
     // ── 其他所有集合：登入即可讀寫 ───────────────────────
     // 涵蓋 settings, stores(含 weeks/salary/employees/attendance/attendanceRequests…),
     //      leaves/comp/leaveBatches/leaveLog/annualUsage/compUsage, lineBindings…
-    match /{document=**} {
-      allow read: if request.auth != null;
-      allow update, delete: if request.auth != null;
+    //
+    // ⚠️ Firestore 規則是「或」的關係，不是「覆蓋」：只要有任何一條 match 放行就放行。
+    //    所以這條 catch-all 會把上面 inspectionSheets 的限制整個架空
+    //    （任何登入者都能 read/update/delete 任何文件）。要真的擋住，唯一的辦法是
+    //    讓 catch-all「配不到」那個集合 —— 故改成綁第一段集合名 {coll} 後排除。
+    //    其餘集合的行為與原本完全相同。
+    match /{coll}/{docPath=**} {
+      allow read: if request.auth != null && coll != 'inspectionSheets';
+      allow update, delete: if request.auth != null && coll != 'inspectionSheets';
       // 打卡防偽：source=="app" 的打卡「只能」由 clockPunch callable(Admin SDK 略過規則)建立；
       //          客戶端不可直接寫入假打卡。管理者補登(source=manual)、缺卡(source=system)、其他無 source 的建立照常。
       // ⚠️ 必須用 .get('source','')：直接存取不存在的欄位會讓規則報錯而「拒絕」→ 會擋掉所有沒有 source 欄位的建立(薪資簽收/劃休/綁定…)
-      allow create: if request.auth != null && request.resource.data.get('source', '') != 'app';
+      allow create: if request.auth != null && coll != 'inspectionSheets'
+                    && request.resource.data.get('source', '') != 'app';
     }
   }
 }

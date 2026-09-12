@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="莉學商行">
+<link rel="apple-touch-icon" href="icon-192.svg">
+<meta name="theme-color" content="#0f766e">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>📋 盤點資料</title>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+<script src="firebase-init.js"></script>
+<script src="holidays.js"></script>
+<script src="schedule-draw.js"></script>
+<link rel="stylesheet" href="inspection-page.css">
+</head>
+<body>
+<div id="loadingOverlay"><div class="spinner"></div><div id="loadingText">載入中...</div></div>
+
+<div class="header">
+  <button class="header-back" id="backBtn" onclick="goBack()">← 返回</button>
+  <div class="header-title" id="headerTitle">📋 盤點資料</div>
+  <span class="save-state" id="saveState"></span>
+</div>
+
+<!-- ════════ 清單檢視 ════════ -->
+<div class="content" id="listView">
+  <div class="note">
+    盤點前用的文件產生器。選人 → 填期間 → 填班表 → 填出勤時間 → 產出 <b>職員輪班表</b>、<b>出勤記錄表</b>、<b>薪資單</b>（PDF）。<br>
+    此處資料<b>完全獨立</b>，不會寫入正式排班、打卡與薪資，也不列入任何成本統計。
+  </div>
+  <button class="btn-primary" onclick="newSheet()">＋ 新增盤點資料</button>
+  <div class="sec-title">已建立的盤點</div>
+  <div id="sheetList"></div>
+</div>
+
+<!-- ════════ 編輯檢視 ════════ -->
+<div class="content" id="editView" style="display:none;">
+  <div class="ro-banner" id="roBanner" style="display:none;">
+    🔒 這份盤點由其他人建立，你只能檢視與產出 PDF，不能修改或刪除。（加盟主以上不受限）
+  </div>
+  <div class="steps" id="stepBar"></div>
+
+  <!-- ── 步驟 1：基本設定 ── -->
+  <div class="step-panel" id="panel1">
+    <div class="card">
+      <div class="card-title">① 盤點基本設定</div>
+      <div class="field"><label>盤點名稱</label><input type="text" id="fTitle" placeholder="例：2026 秋季盤點" oninput="onField()"></div>
+      <div class="field"><label>門市名稱<span class="hint-inline">印在所有表單上，自行輸入</span></label><input type="text" id="fStore" placeholder="例：示範門市" oninput="onField()"></div>
+      <div class="field"><label>盤點日</label><input type="date" id="fAuditDate" onchange="onAuditDateChange()"></div>
+      <div class="field"><label>輪班表週數<span class="hint-inline">不含盤點當週，往前推</span></label>
+        <select id="fWeeks" onchange="onAuditDateChange()">
+          <option value="4">4 週</option><option value="5">5 週</option><option value="6" selected>6 週</option>
+          <option value="7">7 週</option><option value="8">8 週</option>
+        </select>
+      </div>
+      <div class="field"><label>出勤記錄表／薪資單月份</label><select id="fSalaryMonth" onchange="onField()"></select></div>
+      <div class="range-box" id="rangeBox"></div>
+      <button class="btn-del-sheet edit-only" onclick="deleteSheet()">🗑 刪除這份盤點</button>
+    </div>
+    <div class="step-nav"><span></span><button class="btn-next" onclick="gotoStep(2)">下一步：人員 →</button></div>
+  </div>
+
+  <!-- ── 步驟 2：人員 ── -->
+  <div class="step-panel" id="panel2" style="display:none;">
+    <div class="card">
+      <div class="card-title">② 被盤點人員</div>
+      <div class="hint">姓名自行輸入（印在表單上的名字）。正職請填實際薪資項目；工讀預設時薪 196 元。</div>
+      <div id="empList"></div>
+      <button class="btn-outline edit-only" onclick="openEmpEdit('')">＋ 新增人員</button>
+    </div>
+    <div class="step-nav"><button class="btn-back" onclick="gotoStep(1)">← 上一步</button><button class="btn-next" onclick="gotoStep(3)">下一步：排班 →</button></div>
+  </div>
+
+  <!-- ── 步驟 3：排班 ── -->
+  <div class="step-panel" id="panel3" style="display:none;">
+    <div class="card">
+      <div class="card-title">③ 每日上班人員</div>
+      <div class="hint">每週一張表。空白＝未排，「休」會印在輪班表與出勤記錄表上。<br>
+        薪資月份若有日子落在輪班表期間之外（例：9/20 盤點→輪班表 8/17 起，但出勤表要整個 8 月），那幾週一樣要填，否則出勤記錄表會開天窗。</div>
+      <div id="monthSummary"></div>
+      <div class="tool-row edit-only">
+        <button class="btn-mini danger" onclick="clearSchedule()">清空全部</button>
+      </div>
+      <div id="schedWrap"></div>
+    </div>
+    <div class="step-nav"><button class="btn-back" onclick="gotoStep(2)">← 上一步</button><button class="btn-next" onclick="gotoStep(4)">下一步：出勤時間 →</button></div>
+  </div>
+
+  <!-- ── 步驟 4：出勤時間 ── -->
+  <div class="step-panel" id="panel4" style="display:none;">
+    <div class="card">
+      <div class="card-title">④ 出勤記錄表的簽到／簽退時間</div>
+      <div class="note-warn">
+        這一欄是<b>人工填寫</b>：請依該員當日實際到班與離店時間填入，系統不會自動產生時間。<br>
+        未來接上打卡系統後，此欄改由真實打卡紀錄帶入，表單格式不變。
+      </div>
+      <div class="field"><label>填寫對象</label><select id="fPunchEmp" onchange="renderPunch()"></select></div>
+      <div class="tool-row edit-only" id="bulkRow"></div>
+      <div id="punchWrap"></div>
+    </div>
+    <div class="step-nav"><button class="btn-back" onclick="gotoStep(3)">← 上一步</button><button class="btn-next" onclick="gotoStep(5)">下一步：產出 →</button></div>
+  </div>
+
+  <!-- ── 步驟 5：產出 ── -->
+  <div class="step-panel" id="panel5" style="display:none;">
+    <div class="card">
+      <div class="card-title">⑤ 產出文件（PDF）</div>
+      <div id="readyBox"></div>
+      <button class="btn-primary" onclick="buildOutput('shift')">📋 職員輪班表<span class="btn-sub">每週一張</span></button>
+      <button class="btn-primary" onclick="buildOutput('attend')">🗂️ 出勤記錄表<span class="btn-sub">一人一張</span></button>
+      <button class="btn-primary" onclick="buildOutput('salary')">💰 薪資單<span class="btn-sub">完整 19 欄</span></button>
+      <div class="hint" style="margin-top:10px;">預覽開啟後按「列印 / 存 PDF」，在列印對話框選「另存為 PDF」。</div>
+    </div>
+    <div class="card">
+      <div class="card-title">🗓️ 本月國定假日</div>
+      <div id="holidayBox"></div>
+    </div>
+    <div class="step-nav"><button class="btn-back" onclick="gotoStep(4)">← 上一步</button><span></span></div>
+  </div>
+</div>
+
+<!-- ════════ 人員編輯 ════════ -->
+<div class="modal" id="empModal">
+  <div class="modal-box">
+    <div class="modal-title" id="empModalTitle">新增人員</div>
+    <div class="modal-body">
+      <div class="field"><label>姓名</label><input type="text" id="eName" placeholder="印在表單上的姓名"></div>
+      <div class="field"><label>職稱</label>
+        <select id="eRole" onchange="onRoleChange()">
+          <option value="正職">正職</option><option value="工讀">工讀</option>
+        </select>
+      </div>
+      <div id="fullFields">
+        <div class="sub-title">薪資項目（依實際薪資填寫）</div>
+        <div class="grid2">
+          <div class="field"><label>底薪</label><input type="number" id="eBase" inputmode="numeric"></div>
+          <div class="field"><label>全勤獎金</label><input type="number" id="eAttend" inputmode="numeric"></div>
+          <div class="field"><label>管理獎金</label><input type="number" id="eMgmt" inputmode="numeric"></div>
+          <div class="field"><label>勞務津貼</label><input type="number" id="eLaborAllow" inputmode="numeric"></div>
+          <div class="field"><label>績效獎金</label><input type="number" id="ePerf" inputmode="numeric"></div>
+          <div class="field"><label>其他津貼</label><input type="number" id="eOther" inputmode="numeric"></div>
+          <div class="field"><label>加班時數</label><input type="number" id="eOtHours" step="0.5"></div>
+          <div class="field"><label>遲到（分）</label><input type="number" id="eLateMin" inputmode="numeric"></div>
+          <div class="field"><label>事病假扣款</label><input type="number" id="eSick" inputmode="numeric"></div>
+        </div>
+      </div>
+      <div id="partFields" style="display:none;">
+        <div class="sub-title">時薪</div>
+        <div class="grid2">
+          <div class="field"><label>時薪</label><input type="number" id="eWage" inputmode="numeric"></div>
+          <div class="field"><label>事病假扣款</label><input type="number" id="eSickP" inputmode="numeric"></div>
+        </div>
+        <div class="hint">工時與國定假日加給由班表自動計算。</div>
+      </div>
+      <div class="sub-title">代扣項目</div>
+      <div class="field"><label>投保級距<span class="hint-inline">同薪資系統，選了自動帶入保費</span></label>
+        <select id="eGrade" onchange="onGradeChange()"></select>
+      </div>
+      <div class="grade-box" id="gradeBox"></div>
+      <div class="grid2">
+        <div class="field"><label>眷屬人數<span class="hint-inline">健保</span></label><input type="number" id="eDepCount" inputmode="numeric" min="0" onchange="onGradeChange(true)"></div>
+        <div class="field"><label>勞退個人自提</label><input type="number" id="ePension" inputmode="numeric"></div>
+        <div class="field"><label>其他扣款</label><input type="number" id="eOtherDed" inputmode="numeric"></div>
+      </div>
+      <label class="chk-line"><input type="checkbox" id="eHealthUninsured" onchange="onGradeChange(true)"><span>健保未投保（勞保照投，健保在他處投保）</span></label>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-del edit-only" id="empDelBtn" onclick="deleteEmp()">刪除</button>
+      <button class="btn-cancel" onclick="closeEmpEdit()">取消</button>
+      <button class="btn-primary edit-only" onclick="saveEmp()">儲存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════ PDF 預覽 ════════ -->
+<div id="pdfModal">
+  <div class="pdf-bar">
+    <div class="pdf-bar-title" id="pdfTitle"></div>
+    <button class="pdf-print" onclick="window.print()">列印 / 存 PDF</button>
+    <button class="pdf-close" onclick="closePdf()">✕ 關閉</button>
+  </div>
+  <div id="pdfPreviewBody"></div>
+</div>
+
+<div id="toast"></div>
+
+<script src="utils.js"></script>
+<script src="shift-utils.js"></script>
+<script src="inspection-page.js"></script>
+</body>
+</html>
