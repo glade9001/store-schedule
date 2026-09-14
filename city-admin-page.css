@@ -42,9 +42,11 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
 .search { width: 100%; padding: 10px 12px; border: 1.5px solid var(--border); border-radius: 12px; font-size: 14px; margin-bottom: 10px; background: white; }
 
 .group { background: white; border-radius: var(--radius); margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.06); overflow: hidden; }
-.group-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
-.group-name { font-size: 14px; font-weight: 900; flex: 1; min-width: 0; }
-.group-count { font-size: 12px; color: var(--text-muted); font-weight: 700; margin-left: 4px; }
+.group-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.group-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.btn-outline-muted { border-color: #cbd5e1; color: var(--text-muted); }
+.group-name { font-size: 14px; font-weight: 900; flex: 1 1 170px; min-width: 0; }
+.group-count { font-size: 12px; color: var(--text-muted); font-weight: 700; margin-left: 4px; white-space: nowrap; }
 .group-warn { background: #fff8e1; color: #8a6d00; font-size: 12px; font-weight: 700; padding: 8px 14px; border-bottom: 1px solid var(--border); }
 
 .row { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #f1f5f9; cursor: pointer; }
@@ -61,6 +63,7 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
 .b-delete { background: #fce8e6; color: var(--danger); }
 .b-flag { background: #fff3e0; color: #b45309; margin-left: 4px; }
 .b-gone { background: #eceff1; color: #455a64; margin-left: 4px; }
+.b-hidden { background: #fce8e6; color: var(--danger); margin-left: 4px; }
 
 .empty { text-align: center; color: var(--text-muted); font-size: 13px; padding: 36px 12px; }
 

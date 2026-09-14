@@ -13,7 +13,7 @@ const OUR_IMAGE_PREFIX = 'https://firebasestorage.googleapis.com/v0/b/store-sche
 const NO_MACHINE = '（未判斷機器）';
 
 let currentUser = null;
-const S = { pending: [], recipes: new Map(), specs: new Map(), ignored: [], meta: null, tab: 'pending', openId: null, groupKeys: [] };
+const S = { pending: [], recipes: new Map(), specs: new Map(), ignored: [], declined: [], meta: null, tab: 'pending', openId: null, groupKeys: [], pubGroupKeys: [] };
 
 // ===== 工具 =====
 const $ = (id) => document.getElementById(id);
@@ -63,18 +63,20 @@ window.onload = async () => {
 
 async function loadAll() {
   const db = window.db;
-  const [p, r, s, ig, meta] = await Promise.all([
+  const [p, r, s, ig, meta, dec] = await Promise.all([
     db.collection('cityPending').get(),
     db.collection('cityRecipes').get(),
     db.collection('citySpecs').get(),
     db.collection('cityIgnored').get(),
     db.collection('cityMeta').doc('sync').get(),
+    db.collection('cityDeclined').get(),
   ]);
   S.pending = p.docs.map((d) => ({ id: d.id, ...d.data() }));
   S.recipes = new Map(r.docs.map((d) => [d.id, { id: d.id, ...d.data() }]));
   S.specs = new Map(s.docs.map((d) => [d.id, { id: d.id, ...d.data() }]));
   S.ignored = ig.docs.map((d) => ({ id: d.id, ...d.data() }));
   S.meta = meta.exists ? meta.data() : null;
+  S.declined = dec.docs.map((d) => ({ id: d.id, ...d.data() }));
   renderAll();
 }
 
@@ -82,7 +84,7 @@ function renderAll() {
   renderSync();
   $('cntPending').textContent = S.pending.length;
   $('cntPublished').textContent = S.recipes.size;
-  $('cntIgnored').textContent = S.ignored.length;
+  $('cntIgnored').textContent = S.ignored.length + S.declined.length;
   renderPending();
   renderPublished();
   renderIgnored();
@@ -170,7 +172,10 @@ function renderPending() {
     return `<div class="group">
       <div class="group-head">
         <div class="group-name">${esc(k)}<span class="group-count">${list.length} 筆</span></div>
-        ${ok ? `<button class="btn-outline" onclick="publishGroup(${gi})">整組發佈 ${ok} 筆</button>` : ''}
+        <div class="group-actions">
+          ${ok ? `<button class="btn-outline" onclick="publishGroup(${gi})">整組發佈 ${ok} 筆</button>` : ''}
+          <button class="btn-outline btn-outline-muted" onclick="declineGroup(${gi})">整組不發佈</button>
+        </div>
       </div>${warn}
       ${list.map(pendingRow).join('')}
     </div>`;
@@ -369,6 +374,7 @@ function openPending(id) {
       <div class="btn-col">
         <button class="btn btn-primary" onclick="publishAdd()" ${p.imageMissing ? 'disabled' : ''}>發佈</button>
         <button class="btn btn-danger" onclick="ignoreKeyword()">不收這個品項</button>
+        <button class="btn btn-soft" onclick="declinePending()">不發佈（這一版先不發）</button>
         <button class="btn btn-soft" onclick="closeDetail()">先不處理</button>
       </div>`);
     return;
@@ -382,6 +388,7 @@ function openPending(id) {
       <div class="btn-col">
         <button class="btn btn-soft" onclick="resolveDelete(true)">保留並標示已下架</button>
         <button class="btn btn-danger" onclick="resolveDelete(false)">刪除（員工看不到）</button>
+        <button class="btn btn-soft" onclick="declinePending()">不發佈（這一版先不發）</button>
         <button class="btn btn-soft" onclick="closeDetail()">先不處理</button>
       </div>`);
     return;
@@ -414,7 +421,8 @@ function openPending(id) {
         ? `<button class="btn btn-primary" onclick="resolveUpdate(true)" ${p.imageMissing ? 'disabled' : ''}>更新並保留我們的修改</button>
            <button class="btn btn-soft" onclick="resolveUpdate(false)" ${p.imageMissing ? 'disabled' : ''}>全部改用對方新版</button>`
         : `<button class="btn btn-primary" onclick="resolveUpdate(false)" ${p.imageMissing ? 'disabled' : ''}>發佈更新</button>`}
-      <button class="btn btn-soft" onclick="closeDetail()">先不處理</button>
+      <button class="btn btn-soft" onclick="declinePending()">不發佈（這一版先不發）</button>
+        <button class="btn btn-soft" onclick="closeDetail()">先不處理</button>
     </div>`);
 }
 
@@ -427,6 +435,7 @@ function openSpecPending(p) {
       ${pub ? `<div class="view-sec">${esc(pub.content)}</div>` : ''}
       <div class="btn-col">
         <button class="btn btn-danger" onclick="resolveSpecDelete()">刪除</button>
+        <button class="btn btn-soft" onclick="declinePending()">不發佈（這一版先不發）</button>
         <button class="btn btn-soft" onclick="closeDetail()">先不處理</button>
       </div>`);
     return;
@@ -441,12 +450,57 @@ function openSpecPending(p) {
       ${editedOurs ? '<div class="hint">目前填的是我們改過的版本；要改用對方新版，直接把右邊的內容貼上。</div>' : ''}</div>
     <div class="btn-col">
       <button class="btn btn-primary" onclick="publishSpec()">發佈</button>
-      <button class="btn btn-soft" onclick="closeDetail()">先不處理</button>
+      <button class="btn btn-soft" onclick="declinePending()">不發佈（這一版先不發）</button>
+        <button class="btn btn-soft" onclick="closeDetail()">先不處理</button>
     </div>`);
 }
 
 // ===== 動作 =====
 function currentPending() { return S.pending.find((x) => x.id === S.openId); }
+
+// 不發佈：把這一版變動整份搬到 cityDeclined（可改回），同步時同一版（change＋srcHash）不再跳出，對方再改才會重新出現
+const declinedRef = (id) => window.db.collection('cityDeclined').doc(id);
+function declineOps(p) {
+  const { id, ...data } = p;
+  return [(b) => b.set(declinedRef(id), { ...data, declinedAt: nowTs(), declinedBy: byName() }), (b) => b.delete(pendingRef(id))];
+}
+
+function declinePending() {
+  const p = currentPending();
+  runAction('處理中...', async () => {
+    await commitOps(declineOps(p));
+    showToast('已設為不發佈；對方之後再改才會重新出現');
+  });
+}
+
+async function declineGroup(gi) {
+  const key = S.groupKeys[gi];
+  const list = S.pending.filter((p) => pendingGroupKey(p) === key);
+  if (!list.length) return;
+  if (!confirm(`「${key}」這 ${list.length} 筆都不發佈？\n\n對方之後再改才會重新出現；也可以在「略過」分頁改回待確認。`)) return;
+  showLoading(`處理 ${list.length} 筆...`);
+  try {
+    await commitOps(list.flatMap(declineOps));
+    await loadAll();
+    showToast(`${list.length} 筆設為不發佈`);
+  } catch (e) {
+    showToast('失敗：' + (e.message || e));
+  } finally { hideLoading(); }
+}
+
+async function undecline(id) {
+  const d = S.declined.find((x) => x.id === id);
+  if (!d) return;
+  const { id: _id, declinedAt, declinedBy, ...data } = d;
+  showLoading('處理中...');
+  try {
+    await commitOps([(b) => b.set(pendingRef(id), data), (b) => b.delete(declinedRef(id))]);
+    await loadAll();
+    showToast('已改回待確認');
+  } catch (e) {
+    showToast('失敗：' + (e.message || e));
+  } finally { hideLoading(); }
+}
 
 async function runAction(label, fn) {
   showLoading(label);
@@ -543,11 +597,19 @@ function renderPublished() {
   }
   const groups = new Map();
   list.forEach((r) => { const k = r.machine || NO_MACHINE; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); });
-  [...groups.keys()].sort((a, b) => machineOrder(a) - machineOrder(b) || a.localeCompare(b)).forEach((k) => {
+  S.pubGroupKeys = [...groups.keys()].sort((a, b) => machineOrder(a) - machineOrder(b) || a.localeCompare(b));
+  S.pubGroupKeys.forEach((k, gi) => {
     const rows = groups.get(k).sort((a, b) => (b.pinned - a.pinned) || a.title.localeCompare(b.title, 'zh-Hant'));
-    html += `<div class="group"><div class="group-head"><div class="group-name">${esc(k)}<span class="group-count">${rows.length} 筆</span></div></div>
+    const nShown = rows.filter((r) => !r.unpublished).length;
+    const nHidden = rows.length - nShown;
+    // 搜尋中不給整組操作，避免只對篩選出來的一部分動手卻以為是整組
+    const actions = q ? '' : `<div class="group-actions">
+        ${nHidden ? `<button class="btn-outline" onclick="setGroupUnpublished(${gi}, false)">整組重新發佈 ${nHidden} 筆</button>` : ''}
+        ${nShown ? `<button class="btn-outline btn-outline-muted" onclick="setGroupUnpublished(${gi}, true)">整組不發佈</button>` : ''}
+      </div>`;
+    html += `<div class="group"><div class="group-head"><div class="group-name">${esc(k)}<span class="group-count">${rows.length} 筆${nHidden ? `・不發佈 ${nHidden}` : ''}</span></div>${actions}</div>
       ${rows.map((r) => `<div class="row" onclick="openRecipeEdit('${esc(r.id)}')">
-        <div class="row-main"><div class="row-title">${r.pinned ? '📌 ' : ''}${esc(r.title)}${r.discontinued ? '<span class="badge b-gone">已下架</span>' : ''}${isEdited(r) ? '<span class="badge b-flag">我們改過</span>' : ''}</div>
+        <div class="row-main"><div class="row-title">${r.pinned ? '📌 ' : ''}${esc(r.title)}${r.unpublished ? '<span class="badge b-hidden">不發佈</span>' : ''}${r.discontinued ? '<span class="badge b-gone">已下架</span>' : ''}${isEdited(r) ? '<span class="badge b-flag">我們改過</span>' : ''}</div>
         ${(r.aliases || []).length ? `<div class="row-sub">別名：${esc(r.aliases.join('、'))}</div>` : ''}</div>
         <span class="row-arrow">›</span></div>`).join('')}</div>`;
   });
@@ -561,12 +623,33 @@ function openRecipeEdit(id) {
   openModal(`
     <div class="m-title">${esc(r.title)}</div>
     <div class="m-sub">${r.pinned ? '📌 對方有釘選（自動沿用）・' : ''}上次更新 ${esc(fmtTime(r.updatedAt || r.publishedAt))}${r.srcDeleted ? '・對方已刪除' : ''}</div>
+    ${r.unpublished ? '<div class="m-note">目前設為不發佈，員工看不到這份做法。</div>' : ''}
     ${recipeForm(r, { machineHint: r.src && r.src.machineSrc ? `對方填的是「${r.src.machineSrc}」` : '' })}
     <div class="btn-col">
       <button class="btn btn-primary" onclick="saveRecipeEdit()">儲存</button>
       ${isEdited(r) ? '<button class="btn btn-soft" onclick="revertRecipe()">還原成對方版本</button>' : ''}
+      ${r.unpublished
+        ? `<button class="btn btn-soft" onclick="setUnpublished(['${esc(r.id)}'], false)">重新發佈</button>`
+        : `<button class="btn btn-soft" onclick="setUnpublished(['${esc(r.id)}'], true)">不發佈（員工看不到）</button>`}
       <button class="btn btn-soft" onclick="closeDetail()">取消</button>
     </div>`);
+}
+
+// 已發佈的不發佈：保留資料與我們的修改，只是員工看不到；每週同步照常比對（對方更新仍會進待確認）
+function setUnpublished(ids, flag) {
+  const n = ids.length;
+  runAction('處理中...', async () => {
+    await commitOps(ids.map((id) => (b) => b.update(recipeRef(id), { unpublished: flag, updatedAt: nowTs(), updatedBy: byName() })));
+    showToast(flag ? `${n} 筆設為不發佈，員工看不到了` : `${n} 筆已重新發佈`);
+  });
+}
+
+function setGroupUnpublished(gi, flag) {
+  const key = S.pubGroupKeys[gi];
+  const ids = [...S.recipes.values()].filter((r) => (r.machine || NO_MACHINE) === key && !!r.unpublished !== flag).map((r) => r.id);
+  if (!ids.length) return;
+  if (!confirm(flag ? `「${key}」這 ${ids.length} 筆都不發佈？員工會看不到，資料和修改都會保留。` : `「${key}」這 ${ids.length} 筆重新發佈給員工？`)) return;
+  setUnpublished(ids, flag);
 }
 
 function saveRecipeEdit() {
@@ -623,14 +706,26 @@ function saveSpecEdit() {
   });
 }
 
-// ===== 不收 =====
+// ===== 略過（不發佈的變動＋不收的品項）=====
 function renderIgnored() {
   const box = $('tabIgnored');
-  if (!S.ignored.length) { box.innerHTML = '<div class="empty">沒有不收的品項</div>'; return; }
-  box.innerHTML = `<div class="group"><div class="group-head"><div class="group-name">不收的品項<span class="group-count">每週同步會跳過</span></div></div>
-    ${S.ignored.map((g) => `<div class="row" style="cursor:default;">
-      <div class="row-main"><div class="row-title">${esc(g.title)}</div><div class="row-sub">${esc(g.by || '')} ${esc(fmtTime(g.at))}</div></div>
-      <button class="btn-outline" onclick="unignore('${esc(g.id)}')">改回要收</button></div>`).join('')}</div>`;
+  if (!S.ignored.length && !S.declined.length) { box.innerHTML = '<div class="empty">沒有略過的項目</div>'; return; }
+  const label = { add: '新增', update: '更動', delete: '刪除' };
+  let html = '';
+  if (S.declined.length) {
+    html += `<div class="group"><div class="group-head"><div class="group-name">不發佈的變動<span class="group-count">${S.declined.length} 筆・對方再改會重新出現</span></div></div>
+      ${S.declined.map((d) => `<div class="row" style="cursor:default;">
+        <span class="badge b-${esc(d.change)}">${label[d.change] || ''}</span>
+        <div class="row-main"><div class="row-title">${esc(pendingTitle(d))}</div><div class="row-sub">${esc(d.declinedBy || '')} ${esc(fmtTime(d.declinedAt))}</div></div>
+        <button class="btn-outline" onclick="undecline('${esc(d.id)}')">改回待確認</button></div>`).join('')}</div>`;
+  }
+  if (S.ignored.length) {
+    html += `<div class="group"><div class="group-head"><div class="group-name">不收的品項<span class="group-count">永遠跳過</span></div></div>
+      ${S.ignored.map((g) => `<div class="row" style="cursor:default;">
+        <div class="row-main"><div class="row-title">${esc(g.title)}</div><div class="row-sub">${esc(g.by || '')} ${esc(fmtTime(g.at))}</div></div>
+        <button class="btn-outline" onclick="unignore('${esc(g.id)}')">改回要收</button></div>`).join('')}</div>`;
+  }
+  box.innerHTML = html;
 }
 
 async function unignore(id) {

@@ -7,6 +7,7 @@
 //   citySpecs/{snippetId}  已發佈的基本規格速查（員工讀）
 //   cityPending/{id}       待確認的變動（recipe_{itemId} / spec_{snippetId}）
 //   cityIgnored/{kwId}     不收的品項（例：食安退費），之後不再跳出
+//   cityDeclined/{id}      admin 選「不發佈」的那一版變動（id 同 cityPending）；對方再改才會重新跳出
 //   cityImages/{sha1(src)} 圖片複製紀錄：對方網址 → 我們 Storage 的下載網址
 //   cityMeta/sync          最近一次同步結果（失敗也會寫，首頁提醒靠它，避免安靜失敗）
 //
@@ -138,13 +139,14 @@ async function runCitySync(trigger) {
       fetchTable("snippets", "id,category,label,content,sort_order"),
     ]);
 
-    const [metaSnap, ignoredSnap, recipesSnap, specsSnap, pendingSnap, imagesSnap] = await Promise.all([
+    const [metaSnap, ignoredSnap, recipesSnap, specsSnap, pendingSnap, imagesSnap, declinedSnap] = await Promise.all([
       metaRef.get(),
       db.collection("cityIgnored").get(),
       db.collection("cityRecipes").get(),
       db.collection("citySpecs").get(),
       db.collection("cityPending").get(),
       db.collection("cityImages").get(),
+      db.collection("cityDeclined").get(),
     ]);
 
     // 防呆：對方被清空或壞掉時，整次中止，不要產生一大堆「刪除」
@@ -159,6 +161,7 @@ async function runCitySync(trigger) {
     const specs = docsById(specsSnap);
     const pending = docsById(pendingSnap);
     const imagesById = new Map(imagesSnap.docs.map((d) => [d.id, d.data()]));
+    const declined = docsById(declinedSnap);
     const kwById = new Map(keywords.map((k) => [k.id, k]));
 
     // ── 1. 整理對方資料成我們的格式 ──
@@ -250,8 +253,20 @@ async function runCitySync(trigger) {
       wantPending.set(`spec_${id}`, { kind: "spec", change: "delete", srcId: id, srcHash: null, prevHash: pub.srcHash, imageMissing: false, src: null, title: pub.label });
     }
 
-    // ── 4. 寫入（只寫有變的，保留 firstDetectedAt）──
+    // ── 3b. 不發佈：同一版（change＋srcHash 相同）不再進待確認；對方又改了 → 清掉不發佈紀錄、重新跳出 ──
     const writes = [];
+    let declinedSkipped = 0;
+    for (const [id, dec] of declined) {
+      const want = wantPending.get(id);
+      if (want && want.change === dec.change && (want.srcHash || null) === (dec.srcHash || null)) {
+        wantPending.delete(id);
+        declinedSkipped++;
+      } else {
+        writes.push((b) => b.delete(db.collection("cityDeclined").doc(id)));
+      }
+    }
+
+    // ── 4. 寫入（只寫有變的，保留 firstDetectedAt）──
     for (const [id, want] of wantPending) {
       const cur = pending.get(id);
       if (cur && cur.srcHash === want.srcHash && cur.change === want.change && cur.imageMissing === want.imageMissing) continue;
@@ -282,6 +297,7 @@ async function runCitySync(trigger) {
       sourceCounts: { keywords: keywords.length, items: items.length, snippets: snippets.length, ignoredKeywords: ignored.size },
       pending: { ...counts, total: wantPending.size, imageMissing: [...wantPending.values()].filter((w) => w.imageMissing).length },
       pinsSynced: pinUpdates.length,
+      declinedSkipped,
       imagesCopied: copied,
       imageErrors,
       error: null,

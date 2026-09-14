@@ -53,7 +53,8 @@ async function load() {
       window.db.collection('cityRecipes').get(),
       window.db.collection('citySpecs').get(),
     ]), LOAD_TIMEOUT_MS);
-    C.recipes = r.docs.map((d) => {
+    // admin 設為「不發佈」的：分頁、搜尋、其他機器切換都不出現
+    C.recipes = r.docs.filter((d) => !d.data().unpublished).map((d) => {
       const x = d.data();
       return {
         id: d.id, ...x,

@@ -48,7 +48,7 @@ service cloud.firestore {
     }
 
     // ── city*：CITY手順（每週同步 → admin 確認後發佈）──────
-    // 做法是全店通用內容，員工只能讀已發佈的；待確認／略過／圖片紀錄／同步狀態只有 admin 看得到。
+    // 做法是全店通用內容，員工只能讀已發佈的；待確認／不收／不發佈／圖片紀錄／同步狀態只有 admin 看得到。
     // 所有寫入只有 admin（同步函式走 Admin SDK 不受規則限制）。
     // ⚠️ catch-all 下面用 coll.matches('city[A-Z].*') 排除，否則這裡的限制會被架空（同 inspectionSheets）。
     function isCityAdmin() {
@@ -64,7 +64,7 @@ service cloud.firestore {
       allow write: if isCityAdmin();
     }
     match /{cityColl}/{id} {
-      allow read, write: if cityColl in ['cityPending', 'cityIgnored', 'cityImages', 'cityMeta'] && isCityAdmin();
+      allow read, write: if cityColl in ['cityPending', 'cityIgnored', 'cityDeclined', 'cityImages', 'cityMeta'] && isCityAdmin();
     }
 
     // ── 其他所有集合：登入即可讀寫 ───────────────────────
