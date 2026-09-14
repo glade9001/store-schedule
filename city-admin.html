@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#1a73e8">
+<title>CITY手順管理 - 莉學商行</title>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-functions.js"></script>
+<script src="firebase-init.js"></script>
+<script>window.db.settings({ experimentalForceLongPolling: true });</script>
+<link rel="stylesheet" href="city-admin-page.css">
+</head>
+<body>
+
+<div id="loadingOverlay" class="active"><div class="spinner"></div><div id="loadingText">載入中...</div></div>
+
+<div class="header">
+  <button class="header-back" onclick="window.location.href='settings.html'">← 設定</button>
+  <div class="header-title">🥤 CITY手順管理</div>
+</div>
+
+<div class="content" id="content" style="display:none;">
+
+  <div class="card sync-card">
+    <div class="sync-row">
+      <div class="sync-info">
+        <div class="sync-title" id="syncTitle">同步狀態</div>
+        <div class="sync-sub" id="syncSub"></div>
+      </div>
+      <button class="btn-outline" id="syncNowBtn" onclick="syncNow()">立即同步</button>
+    </div>
+    <div class="sync-error" id="syncError" hidden></div>
+  </div>
+
+  <div class="tabs" role="tablist">
+    <button class="tab active" data-tab="pending" onclick="switchTab('pending')">待確認 <span id="cntPending">0</span></button>
+    <button class="tab" data-tab="published" onclick="switchTab('published')">已發佈 <span id="cntPublished">0</span></button>
+    <button class="tab" data-tab="ignored" onclick="switchTab('ignored')">不收 <span id="cntIgnored">0</span></button>
+  </div>
+
+  <div id="tabPending"></div>
+
+  <div id="tabPublished" hidden>
+    <input type="search" id="pubSearch" class="search" placeholder="搜尋品名或別名" oninput="renderPublished()">
+    <div id="pubList"></div>
+  </div>
+
+  <div id="tabIgnored" hidden></div>
+</div>
+
+<div class="modal-overlay" id="detailModal" onclick="if(event.target===this)closeDetail()">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div id="detailBody"></div>
+  </div>
+</div>
+
+<datalist id="machineList"></datalist>
+<div class="toast" id="toast"></div>
+
+<script src="city-admin-page.js"></script>
+</body>
+</html>

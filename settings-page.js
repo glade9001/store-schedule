@@ -52,13 +52,13 @@ window.onload = async () => {
   // 依權限顯示區塊
   const showEl=(id,ok)=>{const el=document.getElementById(id);if(el)el.style.display=ok?'block':'none';};
   // 各設定項依權限顯示（分類分組）
-  showEl('itemClock', canAdmin()); showEl('itemStoreMgmt', canAdmin()); showEl('itemMaint', canAdmin()); showEl('itemLineKw', canAdmin());
+  showEl('itemClock', canAdmin()); showEl('itemStoreMgmt', canAdmin()); showEl('itemCity', canAdmin()); showEl('itemMaint', canAdmin()); showEl('itemLineKw', canAdmin());
   showEl('itemShift', canManager());
   showEl('itemInsurance', canOwner()); showEl('itemHoliday', canOwner());
   showEl('itemChangelog', true);
-  if(canAdmin()){ loadLineKeywords(); loadMaintenanceState(); loadClockConfig(); }
+  if(canAdmin()){ loadLineKeywords(); loadMaintenanceState(); loadClockConfig(); loadCitySummary(); }
   // 群組標題：該類任一項可見才顯示整組
-  [['grpOps',['itemClock','itemShift','itemStoreMgmt']],['grpPayLaw',['itemInsurance','itemHoliday']],['grpSystem',['itemMaint','itemLineKw','itemChangelog']]]
+  [['grpOps',['itemClock','itemShift','itemStoreMgmt','itemCity']],['grpPayLaw',['itemInsurance','itemHoliday']],['grpSystem',['itemMaint','itemLineKw','itemChangelog']]]
     .forEach(([g,items])=>{ const any=items.some(id=>{const el=document.getElementById(id);return el&&el.style.display!=='none';}); showEl(g,any); });
 
   hideLoading();
@@ -109,6 +109,19 @@ function addKwRow(keys, reply){
   document.getElementById('kwGrid').insertAdjacentHTML('beforeend', kwRowHtml(keys, reply));
 }
 // ===== 系統維護模式 =====
+// CITY手順：入口顯示待確認筆數與同步狀態
+// ⚠️ 筆數要數 cityPending 本身：cityMeta/sync.pending 只在同步時更新，發佈後會是舊數字
+async function loadCitySummary() {
+  try {
+    const [d, pend] = await Promise.all([window.db.collection('cityMeta').doc('sync').get(), window.db.collection('cityPending').get()]);
+    if(!d.exists) return;
+    const m = d.data(); const n = pend.size;
+    const sub = document.getElementById('citySub');
+    if(!m.ok) { sub.innerHTML = '<b style="color:var(--danger);">上次同步失敗，點進去看原因</b>'; return; }
+    sub.innerHTML = n ? `<b style="color:#e65100;">待確認 ${n} 筆</b>・確認後才會發佈給員工` : '沒有待確認的變動';
+  } catch(e) {}
+}
+
 async function loadMaintenanceState() {
   try {
     const d = await window.db.collection('settings').doc('maintenance').get();

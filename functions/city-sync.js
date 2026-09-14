@@ -231,6 +231,8 @@ async function runCitySync(trigger) {
       if (srcRecipes.has(id)) continue;
       // 被加進略過清單的品項不算「對方刪除」
       if (pub.keywordId && ignored.has(pub.keywordId)) continue;
+      // admin 已選「保留並標示已下架」的，不要每週再跳一次刪除
+      if (pub.srcDeleted) continue;
       wantPending.set(`recipe_${id}`, { kind: "recipe", change: "delete", srcId: id, srcHash: null, prevHash: pub.srcHash, imageMissing: false, src: null, title: pub.title });
     }
 
