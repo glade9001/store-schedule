@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#1a73e8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>CITY手順 - 莉學商行</title>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+<script src="firebase-init.js"></script>
+<script>window.db.settings({ experimentalForceLongPolling: true });</script>
+<link rel="stylesheet" href="city-page.css">
+</head>
+<body>
+
+<div class="header">
+  <button class="header-back" onclick="window.location.href='home.html'">← 首頁</button>
+  <div class="header-title">☕ CITY手順</div>
+</div>
+
+<div class="search-bar">
+  <input type="search" id="q" placeholder="搜尋品名、別名或材料" autocomplete="off" oninput="onSearch()">
+</div>
+
+<main class="content">
+  <div id="state" class="state">載入中...</div>
+
+  <div id="app" hidden>
+    <section class="specs" id="specs">
+      <button class="specs-head" id="specsHead" onclick="toggleSpecs()" aria-expanded="false" aria-controls="specsBody">
+        <span>📏 基本規格速查</span><span class="specs-chev" id="specsChev">▸</span>
+      </button>
+      <div class="specs-body" id="specsBody" hidden></div>
+    </section>
+
+    <nav class="machine-tabs" id="tabs" aria-label="機器"></nav>
+    <div id="list"></div>
+  </div>
+</main>
+
+<div class="detail" id="detail" hidden>
+  <div class="detail-header">
+    <button class="header-back" onclick="closeDetail()">← 返回</button>
+    <div class="detail-machine" id="dMachine"></div>
+  </div>
+  <div class="detail-body" id="dBody"></div>
+</div>
+
+<div class="lightbox" id="lightbox" hidden onclick="this.hidden=true">
+  <img id="lightboxImg" alt="">
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="city-page.js"></script>
+</body>
+</html>
