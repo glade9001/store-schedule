@@ -8,7 +8,8 @@
       "**/node_modules/**",
       "functions/**",
       "firestore.rules",
-      "README.md"
+      "README.md",
+      "storage.rules"
     ],
     "headers": [
       {
@@ -27,5 +28,11 @@
   },
   "firestore": {
     "rules": "firestore.rules"
-  }
+  },
+  "storage": [
+    {
+      "bucket": "store-schedule-3b056-city",
+      "rules": "storage.rules"
+    }
+  ]
 }

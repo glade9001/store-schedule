@@ -1,0 +1,10 @@
+rules_version = '2';
+// 目前只有 CITY手順圖片（city/…），由同步函式用 Admin SDK 寫入，
+// 員工端用「下載權杖網址」顯示（權杖網址不經規則）。客戶端一律不可直接讀寫。
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
