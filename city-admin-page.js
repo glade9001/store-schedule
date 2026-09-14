@@ -7,8 +7,8 @@
 //   edited.{title,aliases,sections} ＝ 哪些欄位被我們改過 → 對方之後更新時，這些欄位預設保留我們的版本
 // ⚠️ 內容來自對方資料庫（前端可寫、任何人都可能亂填），畫面上一律跳脫，圖片只接受我們自己的 Storage 網址。
 
-// 與 functions/city-sync.js 的 KNOWN_MACHINES 相同（改一邊要改另一邊）
-const CITY_MACHINES = ['不可思議茶Bar', '現萃茶', 'CITY CAFE', '精品咖啡', 'CITY PEARL', '珍珠飲品', '果汁Bar', '雙豆槽'];
+// 我們的機器分類（＝functions/city-sync.js 的 KNOWN_MACHINES 套用 MACHINE_MERGE 後的結果，改一邊要改另一邊）
+const CITY_MACHINES = ['不可思議茶Bar', '現萃茶', 'CITY CAFE', '精品咖啡', 'CITY PEARL/TEA', '果汁Bar', '雙豆槽'];
 const OUR_IMAGE_PREFIX = 'https://firebasestorage.googleapis.com/v0/b/store-schedule-3b056-city/';
 const NO_MACHINE = '（未判斷機器）';
 

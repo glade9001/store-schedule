@@ -2,8 +2,8 @@
 // 資料流程見 functions/city-sync.js 與 city-admin-page.js。
 // ⚠️ 內容源自對方資料庫，畫面一律跳脫；圖片只接受我們自己的 Storage 網址。
 
-// 與 functions/city-sync.js 的 KNOWN_MACHINES 相同順序（改一邊要改另一邊）
-const CITY_MACHINES = ['不可思議茶Bar', '現萃茶', 'CITY CAFE', '精品咖啡', 'CITY PEARL', '珍珠飲品', '果汁Bar', '雙豆槽'];
+// 我們的機器分類（＝functions/city-sync.js 的 KNOWN_MACHINES 套用 MACHINE_MERGE 後的結果，改一邊要改另一邊）
+const CITY_MACHINES = ['不可思議茶Bar', '現萃茶', 'CITY CAFE', '精品咖啡', 'CITY PEARL/TEA', '果汁Bar', '雙豆槽'];
 const OUR_IMAGE_PREFIX = 'https://firebasestorage.googleapis.com/v0/b/store-schedule-3b056-city/';
 const TAB_NEW = '__new';
 const LOAD_TIMEOUT_MS = 15000;

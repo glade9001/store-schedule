@@ -22,8 +22,13 @@ const SRC_KEY = "sb_publishable_oMHxmXF2MeGf0rKllDGIPQ_j4zcInFy";
 const BUCKET = "store-schedule-3b056-city";
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
-// 對方機器名稱寫法不一（大小寫、前後空白），統一成這份清單的寫法
+// 對方機器名稱寫法不一（大小寫、前後空白），統一成這份清單的寫法（這是「對方的名稱」，會進 srcHash，不要改）
 const KNOWN_MACHINES = ["CITY CAFE", "CITY PEARL", "不可思議茶Bar", "現萃茶", "精品咖啡", "珍珠飲品", "果汁Bar", "雙豆槽"];
+
+// 我們的分類跟對方不同的部分（2026-09-15：珍珠飲品＋CITY PEARL 合併）。只影響「建議分類」，
+// machineSrc 維持對方原名 → srcHash 不變，既有品項不會因為改名全部跳成「更動」
+const MACHINE_MERGE = { "珍珠飲品": "CITY PEARL/TEA", "CITY PEARL": "CITY PEARL/TEA" };
+const ourMachine = (m) => MACHINE_MERGE[m] || m;
 
 // 機器名稱空白時，用內文猜一個給 admin 參考（依序比對，先中先贏）
 const MACHINE_RULES = [
@@ -31,7 +36,7 @@ const MACHINE_RULES = [
   ["現萃茶", /萃茶機|現萃茶/],
   ["不可思議茶Bar", /茶機按鍵|不可思議茶/],
   ["果汁Bar", /冰沙機|果汁/],
-  ["珍珠飲品", /珍珠/],
+  ["CITY PEARL/TEA", /珍珠/],
 ];
 
 const sha1 = (s) => crypto.createHash("sha1").update(s).digest("hex");
@@ -181,7 +186,7 @@ async function runCitySync(trigger) {
         tags,
         aliases: aliasesOf(title, tags),
         machineSrc,
-        suggestedMachine: machineSrc || suggestMachine(sections),
+        suggestedMachine: ourMachine(machineSrc || suggestMachine(sections)),
         pinned: !!kw.pinned,
         kwSort: kw.sort_order ?? 0,
         itemSort: it.sort_order ?? 0,
