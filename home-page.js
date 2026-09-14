@@ -2163,6 +2163,33 @@ async function loadPendingItems() {
     console.warn('代辦/公告讀取失敗:', e);
   }
 
+  // ===== CITY手順（僅 admin）：待確認的同步變動、同步失敗、排程停擺 =====
+  // 資料規則只讓 admin 讀 cityPending/cityMeta；筆數要數 cityPending 本身（cityMeta.pending 只在同步時更新）
+  try {
+    if(canSysConfig()) {
+      const res = await withTimeout(Promise.all([
+        window.db.collection('cityMeta').doc('sync').get(),
+        window.db.collection('cityPending').get(),
+      ]));
+      if(res) {
+        const [metaSnap, pendSnap] = res;
+        const m = metaSnap.exists ? metaSnap.data() : null;
+        const lastMs = m && m.lastRunAt && m.lastRunAt.toMillis ? m.lastRunAt.toMillis() : 0;
+        if(m && !m.ok) {
+          pending.push({ type:'CITY手順', desc:'每週同步失敗，點此查看原因', link:'city-admin.html', color:'var(--danger)' });
+        } else if(lastMs && Date.now() - lastMs > 8 * 86400000) {
+          // 排程每週一跑；超過 8 天沒紀錄＝排程停了但不會報錯
+          pending.push({ type:'CITY手順', desc:`已經 ${Math.floor((Date.now()-lastMs)/86400000)} 天沒有同步，請檢查排程`, link:'city-admin.html', color:'var(--danger)' });
+        }
+        if(pendSnap.size > 0) {
+          pending.push({ type:'CITY手順', desc:`${pendSnap.size} 筆變動待確認後發佈`, link:'city-admin.html', color:'var(--warn)' });
+        }
+      }
+    }
+  } catch(e) {
+    console.warn('CITY手順待確認讀取失敗:', e);
+  }
+
   // 確保無論如何都能順利渲染到畫面，UI不會卡死
   const pendingCountEl = document.getElementById('pendingCount');
   if(pendingCountEl) pendingCountEl.textContent = pending.length + ' 件';
