@@ -64,7 +64,7 @@ async function load() {
         _t: norm(x.title), _a: (x.aliases || []).map(norm), _m: norm(x.machine), _c: norm((x.sections || []).map((sec) => sec.text).join(' ')),
       };
     });
-    C.specs = s.docs.map((d) => ({ id: d.id, ...d.data() }));
+    C.specs = s.docs.filter((d) => !d.data().unpublished).map((d) => ({ id: d.id, ...d.data() }));
   } catch (e) {
     $('state').innerHTML = `${e.message === 'timeout' ? '連線逾時，網路可能不穩。' : '讀取失敗。'}<br><button class="header-back" style="background:var(--primary);" onclick="load()">重新整理</button>`;
     return;

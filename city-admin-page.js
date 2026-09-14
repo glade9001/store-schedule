@@ -588,8 +588,14 @@ function renderPublished() {
   const specs = [...S.specs.values()].sort((a, b) => a.category.localeCompare(b.category) || (a.sort ?? 0) - (b.sort ?? 0));
   let html = '';
   if (specs.length && !q) {
-    html += `<div class="group"><div class="group-head"><div class="group-name">📏 基本規格速查<span class="group-count">${specs.length} 筆</span></div></div>
-      ${specs.map((s) => `<div class="row" onclick="openSpecEdit('${esc(s.id)}')"><div class="row-main"><div class="row-title">${esc(s.category)}｜${esc(s.label)}${s.edited && s.edited.content ? '<span class="badge b-flag">我們改過</span>' : ''}</div></div><span class="row-arrow">›</span></div>`).join('')}</div>`;
+    const sHidden = specs.filter((s) => s.unpublished).length;
+    const sShown = specs.length - sHidden;
+    html += `<div class="group"><div class="group-head"><div class="group-name">📏 基本規格速查<span class="group-count">${specs.length} 筆${sHidden ? `・不發佈 ${sHidden}` : ''}</span></div>
+      <div class="group-actions">
+        ${sHidden ? `<button class="btn-outline" onclick="setAllSpecsUnpublished(false)">整組重新發佈 ${sHidden} 筆</button>` : ''}
+        ${sShown ? '<button class="btn-outline btn-outline-muted" onclick="setAllSpecsUnpublished(true)">整組不發佈</button>' : ''}
+      </div></div>
+      ${specs.map((s) => `<div class="row" onclick="openSpecEdit('${esc(s.id)}')"><div class="row-main"><div class="row-title">${esc(s.category)}｜${esc(s.label)}${s.unpublished ? '<span class="badge b-hidden">不發佈</span>' : ''}${s.edited && s.edited.content ? '<span class="badge b-flag">我們改過</span>' : ''}</div></div><span class="row-arrow">›</span></div>`).join('')}</div>`;
   }
   if (!list.length) {
     $('pubList').innerHTML = html + `<div class="empty">${q ? '找不到符合的品項' : '還沒有發佈任何做法'}</div>`;
@@ -689,11 +695,31 @@ function openSpecEdit(id) {
   openModal(`
     <div class="m-title">${esc(s.category)}｜${esc(s.label)}</div>
     <div class="m-sub">基本規格速查</div>
-    <div class="field"><label for="fSpec">內容</label><textarea id="fSpec">${esc(s.content)}</textarea></div>
+    ${s.unpublished ? '<div class="m-note">目前設為不發佈，員工看不到這筆規格。</div>' : ''}
+    <div class="field"><label for="fSpec">內容</label><textarea id="fSpec" rows="8">${esc(s.content)}</textarea></div>
     <div class="btn-col">
       <button class="btn btn-primary" onclick="saveSpecEdit()">儲存</button>
+      ${s.unpublished
+        ? `<button class="btn btn-soft" onclick="setSpecsUnpublished(['${esc(s.id)}'], false)">重新發佈</button>`
+        : `<button class="btn btn-soft" onclick="setSpecsUnpublished(['${esc(s.id)}'], true)">不發佈（員工看不到）</button>`}
       <button class="btn btn-soft" onclick="closeDetail()">取消</button>
     </div>`);
+}
+
+// 基本規格的不發佈：同品項，保留內容，只是員工頁不顯示
+function setSpecsUnpublished(ids, flag) {
+  const n = ids.length;
+  runAction('處理中...', async () => {
+    await commitOps(ids.map((id) => (b) => b.update(specRef(id), { unpublished: flag, updatedAt: nowTs(), updatedBy: byName() })));
+    showToast(flag ? `${n} 筆規格設為不發佈，員工看不到了` : `${n} 筆規格已重新發佈`);
+  });
+}
+
+function setAllSpecsUnpublished(flag) {
+  const ids = [...S.specs.values()].filter((s) => !!s.unpublished !== flag).map((s) => s.id);
+  if (!ids.length) return;
+  if (!confirm(flag ? `基本規格速查這 ${ids.length} 筆都不發佈？員工頁的速查會整塊消失，內容會保留。` : `基本規格速查這 ${ids.length} 筆重新發佈給員工？`)) return;
+  setSpecsUnpublished(ids, flag);
 }
 
 function saveSpecEdit() {
