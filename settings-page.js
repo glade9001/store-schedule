@@ -52,13 +52,13 @@ window.onload = async () => {
   // 依權限顯示區塊
   const showEl=(id,ok)=>{const el=document.getElementById(id);if(el)el.style.display=ok?'block':'none';};
   // 各設定項依權限顯示（分類分組）
-  showEl('itemClock', canAdmin()); showEl('itemStoreMgmt', canAdmin()); showEl('itemCity', canAdmin()); showEl('itemMaint', canAdmin()); showEl('itemLineKw', canAdmin());
+  showEl('itemClock', canAdmin()); showEl('itemStoreMgmt', canAdmin()); showEl('itemCity', canAdmin()); showEl('itemMaint', canAdmin()); showEl('itemLineKw', canAdmin()); showEl('itemNotice', canAdmin());
   showEl('itemShift', canManager());
   showEl('itemInsurance', canOwner()); showEl('itemHoliday', canOwner());
   showEl('itemChangelog', true);
-  if(canAdmin()){ loadLineKeywords(); loadMaintenanceState(); loadClockConfig(); loadCitySummary(); }
+  if(canAdmin()){ loadLineKeywords(); loadMaintenanceState(); loadClockConfig(); loadCitySummary(); loadNoticeStats(); }
   // 群組標題：該類任一項可見才顯示整組
-  [['grpOps',['itemClock','itemShift','itemStoreMgmt','itemCity']],['grpPayLaw',['itemInsurance','itemHoliday']],['grpSystem',['itemMaint','itemLineKw','itemChangelog']]]
+  [['grpOps',['itemClock','itemShift','itemStoreMgmt','itemCity']],['grpPayLaw',['itemInsurance','itemHoliday']],['grpSystem',['itemMaint','itemLineKw','itemNotice','itemChangelog']]]
     .forEach(([g,items])=>{ const any=items.some(id=>{const el=document.getElementById(id);return el&&el.style.display!=='none';}); showEl(g,any); });
 
   hideLoading();
@@ -120,6 +120,62 @@ async function loadCitySummary() {
     if(!m.ok) { sub.innerHTML = '<b style="color:var(--danger);">上次同步失敗，點進去看原因</b>'; return; }
     sub.innerHTML = n ? `<b style="color:#e65100;">待確認 ${n} 筆</b>・確認後才會發佈給員工` : '沒有待確認的變動';
   } catch(e) {}
+}
+
+// ===== 系統公告已讀統計（notices/{id}/reads）=====
+// 應讀名單＝各店 employees 裡「在職」的人（離職已生效者排除；調走的人不在原店名單）；以 empName 對 reads.empName
+async function loadNoticeStats() {
+  const box = document.getElementById('noticeStats');
+  try {
+    const ns = await window.db.collection('notices').get();
+    if(ns.empty) { box.textContent = '目前沒有公告'; return; }
+    const notices = ns.docs.map(d => ({ id: d.id, ...d.data() }))
+      .sort((a,b) => ((b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0) - (a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0))).slice(0, 3);
+    const today = new Date(Date.now() + 8*3600000).toISOString().slice(0,10);
+    const roster = []; // {name, store}
+    for(const st of (appConfig.stores || [])) {
+      const es = await window.db.collection('stores').doc(st).collection('employees').get().catch(() => null);
+      if(es) es.forEach(d => {
+        const e = d.data() || {};
+        if(e.status === '調走') return;
+        if(e.status === '離職' && (!e.retireDate || today >= e.retireDate)) return;
+        roster.push({ name: d.id, store: st, disp: e.displayName || d.id });
+      });
+    }
+    const fmt = (ts) => { if(!ts || !ts.toDate) return ''; const x = ts.toDate(); return `${x.getMonth()+1}/${x.getDate()} ${String(x.getHours()).padStart(2,'0')}:${String(x.getMinutes()).padStart(2,'0')}`; };
+    const parts = [];
+    for(const n of notices) {
+      const rs = await window.db.collection('notices').doc(n.id).collection('reads').get();
+      const readBy = new Map(rs.docs.map(d => [d.data().empName, d.data()]));
+      const read = roster.filter(r => readBy.has(r.name));
+      const unreadByStore = {};
+      roster.filter(r => !readBy.has(r.name)).forEach(r => (unreadByStore[r.store] ||= []).push(r.disp));
+      const extra = rs.size - read.length; // 名單外（admin、加盟主等不在門市員工名單的人）
+      parts.push(`<div style="border:1.5px solid var(--border);border-radius:12px;padding:10px 12px;margin-bottom:10px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="flex:1;font-weight:800;">${_esc(n.title)}</div>
+          <span style="font-size:11px;font-weight:800;color:${n.active ? '#137333' : 'var(--text-muted)'};">${n.active ? '跳出中' : '已停止'}</span>
+        </div>
+        <div style="margin:6px 0;"><b style="font-size:18px;color:var(--primary);">${read.length}</b> / ${roster.length} 位在職員工已讀${extra > 0 ? `<span style="color:var(--text-muted);">（另有 ${extra} 位非門市名單）</span>` : ''}</div>
+        ${Object.keys(unreadByStore).length ? `<div style="font-size:12px;color:var(--text-muted);line-height:1.7;">還沒看過：${Object.entries(unreadByStore).map(([st, ns]) => `<br><b style="color:var(--text);">${_esc(st)}</b>　${ns.map(_esc).join('、')}`).join('')}</div>` : '<div style="font-size:12px;color:#137333;">✅ 全部在職員工都看過了</div>'}
+        <details style="margin-top:6px;font-size:12px;"><summary style="cursor:pointer;color:var(--primary);">已讀明細（${rs.size}）</summary>
+          ${rs.docs.map(d => { const r = d.data(); return `<div>${_esc(r.displayName || r.empName)}・${_esc(r.store)}・首次 ${fmt(r.firstAt)}・看了 ${r.count || 1} 次</div>`; }).join('')}
+        </details>
+        ${n.active ? `<button onclick="stopNotice('${_esc(n.id)}')" style="margin-top:8px;padding:7px 12px;border:1.5px solid var(--border);background:white;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;">停止跳出</button>` : ''}
+      </div>`);
+    }
+    box.innerHTML = parts.join('');
+  } catch(e) {
+    box.textContent = '讀取失敗：' + e.message;
+  }
+}
+async function stopNotice(id) {
+  if(!confirm('停止跳出這則公告？已讀紀錄會保留。')) return;
+  try {
+    await window.db.collection('notices').doc(id).update({ active: false, stoppedAt: new Date().toISOString(), stoppedBy: currentUser.empName || '' });
+    showToast('已停止跳出');
+    loadNoticeStats();
+  } catch(e) { showToast('失敗：' + e.message); }
 }
 
 async function loadMaintenanceState() {

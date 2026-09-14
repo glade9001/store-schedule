@@ -2286,3 +2286,45 @@ exports.citySyncNow = onCall({ region: "asia-east1", timeoutSeconds: 300, memory
     throw new HttpsError("internal", String(e.message || e));
   }
 });
+
+// ════════════════════════════════════════════════════════════════
+// 一次性：系統更新預告 LINE 重送（notices/{UPDATE_NOTICE_ID}.lineText）
+// 發給「有綁定 LINE、且不是已生效離職者」的員工。
+// ⚠️ cron 每年同一天都會觸發 → 用「台北日期＝指定日」＋ transaction 搶 lineClaimedAt 雙重防呆，只發一次
+// ════════════════════════════════════════════════════════════════
+const UPDATE_NOTICE_ID = "update-20260915";
+const UPDATE_NOTICE_LINE_DATE = "2026-09-15";
+exports.scheduledUpdateNoticeLine = onSchedule(
+  { schedule: "30 8 15 9 *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN] },
+  async () => {
+    if (taipeiTodayStr() !== UPDATE_NOTICE_LINE_DATE) { console.log("[updateNoticeLine] 非指定日，略過"); return; }
+    const db = admin.firestore();
+    const ref = db.collection("notices").doc(UPDATE_NOTICE_ID);
+    const claimed = await db.runTransaction(async (tx) => {
+      const s = await tx.get(ref);
+      if (!s.exists || !s.data().lineText || s.data().lineClaimedAt) return null;
+      tx.update(ref, { lineClaimedAt: admin.firestore.FieldValue.serverTimestamp() });
+      return s.data();
+    });
+    if (!claimed) { console.log("[updateNoticeLine] 沒有內容或已發過，略過"); return; }
+
+    const today = taipeiTodayStr();
+    const resigned = new Set();
+    for (const st of await getAllStores(db)) {
+      const es = await db.collection("stores").doc(st).collection("employees").get().catch(() => null);
+      if (es) es.forEach((d) => { const e = d.data() || {}; if (e.status === "離職" && (!e.retireDate || today >= e.retireDate)) resigned.add(d.id); });
+    }
+    const token = LINE_TOKEN.value();
+    const bindSnap = await db.collection("lineBindings").get();
+    let sent = 0, failed = 0, skipped = 0;
+    const seen = new Set();
+    for (const bd of bindSnap.docs) {
+      const b = bd.data();
+      if (!b.lineUserId || !b.empName || resigned.has(b.empName) || seen.has(b.lineUserId)) { skipped++; continue; }
+      seen.add(b.lineUserId);
+      (await linePush(b.lineUserId, claimed.lineText, token)) ? sent++ : failed++;
+    }
+    await ref.update({ lineSentAt: admin.firestore.FieldValue.serverTimestamp(), lineSent: sent, lineFailed: failed, lineSkipped: skipped });
+    console.log(`[updateNoticeLine] 已發 ${sent}、失敗 ${failed}、略過 ${skipped}`);
+  }
+);

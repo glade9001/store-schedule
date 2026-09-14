@@ -1070,8 +1070,74 @@ async function maintenanceNotifyMe() {
   } catch(e) { showToast('登記失敗：' + e.message); }
 }
 
+// ===== 系統公告彈窗（notices/{id}，active=true）=====
+// 每次進首頁都跳；按「我知道了」才關，並記在 notices/{id}/reads/{uid}（首次時間、次數）供設定頁統計。
+// 開啟維護模式、或超過 endAt 就不跳（維護時段可能提早，不寫死開始時間）。
+// 內文用 **粗體** 標記；一律先跳脫再轉 <b>。
+function noticeFmt(t) {
+  return String(t || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+}
+async function showSystemNotice() {
+  try {
+    const timeout = new Promise((res) => setTimeout(() => res(null), 8000)); // ⚠️ Firestore get 卡住不會 reject
+    const res = await Promise.race([Promise.all([
+      window.db.collection('notices').where('active', '==', true).limit(1).get(),
+      window.db.collection('settings').doc('maintenance').get(),
+    ]), timeout]);
+    if(!res) return;
+    const [ns, mt] = res;
+    if(mt.exists && mt.data().enabled) return;
+    if(ns.empty) return;
+    const d = ns.docs[0], n = d.data();
+    if(n.endAt && n.endAt.toMillis && n.endAt.toMillis() < Date.now()) return;
+    if(document.getElementById('sysNoticeOverlay')) return;
+    const el = document.createElement('div');
+    el.id = 'sysNoticeOverlay';
+    el.style.cssText = 'position:fixed;inset:0;z-index:9800;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:16px;';
+    el.innerHTML = `
+      <div role="dialog" aria-modal="true" aria-labelledby="sysNoticeTitle" style="background:#fff;border-radius:18px;width:100%;max-width:420px;max-height:88vh;overflow-y:auto;padding:20px 18px 16px;box-shadow:0 20px 60px rgba(0,0,0,.3);">
+        <div id="sysNoticeTitle" style="font-size:18px;font-weight:900;margin-bottom:10px;">${noticeFmt(n.title)}</div>
+        ${(n.lead || []).map((l) => `<div style="font-size:14.5px;line-height:1.6;">${noticeFmt(l)}</div>`).join('')}
+        ${(n.sections || []).map((sec) => `
+          <div style="margin-top:14px;">
+            <div style="font-size:13px;font-weight:900;color:var(--primary);margin-bottom:4px;">${noticeFmt(sec.heading)}</div>
+            ${(sec.lines || []).map((l) => `<div style="font-size:13.5px;line-height:1.65;padding-left:12px;text-indent:-12px;">・${noticeFmt(l)}</div>`).join('')}
+          </div>`).join('')}
+        ${n.footer ? `<div style="font-size:13.5px;margin-top:14px;color:var(--text-muted);">${noticeFmt(n.footer)}</div>` : ''}
+        <button id="sysNoticeOk" style="width:100%;margin-top:16px;padding:13px;border:none;border-radius:12px;background:var(--primary);color:#fff;font-size:15px;font-weight:800;cursor:pointer;">${noticeFmt(n.button || '我知道了')}</button>
+      </div>`;
+    document.body.appendChild(el);
+    document.getElementById('sysNoticeOk').onclick = () => ackSystemNotice(d.id);
+  } catch(e) {
+    console.warn('系統公告讀取失敗:', e);
+  }
+}
+async function ackSystemNotice(id) {
+  const btn = document.getElementById('sysNoticeOk');
+  if(btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    const FV = firebase.firestore.FieldValue;
+    const ref = window.db.collection('notices').doc(id).collection('reads').doc(currentUser.uid);
+    const write = (async () => {
+      const cur = await ref.get();
+      await ref.set({
+        uid: currentUser.uid, empName: currentUser.empName || '', displayName: currentUser.displayName || '',
+        store: currentUser.store || '', permission: currentUser.permission || '',
+        lastAt: FV.serverTimestamp(), count: FV.increment(1),
+        ...(cur.exists ? {} : { firstAt: FV.serverTimestamp() }),
+      }, { merge: true });
+    })();
+    await Promise.race([write, new Promise((res) => setTimeout(res, 5000))]); // 網路差也要能關，不卡住打卡
+  } catch(e) {
+    console.warn('公告已讀紀錄失敗:', e);
+  }
+  const el = document.getElementById('sysNoticeOverlay');
+  if(el) el.remove();
+}
+
 async function initApp() {
   if(await checkMaintenance()) return; // 維護模式：非管理者顯示維護畫面、不進 App
+  showSystemNotice(); // 不 await：公告慢不影響首頁載入
   showLoading('載入個人資料中...');
   const storeLabel = currentUser.store || '全門市';
   const dName = currentUser.displayName || currentUser.empName || '使用者';

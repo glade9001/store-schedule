@@ -243,6 +243,12 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
       <button onclick="addKwRow()" style="width:100%; margin-top:4px; padding:10px; background:#eef4ff; color:var(--primary); border:1.5px dashed var(--primary); border-radius:10px; font-size:13px; font-weight:700; cursor:pointer;">＋ 新增一列</button>
       <button class="save-btn" style="margin-top:10px;" onclick="saveLineKeywords()">💾 儲存關鍵字</button>
     </div>
+    <div id="itemNotice" class="set-item" style="display:none;">
+      <div class="card-title set-head" onclick="toggleSet(this)" style="padding:0 0 8px;">📢 系統公告已讀統計
+        <span class="perm-badge perm-admin">管理者</span><span class="set-chev">▸</span>
+      </div>
+      <div id="noticeStats" style="font-size:13px;">載入中...</div>
+    </div>
     <div id="itemChangelog">
       <div class="card-title" style="padding:16px 0 8px;">📋 更新日誌</div>
       <div class="menu-list" style="margin-bottom:16px;">
