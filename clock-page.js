@@ -286,13 +286,12 @@ function nextAction(){
   return openPunch ? '下班' : '上班';
 }
 
-// 🔕 打卡提醒全面暫停（2026-08-17）：LINE 官方帳號免費方案只有 200 則/月，
-//    光打卡提醒(10 人 × 上下班 × 全月)就吃掉遠超額度，導致薪資/班表等重要通知全被擠掉。
-//    要恢復：這裡與 functions/index.js 的 CLOCK_REMIND_SUSPENDED 一起改回 false 並重新部署。
-//    （員工既有的 clockRemindPrefs 偏好保留不動，恢復後照舊生效。）
-const CLOCK_REMIND_SUSPENDED = true;
+// 打卡提醒：2026-08-17 因 LINE 免費額度暫停；2026-09-15 改用 PWA 推播恢復（functions scheduledClockRemindPush）。
+//    員工既有的 clockRemindPrefs 偏好原封不動恢復生效。只發推播：沒開推播的人收不到（畫面上會提示去開）。
+//    要再暫停：改回 true 即可隱藏設定（後端沒有對應常數，偏好沒人開推播時排程也不讀排班）。
+const CLOCK_REMIND_SUSPENDED = false;
 
-// 打卡提醒偏好：寫 clockRemindPrefs/{empName}，排程 cron 依排班時間發 LINE
+// 打卡提醒偏好：寫 clockRemindPrefs/{empName}，排程依排班時間發推播
 async function saveRemindPref(){
   if(CLOCK_REMIND_SUSPENDED) return;
   const on=document.getElementById('remIn').checked;
@@ -304,9 +303,27 @@ async function saveRemindPref(){
     await window.db.collection('clockRemindPrefs').doc(currentUser.empName).set({
       empName:currentUser.empName, store:currentUser.store||'', inBefore:remindPref.inBefore, outRemind:outR, updatedAt:new Date().toISOString()
     },{merge:true});
-    toast('✅ 打卡提醒設定已儲存'+(!isBound?'（記得綁定 LINE 才收得到）':''));
+    const pushOn = await remindPushReady();
+    toast('✅ 打卡提醒設定已儲存'+((remindPref.inBefore>0||outR)&&!pushOn?'（還要開啟推播通知才收得到）':''));
+    renderRemindPushHint();
   }catch(e){ toast('儲存失敗：'+e.message); }
 }
+// 這台手機是否已開推播（首頁 home-push.js 訂閱；打卡頁與首頁共用同一個 Service Worker）
+async function remindPushReady(){
+  try{
+    if(!('serviceWorker' in navigator) || !('PushManager' in window)) return false;
+    const reg=await Promise.race([navigator.serviceWorker.getRegistration(), new Promise(r=>setTimeout(()=>r(null),3000))]);
+    return !!(reg && await reg.pushManager.getSubscription());
+  }catch(e){ return false; }
+}
+async function renderRemindPushHint(){
+  const el=document.getElementById('remPushHint'); if(!el) return;
+  const on=await remindPushReady();
+  el.innerHTML = on
+    ? '<span style="color:#137333;font-weight:700;">✅ 這台手機已開啟推播，會收到提醒</span>'
+    : '<span style="color:#c2410c;font-weight:700;">⚠️ 這台手機還沒開啟推播，勾了也收不到。</span> <a href="home.html" style="color:var(--primary);font-weight:800;">回首頁 ☰ →「推播通知」開啟</a>';
+}
+
 // 補登／修改申請（同 my-attendance：寫 attendanceRequests、店長審核）
 function openReqModal(){
   const stores=(appConfig.stores||[]).filter(s=>s!=='人力支援');
@@ -432,7 +449,7 @@ function render(){
     <div style="font-size:11px;color:var(--text-muted);margin-top:8px;line-height:1.5;">※ 其他通知（缺卡、班表、薪資）不受影響。</div>
   </div>`:`
   <div class="card" style="padding:14px;">
-    <div style="font-size:13px;font-weight:800;color:var(--text-muted);margin-bottom:10px;">🔔 打卡提醒（依你的排班時間 LINE 通知）</div>
+    <div style="font-size:13px;font-weight:800;color:var(--text-muted);margin-bottom:10px;">🔔 打卡提醒（依你的排班時間推播通知）</div>
     <label style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;margin-bottom:10px;flex-wrap:wrap;">
       <input type="checkbox" id="remIn" ${remindPref.inBefore>0?'checked':''} onchange="saveRemindPref()" style="width:18px;height:18px;">
       上班前 <input type="number" id="remInMin" min="1" max="30" value="${remindPref.inBefore>0?remindPref.inBefore:10}" onchange="saveRemindPref()" style="width:56px;padding:5px;border:1.5px solid var(--border);border-radius:6px;text-align:center;font-weight:800;"> 分鐘提醒上班打卡
@@ -441,7 +458,8 @@ function render(){
       <input type="checkbox" id="remOut" ${remindPref.outRemind?'checked':''} onchange="saveRemindPref()" style="width:18px;height:18px;">
       下班時間提醒下班打卡
     </label>
-    <div style="font-size:11px;color:var(--text-muted);margin-top:8px;line-height:1.5;">※ 上班前分鐘數上限 30 分。需綁定 LINE 才收得到；未排班的日子不提醒。</div>
+    <div id="remPushHint" style="font-size:12px;margin-top:8px;line-height:1.6;"></div>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:4px;line-height:1.5;">※ 上班前分鐘數上限 30 分。已經打過卡就不提醒；未排班的日子不提醒。</div>
   </div>`}
   ${todayPunches.length?`<div class="card"><div style="font-size:13px;font-weight:800;color:var(--text-muted);margin-bottom:8px;">今日打卡</div>${plist}</div>`:''}
   <div style="padding:2px 10px 16px;">
@@ -451,10 +469,11 @@ function render(){
       <li><b>晚按 10 分鐘內</b>：系統會主動問你，填實際上班時間即可</li>
       <li><b>已離店／要補別天</b>：按上方「📝 補登／修改」</li>
       <li><b>昨天忘打下班</b>：今天照常打上班卡，再補登昨天那筆</li>
-      <li>一律由<b>店長審核</b>，結果 LINE 通知你</li>
+      <li>一律由<b>店長審核</b>，有開推播的話結果會推播通知你</li>
     </ul>
   </div>`;
   tickClock();
+  if(!CLOCK_REMIND_SUSPENDED) renderRemindPushHint();
 }
 
 // 依排班表(3日候選、絕對時間、視窗前1h後4h)判斷是否非排班時段，對齊後端

@@ -161,6 +161,47 @@ const crypto = require("crypto");
 const LINE_TOKEN = defineSecret("LINE_CHANNEL_ACCESS_TOKEN");
 const LINE_SECRET = defineSecret("LINE_CHANNEL_SECRET");
 
+// ===== PWA 推播核心（2026-09-15；說明見檔案最下方「PWA 推播」區）=====
+// 放在這裡是因為各通知函式的 secrets 選項在載入時就要用到 VAPID_PRIVATE
+const webpush = require("web-push");
+const VAPID_PRIVATE = defineSecret("WEB_PUSH_VAPID_PRIVATE");
+const VAPID_PUBLIC = "BGhmoFm3LcXdHVJf0Abc6b5WtJzx25nktsKM01MQ7zUf6otCr6kOaTnGVQ0qUbGtuQf5W15muw55rRcfzZZi3cA";
+const VAPID_SUBJECT = "https://store-schedule-3b056.web.app";
+
+function pushSubId(uid, endpoint) {
+  return `${uid}_${crypto.createHash("sha256").update(String(endpoint)).digest("hex").slice(0, 32)}`;
+}
+
+// 送給指定 uid 的所有裝置；推播服務回 404/410＝訂閱已失效（解除安裝、清除網站資料）→ 順手刪掉
+async function sendPushToUids(db, uids, payload, privateKey) {
+  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC, privateKey);
+  const body = JSON.stringify(payload);
+  let sent = 0, failed = 0, removed = 0;
+  for (const uid of [...new Set(uids)].filter(Boolean)) {
+    const subs = await db.collection("pushSubs").where("uid", "==", uid).get();
+    // 同一個人、同一種平台有好幾份訂閱（通常是 github.io 與 web.app 各訂一份＝同一台手機）→ 只送最近用過的那份，避免同一則收兩次
+    const ms = (t) => (t && t.toMillis ? t.toMillis() : 0);
+    const latest = {};
+    subs.docs.forEach((d) => {
+      const k = d.data().platform || "?";
+      if (!latest[k] || ms(d.data().lastSeenAt) > ms(latest[k].data().lastSeenAt)) latest[k] = d;
+    });
+    for (const d of Object.values(latest)) {
+      const s = d.data();
+      try {
+        await webpush.sendNotification({ endpoint: s.endpoint, keys: s.keys }, body, { TTL: 3600 });
+        sent++;
+        await d.ref.update({ lastPushAt: admin.firestore.FieldValue.serverTimestamp() }).catch(() => {});
+      } catch (e) {
+        if (e.statusCode === 404 || e.statusCode === 410) { await d.ref.delete().catch(() => {}); removed++; }
+        else { failed++; console.warn("[push] 送出失敗", uid, e.statusCode, e.body || e.message); }
+      }
+    }
+  }
+  return { sent, failed, removed };
+}
+
+
 // LINE API 呼叫的共同善後：非 2xx 也要出聲。
 // ⚠️ 舊版只有 .catch()，那只接得到網路層錯誤 —— HTTP 429（免費方案 200 則/月用罄）
 //    完全不會 throw，於是「通知整批消失」卻連一行 log 都沒有（2026-08-17 才發現）。
@@ -200,6 +241,64 @@ async function linePush(lineUserId, text, token) {
   return lineCall("linePush", "https://api.line.me/v2/bot/message/push",
     { to: lineUserId, messages: [{ type: "text", text }] }, token, { to: lineUserId });
 }
+
+// ===== 通知通道：推播優先、LINE 補位（2026-09-15 使用者定案）=====
+// ・原本就走 LINE 的通知：收件人有開推播 → 只發推播；沒開 → 照舊發 LINE（開推播的人越多，LINE 額度越省）
+// ・當初為了省 LINE 額度砍掉、這次恢復的通知（班表已發布、下班打卡提醒、補登結果）：pushOnly，沒開推播就不發
+// ・22:00–08:00 的一般推播先進 pushQueue，08:00 後由 scheduledScheduleNotifyFlush 送出；跟班別綁定的打卡提醒 urgent 不受限
+// 收件人對應：pushSubs 文件本身帶 empName／store（pushSubscribe 時寫入），不必另讀 users。
+function taipeiHour() { return new Date(Date.now() + 8 * 3600000).getUTCHours(); }
+function inQuietHours() { const h = taipeiHour(); return h >= 22 || h < 8; }
+
+// 讀一次 pushSubs → { uids:Set, uidByEmp:{empName:[{uid,store}]} }（同一次執行內重用）
+async function loadPushIndex(db) {
+  const snap = await db.collection("pushSubs").get().catch(() => null);
+  const uids = new Set(); const uidByEmp = {};
+  if (snap) snap.forEach((d) => {
+    const x = d.data() || {};
+    if (!x.uid) return;
+    uids.add(x.uid);
+    if (x.empName) {
+      const list = (uidByEmp[x.empName] = uidByEmp[x.empName] || []);
+      if (!list.some((y) => y.uid === x.uid)) list.push({ uid: x.uid, store: x.store || "", permission: x.permission || "employee" });
+    }
+  });
+  return { uids, uidByEmp };
+}
+function pushUidOf(idx, empName, store) {
+  const list = (idx && idx.uidByEmp[empName]) || [];
+  const hit = list.find((x) => x.store === store) || list[0];
+  return hit ? hit.uid : null;
+}
+// LINE 文字 → 推播（第一行當標題、其餘當內文）
+function pushFromText(text, extra) {
+  const lines = String(text || "").split("\n");
+  const title = (lines.shift() || "莉學商行").trim();
+  const body = lines.join("\n").replace(/\n{2,}/g, "\n").trim().slice(0, 600);
+  return Object.assign({ title, body, url: "home.html" }, extra || {});
+}
+// 送一則推播；非緊急且在夜間 → 排隊到 08:00
+async function sendOrQueuePush(db, uids, payload, vapid, urgent) {
+  const list = [...new Set(uids)].filter(Boolean);
+  if (!list.length || !vapid) return { sent: 0 };
+  if (!urgent && inQuietHours()) {
+    await db.collection("pushQueue").add({ uids: list, payload, createdAt: admin.firestore.FieldValue.serverTimestamp() });
+    return { queued: list.length };
+  }
+  return sendPushToUids(db, list, payload, vapid);
+}
+async function flushPushQueue(db, vapid) {
+  if (!vapid || inQuietHours()) return;
+  const snap = await db.collection("pushQueue").orderBy("createdAt").limit(200).get().catch(() => null);
+  if (!snap) return;
+  for (const d of snap.docs) {
+    const q = d.data();
+    await sendPushToUids(db, q.uids || [], q.payload || {}, vapid).catch((e) => console.warn("[pushQueue]", e.message));
+    await d.ref.delete().catch(() => {});
+  }
+}
+// keys 相容舊呼叫：字串＝只有 LINE token；物件＝{ line, vapid }
+function notifyKeys(token) { return typeof token === "string" ? { line: token } : (token || {}); }
 
 exports.lineWebhook = onRequest(
   { region: "asia-east1", secrets: [LINE_TOKEN, LINE_SECRET] },
@@ -345,21 +444,42 @@ async function maintenanceOn(db) {
   const d = await db.collection("settings").doc("maintenance").get().catch(() => null);
   return !!(d && d.exists && d.data().enabled);
 }
-async function notifyEmployees(db, empNames, store, buildText, token) {
+// opts：{ push:(name,emp)=>推播內容（省略則由文字轉換）, pushOnly:true＝沒開推播就不發 LINE, urgent }
+// 回傳 { push, line }：實際走推播／LINE 的人數
+async function notifyEmployees(db, empNames, store, buildText, token, opts) {
   const names = [...new Set((empNames || []).filter(Boolean))];
-  if (!names.length) return;
-  const snap = await db.collection("lineBindings").get();
+  const o = opts || {}; const keys = notifyKeys(token);
+  const out = { push: 0, line: 0 };
+  if (!names.length) return out;
+  const idx = keys.vapid ? await loadPushIndex(db) : null;
   const byEmp = {};
-  snap.forEach((d) => {
-    const b = d.data();
-    if (!b.empName || !b.lineUserId) return;
-    (byEmp[b.empName] = byEmp[b.empName] || []).push(b);
-  });
+  if (!o.pushOnly && keys.line) {
+    const snap = await db.collection("lineBindings").get();
+    snap.forEach((d) => {
+      const b = d.data();
+      if (!b.empName || !b.lineUserId) return;
+      (byEmp[b.empName] = byEmp[b.empName] || []).push(b);
+    });
+  }
+  const pushGroups = new Map(); // 內容相同的人合併成一次 sendOrQueuePush（夜間只排一筆佇列）
   for (const emp of names) {
     const list = byEmp[emp] || [];
     const b = list.find((x) => x.store === store) || list[0];
-    if (b) await linePush(b.lineUserId, buildText(b.displayName || emp, emp), token);
+    const name = (b && b.displayName) || emp;
+    const uid = idx ? pushUidOf(idx, emp, store) : null;
+    if (uid) {
+      const payload = o.push ? o.push(name, emp) : pushFromText(buildText(name, emp));
+      const k = JSON.stringify(payload);
+      (pushGroups.get(k) || pushGroups.set(k, { payload, uids: [] }).get(k)).uids.push(uid);
+      out.push++;
+      continue;
+    }
+    if (o.pushOnly || !b || !keys.line) continue;
+    await linePush(b.lineUserId, buildText(name, emp), keys.line);
+    out.line++;
   }
+  for (const g of pushGroups.values()) await sendOrQueuePush(db, g.uids, g.payload, keys.vapid, o.urgent);
+  return out;
 }
 
 // ===== 個人週班表文字（條列每日一行）=====
@@ -443,14 +563,15 @@ async function notifySalary(db, store, data, month, token) {
   await notifyEmployees(
     db, empNames, store,
     (name) => `💰 ${name}，你的 ${month} 薪資已發布，可到 App 查看並簽收囉。`,
-    token
+    token,
+    { push: (name) => ({ title: `💰 ${month} 薪資已發布`, body: `${name}，點這裡查看並簽收`, url: `my-salary.html?month=${month}`, tag: `salary-${month}` }) }
   );
 }
 
 // 薪資發布 → 通知該月有記錄的員工（但需已到「可查看月份」才即時通知；
 // 若在可查看月份前就發布，改由 scheduledMonthlySalaryNotify 於次月1號補發）
 exports.onSalaryPublished = onDocumentWritten(
-  { document: "stores/{store}/salary/{month}", region: "asia-east1", secrets: [LINE_TOKEN] },
+  { document: "stores/{store}/salary/{month}", region: "asia-east1", secrets: [LINE_TOKEN, VAPID_PRIVATE] },
   async (event) => {
     const before = event.data.before.exists ? event.data.before.data() : {};
     const after = event.data.after.exists ? event.data.after.data() : {};
@@ -458,7 +579,7 @@ exports.onSalaryPublished = onDocumentWritten(
     const month = event.params.month;
     if (!salaryViewable(month)) return; // 尚未到可查看月份 → 不即時通知（次月排程補發）
     const db = admin.firestore();
-    await notifySalary(db, fixStoreName(event.params.store), after, month, LINE_TOKEN.value());
+    await notifySalary(db, fixStoreName(event.params.store), after, month, { line: LINE_TOKEN.value(), vapid: VAPID_PRIVATE.value() });
   }
 );
 
@@ -618,7 +739,8 @@ async function flushScheduleQueueEntry(db, store, weekStr, baseRecs, token, forc
   await notifyEmployees(
     db, changed, store,
     (name, emp) => `🔔 ${name}，${store} ${label} 班表有異動\n\n${weekScheduleText(curRecs, emp, weekStr, so[emp])}\n\n請至 App 確認最新班表`,
-    token
+    token,
+    { urgent: !!force, push: (name, emp) => ({ title: `🔔 ${label} 班表有異動`, body: weekScheduleText(curRecs, emp, weekStr, so[emp]), url: "schedule-V2.html", tag: `sched-${store}-${weekStr}` }) }
   );
   // 真的送出去才記上限（changed 為 0 時不佔用今天的名額）
   await capRef.set({ store, weekStr, at: new Date().toISOString(), sent: changed.length, force: !!force },
@@ -929,10 +1051,10 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 // ===== 每月1號：補發「上個月薪資」通知（該月薪資此時起才可查看）=====
 // 例：8/1 通知 7 月薪資（7 月發布但依規則 8 月才可看）。
 exports.scheduledMonthlySalaryNotify = onSchedule(
-  { schedule: "0 9 1 * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN] },
+  { schedule: "0 9 1 * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN, VAPID_PRIVATE] },
   async () => {
     const db = admin.firestore();
-    const token = LINE_TOKEN.value();
+    const token = { line: LINE_TOKEN.value(), vapid: VAPID_PRIVATE.value() };
     // 剛變成可查看的月份＝上個曆月（台北）
     const now = new Date(Date.now() + 8 * 3600000);
     const py = now.getUTCMonth() === 0 ? now.getUTCFullYear() - 1 : now.getUTCFullYear();
@@ -971,10 +1093,11 @@ function resignAccessUntil(retireDate) {
 const SALARY_ACK_REMIND_DAYS = 7;   // 兩次提醒最短間隔
 const SALARY_ACK_MAX_REMINDS = 3;   // 每個薪資月份最多提醒幾次
 exports.scheduledSalaryAckReminder = onSchedule(
-  { schedule: "0 15 * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN] },
+  { schedule: "0 15 * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN, VAPID_PRIVATE] },
   async () => {
     const db = admin.firestore();
     const token = LINE_TOKEN.value();
+    const vapid = VAPID_PRIVATE.value();
     const ACK_START = "2026-07";
     const nowYM = taipeiYM();
     // 需簽收月份：ACK_START ~ (當月-1)，即已可查看的月份(M 月薪資 M+1 才可看)
@@ -1007,9 +1130,18 @@ exports.scheduledSalaryAckReminder = onSchedule(
     }
     const bindSnap = await db.collection("lineBindings").get();
     const uidByName = {}; bindSnap.forEach((d) => { const b = d.data(); if (b.empName && b.uid) uidByName[b.empName] = b.uid; });
-    for (const bd of bindSnap.docs) {
-      const b = bd.data();
-      if (!b.uid || !b.empName || !b.lineUserId || !b.store) continue;
+    // 收件人＝綁 LINE 的人 ∪ 開了推播的人（2026-09-15：推播優先、LINE 補位，只開推播沒綁 LINE 的人也要提醒）
+    const pushIdx = await loadPushIndex(db);
+    const cands = {};
+    bindSnap.forEach((d) => { const b = d.data(); if (b.uid && b.empName && b.store) cands[b.uid] = b; });
+    const pushOnlyUids = [...pushIdx.uids].filter((u) => !cands[u]);
+    for (const u of pushOnlyUids) {
+      const us = await db.collection("users").doc(u).get().catch(() => null);
+      const x = us && us.exists ? us.data() : null;
+      if (x && x.empName && x.store) { cands[u] = { uid: u, empName: x.empName, store: x.store, displayName: x.displayName || "" }; uidByName[x.empName] = uidByName[x.empName] || u; }
+    }
+    for (const b of Object.values(cands)) {
+      if (!b.uid || !b.empName || !b.store) continue;
       if (resignedInfo[b.empName] && resignedInfo[b.empName].effective) continue; // 已生效的離職者不再提醒
       const disp = b.displayName || b.empName;
       for (const ym of months) {
@@ -1037,7 +1169,11 @@ exports.scheduledSalaryAckReminder = onSchedule(
         const times = rem.times || 0;
         if (times >= SALARY_ACK_MAX_REMINDS) continue;
         if (NOW - lastAt < SALARY_ACK_REMIND_DAYS * 86400000 - 3600000) continue;
-        await linePush(b.lineUserId, `💰 ${disp}，你的 ${ym} 薪資已發布但尚未「簽收」。\n請開啟 App →「查看薪水」完成簽名簽收。\n（第 ${times + 1}/${SALARY_ACK_MAX_REMINDS} 次提醒，簽收後即停止）`, token);
+        if (pushIdx.uids.has(b.uid)) {
+          await sendPushToUids(db, [b.uid], { title: `✍️ ${ym} 薪資還沒簽收`, body: `${disp}，點這裡完成簽收（第 ${times + 1}/${SALARY_ACK_MAX_REMINDS} 次提醒）`, url: `my-salary.html?month=${ym}`, tag: `salary-ack-${ym}` }, vapid);
+        } else if (b.lineUserId) {
+          await linePush(b.lineUserId, `💰 ${disp}，你的 ${ym} 薪資已發布但尚未「簽收」。\n請開啟 App →「查看薪水」完成簽名簽收。\n（第 ${times + 1}/${SALARY_ACK_MAX_REMINDS} 次提醒，簽收後即停止）`, token);
+        } else continue;
         await remRef.set({ uid: b.uid, ym, empName: b.empName, lastAt: NOW, times: times + 1 }, { merge: true });
       }
     }
@@ -1070,11 +1206,14 @@ exports.scheduledSalaryAckReminder = onSchedule(
 
 // ===== 班表異動「延遲通知」排程：每 5 分鐘檢查佇列，靜置滿 10 分鐘無新異動才彙整發送 =====
 exports.scheduledScheduleNotifyFlush = onSchedule(
-  { schedule: "*/5 * * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN] },
+  { schedule: "*/5 * * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN, VAPID_PRIVATE] },
   async () => {
     const db = admin.firestore();
     if (await maintenanceOn(db)) return; // 維護模式不彙整發送班表異動
-    const token = LINE_TOKEN.value();
+    const token = { line: LINE_TOKEN.value(), vapid: VAPID_PRIVATE.value() };
+    await flushPushQueue(db, token.vapid); // 夜間排隊的推播，08:00 後送出
+    // 22:00–08:00 不自動發班表異動（LINE 與推播都一樣）：佇列留著，早上第一輪再發；店長按「立即通知」不受限
+    if (inQuietHours()) return;
     const QUIET_MS = 10 * 60 * 1000;
     const now = Date.now();
     const qsnap = await db.collection("scheduleNotifyQueue").get().catch(() => null);
@@ -1094,7 +1233,7 @@ exports.scheduledScheduleNotifyFlush = onSchedule(
 
 // ===== 班表異動「立即通知」：店長於班表頁按下按鈕 → 馬上彙整發送並清空佇列（僅店長以上）=====
 exports.flushScheduleNotify = onCall(
-  { region: "asia-east1", secrets: [LINE_TOKEN] },
+  { region: "asia-east1", secrets: [LINE_TOKEN, VAPID_PRIVATE] },
   async (request) => {
     const auth = request.auth;
     if (!auth) throw new HttpsError("unauthenticated", "請先登入");
@@ -1105,7 +1244,7 @@ exports.flushScheduleNotify = onCall(
     const store = fixStoreName((request.data && request.data.store) || "");
     const weekStr = (request.data && request.data.weekStr) || "";
     if (!store || !weekStr) throw new HttpsError("invalid-argument", "缺少 store / weekStr");
-    const token = LINE_TOKEN.value();
+    const token = { line: LINE_TOKEN.value(), vapid: VAPID_PRIVATE.value() };
     const qref = db.collection("scheduleNotifyQueue").doc(`${store}__${weekStr}`);
     const qs = await qref.get().catch(() => null);
     if (qs && qs.exists) {
@@ -1125,7 +1264,8 @@ exports.flushScheduleNotify = onCall(
     await notifyEmployees(
       db, empNames, store,
       (name, emp) => `🔔 ${name}，${store} ${label} 班表有異動\n\n${weekScheduleText(curRecs, emp, weekStr, so[emp])}\n\n請至 App 確認最新班表`,
-      token
+      token,
+      { urgent: true, push: (name, emp) => ({ title: `🔔 ${label} 班表有異動`, body: weekScheduleText(curRecs, emp, weekStr, so[emp]), url: "schedule-V2.html", tag: `sched-${store}-${weekStr}` }) }
     );
     return { ok: true, sent: empNames.length };
   }
@@ -2337,37 +2477,6 @@ exports.scheduledUpdateNoticeLine = onSchedule(
 // 訂閱存 pushSubs/{uid}_{endpoint 雜湊}：一人可有多台裝置，也可能 github.io 與 web.app 各訂一份（origin 欄位可查）。
 // 前端不直接讀寫 pushSubs（firestore.rules 已把它排除在 catch-all 外），一律經由下面三支 callable。
 // 目前只提供「測試推播」；要推哪些通知之後再決定，屆時呼叫 sendPushToUids()。
-const webpush = require("web-push");   // crypto 已在上方 require
-const VAPID_PRIVATE = defineSecret("WEB_PUSH_VAPID_PRIVATE");
-const VAPID_PUBLIC = "BGhmoFm3LcXdHVJf0Abc6b5WtJzx25nktsKM01MQ7zUf6otCr6kOaTnGVQ0qUbGtuQf5W15muw55rRcfzZZi3cA";
-const VAPID_SUBJECT = "https://store-schedule-3b056.web.app";
-
-function pushSubId(uid, endpoint) {
-  return `${uid}_${crypto.createHash("sha256").update(String(endpoint)).digest("hex").slice(0, 32)}`;
-}
-
-// 送給指定 uid 的所有裝置；推播服務回 404/410＝訂閱已失效（解除安裝、清除網站資料）→ 順手刪掉
-async function sendPushToUids(db, uids, payload, privateKey) {
-  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC, privateKey);
-  const body = JSON.stringify(payload);
-  let sent = 0, failed = 0, removed = 0;
-  for (const uid of [...new Set(uids)].filter(Boolean)) {
-    const subs = await db.collection("pushSubs").where("uid", "==", uid).get();
-    for (const d of subs.docs) {
-      const s = d.data();
-      try {
-        await webpush.sendNotification({ endpoint: s.endpoint, keys: s.keys }, body, { TTL: 3600 });
-        sent++;
-        await d.ref.update({ lastPushAt: admin.firestore.FieldValue.serverTimestamp() }).catch(() => {});
-      } catch (e) {
-        if (e.statusCode === 404 || e.statusCode === 410) { await d.ref.delete().catch(() => {}); removed++; }
-        else { failed++; console.warn("[push] 送出失敗", uid, e.statusCode, e.body || e.message); }
-      }
-    }
-  }
-  return { sent, failed, removed };
-}
-
 exports.pushSubscribe = onCall({ region: "asia-east1" }, async (request) => {
   const auth = request.auth;
   if (!auth) throw new HttpsError("unauthenticated", "請先登入");
@@ -2418,3 +2527,167 @@ exports.sendTestPush = onCall({ region: "asia-east1", secrets: [VAPID_PRIVATE] }
   if (!r.sent && !r.failed) throw new HttpsError("failed-precondition", "這個帳號還沒有任何裝置開啟推播");
   return r;
 });
+
+// ============ 推播第一批：恢復當初為省 LINE 額度砍掉的通知（2026-09-15，只發推播）============
+
+// ── 班表已發布（手動發布當下；夜間排隊到 08:00）──
+// 取代 2026-09-02 移除的 onSchedulePublished（LINE 版）。pushPublishSent 防止「取消發布→再發布」重複通知。
+async function pushSchedulePublished(db, store, weekStr, records, vapid) {
+  const sentRef = db.collection("pushPublishSent").doc(`${store}__${weekStr}`);
+  const sent = await sentRef.get().catch(() => null);
+  if (sent && sent.exists) return { skipped: "already" };
+  const label = weekRangeLabel(weekStr);
+  const empNames = await getActiveEmpNames(db, store);
+  const so = await supportOutByEmp(db, store, weekStr);
+  const r = await notifyEmployees(db, empNames, store, () => "", { vapid }, {
+    pushOnly: true,
+    push: (name, emp) => ({ title: `🗓️ ${store} ${label} 班表已發布`, body: weekScheduleText(records, emp, weekStr, so[emp]), url: "schedule-V2.html", tag: `sched-${store}-${weekStr}` }),
+  });
+  await sentRef.set({ store, weekStr, at: new Date().toISOString(), push: r.push }).catch(() => {});
+  return r;
+}
+
+exports.onSchedulePublishedPush = onDocumentWritten(
+  { document: "stores/{store}/weeks/{weekStr}", region: "asia-east1", secrets: [VAPID_PRIVATE] },
+  async (event) => {
+    const before = event.data.before.exists ? event.data.before.data() : {};
+    const after = event.data.after.exists ? event.data.after.data() : {};
+    if (before.published === true || after.published !== true) return; // 只在「剛發布」
+    const db = admin.firestore();
+    if (await maintenanceOn(db)) return;
+    await pushSchedulePublished(db, fixStoreName(event.params.store), event.params.weekStr, after.records || [], VAPID_PRIVATE.value());
+  }
+);
+
+// ── 週五 18:00 自動發布：店長沒手動發布的下週班表，前端此時起視為已發布（isAutoPublishedHome）→ 補推 ──
+exports.scheduledAutoPublishPush = onSchedule(
+  { schedule: "0 18 * * 5", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [VAPID_PRIVATE] },
+  async () => {
+    const db = admin.firestore();
+    if (await maintenanceOn(db)) return;
+    const nextTp = new Date(Date.now() + 8 * 3600000 + 3 * 86400000); // 週五 +3 天＝下週一
+    const weekStr = weekStrOfTp(nextTp);
+    for (const store of (await getAllStores(db)).filter((s) => s !== "人力支援")) {
+      const wd = await db.collection("stores").doc(store).collection("weeks").doc(weekStr).get().catch(() => null);
+      if (!wd || !wd.exists) continue;
+      const d = wd.data();
+      if (d.published === true) continue; // 已手動發布（當時已通知）
+      if (!(d.records || []).some((r) => r && r.shift)) continue; // 空班表不發
+      await pushSchedulePublished(db, store, weekStr, d.records || [], VAPID_PRIVATE.value());
+    }
+  }
+);
+
+// ── 打卡提醒（員工自己在打卡頁勾選）：上班前 X 分鐘／下班時間 → 推播 ──
+// 取代 2026-08-17 因 LINE 額度暫停、2026-09-07 刪除的 scheduledClockRemind（LINE 版）。偏好沿用 clockRemindPrefs/{empName}
+// = { inBefore:分鐘(0=關), outRemind:bool }，員工當時存的設定原封不動恢復生效（2026-09-15 有 10 人、8 人開下班提醒）。
+// 2026-09-15 使用者定案：回歸員工自己勾選；下班提醒就在「下班時間」發（回放顯示晚 15 分再提醒有六成是還在店裡的人，
+// 但延後又會讓人走出打卡範圍，最後決定維持原設計）。只發推播：沒開推播的人不發 LINE。
+// 與舊版差異：①跨日班的下班時間落在今天也提醒（舊版只看當天排班）②下班時連上班卡都沒有，改提醒「上下班都還沒打」（舊版不發）。
+const CLOCK_REMIND_WIN = 15 * 60000; // 視窗 15 分鐘＋clockRemindLog 去重：排程晚跑也不漏、不重複
+exports.scheduledClockRemindPush = onSchedule(
+  { schedule: "*/5 * * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [VAPID_PRIVATE] },
+  async () => {
+    const db = admin.firestore();
+    const prefsSnap = await db.collection("clockRemindPrefs").get().catch(() => null);
+    if (!prefsSnap || prefsSnap.empty) return;
+    const prefs = {};
+    prefsSnap.forEach((d) => { const x = d.data() || {}; if (Number(x.inBefore) > 0 || x.outRemind) prefs[d.id] = x; });
+    if (!Object.keys(prefs).length) return;
+    const idx = await loadPushIndex(db);
+    const wanted = Object.keys(prefs).filter((emp) => idx.uidByEmp[emp]);
+    if (!wanted.length) return; // 開了提醒的人都還沒開推播 → 不讀排班
+    if (await maintenanceOn(db)) return;
+    const cfg = await db.collection("settings").doc("globalConfig").get().catch(() => null);
+    const conf = cfg && cfg.exists ? cfg.data() : {};
+    const clk = conf.clockIn || {};
+    if (!clk.stage || clk.stage === "off") return;
+    const now = Date.now();
+    const vapid = VAPID_PRIVATE.value();
+    const days = [0, 1].map((back) => {
+      const tp = new Date(now + 8 * 3600000 - back * 86400000);
+      return { ds: tp.toISOString().slice(0, 10), dayName: WEEK_DAYS[(tp.getUTCDay() + 6) % 7], wk: weekStrOfTp(tp), back };
+    });
+    for (const store of (conf.stores || []).filter((s) => s !== "人力支援")) {
+      if (!storeClockOn(clk, store)) continue;
+      const weekCache = {};
+      const due = []; // { kind:'in'|'out', emp, shift, shiftDay, homeStore, inBefore }
+      for (const dd of days) {
+        if (!(dd.wk in weekCache)) {
+          const wd = await db.collection("stores").doc(store).collection("weeks").doc(dd.wk).get().catch(() => null);
+          weekCache[dd.wk] = wd && wd.exists ? (wd.data().records || []) : [];
+        }
+        for (const r of weekCache[dd.wk]) {
+          if (!r || r.day !== dd.dayName || !parseShiftSegs(r.shift).length || String(r.location || "").startsWith("支援")) continue;
+          const isSupport = r.supportEmp && r.approvalStatus === "approved";
+          const emp = (r.name && !String(r.name).startsWith("🆘")) ? r.name : (isSupport ? r.supportEmp.slice(r.supportEmp.indexOf("-") + 1) : "");
+          const pref = emp && prefs[emp];
+          if (!pref || !idx.uidByEmp[emp]) continue;
+          const perm = (idx.uidByEmp[emp][0] || {}).permission;
+          if (!canClockPerm(clk.stage, perm)) continue;
+          const sp = shiftSpan(r.shift); // 兩頭班：只提醒整天第一次上班與最後一次下班
+          const homeStore = isSupport ? r.supportEmp.slice(0, r.supportEmp.indexOf("-")) : store;
+          const inBefore = Number(pref.inBefore) || 0;
+          if (dd.back === 0 && inBefore > 0) {
+            const at = shiftTimeMs(dd.ds, sp.startH) - inBefore * 60000;
+            if (now >= at && now < at + CLOCK_REMIND_WIN) due.push({ kind: "in", emp, shift: r.shift, shiftDay: dd.ds, homeStore, inBefore });
+          }
+          if (pref.outRemind) {
+            const at = shiftTimeMs(dd.ds, sp.endH);
+            if (now >= at && now < at + CLOCK_REMIND_WIN) due.push({ kind: "out", emp, shift: r.shift, shiftDay: dd.ds, homeStore });
+          }
+        }
+      }
+      if (!due.length) continue;
+      const pool = [];
+      for (const ds of [...new Set(days.map((d) => d.ds))]) {
+        const att = await db.collection("stores").doc(store).collection("attendance").where("date", "==", ds).get().catch(() => null);
+        if (att) att.forEach((d) => pool.push(d.data()));
+      }
+      for (const x of due) {
+        const mine = pool.filter((p) => p.empName === x.emp && !p.voided && p.type !== "缺卡" && (p.shiftDate || p.date) === x.shiftDay);
+        const hasIn = mine.some((p) => p.type === "上班");
+        const hasOut = mine.some((p) => p.type === "下班");
+        if (x.kind === "in" && hasIn) continue;
+        if (x.kind === "out" && hasOut) continue;
+        const logRef = db.collection("stores").doc(store).collection("clockRemindLog")
+          .doc(("remind_" + x.shiftDay + "_" + x.emp + "_" + x.shift + "_" + x.kind).replace(/[^\w一-龥]/g, "_"));
+        const created = await logRef.create({ empName: x.emp, date: x.shiftDay, shift: x.shift, kind: x.kind, channel: "push", ts: admin.firestore.FieldValue.serverTimestamp() })
+          .then(() => true).catch(() => false);
+        if (!created) continue; // 已提醒過（create 遇到既有文件會失敗＝原子去重）
+        const payload = x.kind === "in"
+          ? { title: "⏰ 上班打卡提醒", body: `${store} ${x.shift} 的班 ${x.inBefore} 分鐘後開始，記得到店打卡`, url: "clock.html", tag: `clock-in-${x.shiftDay}` }
+          : (hasIn
+            ? { title: "⏰ 下班打卡提醒", body: `${store} ${x.shift} 的班到下班時間了，記得打下班卡`, url: "clock.html", tag: `clock-out-${x.shiftDay}` }
+            : { title: "⏰ 今天還沒打卡", body: `${store} ${x.shift} 的班到下班時間了，上下班卡都還沒有紀錄，請打卡或補登`, url: "clock.html", tag: `clock-out-${x.shiftDay}` });
+        await sendPushToUids(db, [pushUidOf(idx, x.emp, x.homeStore)], payload, vapid).catch((e) => console.warn("[clockRemind]", e.message));
+      }
+    }
+  }
+);
+
+// ── 補登申請結果：店長核准／駁回 → 推播給申請人（取代 2026-09-07 移除的 onAttendanceRequest，當時只發駁回）──
+exports.onAttendanceRequestResult = onDocumentWritten(
+  { document: "stores/{store}/attendanceRequests/{id}", region: "asia-east1", secrets: [VAPID_PRIVATE] },
+  async (event) => {
+    const before = event.data.before.exists ? event.data.before.data() : null;
+    const after = event.data.after.exists ? event.data.after.data() : null;
+    if (!before || !after || before.status !== "pending" || !["approved", "rejected"].includes(after.status)) return;
+    const db = admin.firestore();
+    const idx = await loadPushIndex(db);
+    const store = after.atStore || fixStoreName(event.params.store);
+    const uid = pushUidOf(idx, after.empName, after.homeStore || store);
+    if (!uid) return;
+    const when = `${after.targetDate || ""} ${after.punchType || ""} ${after.requestedTime || ""}`.replace(/\s+/g, " ").trim();
+    const ok = after.status === "approved";
+    await sendOrQueuePush(db, [uid], {
+      title: ok ? `✅ ${after.type || "補登"}申請已核准` : `❌ ${after.type || "補登"}申請被駁回`,
+      body: ok ? when : `${when}${after.reviewNote ? `\n原因：${after.reviewNote}` : ""}\n點這裡重新申請`,
+      url: "my-attendance.html",
+      tag: `attreq-${event.params.id}`,
+    }, VAPID_PRIVATE.value(), false);
+  }
+);
+
+// 本機測試用（只有設定 LIXUE_TEST_HOOKS=1 時才掛上；雲端不會有這個環境變數）
+if (process.env.LIXUE_TEST_HOOKS === "1") module.exports.__testHooks = { notifyEmployees, loadPushIndex };
