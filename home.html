@@ -205,33 +205,33 @@
       <!-- 員工本人缺卡未補登：近 7 天，由 updateHomeAttnAlert() 填入（沒事就整塊隱藏）；店長的門市缺卡／遲到早退在下方膠囊 -->
       <div id="homeAttnAlert" style="display:none; margin-bottom:12px;"></div>
 
-      <!-- 提醒膠囊：原本 6 條橫幅合成一排。各自的顯示邏輯不變（JS 仍以 style.display='flex' 開關同一批 id）。
-           下週班表已發布：取代 2026-09-02 砍掉的「班表已發布」LINE 推播，由 subscribeNextWeekPublish() 即時開關，關掉後記在 localStorage。 -->
+      <!-- 提醒膠囊：原本 6 條橫幅合成一排，依嚴重度排序＋底色（紅＝影響薪資／要處理、橘＝待你完成、黃＝期限提醒、藍＝通知、灰＝知悉、白＝邀請）。
+           各自的顯示邏輯不變（JS 仍以 style.display='flex' 開關同一批 id）。店長的門市缺卡／遲到早退由 updateHomeAttnAlert() 開關；
+           下週班表已發布取代 2026-09-02 砍掉的 LINE 推播，由 subscribeNextWeekPublish() 即時開關，關掉後記在 localStorage。 -->
       <div class="pill-row" id="homePills">
-        <!-- 店長以上：門市缺卡（待辦）、遲到早退（知悉＋未讀數），由 updateHomeAttnAlert() 開關 -->
-        <div id="attnMissPill" class="hpill" style="display:none;" onclick="window.location.href='attendance.html'">
-          <span class="dot d-org"></span><span class="hpill-t" id="attnMissText"></span>
+        <div id="attnMissPill" class="hpill hp-red" style="display:none;" onclick="window.location.href='attendance.html'">
+          <span class="dot d-red"></span><span class="hpill-t" id="attnMissText"></span>
         </div>
-        <div id="attnAnomPill" class="hpill" style="display:none;">
-          <span class="dot d-gray"></span><span class="hpill-t" id="attnAnomText"></span><span class="hpill-n" id="attnAnomUnread"></span>
-          <button class="hpill-x" id="attnAnomX" aria-label="標為已讀">×</button>
-        </div>
-        <div id="pendingBadgeBar" class="hpill" style="display:none;" onclick="document.getElementById('pendingCard').scrollIntoView({behavior:'smooth'})">
+        <div id="pendingBadgeBar" class="hpill hp-red" style="display:none;" onclick="document.getElementById('pendingCard').scrollIntoView({behavior:'smooth'})">
           <span class="dot d-red"></span><span class="hpill-t">待處理 <b id="pendingBadgeCount">0</b></span>
         </div>
-        <div id="salaryAckBanner" class="hpill" style="display:none;" onclick="gotoSalaryAck()">
+        <div id="salaryAckBanner" class="hpill hp-org" style="display:none;" onclick="gotoSalaryAck()">
           <span class="dot d-org"></span><span class="hpill-t">薪資待簽收（<span id="salaryAckMonths"></span>）</span>
         </div>
-        <div id="pnlPendingBanner" class="hpill" style="display:none;" onclick="window.location.href='performance.html'">
+        <div id="pnlPendingBanner" class="hpill hp-org" style="display:none;" onclick="window.location.href='performance.html'">
           <span class="dot d-org"></span><span class="hpill-t">績效待輸入（<span id="pnlPendingMonths"></span>）</span>
         </div>
-        <div id="homeNextWeekBanner" class="hpill" style="display:none;">
+        <div id="leaveHintBanner" class="hpill hp-yel" style="display:none;" onclick="window.location.href='leave-request.html'">
+          <span class="dot d-yel"></span><span class="hpill-t" id="leaveHintText">劃休開放中</span>
+          <button class="hpill-x" onclick="event.stopPropagation(); dismissLeaveHint();" aria-label="關閉">×</button>
+        </div>
+        <div id="homeNextWeekBanner" class="hpill hp-blue" style="display:none;">
           <span class="dot d-blue"></span><span class="hpill-t">下週班表已發布</span>
           <button class="hpill-x" onclick="event.stopPropagation(); dismissNextWeekBanner();" aria-label="關閉">×</button>
         </div>
-        <div id="leaveHintBanner" class="hpill" style="display:none;" onclick="window.location.href='leave-request.html'">
-          <span class="dot d-yel"></span><span class="hpill-t" id="leaveHintText">劃休開放中</span>
-          <button class="hpill-x" onclick="event.stopPropagation(); dismissLeaveHint();" aria-label="關閉">×</button>
+        <div id="attnAnomPill" class="hpill hp-gray" style="display:none;">
+          <span class="dot d-gray"></span><span class="hpill-t" id="attnAnomText"></span><span class="hpill-n" id="attnAnomUnread"></span>
+          <button class="hpill-x" id="attnAnomX" aria-label="標為已讀">×</button>
         </div>
         <div id="lineBindHome" class="hpill" style="display:none;" onclick="openLineBindModal()">
           <span class="dot d-green"></span><span class="hpill-t">綁定 LINE 通知</span>

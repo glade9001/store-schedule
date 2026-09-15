@@ -457,7 +457,16 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 }
 .hpill:active { background: #eef3fb; }
 .hpill-t { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.hpill-t b { font-weight: 900; color: #c5221f; }
+.hpill-t b { font-weight: 900; }
+/* 狀況底色：紅＝影響薪資／要處理、橘＝待你完成、黃＝期限提醒、藍＝通知、灰＝知悉；沒加 class 的白底＝邀請類 */
+.hpill.hp-red  { background: #fdecea; border-color: #f5c2bd; color: #a8231a; }
+.hpill.hp-org  { background: #fff1e0; border-color: #ffd3a3; color: #a14a00; }
+.hpill.hp-yel  { background: #fff8dc; border-color: #f2dc8c; color: #7a5d00; }
+.hpill.hp-blue { background: #e8f0fe; border-color: #c6dafc; color: #1557b0; }
+.hpill.hp-gray { background: #eef1f5; border-color: #dde3ea; color: #475569; }
+.hpill.hp-red:active { background: #fad9d5; } .hpill.hp-org:active { background: #ffe4c4; }
+.hpill.hp-yel:active { background: #fdefb8; } .hpill.hp-blue:active { background: #d6e5fd; } .hpill.hp-gray:active { background: #e2e7ee; }
+.hpill[class*="hp-"] .hpill-x { color: inherit; opacity: 0.6; }
 .hpill-x { background: none; border: none; color: var(--text-muted); font-size: 17px; line-height: 1; padding: 0 0 0 2px; cursor: pointer; flex-shrink: 0; }
 .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
 .d-red { background: #e5372b; } .d-org { background: #f08a00; } .d-yel { background: #f9ab00; }
