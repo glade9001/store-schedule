@@ -422,6 +422,8 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 .ring-barcode .tool-face { color:#243042; }
 .ring-wds     { background:conic-gradient(#e0540f,#ffb27a,#e0540f); }
 .ring-wds .tool-face     { color:#d9510f; }
+.ring-learn   { background:conic-gradient(#0f766e,#5ec7b8,#0f766e); }
+.ring-learn .tool-face   { color:#0f766e; }
 .tool-label { font-size:11px; font-weight:700; color:var(--text); white-space:nowrap; }
 .tool-item:focus-visible { outline:2px solid var(--primary); outline-offset:3px; border-radius:10px; }
 

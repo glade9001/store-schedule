@@ -49,6 +49,7 @@ var HOME_FEATURES = [
   { id: 'city',    group: 'store', icon: '☕', label: 'CITY手順',   sub: '飲品製作手順',   go: 'city.html' },
   { id: 'barcode', group: 'store', icon: '▥',  label: '條碼查詢',   sub: '外部網站',       href: 'https://bk-bc.github.io/Barcode/' },
   { id: 'wds',     group: 'store', icon: '💬', label: '大智通小智', sub: '外部網站',       href: 'https://www.wds.com.tw/webchat/?action=dispatch2&bb=2&openExternalBrowser=1' },
+  { id: 'learn',   group: 'store', icon: '📚', label: '學習平台',   sub: '外部網站・線上課程', href: 'https://e-learning.unipcsc.com.tw/eHRD/eHRDOrg', kw: '教育訓練 課程 e-learning' },
   // ── 帳號與系統 ──
   { id: 'account',   group: 'sys', icon: '👤', label: '帳號管理',     sub: '修改密碼、個人資料',         go: 'employee-mgmt.html?mode=self', kw: '密碼' },
   { id: 'push',      group: 'sys', icon: '📣', label: '推播通知',     sub: '開啟、測試、關閉這台手機的推播', run: function () { openPushSettings(); }, kw: '通知 推播' },
