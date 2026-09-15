@@ -278,16 +278,15 @@ var HP_INVITE_EVERY_DAYS = 7;
 async function maybeShowPushInvite(attempt) {
   attempt = attempt || 0;
   try { if (sessionStorage.getItem('isPreviewMode') === '1') return; } catch (e) {}
-  if (!hpPushSupported() || (hpPlatform() === 'ios' && !hpStandalone())) return;
+  // iPhone 用瀏覽器開：還不能開推播 → 改邀請先加入主畫面（同樣每週一次）
+  if (hpPlatform() === 'ios' && !hpStandalone()) { maybeShowA2hsInvite(attempt); return; }
+  if (!hpPushSupported()) return;
   if (Notification.permission === 'denied') return;
   var inv = (hnUserDoc && hnUserDoc.pushInvite) || {};
   var last = Date.parse(inv.lastAt || '') || 0;
   if (Date.now() - last < HP_INVITE_EVERY_DAYS * 86400000) return;
   if (await hpGetSubscription()) return;
-  var busy = document.getElementById('sysNoticeOverlay') ||
-    document.querySelector('.modal-overlay.active, .bottom-sheet.active, #resignedScreen, #htLayer.active, #hpModal.active') ||
-    document.getElementById('lineBindOverlay')?.style.display === 'flex';
-  if (busy) {
+  if (hpBusy()) {
     if (attempt < 10) setTimeout(function () { maybeShowPushInvite(attempt + 1); }, 2000);
     return;
   }
@@ -300,6 +299,34 @@ async function maybeShowPushInvite(attempt) {
       '<li>🔕 隨時可以從左上角 ☰ →「推播通知」關閉</li></ul>' +
     '<button class="hp-btn" id="hpEnableBtn" onclick="hpEnablePush()">開啟推播通知</button>' +
     '<p class="hp-note">按下後手機會詢問是否允許通知，請選「<b>允許</b>」。沒開的話，每週會再提醒一次。</p>');
+  var close = document.querySelector('#hpModal .hp-close');
+  if (close) close.textContent = '以後再說';
+}
+
+function hpBusy() {
+  return !!(document.getElementById('sysNoticeOverlay') ||
+    document.querySelector('.modal-overlay.active, .bottom-sheet.active, #resignedScreen, #htLayer.active, #hpModal.active') ||
+    document.getElementById('lineBindOverlay')?.style.display === 'flex');
+}
+
+// ===== 加入主畫面邀請（iPhone 用瀏覽器開的人，每週彈一次）=====
+// iPhone 要從主畫面打開才能收推播，所以這群人的「推播邀請」其實是先邀請加入主畫面。
+// 紀錄：users/{uid}.a2hsInvite.lastAt，滿 7 天才再彈；從主畫面打開後就改走推播邀請，不會再看到這張。
+async function maybeShowA2hsInvite(attempt) {
+  attempt = attempt || 0;
+  var inv = (hnUserDoc && hnUserDoc.a2hsInvite) || {};
+  var last = Date.parse(inv.lastAt || '') || 0;
+  if (Date.now() - last < HP_INVITE_EVERY_DAYS * 86400000) return;
+  if (hpBusy()) {
+    if (attempt < 10) setTimeout(function () { maybeShowA2hsInvite(attempt + 1); }, 2000);
+    return;
+  }
+  hnSaveUserField('a2hsInvite', { skips: (inv.skips || 0) + 1, lastAt: new Date().toISOString() });
+  openA2hsGuide();
+  document.getElementById('hpModalTitle').textContent = '📲 把莉學加到手機桌面';
+  document.getElementById('hpModalLead').textContent = '加入後像 App 一樣從桌面打開，還能開啟推播通知、在圖示上看到待處理件數。已經加過的話，之後請改從桌面的圖示打開。';
+  var body = document.getElementById('hpModalBody');
+  if (body) body.insertAdjacentHTML('beforeend', '<p class="hp-note">還沒加的話，每週會再提醒一次。</p>');
   var close = document.querySelector('#hpModal .hp-close');
   if (close) close.textContent = '以後再說';
 }
