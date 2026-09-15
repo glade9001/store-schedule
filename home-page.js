@@ -1177,6 +1177,7 @@ async function initApp() {
   document.getElementById('pendingCard').style.display = 'block';
 
   initHomeNav(); // 常用功能 3＋3 與 ☰（home-nav.js）；讀回設定後視情況自動跳新版教學
+  initHomePush(); // 主畫面開啟紀錄、加入主畫面膠囊、推播訂閱同步（home-push.js）
   checkSalaryAck(); // 背景檢查薪資待簽收，完成後顯示橫幅
   checkPnlPending(); // 背景檢查經營績效待輸入
   checkHireDateGate(); // 店長：補齊缺到職日的員工（強制）
@@ -2233,6 +2234,7 @@ async function loadPendingItems() {
 
   const menuDot = document.getElementById('headerMenuDot'); // ☰ 紅點：抽屜最上面會列出待處理件數
   if(menuDot) menuDot.hidden = pending.length === 0;
+  if(typeof hpSetBadge === 'function') hpSetBadge(pending.length); // App 圖示紅點＝待處理件數
 
   if(badge) {
     if(pending.length > 0) {

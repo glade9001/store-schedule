@@ -7,7 +7,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="莉學商行">
-<link rel="apple-touch-icon" href="icon-192.svg">
+<link rel="apple-touch-icon" href="icon-180.png">
 <meta name="theme-color" content="#0e2140">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>莉學商行管理系統</title>
@@ -233,6 +233,15 @@
           <span class="dot d-gray"></span><span class="hpill-t" id="attnAnomText"></span><span class="hpill-n" id="attnAnomUnread"></span>
           <button class="hpill-x" id="attnAnomX" aria-label="標為已讀">×</button>
         </div>
+        <!-- 手機＋從瀏覽器開才顯示（home-push.js）；推播膠囊只在這台裝置能收、還沒開啟時顯示 -->
+        <div id="a2hsPill" class="hpill" style="display:none;" onclick="openA2hsGuide()">
+          <span class="hpill-ic">📲</span><span class="hpill-t">加入主畫面</span>
+          <button class="hpill-x" onclick="event.stopPropagation(); hideA2hsPill();" aria-label="隱藏 7 天">×</button>
+        </div>
+        <div id="pushPill" class="hpill" style="display:none;" onclick="openPushSettings()">
+          <span class="hpill-ic">🔔</span><span class="hpill-t">開啟推播通知</span>
+          <button class="hpill-x" onclick="event.stopPropagation(); hidePushPill();" aria-label="隱藏 7 天">×</button>
+        </div>
         <div id="lineBindHome" class="hpill" style="display:none;" onclick="openLineBindModal()">
           <span class="dot d-green"></span><span class="hpill-t">綁定 LINE 通知</span>
         </div>
@@ -449,5 +458,6 @@
 <script src="home-page.js"></script>
 <script src="home-nav.js"></script>
 <script src="home-tour.js"></script>
+<script src="home-push.js"></script>
 </body>
 </html>

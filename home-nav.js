@@ -51,6 +51,8 @@ var HOME_FEATURES = [
   { id: 'wds',     group: 'store', icon: '💬', label: '大智通小智', sub: '外部網站',       href: 'https://www.wds.com.tw/webchat/?action=dispatch2&bb=2&openExternalBrowser=1' },
   // ── 帳號與系統 ──
   { id: 'account',   group: 'sys', icon: '👤', label: '帳號管理',     sub: '修改密碼、個人資料',         go: 'employee-mgmt.html?mode=self', kw: '密碼' },
+  { id: 'push',      group: 'sys', icon: '📣', label: '推播通知',     sub: '開啟、測試、關閉這台手機的推播', run: function () { openPushSettings(); }, kw: '通知 推播' },
+  { id: 'a2hs',      group: 'sys', icon: '📲', label: '加入主畫面',   sub: '像 App 一樣從手機桌面打開',   run: function () { openA2hsGuide(); }, show: function () { return !hpStandalone(); }, kw: '安裝 桌面 App' },
   { id: 'lineBind',  group: 'sys', icon: '🔔', label: 'LINE 通知綁定', sub: '綁定後可收薪資等主動通知', run: function () { openLineBindModal(); } },
   { id: 'settings',  group: 'sys', icon: '🔧', label: '系統設定',     sub: '班別、工時、投保級距、更新日誌', go: 'settings.html', show: hnIsLead, kw: '設定 更新日誌' },
   { id: 'changelog', group: 'sys', icon: '📋', label: '更新日誌',     sub: '系統功能更新紀錄',           go: 'settings.html', show: function () { return !hnIsLead(); } },

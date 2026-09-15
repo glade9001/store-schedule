@@ -67,6 +67,13 @@ service cloud.firestore {
       allow read, write: if cityColl in ['cityPending', 'cityIgnored', 'cityDeclined', 'cityImages', 'cityMeta'] && isCityAdmin();
     }
 
+    // ── pushSubs：PWA 推播訂閱（2026-09-15）──────────────
+    // 寫入一律經 Cloud Functions（pushSubscribe／pushUnsubscribe，Admin SDK 略過規則），前端不直接寫；
+    // 只開放 admin 讀，給設定頁統計「誰開了推播」。catch-all 已排除此集合（見下方說明）。
+    match /pushSubs/{id} {
+      allow read: if isCityAdmin();
+    }
+
     // ── 其他所有集合：登入即可讀寫 ───────────────────────
     // 涵蓋 settings, stores(含 weeks/salary/employees/attendance/attendanceRequests…),
     //      leaves/comp/leaveBatches/leaveLog/annualUsage/compUsage, lineBindings…
@@ -77,12 +84,12 @@ service cloud.firestore {
     //    讓 catch-all「配不到」那個集合 —— 故改成綁第一段集合名 {coll} 後排除。
     //    其餘集合的行為與原本完全相同。
     match /{coll}/{docPath=**} {
-      allow read: if request.auth != null && coll != 'inspectionSheets' && !coll.matches('city[A-Z].*');
-      allow update, delete: if request.auth != null && coll != 'inspectionSheets' && !coll.matches('city[A-Z].*');
+      allow read: if request.auth != null && coll != 'inspectionSheets' && coll != 'pushSubs' && !coll.matches('city[A-Z].*');
+      allow update, delete: if request.auth != null && coll != 'inspectionSheets' && coll != 'pushSubs' && !coll.matches('city[A-Z].*');
       // 打卡防偽：source=="app" 的打卡「只能」由 clockPunch callable(Admin SDK 略過規則)建立；
       //          客戶端不可直接寫入假打卡。管理者補登(source=manual)、缺卡(source=system)、其他無 source 的建立照常。
       // ⚠️ 必須用 .get('source','')：直接存取不存在的欄位會讓規則報錯而「拒絕」→ 會擋掉所有沒有 source 欄位的建立(薪資簽收/劃休/綁定…)
-      allow create: if request.auth != null && coll != 'inspectionSheets' && !coll.matches('city[A-Z].*')
+      allow create: if request.auth != null && coll != 'inspectionSheets' && coll != 'pushSubs' && !coll.matches('city[A-Z].*')
                     && request.resource.data.get('source', '') != 'app';
     }
   }

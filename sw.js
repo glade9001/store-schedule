@@ -7,6 +7,7 @@ const CACHE_NAME = 'lixue-static-v13';
 const STATIC_ASSETS = [
   'icon-192.svg',
   'icon-512.svg',
+  'icon-192.png',   // 推播通知圖示；離線時也要有
   'manifest.json',
   'firebase-init.js',
   'auth.js',
@@ -106,6 +107,41 @@ self.addEventListener('fetch', event => {
         }
         return response;
       });
+    })
+  );
+});
+
+// ===== PWA 推播（2026-09-15，標準 Web Push；送出端見 functions/index.js sendPushToUids）=====
+// payload：{ title, body, url, tag, badge }；badge 是數字時同步 App 圖示紅點
+self.addEventListener('push', event => {
+  let d = {};
+  try { d = event.data ? event.data.json() : {}; } catch(e) { d = { body: event.data ? event.data.text() : '' }; }
+  const jobs = [
+    self.registration.showNotification(d.title || '莉學商行', {
+      body: d.body || '',
+      icon: 'icon-192.png',   // 不設 badge：Android 狀態列小圖示要單色透明圖，彩色方圖會變成白方塊
+      tag: d.tag || undefined,
+      data: { url: d.url || 'home.html' },
+    }),
+  ];
+  if(typeof d.badge === 'number' && self.navigator && 'setAppBadge' in self.navigator) {
+    jobs.push((d.badge > 0 ? self.navigator.setAppBadge(d.badge) : self.navigator.clearAppBadge()).catch(() => {}));
+  }
+  event.waitUntil(Promise.all(jobs));
+});
+
+// 點通知：已經開著的視窗就切過去並導到指定頁，沒有就開新視窗
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const target = new URL((event.notification.data && event.notification.data.url) || 'home.html', self.registration.scope).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+      for(const c of list) {
+        if(c.url.startsWith(self.registration.scope) && 'focus' in c) {
+          return c.focus().then(w => (w && 'navigate' in w && w.url !== target) ? w.navigate(target) : w);
+        }
+      }
+      return self.clients.openWindow(target);
     })
   );
 });

@@ -2328,3 +2328,93 @@ exports.scheduledUpdateNoticeLine = onSchedule(
     console.log(`[updateNoticeLine] 已發 ${sent}、失敗 ${failed}、略過 ${skipped}`);
   }
 );
+
+// ============ PWA 推播（標準 Web Push，2026-09-15）============
+// 為什麼不用 FCM：FCM 的 Web 推播金鑰要到 Firebase 主控台手動產生；標準 Web Push 用自己的 VAPID 金鑰，
+// iOS 16.4+（需加入主畫面）與 Android Chrome 都支援，全程不必碰主控台。
+// 私鑰在 Secret Manager（WEB_PUSH_VAPID_PRIVATE），公鑰寫死在這裡與前端 home-push.js（兩處必須一致）。
+//
+// 訂閱存 pushSubs/{uid}_{endpoint 雜湊}：一人可有多台裝置，也可能 github.io 與 web.app 各訂一份（origin 欄位可查）。
+// 前端不直接讀寫 pushSubs（firestore.rules 已把它排除在 catch-all 外），一律經由下面三支 callable。
+// 目前只提供「測試推播」；要推哪些通知之後再決定，屆時呼叫 sendPushToUids()。
+const webpush = require("web-push");   // crypto 已在上方 require
+const VAPID_PRIVATE = defineSecret("WEB_PUSH_VAPID_PRIVATE");
+const VAPID_PUBLIC = "BGhmoFm3LcXdHVJf0Abc6b5WtJzx25nktsKM01MQ7zUf6otCr6kOaTnGVQ0qUbGtuQf5W15muw55rRcfzZZi3cA";
+const VAPID_SUBJECT = "https://store-schedule-3b056.web.app";
+
+function pushSubId(uid, endpoint) {
+  return `${uid}_${crypto.createHash("sha256").update(String(endpoint)).digest("hex").slice(0, 32)}`;
+}
+
+// 送給指定 uid 的所有裝置；推播服務回 404/410＝訂閱已失效（解除安裝、清除網站資料）→ 順手刪掉
+async function sendPushToUids(db, uids, payload, privateKey) {
+  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC, privateKey);
+  const body = JSON.stringify(payload);
+  let sent = 0, failed = 0, removed = 0;
+  for (const uid of [...new Set(uids)].filter(Boolean)) {
+    const subs = await db.collection("pushSubs").where("uid", "==", uid).get();
+    for (const d of subs.docs) {
+      const s = d.data();
+      try {
+        await webpush.sendNotification({ endpoint: s.endpoint, keys: s.keys }, body, { TTL: 3600 });
+        sent++;
+        await d.ref.update({ lastPushAt: admin.firestore.FieldValue.serverTimestamp() }).catch(() => {});
+      } catch (e) {
+        if (e.statusCode === 404 || e.statusCode === 410) { await d.ref.delete().catch(() => {}); removed++; }
+        else { failed++; console.warn("[push] 送出失敗", uid, e.statusCode, e.body || e.message); }
+      }
+    }
+  }
+  return { sent, failed, removed };
+}
+
+exports.pushSubscribe = onCall({ region: "asia-east1" }, async (request) => {
+  const auth = request.auth;
+  if (!auth) throw new HttpsError("unauthenticated", "請先登入");
+  const { subscription, platform, standalone, origin } = request.data || {};
+  const endpoint = subscription && subscription.endpoint;
+  const keys = (subscription && subscription.keys) || {};
+  if (typeof endpoint !== "string" || !/^https:\/\/[^\s]{10,900}$/.test(endpoint)
+      || typeof keys.p256dh !== "string" || typeof keys.auth !== "string"
+      || keys.p256dh.length > 200 || keys.auth.length > 100) {
+    throw new HttpsError("invalid-argument", "訂閱資料格式不正確");
+  }
+  const db = admin.firestore();
+  const u = (await db.collection("users").doc(auth.uid).get()).data() || {};
+  const ref = db.collection("pushSubs").doc(pushSubId(auth.uid, endpoint));
+  const cur = await ref.get();
+  await ref.set({
+    uid: auth.uid, empName: u.empName || "", displayName: u.displayName || "", store: u.store || "", permission: u.permission || "",
+    endpoint, keys: { p256dh: keys.p256dh, auth: keys.auth },
+    platform: String(platform || "").slice(0, 20), standalone: !!standalone, origin: String(origin || "").slice(0, 80),
+    lastSeenAt: admin.firestore.FieldValue.serverTimestamp(),
+    ...(cur.exists ? {} : { createdAt: admin.firestore.FieldValue.serverTimestamp() }),
+  }, { merge: true });
+  return { ok: true };
+});
+
+exports.pushUnsubscribe = onCall({ region: "asia-east1" }, async (request) => {
+  const auth = request.auth;
+  if (!auth) throw new HttpsError("unauthenticated", "請先登入");
+  const endpoint = request.data && request.data.endpoint;
+  if (typeof endpoint !== "string") throw new HttpsError("invalid-argument", "缺少 endpoint");
+  await admin.firestore().collection("pushSubs").doc(pushSubId(auth.uid, endpoint)).delete();
+  return { ok: true };
+});
+
+exports.sendTestPush = onCall({ region: "asia-east1", secrets: [VAPID_PRIVATE] }, async (request) => {
+  const auth = request.auth;
+  if (!auth) throw new HttpsError("unauthenticated", "請先登入");
+  const db = admin.firestore();
+  const u = (await db.collection("users").doc(auth.uid).get()).data() || {};
+  const name = u.displayName || u.empName || "";
+  const now = new Date(Date.now() + 8 * 3600000).toISOString().slice(11, 16);
+  const r = await sendPushToUids(db, [auth.uid], {
+    title: "🔔 測試推播",
+    body: `${name}，收到這則代表推播正常 ✅（${now}）`,
+    url: "home.html",
+    tag: "test-push",
+  }, VAPID_PRIVATE.value());
+  if (!r.sent && !r.failed) throw new HttpsError("failed-precondition", "這個帳號還沒有任何裝置開啟推播");
+  return r;
+});

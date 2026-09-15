@@ -52,13 +52,13 @@ window.onload = async () => {
   // 依權限顯示區塊
   const showEl=(id,ok)=>{const el=document.getElementById(id);if(el)el.style.display=ok?'block':'none';};
   // 各設定項依權限顯示（分類分組）
-  showEl('itemClock', canAdmin()); showEl('itemStoreMgmt', canAdmin()); showEl('itemCity', canAdmin()); showEl('itemMaint', canAdmin()); showEl('itemLineKw', canAdmin()); showEl('itemNotice', canAdmin()); showEl('itemTour', canAdmin());
+  showEl('itemClock', canAdmin()); showEl('itemStoreMgmt', canAdmin()); showEl('itemCity', canAdmin()); showEl('itemMaint', canAdmin()); showEl('itemLineKw', canAdmin()); showEl('itemNotice', canAdmin()); showEl('itemTour', canAdmin()); showEl('itemAppUsage', canAdmin());
   showEl('itemShift', canManager());
   showEl('itemInsurance', canOwner()); showEl('itemHoliday', canOwner());
   showEl('itemChangelog', true);
-  if(canAdmin()){ loadLineKeywords(); loadMaintenanceState(); loadClockConfig(); loadCitySummary(); loadNoticeStats(); loadTourStats(); }
+  if(canAdmin()){ loadLineKeywords(); loadMaintenanceState(); loadClockConfig(); loadCitySummary(); loadNoticeStats(); loadTourStats(); loadAppUsageStats(); }
   // 群組標題：該類任一項可見才顯示整組
-  [['grpOps',['itemClock','itemShift','itemStoreMgmt','itemCity']],['grpPayLaw',['itemInsurance','itemHoliday']],['grpSystem',['itemMaint','itemLineKw','itemNotice','itemTour','itemChangelog']]]
+  [['grpOps',['itemClock','itemShift','itemStoreMgmt','itemCity']],['grpPayLaw',['itemInsurance','itemHoliday']],['grpSystem',['itemMaint','itemLineKw','itemNotice','itemAppUsage','itemTour','itemChangelog']]]
     .forEach(([g,items])=>{ const any=items.some(id=>{const el=document.getElementById(id);return el&&el.style.display!=='none';}); showEl(g,any); });
 
   hideLoading();
@@ -169,6 +169,58 @@ async function loadNoticeStats() {
     box.textContent = '讀取失敗：' + e.message;
   }
 }
+// ===== 主畫面與推播使用狀況（users/{uid}.appUsage 由 home-push.js 記錄；pushSubs 由 Cloud Function 寫入、規則只給 admin 讀）=====
+// 「主畫面」＝近 30 天內至少一次從主畫面圖示開首頁；紀錄從 2026-09-15 起才有，之前沒開過首頁的人會顯示「還沒有紀錄」
+async function loadAppUsageStats() {
+  const box = document.getElementById('appUsageStats');
+  if(!box) return;
+  try {
+    const today = new Date(Date.now() + 8*3600000).toISOString().slice(0,10);
+    const roster = [];
+    for(const st of (appConfig.stores || [])) {
+      const es = await window.db.collection('stores').doc(st).collection('employees').get().catch(() => null);
+      if(es) es.forEach(d => {
+        const e = d.data() || {};
+        if(e.status === '調走') return;
+        if(e.status === '離職' && (!e.retireDate || today >= e.retireDate)) return;
+        roster.push({ name: d.id, store: st, disp: e.displayName || d.id });
+      });
+    }
+    const [us, ps] = await Promise.all([window.db.collection('users').get(), window.db.collection('pushSubs').get()]);
+    const usageBy = new Map(); const uidBy = new Map();
+    us.forEach(d => { const u = d.data() || {}; if(u.empName) { usageBy.set(u.empName, u.appUsage || null); uidBy.set(u.empName, d.id); } });
+    const pushCount = {}; const origins = {};
+    ps.forEach(d => { const p = d.data() || {}; pushCount[p.uid] = (pushCount[p.uid] || 0) + 1; origins[p.origin || '?'] = (origins[p.origin || '?'] || 0) + 1; });
+    const ms = (ts) => ts && ts.toMillis ? ts.toMillis() : 0;
+    const d30 = Date.now() - 30 * 86400000;
+    const g = { home: [], browser: [], none: [] };
+    let pushOn = 0;
+    roster.forEach(r => {
+      const a = usageBy.get(r.name);
+      const push = pushCount[uidBy.get(r.name)] || 0;
+      if(push) pushOn++;
+      const tag = `${_esc(r.disp)}${push ? '🔔' : ''}${a && a.platform ? `<span style="color:var(--text-muted);">(${a.platform === 'ios' ? 'iPhone' : a.platform === 'android' ? 'Android' : '電腦'})</span>` : ''}`;
+      if(a && ms(a.lastStandaloneAt) > d30) g.home.push({ ...r, tag });
+      else if(a && ms(a.lastBrowserAt)) g.browser.push({ ...r, tag });
+      else g.none.push({ ...r, tag });
+    });
+    const byStore = (list) => {
+      const m = {}; list.forEach(r => (m[r.store] ||= []).push(r.tag));
+      return Object.entries(m).map(([st, ns]) => `<br><b style="color:var(--text);">${_esc(st)}</b>　${ns.join('、')}`).join('');
+    };
+    box.innerHTML = `<div style="border:1.5px solid var(--border);border-radius:12px;padding:10px 12px;line-height:1.7;">
+      <div>從主畫面開：<b style="font-size:18px;color:var(--primary);">${g.home.length}</b>　只用瀏覽器：<b>${g.browser.length}</b>　還沒有紀錄：<b>${g.none.length}</b>　／ 在職 ${roster.length} 人</div>
+      <div>開啟推播：<b style="font-size:18px;color:var(--primary);">${pushOn}</b> 人（共 ${ps.size} 台裝置${ps.size ? '；' + Object.entries(origins).map(([o, n]) => `${_esc(o)} ${n}`).join('、') : ''}）</div>
+      ${g.home.length ? `<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">主畫面：${byStore(g.home)}</div>` : ''}
+      ${g.browser.length ? `<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">只用瀏覽器：${byStore(g.browser)}</div>` : ''}
+      ${g.none.length ? `<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">還沒有紀錄：${byStore(g.none)}</div>` : ''}
+      <div style="font-size:11.5px;color:var(--text-muted);margin-top:4px;">🔔＝已開推播。紀錄從 2026-09-15 起，員工打開新版首頁後才會出現。</div>
+    </div>`;
+  } catch(e) {
+    box.textContent = '讀取失敗：' + e.message;
+  }
+}
+
 // ===== 新版首頁教學完成率（users/{uid}.homeTour，見 home-tour.js）=====
 // 應看名單與公告已讀統計相同：各店 employees「在職」者，以 empName 對 users.empName
 var TOUR_VERSION_FOR_STATS = 'home-2026-09';   // 與 home-tour.js 的 HOME_TOUR_VERSION 同值
