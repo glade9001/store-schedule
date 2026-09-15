@@ -226,47 +226,40 @@ async function updateHomeAttnAlert(){
   const period=(data.from&&data.from>d7Str)
     ? `自 ${+data.from.slice(5,7)}/${+data.from.slice(8,10)} 起`
     : '近 7 天';
-  const rows=[];
+  // 2026-09-15 首頁改版：員工本人的缺卡維持醒目卡片（影響薪資、要本人補登才會消失，首頁唯一的紅色卡）；
+  // 店長的「門市缺卡（待辦）」與「遲到早退（知悉）」縮成提醒膠囊，看得到就夠，點進出勤管理再看細節。
   if(data.mine>0){
-    rows.push(`<div onclick="window.location.href='my-attendance.html'" style="display:flex;align-items:center;gap:12px;padding:13px 15px;background:linear-gradient(135deg,#ea4335,#c5221f);border-radius:14px;cursor:pointer;box-shadow:0 3px 14px rgba(234,67,53,.35);">
-      <div style="font-size:26px;line-height:1;">🔴</div>
-      <div style="flex:1;">
-        <div style="font-size:15.5px;font-weight:900;color:#fff;">你有 ${data.mine} 筆缺卡未補登</div>
-        <div style="font-size:12px;color:rgba(255,255,255,.92);margin-top:2px;">${period}・影響工時與薪資，請盡快補登 →</div>
-      </div>
-    </div>`);
+    box.innerHTML=`<div class="attn-mine" onclick="window.location.href='my-attendance.html'" role="button" tabindex="0">
+      <span class="attn-mine-ic">⚠️</span>
+      <span class="attn-mine-t"><b>你有 ${data.mine} 筆缺卡未補登</b><span>${period}・影響工時與薪資，點此補登</span></span>
+      <span class="attn-mine-go">›</span>
+    </div>`;
+    box.style.display='';
+  } else { box.style.display='none'; box.innerHTML=''; }
+
+  const missPill=document.getElementById('attnMissPill');
+  if(missPill){
+    if(isLead && data.stMiss>0){
+      document.getElementById('attnMissText').textContent=`${store} 缺卡 ${data.stMiss}・${period}`;
+      missPill.style.display='flex';
+    } else missPill.style.display='none';
   }
-  // 缺卡＝待辦：影響工時與薪資，店長去催補登、補完就消失，有明確的完成狀態 → 維持醒目橘卡
-  if(isLead && data.stMiss>0){
-    rows.push(`<div onclick="window.location.href='attendance.html'" style="display:flex;align-items:center;gap:12px;padding:13px 15px;background:#fff7ed;border:1.5px solid #fed7aa;border-radius:14px;cursor:pointer;${data.mine>0?'margin-top:8px;':''}">
-      <div style="font-size:24px;line-height:1;">📋</div>
-      <div style="flex:1;">
-        <div style="font-size:14.5px;font-weight:900;color:#c2410c;">${store} ${period} ${data.stMiss} 筆缺卡</div>
-        <div style="font-size:12px;color:#9a3412;margin-top:2px;">請提醒員工補打卡 →</div>
-      </div>
-    </div>`);
-  }
-  // 遲到／早退＝知悉：既成事實，店長做什麼都不會讓它消失，跟待辦混在同一行紅字只會稀釋訊號。
-  // 但整個拿掉又會讓店長要等到週一彙整才知道（週二發生的事週一才看到太遲），所以改成
-  // 灰色知悉列＋LINE 式未讀數：浮水印記「最後看到哪個時間點」，比它新的才算未讀。
-  // 浮水印先放 localStorage——零後端改動、零 Firestore 成本、不必動 rules；代價是換裝置會重新變未讀。
-  if(isLead && data.stAnom>0){
-    const seen=await attnSeenWatermark(store);
-    const unread=(data.anomTs||[]).filter(t=>t>seen).length;
-    if(unread>0){
-      rows.push(`<div onclick="markAttnSeen('${store}');window.location.href='attendance.html'" style="display:flex;align-items:center;gap:10px;padding:11px 14px;background:var(--bg-soft,#f8fafc);border:1px solid #e2e8f0;border-radius:14px;cursor:pointer;margin-top:8px;">
-        <div style="position:relative;font-size:20px;line-height:1;">👀<span style="position:absolute;top:-4px;right:-7px;min-width:16px;height:16px;padding:0 4px;background:#ef4444;color:#fff;border-radius:8px;font-size:10px;font-weight:900;line-height:16px;text-align:center;">${unread}</span></div>
-        <div style="flex:1;">
-          <div style="font-size:13.5px;font-weight:800;color:#475569;">${store} ${period} ${data.stAnom} 筆遲到／早退</div>
-          <div style="font-size:11.5px;color:#94a3b8;margin-top:1px;">知悉用，不需處理 →</div>
-        </div>
-        <button onclick="event.stopPropagation();markAttnSeen('${store}',true);" title="標為已讀" style="background:none;border:none;color:#94a3b8;font-size:17px;font-weight:900;cursor:pointer;padding:2px 6px;line-height:1;">✕</button>
-      </div>`);
+  // 遲到／早退＝知悉：LINE 式未讀數，浮水印記「最後看到哪個時間點」，比它新的才算未讀（見 attnSeenWatermark）
+  const anomPill=document.getElementById('attnAnomPill');
+  if(anomPill){
+    let unread=0;
+    if(isLead && data.stAnom>0){
+      const seen=await attnSeenWatermark(store);
+      unread=(data.anomTs||[]).filter(t=>t>seen).length;
     }
+    if(unread>0){
+      document.getElementById('attnAnomText').textContent=`${store} 遲到早退 ${data.stAnom}・${period}`;
+      document.getElementById('attnAnomUnread').textContent=unread;
+      anomPill.onclick=()=>{ markAttnSeen(store); window.location.href='attendance.html'; };
+      document.getElementById('attnAnomX').onclick=(e)=>{ e.stopPropagation(); markAttnSeen(store,true); };
+      anomPill.style.display='flex';
+    } else anomPill.style.display='none';
   }
-  if(!rows.length){ box.style.display='none'; box.innerHTML=''; return; }
-  box.innerHTML=rows.join('');
-  box.style.display='';
 }
 
 // ===== 出勤知悉列的已讀浮水印（2026-08-28 改為跨裝置同步）=====

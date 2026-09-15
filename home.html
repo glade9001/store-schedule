@@ -202,12 +202,20 @@
         </div>
       </div>
 
-      <!-- 缺卡／出勤異常提醒：近 7 天，資料由 updateHomeAttnAlert() 填入（沒事就整塊隱藏） -->
+      <!-- 員工本人缺卡未補登：近 7 天，由 updateHomeAttnAlert() 填入（沒事就整塊隱藏）；店長的門市缺卡／遲到早退在下方膠囊 -->
       <div id="homeAttnAlert" style="display:none; margin-bottom:12px;"></div>
 
       <!-- 提醒膠囊：原本 6 條橫幅合成一排。各自的顯示邏輯不變（JS 仍以 style.display='flex' 開關同一批 id）。
            下週班表已發布：取代 2026-09-02 砍掉的「班表已發布」LINE 推播，由 subscribeNextWeekPublish() 即時開關，關掉後記在 localStorage。 -->
       <div class="pill-row" id="homePills">
+        <!-- 店長以上：門市缺卡（待辦）、遲到早退（知悉＋未讀數），由 updateHomeAttnAlert() 開關 -->
+        <div id="attnMissPill" class="hpill" style="display:none;" onclick="window.location.href='attendance.html'">
+          <span class="dot d-org"></span><span class="hpill-t" id="attnMissText"></span>
+        </div>
+        <div id="attnAnomPill" class="hpill" style="display:none;">
+          <span class="dot d-gray"></span><span class="hpill-t" id="attnAnomText"></span><span class="hpill-n" id="attnAnomUnread"></span>
+          <button class="hpill-x" id="attnAnomX" aria-label="標為已讀">×</button>
+        </div>
         <div id="pendingBadgeBar" class="hpill" style="display:none;" onclick="document.getElementById('pendingCard').scrollIntoView({behavior:'smooth'})">
           <span class="dot d-red"></span><span class="hpill-t">待處理 <b id="pendingBadgeCount">0</b></span>
         </div>
