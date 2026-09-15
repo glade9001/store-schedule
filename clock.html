@@ -80,21 +80,6 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
     <button onclick="otCancel()" style="width:100%;padding:9px;background:none;color:#94a3b8;border:none;font-size:13px;font-weight:700;cursor:pointer;">取消打卡</button>
   </div>
 </div>
-<div id="forgotModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9500;align-items:center;justify-content:center;padding:18px;">
-  <div style="background:#fff;border-radius:16px;max-width:400px;width:100%;padding:20px;">
-    <div style="font-size:17px;font-weight:900;margin-bottom:8px;">🕐 你比班別開始時間晚了</div>
-    <div id="fgMsg" style="font-size:13px;color:#475569;line-height:1.7;margin-bottom:12px;"></div>
-    <div style="font-size:13px;color:#475569;line-height:1.7;margin-bottom:12px;">是不是<b>準時上班、只是忘了打卡</b>？<br>若是，請填你<b>實際上班時間</b>，系統會照常記下這次打卡（含定位），並把你填的時間<b>送店長核對更正</b>。</div>
-    <div id="fgRow" style="display:none;margin-bottom:12px;">
-      <label style="display:block;font-size:12px;font-weight:700;margin-bottom:5px;">實際上班時間</label>
-      <input type="time" id="fgTime" style="width:100%;padding:10px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:15px;">
-      <div style="font-size:11px;color:#94a3b8;margin-top:6px;line-height:1.5;">送出後由<b>店長核對</b>，同意才更正時間；原打卡時間會保留備查。</div>
-    </div>
-    <button id="fgYesBtn" onclick="fgChooseForgot()" style="width:100%;padding:12px;background:var(--primary);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;cursor:pointer;margin-bottom:8px;">是，我忘了打卡（填實際時間）</button>
-    <button onclick="fgChooseLate()" style="width:100%;padding:11px;background:#f1f5f9;color:#334155;border:none;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;margin-bottom:8px;">否，照常打卡</button>
-    <button onclick="fgCancel()" style="width:100%;padding:9px;background:none;color:#94a3b8;border:none;font-size:13px;font-weight:700;cursor:pointer;">取消打卡</button>
-  </div>
-</div>
 <div id="reqModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9500;align-items:center;justify-content:center;padding:18px;">
   <div style="background:#fff;border-radius:16px;max-width:400px;width:100%;padding:20px;max-height:90vh;overflow:auto;">
     <div style="font-size:17px;font-weight:900;margin-bottom:6px;">📝 補登／修改打卡申請</div>

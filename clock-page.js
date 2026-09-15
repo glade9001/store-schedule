@@ -462,7 +462,6 @@ function render(){
     <div style="font-size:11.5px;font-weight:800;color:var(--text-muted);margin-bottom:5px;">💡 忘記打卡怎麼辦</div>
     <ul style="margin:0;padding-left:17px;font-size:11px;color:var(--text-muted);line-height:1.85;">
       <li><b>還在店裡</b>：先照常打卡（留下定位），時間要改再送修改申請</li>
-      <li><b>晚按 10 分鐘內</b>：系統會主動問你，填實際上班時間即可</li>
       <li><b>已離店／要補別天</b>：按上方「📝 補登／修改」</li>
       <li><b>昨天忘打下班</b>：今天照常打上班卡，再補登昨天那筆</li>
       <li>一律由<b>店長審核</b>，有開推播的話結果會推播通知你</li>
@@ -535,32 +534,9 @@ function otChoosePrivate(){ _otDone({intent:'private', content: _otReason==='lat
 function otCancel(){ _otDone(null); }
 function _otDone(v){ document.getElementById('otModal').style.display='none'; const r=_otResolve; _otResolve=null; if(r) r(v); }
 
-// B1 忘記打卡一鍵（遲到上班 → 問是否忘打卡，員工自填實際時間，送店長核對）
-let _fgResolve=null;
-function forgotPrompt(lateMin, schedTime){
-  return new Promise(resolve=>{
-    _fgResolve=resolve;
-    document.getElementById('fgMsg').textContent=`目前已超過班別開始時間（${schedTime}）約 ${lateMin} 分鐘。`;
-    // ⚠️ 刻意不預填排班開始時間（2026-08-28 改）：原本 value=排定上班時間，等於把「我準時到」
-    //    設成一鍵可送出的預設答案。8 月 22 筆自動申請中有 14 筆申報時間正好等於排班開始時間，
-    //    合計把 69 分鐘的遲到抹平，且 22/22 全數核准——店長根本無從查證。
-    //    出勤時間是勞基法 §30 要求逐日據實記載的法定紀錄，要改就必須是員工自己刻意填入的值。
-    document.getElementById('fgTime').value='';
-    document.getElementById('fgRow').style.display='none';
-    document.getElementById('fgYesBtn').textContent='是，我忘了打卡（填實際時間）';
-    document.getElementById('forgotModal').style.display='flex';
-  });
-}
-function fgChooseForgot(){
-  const row=document.getElementById('fgRow');
-  if(row.style.display==='none'){ row.style.display='block'; document.getElementById('fgYesBtn').textContent='送出核對'; document.getElementById('fgTime').focus(); return; }
-  const t=document.getElementById('fgTime').value;
-  if(!t){ toast('請填實際上班時間'); return; }
-  _fgDone({forgot:true, time:t});
-}
-function fgChooseLate(){ _fgDone({forgot:false}); }
-function fgCancel(){ _fgDone(null); }
-function _fgDone(v){ document.getElementById('forgotModal').style.display='none'; const r=_fgResolve; _fgResolve=null; if(r) r(v); }
+// ✂️ B1「遲到 10 分鐘內問是否忘記打卡」已移除（2026-09-15 使用者決定）：
+//    8/1～9/15 共 29 筆經此送出的更正申請 100% 核准、申報時間多比實際打卡早 3～7 分鐘，
+//    遲到者約三分之一用它把遲到抹掉，實質變成「消遲到」按鈕。真的忘記打卡請走「📝 補登／修改」。
 
 async function doPunch(type){
   if(!atStore){ toast('不在門市範圍內'); return; }
@@ -592,24 +568,6 @@ async function doPunch(type){
     if(choice===null) return; // 取消
     otIntent=choice.intent; otContent=choice.content||'';
   }
-  // B1 遲到上班 → 問是否忘記打卡（照常記真實打卡，另送實際時間給店長核對）
-  let forgotClaim=null;
-  if(!os.off && type==='上班'){
-    const nm=serverNowMs();
-    const s=matchPunchShift(candShifts, nm, '上班'); // 視窗與遲到採計都走 shift-utils.js
-    if(s){
-      const lateMin=lateMinutesOf(nm, s.startMs), ci=appConfig.clockIn||{};
-      const tol=(ci.tolByStore&&ci.tolByStore[atStore]!=null)?ci.tolByStore[atStore]:(ci.lateToleranceMin!=null?ci.lateToleranceMin:10);
-      // 只在「遲到但容許值內(警告區)」提示忘打卡；超過容許值＝真遲到，不遞台階，只能手動補登
-      if(lateMin>0 && lateMin<=tol){
-        hideLoading();
-        const schedT=new Date(s.startMs).toLocaleTimeString('zh-TW',{hour12:false,hour:'2-digit',minute:'2-digit'});
-        const fc=await forgotPrompt(lateMin, schedT);
-        if(fc===null) return; // 取消
-        if(fc.forgot) forgotClaim=fc.time;
-      }
-    }
-  }
   showLoading('打卡中…');
   // 🌟 交由後端 callable 權威判定（伺服器時間＋複驗圍欄＋狀態），前端只送座標
   try{
@@ -623,21 +581,7 @@ async function doPunch(type){
       : r.status==='警告'?`${type}打卡成功（遲到 ${r.lateMin} 分，容許內）`
       : `✅ ${type}打卡成功`;
     const otTail = otIntent==='apply'?'\n📝 已送出加班申請，待店長審核（同意才計工時）':otIntent==='private'?'\n🅿️ 已記為不計工時（非加班）':'';
-    let fgTail='';
-    // 申報時間跟實際打卡時間一樣＝沒有要更正什麼，不必送出去佔店長的審核佇列
-    // （8 月 22 筆自動申請裡有 7 筆是這種空轉）
-    if(forgotClaim && forgotClaim===(r.hm||'')){ forgotClaim=null; fgTail='\n（申報時間與實際打卡相同，未送出核對）'; }
-    if(forgotClaim){
-      try{
-        await window.db.collection('stores').doc(atStore).collection('attendanceRequests').add({
-          empName:currentUser.empName, displayName:currentUser.displayName||currentUser.empName,
-          homeStore:currentUser.store||'', atStore, type:'補登/修改', targetDate:todayStr(), punchType:'上班', requestedTime:forgotClaim,
-          reason:`忘記打卡，實際 ${forgotClaim} 上班（本次打卡 ${r.hm||''}），請店長核對更正`, status:'pending', createdAt:new Date().toISOString(), createdBy:currentUser.empName
-        });
-        fgTail=`\n📝 已把實際時間 ${forgotClaim} 送店長核對更正`;
-      }catch(e){ fgTail='\n⚠️ 核對申請送出失敗，請改用「補登／修改」手動送出'; }
-    }
-    toast(`${msg}　${r.hm||''} @${r.atStore||atStore}${otTail}${fgTail}`);
+    toast(`${msg}　${r.hm||''} @${r.atStore||atStore}${otTail}`);
     await loadToday(); render();
   }catch(e){
     hideLoading();
