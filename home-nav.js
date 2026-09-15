@@ -110,7 +110,7 @@ function hnLoadUserDoc() {
       ]);
       if (snap && snap.exists) {
         var d = snap.data() || {};
-        hnUserDoc = { homeFavs: d.homeFavs || null, homeTour: d.homeTour || null };
+        hnUserDoc = { homeFavs: d.homeFavs || null, homeTour: d.homeTour || null, pushInvite: d.pushInvite || null };
         hnFavs = hnUserDoc.homeFavs;
         try { localStorage.setItem(hnLocalKey(), JSON.stringify(hnUserDoc)); } catch (e) {}
       }

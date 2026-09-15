@@ -186,8 +186,11 @@ function maybeAutoStartHomeTour(attempt) {
   if (document.getElementById('htLayer')?.classList.contains('active')) return;
   var cur = (hnUserDoc && hnUserDoc.homeTour) || {};
   var skips = cur.v === HOME_TOUR_VERSION ? (cur.skips || 0) : 0;
-  if (cur.v === HOME_TOUR_VERSION && cur.done) return;
-  if (skips >= HOME_TOUR_MAX_SKIPS) return;
+  // 這次不跳教學（看完了或已跳過 2 次）→ 改看要不要邀請開推播；同一次開頁不會兩個都跳
+  if ((cur.v === HOME_TOUR_VERSION && cur.done) || skips >= HOME_TOUR_MAX_SKIPS) {
+    if (typeof maybeShowPushInvite === 'function') maybeShowPushInvite();
+    return;
+  }
   var busy = document.getElementById('sysNoticeOverlay') ||
     document.querySelector('.modal-overlay.active, .bottom-sheet.active, #resignedScreen') ||
     document.getElementById('lineBindOverlay')?.style.display === 'flex';

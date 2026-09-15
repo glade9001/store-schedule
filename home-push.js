@@ -247,6 +247,8 @@ function hpSetBadge(n) {
 
 // ===== 共用小視窗 =====
 function hpOpenModal(title, lead, html) {
+  var closeBtn = document.querySelector('#hpModal .hp-close');
+  if (closeBtn) closeBtn.textContent = '關閉';
   var el = document.getElementById('hpModal');
   if (!el) {
     el = document.createElement('div');
@@ -265,6 +267,41 @@ function hpOpenModal(title, lead, html) {
 }
 function hpCloseModal() {
   var el = document.getElementById('hpModal'); if (el) el.classList.remove('active');
+}
+
+// ===== 推播邀請（每週彈一次卡片，直到開啟為止）=====
+// 對象：能收推播（Android／從主畫面開的 iPhone）、還沒訂閱、沒封鎖通知的人。
+// 時機：新版教學看完或不再自動跳之後（由 home-tour.js 呼叫），同一次開頁不會跟教學一起出現。
+// 頻率：users/{uid}.pushInvite.lastAt 距今滿 7 天才再彈（彈出當下就記，直接關 App 也算這週提醒過）；
+//       沒有次數上限，開了推播就不再出現。skips 只做統計用。
+var HP_INVITE_EVERY_DAYS = 7;
+async function maybeShowPushInvite(attempt) {
+  attempt = attempt || 0;
+  try { if (sessionStorage.getItem('isPreviewMode') === '1') return; } catch (e) {}
+  if (!hpPushSupported() || (hpPlatform() === 'ios' && !hpStandalone())) return;
+  if (Notification.permission === 'denied') return;
+  var inv = (hnUserDoc && hnUserDoc.pushInvite) || {};
+  var last = Date.parse(inv.lastAt || '') || 0;
+  if (Date.now() - last < HP_INVITE_EVERY_DAYS * 86400000) return;
+  if (await hpGetSubscription()) return;
+  var busy = document.getElementById('sysNoticeOverlay') ||
+    document.querySelector('.modal-overlay.active, .bottom-sheet.active, #resignedScreen, #htLayer.active, #hpModal.active') ||
+    document.getElementById('lineBindOverlay')?.style.display === 'flex';
+  if (busy) {
+    if (attempt < 10) setTimeout(function () { maybeShowPushInvite(attempt + 1); }, 2000);
+    return;
+  }
+  hnSaveUserField('pushInvite', { skips: (inv.skips || 0) + 1, lastAt: new Date().toISOString() });
+  hpOpenModal('🔔 開啟推播通知',
+    '開啟後，系統通知會直接跳在這台手機上，不用再等 LINE。',
+    '<ul class="hp-steps" style="list-style:none;padding-left:0;">' +
+      '<li>📅 班表、薪資、待處理等通知，會陸續改用推播發送</li>' +
+      '<li>🔴 App 圖示會顯示待處理件數，一眼就知道有沒有事</li>' +
+      '<li>🔕 隨時可以從左上角 ☰ →「推播通知」關閉</li></ul>' +
+    '<button class="hp-btn" id="hpEnableBtn" onclick="hpEnablePush()">開啟推播通知</button>' +
+    '<p class="hp-note">按下後手機會詢問是否允許通知，請選「<b>允許</b>」。沒開的話，每週會再提醒一次。</p>');
+  var close = document.querySelector('#hpModal .hp-close');
+  if (close) close.textContent = '以後再說';
 }
 
 // 首頁 initApp 呼叫
