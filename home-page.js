@@ -311,9 +311,10 @@ window.onload = async () => {
     if(cachedConfig) {
       try { appConfig = JSON.parse(cachedConfig); } catch(e) {}
     }
+    const configP = window.db.collection('settings').doc('globalConfig').get();
     try {
       const snap = await Promise.race([
-        window.db.collection('settings').doc('globalConfig').get(),
+        configP,
         new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000))
       ]);
       if(snap.exists) {
@@ -322,6 +323,13 @@ window.onload = async () => {
       }
     } catch(e) {
       console.warn('設定讀取失敗，使用快取');
+      // 逾時不代表讀不到：讓原本那次讀取在背景跑完，回來後補存快取並重畫打卡卡（新裝 App 第一次開常見）
+      configP.then(snap => {
+        if(!snap.exists) return;
+        appConfig = snap.data();
+        try { localStorage.setItem('appConfig', JSON.stringify(appConfig)); } catch(e2) {}
+        if(currentUser && document.getElementById('appShell')?.classList.contains('active')) applyHomeClockCard();
+      }).catch(() => {});
     }
 
     // 手機 Google 登入：先處理 redirect 回傳結果，避免閃回登入頁
@@ -1129,6 +1137,35 @@ async function ackSystemNotice(id) {
   if(el) el.remove();
 }
 
+// 打卡卡呈現：功能明確關閉(off)→整卡隱藏；已啟用但對此人尚未開放(層級未到 或 全面開放下本店未勾選)→變灰標「尚未開放」不可點；正常→可點
+// ⚠️ 2026-09-15 修：設定還沒讀到（appConfig 沒有 clockIn）時一律當「正常」顯示，不可藏起來。
+//    實例：iPhone 新加入主畫面的 App 與 Safari 分開存資料＝沒有 appConfig 快取，第一次開 globalConfig 讀超過 5 秒
+//    → 舊邏輯把 stage 當 'off' → 打卡卡整張消失。打卡頁本身會再檢查權限，先顯示不會讓不該打卡的人打到卡。
+//    設定稍後讀到時 window.onload 會再呼叫一次本函式（可重複呼叫）。
+function applyHomeClockCard(){
+  try{
+    const cc=document.getElementById('homeClockCard');
+    if(!cc) return;
+    const known=!!appConfig.clockIn;
+    const clk=appConfig.clockIn||{}; const stage=known ? (clk.stage||'off') : 'all';
+    const okPerm = stage==='all' || (stage==='manager' && ['manager','owner','admin'].includes(currentUser.permission)) || (stage==='admin' && currentUser.permission==='admin');
+    const storeOn = !known || stage!=='all' || ((clk.enabledByStore||{})[currentUser.store]===true);
+    const sub=document.getElementById('homeClockSub');
+    if(stage==='off'){ cc.style.display='none'; return; }
+    cc.style.display='';
+    if(okPerm && storeOn){
+      cc.onclick=()=>{ window.location.href='clock.html'; }; cc.style.cursor='pointer';
+      cc.style.background=''; cc.style.boxShadow='';
+      if(sub && sub.textContent==='尚未開放') sub.textContent='記得打卡，並誠實於現場打卡 🙏';
+      updateHomeClockStatus(); updateHomeAttnAlert();
+    } else {
+      cc.onclick=null; cc.removeAttribute('onclick'); cc.style.cursor='default';
+      cc.style.background='linear-gradient(135deg,#9ca3af,#6b7280)'; cc.style.boxShadow='none';
+      if(sub) sub.textContent='尚未開放';
+    }
+  }catch(e){}
+}
+
 async function initApp() {
   if(await checkMaintenance()) return; // 維護模式：非管理者顯示維護畫面、不進 App
   showSystemNotice(); // 不 await：公告慢不影響首頁載入
@@ -1136,24 +1173,7 @@ async function initApp() {
   const storeLabel = currentUser.store || '全門市';
   const dName = currentUser.displayName || currentUser.empName || '使用者';
 
-  // 打卡卡呈現：功能未啟用(off)→整卡隱藏；已啟用但對此人尚未開放(層級未到 或 全面開放下本店未勾選)→變灰標「尚未開放」不可點；正常→綠色可點
-  try{
-    const clk=(appConfig.clockIn)||{}; const stage=clk.stage||'off';
-    const okPerm = stage==='all' || (stage==='manager' && ['manager','owner','admin'].includes(currentUser.permission)) || (stage==='admin' && currentUser.permission==='admin');
-    const storeOn = stage!=='all' || ((clk.enabledByStore||{})[currentUser.store]===true);
-    const cc=document.getElementById('homeClockCard');
-    if(cc){
-      if(stage==='off'){ cc.style.display='none'; }
-      else if(okPerm && storeOn){ cc.style.display=''; updateHomeClockStatus(); updateHomeAttnAlert(); }
-      else {
-        cc.style.display='';
-        cc.onclick=null; cc.removeAttribute('onclick'); cc.style.cursor='default';
-        cc.style.background='linear-gradient(135deg,#9ca3af,#6b7280)'; cc.style.boxShadow='none';
-        const sub=document.getElementById('homeClockSub'); if(sub) sub.textContent='尚未開放';
-        const arr=document.getElementById('homeClockArrow'); if(arr) arr.style.display='none';
-      }
-    }
-  }catch(e){}
+  applyHomeClockCard();
 
   // ✅ 讀取門市 displayNameMap（設定 sheet 和待處理清單都需要）
   displayNameMap = {};

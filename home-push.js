@@ -51,6 +51,32 @@ function hpRecordAppOpen() {
     .catch(function (e) { console.warn('開啟紀錄寫入失敗:', e); });
 }
 
+// ===== 用手機的瀏覽器打開外部網站 =====
+// 從主畫面打開的 App 裡，target=_blank 只會開 App 內的預覽視窗（不是真正的 Safari／Chrome），
+// 有些網站（例：學習平台）登入狀態、下載、彈出視窗在裡面不正常 → 強制交給系統瀏覽器。
+//  · iPhone（iOS 17+）：x-safari-https:// 會直接切到 Safari；舊版 iOS 不認得這個網址，1 秒後還在本頁就退回一般開法
+//  · Android：intent:// 指定用 Chrome 開
+//  · 從瀏覽器開的：本來就是瀏覽器，開新分頁即可
+function hpOpenInBrowser(url) {
+  var p = hpPlatform();
+  if (hpStandalone() && p === 'ios' && /^https:\/\//.test(url)) {
+    var left = false;
+    var onHide = function () { if (document.hidden) left = true; };
+    document.addEventListener('visibilitychange', onHide);
+    window.location.href = 'x-safari-' + url;
+    setTimeout(function () {
+      document.removeEventListener('visibilitychange', onHide);
+      if (!left && !document.hidden) window.open(url, '_blank', 'noopener');
+    }, 1000);
+    return;
+  }
+  if (hpStandalone() && p === 'android' && /^https:\/\//.test(url)) {
+    window.location.href = 'intent://' + url.replace(/^https:\/\//, '') + '#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=' + encodeURIComponent(url) + ';end';
+    return;
+  }
+  window.open(url, '_blank', 'noopener');
+}
+
 // ===== 2) 加入主畫面 =====
 function hpUpdateA2hsPill() {
   var pill = document.getElementById('a2hsPill');
