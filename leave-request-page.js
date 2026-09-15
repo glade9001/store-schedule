@@ -1042,13 +1042,13 @@ async function submitApply(){
 async function requestNego(date){
   showLoading('送出協商請求...');
   try{
-    // 寫協商請求文件 → Cloud Function onLeaveNego 觸發，LINE 通知全體＋店長
+    // 寫協商請求文件 → Cloud Function onLeaveNego 觸發，通知當天有劃休的夥伴（有開推播發推播，否則 LINE）
     await window.db.collection('stores').doc(currentStore).collection('leaveNego').add({
       date, candidateName:(currentUser.displayName||currentUser.empName), candidateEmp:currentUser.empName,
       createdAt:new Date().toISOString(), notified:false
     });
     hideLoading();
-    showToast('✅ 已送出協商請求，將 LINE 通知夥伴協助換假');
+    showToast('✅ 已送出協商請求，將通知當天有劃休的夥伴協助換假');
   }catch(e){ hideLoading(); showToast('通知失敗：'+(e.message||e)); }
 }
 

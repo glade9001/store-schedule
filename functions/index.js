@@ -251,7 +251,14 @@ function taipeiHour() { return new Date(Date.now() + 8 * 3600000).getUTCHours();
 function inQuietHours() { const h = taipeiHour(); return h >= 22 || h < 8; }
 
 // 讀一次 pushSubs → { uids:Set, uidByEmp:{empName:[{uid,store}]} }（同一次執行內重用）
+let _pushIdxCache = null; // 同一個執行個體 60 秒內重用（一次事件常會呼叫好幾個通知函式）
 async function loadPushIndex(db) {
+  if (_pushIdxCache && Date.now() - _pushIdxCache.at < 60000) return _pushIdxCache.idx;
+  const idx = await _loadPushIndex(db);
+  _pushIdxCache = { at: Date.now(), idx };
+  return idx;
+}
+async function _loadPushIndex(db) {
   const snap = await db.collection("pushSubs").get().catch(() => null);
   const uids = new Set(); const uidByEmp = {};
   if (snap) snap.forEach((d) => {
@@ -299,6 +306,44 @@ async function flushPushQueue(db, vapid) {
 }
 // keys 相容舊呼叫：字串＝只有 LINE token；物件＝{ line, vapid }
 function notifyKeys(token) { return typeof token === "string" ? { line: token } : (token || {}); }
+
+// 第二批（2026-09-15）共用：對一群人發同一則通知，每個人各自決定走推播或 LINE
+// people：[{ uid?, empName?, store? }]（有 uid 用 uid 對；只有 empName 就用 pushSubs／lineBindings 的 empName 對，偏好同店）
+// opts.push：推播內容（物件；省略則由 text 轉換）、opts.url／tag：轉換時附上、opts.urgent：夜間也立刻送
+// 回傳 { push, line }
+async function deliverToPeople(db, people, text, token, opts) {
+  const keys = notifyKeys(token); const o = opts || {};
+  const out = { push: 0, line: 0 };
+  const idx = keys.vapid ? await loadPushIndex(db) : null;
+  const pushUids = []; const seen = new Set();
+  for (const p of people || []) {
+    const key = p.uid || `${p.empName}|${p.store || ""}`;
+    if (!key || seen.has(key)) continue; seen.add(key);
+    let uid = null;
+    if (idx) uid = (p.uid && idx.uids.has(p.uid)) ? p.uid : (p.empName ? pushUidOf(idx, p.empName, p.store || "") : null);
+    if (uid) { if (!pushUids.includes(uid)) { pushUids.push(uid); out.push++; } continue; }
+    if (!keys.line) continue;
+    let lineUserId = null;
+    if (p.uid) {
+      const b = await db.collection("lineBindings").doc(p.uid).get().catch(() => null);
+      if (b && b.exists) lineUserId = b.data().lineUserId || null;
+    }
+    if (!lineUserId && p.empName) {
+      const snap = await db.collection("lineBindings").where("empName", "==", p.empName).get().catch(() => null);
+      if (snap && !snap.empty) {
+        const arr = []; snap.forEach((d) => arr.push(d.data()));
+        const b = arr.find((x) => x.store === p.store) || arr[0];
+        lineUserId = (b && b.lineUserId) || null;
+      }
+    }
+    if (lineUserId && await linePush(lineUserId, text, keys.line)) out.line++;
+  }
+  if (pushUids.length) {
+    const payload = o.push || pushFromText(text, { url: o.url || "home.html", ...(o.tag ? { tag: o.tag } : {}) });
+    await sendOrQueuePush(db, pushUids, payload, keys.vapid, !!o.urgent);
+  }
+  return out;
+}
 
 exports.lineWebhook = onRequest(
   { region: "asia-east1", secrets: [LINE_TOKEN, LINE_SECRET] },
@@ -408,13 +453,13 @@ const { onDocumentWritten, onDocumentCreated } = require("firebase-functions/v2/
 
 // 特休候補協商：員工寫 leaveNego 文件 → LINE 通知全體(排除候補者本人)＋店長協助換假(措辭方案A)
 exports.onLeaveNego = onDocumentCreated(
-  { document: "stores/{store}/leaveNego/{id}", region: "asia-east1", secrets: [LINE_TOKEN] },
+  { document: "stores/{store}/leaveNego/{id}", region: "asia-east1", secrets: [LINE_TOKEN, VAPID_PRIVATE] },
   async (event) => {
     const snap = event.data; if (!snap) return;
     const d = snap.data(); if (!d || d.notified) return;
     const db = admin.firestore();
     const store = fixStoreName(event.params.store);
-    const token = LINE_TOKEN.value();
+    const token = { line: LINE_TOKEN.value(), vapid: VAPID_PRIVATE.value() };
     const es = await db.collection("stores").doc(store).collection("employees").get().catch(() => null);
     let mgr = ""; const active = new Set();
     if (es) es.forEach((x) => { const e = x.data() || {}; if (e.status === "離職" || e.status === "調走") return; active.add(x.id); if (e.role === "店長" && !mgr) mgr = e.displayName || x.id; });
@@ -433,7 +478,9 @@ exports.onLeaveNego = onDocumentCreated(
     const md = p.length === 3 ? `${+p[1]}/${+p[2]}` : (d.date || "");
     const msg = `【休假協調】\n${store}｜${md}\n當日休假人數已滿，${d.candidateName || ""} 想請特休。\n你當天也有劃休，若方便調到別天，\n願意幫忙的請回覆店長${mgr ? " " + mgr : ""}。\n✨ 純自願、不影響任何人權益，感謝！`;
     let sent = 0;
-    for (const emp of emps) { if (emp === d.candidateEmp) continue; try { await notifyOneEmp(db, emp, store, msg, token); sent++; } catch (e) { /* skip */ } }
+    for (const emp of emps) { if (emp === d.candidateEmp) continue; try { if (await notifyOneEmp(db, emp, store, msg, token, {
+      push: { title: `🙏 ${md} 休假協調`, body: `當日休假人數已滿，${d.candidateName || "夥伴"} 想請特休。你當天也有劃休，方便調到別天的話請回覆店長${mgr ? " " + mgr : ""}（純自願）`, url: "leave-request.html", tag: `nego-${event.params.id}` },
+    })) sent++; } catch (e) { /* skip */ } }
     await snap.ref.set({ notified: true, sentCount: sent, notifiedAt: new Date().toISOString() }, { merge: true });
   }
 );
@@ -584,21 +631,18 @@ exports.onSalaryPublished = onDocumentWritten(
 );
 
 // 找可審核者（加盟主/admin）的 LINE 綁定並推播
-async function notifyApprovers(db, text, token) {
+async function notifyApprovers(db, text, token, opts) {
   const uids = new Set();
   for (const p of ["owner", "admin"]) {
     const us = await db.collection("users").where("permission", "==", p).get().catch(() => null);
     if (us) us.forEach((d) => uids.add(d.id));
   }
-  for (const uid of uids) {
-    const b = await db.collection("lineBindings").doc(uid).get().catch(() => null);
-    if (b && b.exists && b.data().lineUserId) await linePush(b.data().lineUserId, text, token);
-  }
+  return deliverToPeople(db, [...uids].map((uid) => ({ uid })), text, token, opts);
 }
 
 // 店長送出薪資（status→submitted）→ 通知加盟主審核
 exports.onSalarySubmitted = onDocumentWritten(
-  { document: "stores/{store}/salary/{month}", region: "asia-east1", secrets: [LINE_TOKEN] },
+  { document: "stores/{store}/salary/{month}", region: "asia-east1", secrets: [LINE_TOKEN, VAPID_PRIVATE] },
   async (event) => {
     const before = event.data.before.exists ? event.data.before.data() : {};
     const after = event.data.after.exists ? event.data.after.data() : {};
@@ -610,7 +654,8 @@ exports.onSalarySubmitted = onDocumentWritten(
     await notifyApprovers(
       db,
       `📤 ${store} ${month} 薪資已由 ${by} 送出，請至 App 審核後發布。`,
-      LINE_TOKEN.value()
+      { line: LINE_TOKEN.value(), vapid: VAPID_PRIVATE.value() },
+      { push: { title: `📤 ${store} ${month} 薪資待審核`, body: `${by} 已送出，請審核後發布`, url: "salary.html", tag: `salary-review-${store}-${month}` } }
     );
   }
 );
@@ -618,21 +663,18 @@ exports.onSalarySubmitted = onDocumentWritten(
 // 通知某店店長（permission=manager 且 store 相符）的 LINE 綁定
 // 通知某店「店長」——依門市員工 role=店長 判斷（涵蓋登入權限為 admin/owner 但職務是店長者，如美德楷岳），
 // 不再只看 users.permission==manager（會漏掉兼任店長的 admin/owner）。
-async function notifyStoreManagers(db, store, text, token) {
+async function notifyStoreManagers(db, store, text, token, opts) {
   const es = await db.collection("stores").doc(store).collection("employees").get().catch(() => null);
-  if (!es) return;
+  if (!es) return { push: 0, line: 0 };
   const leads = [];
   es.forEach((d) => { const e = d.data() || {}; if (e.role === "店長" && !["離職", "調走"].includes(e.status)) leads.push(d.id); });
-  for (const emp of leads) {
-    const snap = await db.collection("lineBindings").where("empName", "==", emp).get().catch(() => null);
-    if (snap && !snap.empty) { const b = snap.docs[0].data(); if (b && b.lineUserId) await linePush(b.lineUserId, text, token); }
-  }
+  return deliverToPeople(db, leads.map((empName) => ({ empName, store })), text, token, opts);
 }
 
 // 加盟主退回薪資（submitted→draft 且 rejectedAt 為本次新設）→ 通知該店店長重新送審
 // （與店長自己「收回」區分：收回不會動 rejectedAt）
 exports.onSalaryRejected = onDocumentWritten(
-  { document: "stores/{store}/salary/{month}", region: "asia-east1", secrets: [LINE_TOKEN] },
+  { document: "stores/{store}/salary/{month}", region: "asia-east1", secrets: [LINE_TOKEN, VAPID_PRIVATE] },
   async (event) => {
     const before = event.data.before.exists ? event.data.before.data() : {};
     const after = event.data.after.exists ? event.data.after.data() : {};
@@ -645,7 +687,8 @@ exports.onSalaryRejected = onDocumentWritten(
     await notifyStoreManagers(
       db, store,
       `↩️ ${store} ${month} 薪資已被 ${by} 退回，請至 App 修改後重新送審。`,
-      LINE_TOKEN.value()
+      { line: LINE_TOKEN.value(), vapid: VAPID_PRIVATE.value() },
+      { push: { title: `↩️ ${store} ${month} 薪資被退回`, body: `${by} 退回了，請修改後重新送審`, url: "salary.html", tag: `salary-review-${store}-${month}` } }
     );
   }
 );
@@ -836,7 +879,7 @@ exports.onSalaryAggregate = onDocumentWritten(
 
 // 班表變動 → 計算當月加班累計，跨越門檻(黃/紅/嚴重)且「等級升高」時，LINE 通知該店店長
 exports.onScheduleOtWarning = onDocumentWritten(
-  { document: "stores/{store}/weeks/{weekStr}", region: "asia-east1", secrets: [LINE_TOKEN] },
+  { document: "stores/{store}/weeks/{weekStr}", region: "asia-east1", secrets: [LINE_TOKEN, VAPID_PRIVATE] },
   async (event) => {
     const after = event.data.after.exists ? event.data.after.data() : null;
     if (!after) return; // 刪除不處理
@@ -846,7 +889,7 @@ exports.onScheduleOtWarning = onDocumentWritten(
     const store = fixStoreName(event.params.store);
     const weekStr = event.params.weekStr;
     const db = admin.firestore();
-    const token = LINE_TOKEN.value();
+    const token = { line: LINE_TOKEN.value(), vapid: VAPID_PRIVATE.value() };
     // 門檻（可在 settings/globalConfig.otThresholds 調整）
     const cfg = await db.collection("settings").doc("globalConfig").get().catch(() => null);
     const th = (cfg && cfg.exists && cfg.data().otThresholds) || {};
@@ -878,7 +921,8 @@ exports.onScheduleOtWarning = onDocumentWritten(
         }
       }
       for (const t of notify) {
-        await notifyStoreManagers(db, store, `⚠️ ${store} ${parseInt(ym.split("-")[1])}月加班預警：${disp(t.emp)} 本月加班已達 ${t.h}h（${label[t.lv]}，勞基法 §32 每月上限 46h），請留意排班。`, token);
+        await notifyStoreManagers(db, store, `⚠️ ${store} ${parseInt(ym.split("-")[1])}月加班預警：${disp(t.emp)} 本月加班已達 ${t.h}h（${label[t.lv]}，勞基法 §32 每月上限 46h），請留意排班。`, token,
+          { push: { title: `⚠️ ${disp(t.emp)} 本月加班 ${t.h}h`, body: `${store} ${parseInt(ym.split("-")[1])}月・${label[t.lv]}（勞基法每月上限 46h），請留意排班`, url: "schedule-V2.html?mode=admin", tag: `ot-${store}-${ym}-${t.emp}` } });
       }
       await alertRef.set({ levels: newLevels, updatedAt: new Date().toISOString() });
     }
@@ -1272,16 +1316,13 @@ exports.flushScheduleNotify = onCall(
 );
 
 // 通知「店長以上」(manager/owner/admin) 有綁定 LINE 者
-async function notifyManagersAndAbove(db, text, token) {
+async function notifyManagersAndAbove(db, text, token, opts) {
   const uids = new Set();
   for (const p of ["manager", "owner", "admin"]) {
     const us = await db.collection("users").where("permission", "==", p).get().catch(() => null);
     if (us) us.forEach((d) => uids.add(d.id));
   }
-  for (const uid of uids) {
-    const b = await db.collection("lineBindings").doc(uid).get().catch(() => null);
-    if (b && b.exists && b.data().lineUserId) await linePush(b.data().lineUserId, text, token);
-  }
+  return deliverToPeople(db, [...uids].map((uid) => ({ uid })), text, token, opts);
 }
 
 // ===== 月底提醒（每月最後一天 09:00）：LINE 通知店長以上「結帳/匯款時間、週轉金上限」=====
@@ -1336,7 +1377,7 @@ function buildPnlText(store, month, cur, prev){
 
 // 店長輸入/更新某月損益 → 與去年同期比較 → LINE 給全體店長+加盟主
 exports.onPnlSubmitted = onDocumentWritten(
-  { document: "stores/{store}/pnl/{month}", region: "asia-east1", secrets: [LINE_TOKEN] },
+  { document: "stores/{store}/pnl/{month}", region: "asia-east1", secrets: [LINE_TOKEN, VAPID_PRIVATE] },
   async (event) => {
     const before = event.data.before.exists ? event.data.before.data() : null;
     const after = event.data.after.exists ? event.data.after.data() : null;
@@ -1348,7 +1389,8 @@ exports.onPnlSubmitted = onDocumentWritten(
     const db = admin.firestore();
     const ps = await db.collection("stores").doc(store).collection("pnl").doc(pnlPrevYM(month)).get().catch(() => null);
     if(!ps || !ps.exists) return; // 無去年同期資料(回填月份) → 不發送
-    await notifyManagersAndAbove(db, buildPnlText(store, month, after, ps.data()), LINE_TOKEN.value());
+    await notifyManagersAndAbove(db, buildPnlText(store, month, after, ps.data()), { line: LINE_TOKEN.value(), vapid: VAPID_PRIVATE.value() },
+      { url: "performance.html", tag: `pnl-${store}-${month}` });
   }
 );
 
@@ -1376,28 +1418,27 @@ async function pnlSendDay(db, year, month) {
 
 // ===== 系統維護結束（enabled true→false）→ LINE 通知所有登記「完成後通知我」的使用者，並清除登記 =====
 exports.onMaintenanceEnded = onDocumentWritten(
-  { document: "settings/maintenance", region: "asia-east1", secrets: [LINE_TOKEN] },
+  { document: "settings/maintenance", region: "asia-east1", secrets: [LINE_TOKEN, VAPID_PRIVATE] },
   async (event) => {
     const before = event.data.before.exists ? event.data.before.data() : {};
     const after = event.data.after.exists ? event.data.after.data() : {};
     if (!(before.enabled === true && after.enabled === false)) return; // 只在「維護→關閉」
     const db = admin.firestore();
-    const token = LINE_TOKEN.value();
+    const token = { line: LINE_TOKEN.value(), vapid: VAPID_PRIVATE.value() };
     const snap = await db.collection("maintenanceNotify").get().catch(() => null);
     if (!snap) return;
     const endedAt = new Date().toISOString();
     for (const d of snap.docs) {
       const rec = d.data();
       const disp = rec.displayName || rec.empName || "";
-      const b = await db.collection("lineBindings").doc(d.id).get().catch(() => null);
-      const bound = !!(b && b.exists && b.data().lineUserId);
-      if (bound) {
-        await linePush(b.data().lineUserId, `✅ 系統維護已完成${disp ? "，" + disp : ""}，現在可以正常登入使用了！`, token);
-      }
+      const r = await deliverToPeople(db, [{ uid: d.id, empName: rec.empName || "", store: rec.store || "" }],
+        `✅ 系統維護已完成${disp ? "，" + disp : ""}，現在可以正常登入使用了！`, token,
+        { urgent: true, push: { title: "✅ 系統維護已完成", body: `${disp ? disp + "，" : ""}現在可以正常登入使用了`, url: "home.html", tag: "maintenance-ended" } });
+      const bound = r.line > 0;
       // 歸檔到歷史(可日後查誰登記等候)，再刪除登記
       await db.collection("maintenanceNotifyLog").add({
         uid: d.id, empName: rec.empName || "", displayName: rec.displayName || "", store: rec.store || "",
-        registeredAt: rec.at || "", notifiedAt: endedAt, lineNotified: bound,
+        registeredAt: rec.at || "", notifiedAt: endedAt, lineNotified: bound, pushNotified: r.push > 0,
       }).catch(() => {});
       await d.ref.delete().catch(() => {}); // 通知後清除登記
     }
@@ -1543,30 +1584,19 @@ function storeClockOn(clk, store) {
 // 單一員工通知：只查該員工的綁定(省讀取，不像 notifyEmployees 讀全表)
 // 通知系統管理員（users.permission === 'admin'），不是門市店長。
 // 定位/技術問題要找的是維運的人，店長處理不了手機設定或門市座標校正。
-async function notifyAdmins(db, text, token) {
+async function notifyAdmins(db, text, token, opts) {
   const us = await db.collection("users").where("permission", "==", "admin").get().catch(() => null);
   if (!us || us.empty) return 0;
-  const names = []; us.forEach((d) => { const u = d.data() || {}; if (u.empName) names.push({ emp: u.empName, store: u.store || "" }); });
-  let sent = 0;
-  for (const n of names) {
-    const snap = await db.collection("lineBindings").where("empName", "==", n.emp).get().catch(() => null);
-    if (!snap || snap.empty) continue;
-    const arr = []; snap.forEach((d) => arr.push(d.data()));
-    const b = arr.find((x) => x.store === n.store) || arr[0];
-    if (b && b.lineUserId) { await linePush(b.lineUserId, text, token); sent++; }
-  }
-  return sent;
+  const people = []; us.forEach((d) => { const u = d.data() || {}; if (u.empName) people.push({ uid: d.id, empName: u.empName, store: u.store || "" }); });
+  const r = await deliverToPeople(db, people, text, token, opts);
+  return r.push + r.line;
 }
 
 // 回傳 true=推播成功、false=沒綁定或 LINE 拒收（呼叫端可據此決定要不要留痕/重試）
-async function notifyOneEmp(db, empName, store, text, token) {
+async function notifyOneEmp(db, empName, store, text, token, opts) {
   if (!empName) return false;
-  const snap = await db.collection("lineBindings").where("empName", "==", empName).get().catch(() => null);
-  if (!snap || snap.empty) return false;
-  const arr = []; snap.forEach((d) => arr.push(d.data()));
-  const b = arr.find((x) => x.store === store) || arr[0];
-  if (!b || !b.lineUserId) return false;
-  return await linePush(b.lineUserId, text, token);
+  const r = await deliverToPeople(db, [{ empName, store }], text, token, opts);
+  return (r.push + r.line) > 0;
 }
 
 // A. 打卡事件 → 成功回執給員工；異常(遲到/早退)加通知店長(接收店+原店)
@@ -1837,7 +1867,7 @@ exports.scheduledMissingClock = onSchedule(
 // 員工端這條只是備援，拉長到 10 天不會讓任何一筆缺卡沒人管。
 const MISS_REMIND_DAYS = 7;   // 2026-09-07 用戶指示：一週發一次
 exports.scheduledMissClockReminder = onSchedule(
-  { schedule: "0 20 * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN] },
+  { schedule: "0 20 * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN, VAPID_PRIVATE] },
   async () => {
     const db = admin.firestore();
     if (await maintenanceOn(db)) return;
@@ -1847,7 +1877,7 @@ exports.scheduledMissClockReminder = onSchedule(
     if (!stage || stage === "off") return;
     const stores = (conf.stores || []).filter((s) => s && s !== "人力支援");
     const attnSince = (conf.clockIn && conf.clockIn.attnSince) || "";
-    const token = LINE_TOKEN.value();
+    const token = { line: LINE_TOKEN.value(), vapid: VAPID_PRIVATE.value() };
     const md = (d) => `${+d.slice(5, 7)}/${+d.slice(8, 10)}`;
     const TP_YM = taipeiYM();
     // empName -> { homeStore, items:[{date, text}] }
@@ -1881,7 +1911,8 @@ exports.scheduledMissClockReminder = onSchedule(
         + (p.items.length > 20 ? `\n…等共 ${p.items.length} 筆` : "");
       const ok = await notifyOneEmp(db, emp, p.homeStore,
         `🔴 你本月有 ${p.items.length} 筆缺卡尚未補登\n${list}\n\n如有出勤請盡快申請補登，未補登會影響工時與薪資計算。\n（每週提醒一次，補完即停）\n\n👉 立即補登：https://glade9001.github.io/store-schedule/my-attendance.html`,
-        token);
+        token,
+        { push: { title: `🔴 本月有 ${p.items.length} 筆缺卡還沒補登`, body: p.items.slice(0, 4).map((x) => x.text).join("\n") + (p.items.length > 4 ? `\n…等共 ${p.items.length} 筆` : "") + "\n未補登會影響工時與薪資，點這裡補登", url: "my-attendance.html", tag: "miss-clock" } });
       // 沒綁定 LINE 的人也要記時間，否則每天都會重掃重試一次
       await ref.set({ empName: emp, lastAt: NOW, count: p.items.length, sent: !!ok }, { merge: true }).catch(() => {});
     }
@@ -1895,11 +1926,11 @@ exports.scheduledMissClockReminder = onSchedule(
 // 合併後降到「3 店長 × 有事的日子」約 60 則/月。
 // 保留一條例外：跨店支援請求仍即時發（onSupportRequest）——那是要別店的人明天到班，等不到 17:00。
 exports.scheduledManagerDigest = onSchedule(
-  { schedule: "0 17 * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN] },
+  { schedule: "0 17 * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN, VAPID_PRIVATE] },
   async () => {
     const db = admin.firestore();
     if (await maintenanceOn(db)) return;
-    const token = LINE_TOKEN.value();
+    const token = { line: LINE_TOKEN.value(), vapid: VAPID_PRIVATE.value() };
     const cfg = await db.collection("settings").doc("globalConfig").get().catch(() => null);
     const conf = cfg && cfg.exists ? cfg.data() : {};
     const stores = (conf.stores || []).filter((s) => s && s !== "人力支援");
@@ -2063,7 +2094,8 @@ exports.scheduledManagerDigest = onSchedule(
 
       if (!blocks.length) continue; // 沒事就不發，別浪費額度
       const msg = `📋 ${store} 待辦摘要（${md(today)}）\n\n${blocks.join("\n\n")}\n\n👉 出勤管理：https://glade9001.github.io/store-schedule/attendance.html`;
-      await notifyStoreManagers(db, store, msg, token);
+      await notifyStoreManagers(db, store, msg, token,
+        { push: pushFromText(`📋 ${store} 待辦摘要（${md(today)}）\n${blocks.join("\n\n")}`, { url: "attendance.html", tag: `digest-${store}` }) });
     }
   }
 );
@@ -2204,7 +2236,7 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
 
 // 定位問題回報：員工打不了卡時按一下，直接把診斷資訊送給店長（LINE）並留存紀錄。
 // 失敗的定位原本什麼都不會留下，事後只能靠猜（阮農芯 2026-08-10 就是這樣查不出來）。
-exports.reportGeoIssue = onCall({ region: "asia-east1", secrets: [LINE_TOKEN] }, async (request) => {
+exports.reportGeoIssue = onCall({ region: "asia-east1", secrets: [LINE_TOKEN, VAPID_PRIVATE] }, async (request) => {
   const auth = request.auth;
   if (!auth) throw new HttpsError("unauthenticated", "請先登入");
   const db = admin.firestore();
@@ -2264,7 +2296,8 @@ exports.reportGeoIssue = onCall({ region: "asia-east1", secrets: [LINE_TOKEN] },
       ? `👉 多半是該手機沒開 Wi-Fi 或「精確位置」，請協助排除；員工可先用補登。`
       : `👉 精度正常，請確認員工是否真的在店內，或該門市座標需要校正。`,
   ].join("\n");
-  const sent = await notifyAdmins(db, msg, LINE_TOKEN.value());
+  const sent = await notifyAdmins(db, msg, { line: LINE_TOKEN.value(), vapid: VAPID_PRIVATE.value() },
+    { push: { title: "🛠️ 打卡定位問題回報", body: `${disp}（${homeStore}）打不了卡：${rec.reason || "不在門市範圍內"}，精度 ±${rec.accuracy != null ? rec.accuracy : "?"} m`, url: "attendance.html", tag: `geo-${disp}` } });
   return { ok: true, sent };
 });
 
@@ -2275,7 +2308,7 @@ exports.serverNow = onCall({ region: "asia-east1" }, async () => {
 });
 
 // 分享本月營運檢討：管理者按分享→LINE 通知各店店長＋加盟主，附 3 天有效連結(sharedReviews 前端已建)。
-exports.shareMonthlyReview = onCall({ region: "asia-east1", secrets: [LINE_TOKEN] }, async (request) => {
+exports.shareMonthlyReview = onCall({ region: "asia-east1", secrets: [LINE_TOKEN, VAPID_PRIVATE] }, async (request) => {
   const auth = request.auth;
   if (!auth) throw new HttpsError("unauthenticated", "請先登入");
   const db = admin.firestore();
@@ -2299,20 +2332,21 @@ exports.shareMonthlyReview = onCall({ region: "asia-east1", secrets: [LINE_TOKEN
   // 指定對象（複選）→ 只發給勾選且合格者；未指定→全部合格者
   const wanted = Array.isArray((request.data || {}).recipients) ? request.data.recipients.map(String) : [];
   if (wanted.length) recips = recips.filter((r) => wanted.includes(r.emp));
-  const token = LINE_TOKEN.value();
+  const token = { line: LINE_TOKEN.value(), vapid: VAPID_PRIVATE.value() };
   const [yy, mm] = ym.split("-");
   const msg = `📋 ${yy}年${+mm}月 三店營運檢討\n\n加盟主已發布本月營運檢討報告，請點連結查看完整數據與檢討：\n${url}\n\n（此連結 3 天後自動失效）`;
   const sent = [], seen = new Set();
   for (const r of recips) {
     if (seen.has(r.emp)) continue; seen.add(r.emp);
-    await notifyOneEmp(db, r.emp, r.store, msg, token);
+    await notifyOneEmp(db, r.emp, r.store, msg, token,
+      { urgent: true, push: { title: `📋 ${yy}年${+mm}月 三店營運檢討`, body: "加盟主已發布本月營運檢討，點這裡查看（連結 3 天後失效）", url, tag: `review-${ym}` } });
     sent.push(r.emp);
   }
   return { ok: true, count: sent.length };
 });
 
 // 離線打卡補傳：訊號不佳時前端暫存、恢復連線後補傳。以「手機當下時間」為打卡時間，標記待店長複核。
-exports.clockPunchOffline = onCall({ region: "asia-east1", secrets: [LINE_TOKEN] }, async (request) => {
+exports.clockPunchOffline = onCall({ region: "asia-east1", secrets: [LINE_TOKEN, VAPID_PRIVATE] }, async (request) => {
   const auth = request.auth;
   if (!auth) throw new HttpsError("unauthenticated", "請先登入");
   const db = admin.firestore();
@@ -2398,8 +2432,9 @@ exports.clockPunchOffline = onCall({ region: "asia-east1", secrets: [LINE_TOKEN]
   const notifyOn = !(clk.notifyByStore && clk.notifyByStore[atStore] === false);
   const hm = punchTp.toISOString().slice(11, 16);
   if (notifyOn) {
-    const token = LINE_TOKEN.value();
-    await notifyStoreManagers(db, atStore, `📴 離線補傳待核\n${info.displayName} ${ds} ${hm} ${type} @${atStore}（手機時間），請至出勤管理核對。`, token);
+    const token = { line: LINE_TOKEN.value(), vapid: VAPID_PRIVATE.value() };
+    await notifyStoreManagers(db, atStore, `📴 離線補傳待核\n${info.displayName} ${ds} ${hm} ${type} @${atStore}（手機時間），請至出勤管理核對。`, token,
+      { push: { title: "📴 離線補傳待核", body: `${info.displayName} ${ds} ${hm} ${type} @${atStore}（手機時間），請至出勤管理核對`, url: "attendance.html", tag: `offline-${atStore}` } });
   }
   return { ok: true, atStore, status, hm };
 });
@@ -2690,4 +2725,4 @@ exports.onAttendanceRequestResult = onDocumentWritten(
 );
 
 // 本機測試用（只有設定 LIXUE_TEST_HOOKS=1 時才掛上；雲端不會有這個環境變數）
-if (process.env.LIXUE_TEST_HOOKS === "1") module.exports.__testHooks = { notifyEmployees, loadPushIndex };
+if (process.env.LIXUE_TEST_HOOKS === "1") module.exports.__testHooks = { notifyEmployees, loadPushIndex, notifyOneEmp, deliverToPeople };

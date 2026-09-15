@@ -158,7 +158,7 @@ function geoDiagHtml(){
   return `<details style="margin-top:10px;">
     <summary style="cursor:pointer;font-size:12px;color:var(--text-muted);font-weight:700;">🔧 定位診斷資訊（打不了卡時請複製給店長）</summary>
     <pre style="white-space:pre-wrap;word-break:break-all;font-size:11px;line-height:1.7;background:#f8fafc;border-radius:8px;padding:10px;margin-top:8px;color:#334155;">${geoDiagText().replace(/</g,'&lt;')}</pre>
-    <button id="geoSendBtn" onclick="sendGeoIssue()" style="width:100%;padding:10px;background:#eef2ff;color:#4338ca;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;">📨 傳送給系統管理員（LINE 通知）</button>
+    <button id="geoSendBtn" onclick="sendGeoIssue()" style="width:100%;padding:10px;background:#eef2ff;color:#4338ca;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;">📨 傳送給系統管理員</button>
     <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;">只有你按這顆才會送出並留存紀錄；平常點開打卡頁不會通知任何人。回報後請改用「補登／修改」先完成打卡。</div>
   </details>`;
 }
@@ -178,7 +178,7 @@ async function sendGeoIssue(){
     toast(r.data && r.data.skipped ? '（10 分鐘內已回報過，未重複發送）' : '✅ 已通知系統管理員');
     if(btn){ btn.textContent='✅ 已傳送'; }
   }catch(e){
-    if(btn){ btn.disabled=false; btn.textContent='📨 傳送給系統管理員（LINE 通知）'; }
+    if(btn){ btn.disabled=false; btn.textContent='📨 傳送給系統管理員'; }
     toast('傳送失敗：'+(e.message||e));
   }
 }
@@ -370,7 +370,7 @@ async function submitReq(){
       reason, status:'pending', createdAt:new Date().toISOString(), createdBy:currentUser.empName
     });
     document.getElementById('reqModal').style.display='none';
-    toast('✅ 已送出，等店長審核（結果 LINE 通知你）');
+    toast('✅ 已送出，等店長審核（有開推播會通知你結果）');
   }catch(e){ toast('送出失敗：'+e.message); }
 }
 function render(){

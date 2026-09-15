@@ -108,7 +108,7 @@ async function renderLineCard() {
         <button onclick="lineUnbind()" style="width:100%; padding:11px; background:#fce8e6; color:var(--danger); border:none; border-radius:10px; font-weight:700; cursor:pointer; margin-top:8px;">解除綁定</button>`;
       return;
     }
-    body.innerHTML = `<div>綁定後，薪資發布、班表發布、劃休截止提醒等會主動用 LINE 通知你。</div>
+    body.innerHTML = `<div>綁定後，沒開推播通知時，薪資、班表異動等通知會改用 LINE 發給你（開了推播就只收推播）。</div>
       <button onclick="lineGenCode()" style="width:100%; padding:11px; background:#06c755; color:#fff; border:none; border-radius:10px; font-weight:800; cursor:pointer; margin-top:14px;">🔔 綁定 LINE 通知</button>`;
   } catch(e) { body.innerHTML = '載入失敗：' + e.message; }
 }

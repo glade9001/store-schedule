@@ -386,7 +386,7 @@ async function openShareModal(m){
   ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9600;display:flex;align-items:center;justify-content:center;padding:14px;';
   ov.innerHTML=`<div style="background:#fff;border-radius:16px;max-width:420px;width:100%;max-height:90vh;overflow:auto;padding:18px;">
     <div style="font-size:16px;font-weight:900;margin-bottom:4px;">🔗 分享 ${m} 營運檢討</div>
-    <div style="font-size:12px;color:#64748b;margin-bottom:10px;line-height:1.6;">勾選要收到 LINE 通知的對象（連結 3 天後自動失效）。</div>
+    <div style="font-size:12px;color:#64748b;margin-bottom:10px;line-height:1.6;">勾選要收到通知的對象（有開推播發推播，否則 LINE；連結 3 天後自動失效）。</div>
     <label style="display:flex;align-items:center;gap:9px;padding:8px 4px;border-bottom:2px solid #e2e8f0;cursor:pointer;font-weight:800;">
       <input type="checkbox" id="shareAll" checked onchange="document.querySelectorAll('.shareChk').forEach(c=>c.checked=this.checked)" style="width:18px;height:18px;"> 全選
     </label>

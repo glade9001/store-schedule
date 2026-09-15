@@ -1000,7 +1000,7 @@ async function openLineBindModal(){
       ? `<a href="${url}" target="_blank" style="display:block;text-align:center;background:#06c755;color:#fff;padding:13px;border-radius:10px;font-weight:800;text-decoration:none;margin:12px 0;">➕ 開啟 LINE 加入並帶入綁定碼</a>`
       : `<div style="color:var(--danger);margin:12px 0;font-weight:700;">⚠️ 官方帳號連結尚未設定，請聯絡管理員設定 lineOaUrl。</div>`;
     body.innerHTML=`
-      <div style="color:var(--text-muted);">綁定後，薪資發布、班表發布、劃休截止提醒等會主動用 LINE 通知你。</div>
+      <div style="color:var(--text-muted);">綁定後，沒開推播通知時，薪資、班表異動等通知會改用 LINE 發給你（開了推播就只收推播）。</div>
       <div style="margin-top:10px;">點下方按鈕 → 開啟官方帳號 → 若尚未加入請先按「加入」→ 綁定碼已自動帶入，按<strong>送出</strong>即完成。</div>
       ${btn}
       <div style="font-size:12px;color:var(--text-muted);text-align:center;">（萬一沒帶入，手動輸入綁定碼：<strong style="color:var(--primary);letter-spacing:2px;">${code}</strong>，10 分鐘內有效）</div>`;

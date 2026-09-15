@@ -338,7 +338,7 @@ async function manualNotifySchedule() {
   const store = document.getElementById('storeSelector').value;
   const weekStr = document.getElementById('weekSelector').value;
   if(!store || !weekStr) return;
-  if(!confirm(`立即以 LINE 通知「${store}」${weekStr} 班表異動給相關員工？\n（未按此鈕，系統也會在最後一次修改滿 10 分鐘後自動通知）`)) return;
+  if(!confirm(`立即通知「${store}」${weekStr} 班表異動給相關員工（有開推播發推播，否則 LINE）？\n（未按此鈕，系統也會在最後一次修改滿 10 分鐘後自動通知）`)) return;
   const btn = document.getElementById('notifyBtn');
   const old = btn ? btn.innerHTML : '';
   if(btn){ btn.disabled = true; btn.innerHTML = '<span>⏳</span><span>發送中</span>'; }

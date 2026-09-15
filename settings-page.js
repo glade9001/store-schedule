@@ -286,7 +286,7 @@ async function loadMaintenanceState() {
 async function toggleMaintenance(on) {
   const t = document.getElementById('maintenanceToggle');
   if(on && !confirm('確定啟用「系統維護模式」？\n\n管理者以外的人登入都會被擋在「系統維護中」畫面。')) { if(t) t.checked = false; return; }
-  if(!on && !confirm('確定關閉維護、恢復系統？\n\n會 LINE 通知所有登記「完成後通知我」的使用者。')) { if(t) t.checked = true; return; }
+  if(!on && !confirm('確定關閉維護、恢復系統？\n\n會通知所有登記「完成後通知我」的使用者（有開推播發推播，否則 LINE）。')) { if(t) t.checked = true; return; }
   try {
     await window.db.collection('settings').doc('maintenance').set({
       enabled: on, updatedBy: currentUser.empName || '', updatedAt: new Date().toISOString()
