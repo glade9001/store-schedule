@@ -8,13 +8,14 @@
 
 var HN_FAV_MAX = 3;
 
+// 順序＝抽屜顯示順序。門市工具是全員功能，要排在「管理功能」分隔線之前，否則看起來像管理專用
 var HN_GROUPS = [
   { key: 'me',     title: '我的',       fav: 'me' },
+  { key: 'store',  title: '門市工具',   fav: '' },
   { key: 'sched',  title: '排班・出勤', fav: 'mgmt' },
   { key: 'people', title: '人事・薪資', fav: 'mgmt' },
   { key: 'ops',    title: '營運',       fav: 'mgmt' },
   { key: 'tools',  title: '管理工具',   fav: 'mgmt' },
-  { key: 'store',  title: '門市工具',   fav: '' },
   { key: 'sys',    title: '帳號與系統', fav: '' },
 ];
 
@@ -226,13 +227,16 @@ function renderNavDrawer() {
   var html = pendN > 0
     ? '<div class="nd-pending" role="button" tabindex="0" onclick="closeNavDrawer();document.getElementById(\'pendingCard\').scrollIntoView({behavior:\'smooth\'})"><span class="dot d-red"></span>待處理事項 ' + pendN + ' 件<span class="nd-go">›</span></div>'
     : '';
-  var mgmtHeaderDone = false;
+  var mgmtHeaderDone = false, mgmtEnded = false;
   HN_GROUPS.forEach(function (g) {
     var items = visible.filter(function (f) { return f.group === g.key; });
     if (!items.length) return;
     if (g.fav === 'mgmt' && !mgmtHeaderDone) {
       html += '<div class="nd-divider">管理功能' + countTag('mgmt') + '</div>';
       mgmtHeaderDone = true;
+    } else if (g.fav !== 'mgmt' && mgmtHeaderDone && !mgmtEnded) {
+      html += '<div class="nd-sep"></div>';   // 管理功能區塊結束，後面是全員項目
+      mgmtEnded = true;
     }
     html += '<div class="nd-group">' + g.title + (g.fav === 'me' ? countTag('me') : '') + '</div>';
     html += items.map(function (f) { return hnItemHtml(f, favs, false); }).join('');

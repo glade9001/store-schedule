@@ -511,6 +511,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 .nd-group, .nd-divider { display: flex; justify-content: space-between; align-items: baseline; }
 .nd-group { font-size: 11.5px; font-weight: 800; color: var(--text-muted); letter-spacing: 0.06em; padding: 14px 16px 4px; }
 .nd-divider { margin: 14px 16px 0; padding-top: 12px; border-top: 1px solid var(--border); font-size: 12.5px; font-weight: 900; color: var(--navy); }
+.nd-sep { margin: 14px 16px 0; border-top: 1px solid var(--border); }
 .nd-group em, .nd-divider em { font-style: normal; font-size: 11.5px; font-weight: 800; color: var(--primary); letter-spacing: 0; }
 .nd-item { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 7px 6px 7px 16px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .nd-item:active, .nd-item:focus-visible { background: #f2f5fa; outline: none; }
