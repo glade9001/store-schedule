@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="莉學商行">
 <link rel="apple-touch-icon" href="icon-192.svg">
-<meta name="theme-color" content="#1a73e8">
+<meta name="theme-color" content="#0e2140">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>莉學商行管理系統</title>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
@@ -171,7 +171,8 @@
 <div id="appShell">
 
   <div class="top-header">
-    <div class="header-avatar" id="headerAvatar" onclick="openSettingsSheet()">👤</div>
+    <button class="header-menu-btn" id="headerMenuBtn" onclick="openNavDrawer()" aria-label="打開全部功能">☰<span class="hm-dot" id="headerMenuDot" hidden></span></button>
+    <div class="header-avatar" id="headerAvatar" onclick="openNavDrawer()">👤</div>
     <div class="header-info">
       <div class="header-name" id="headerName">載入中</div>
       <div class="header-role" id="headerRole">--</div>
@@ -180,7 +181,6 @@
     <!-- 離線狀態圓點 -->
     <div id="networkDot" title="連線狀態"
       style="width:10px;height:10px;border-radius:50%;background:#34a853;flex-shrink:0;transition:background .4s;"></div>
-    <button class="header-settings-btn" onclick="openSettingsSheet()">⚙️</button>
   </div>
   <!-- 離線警示條 -->
   <div id="offlineBanner" style="display:none;background:#d93025;color:white;text-align:center;font-size:12px;font-weight:700;padding:6px 16px;">
@@ -190,36 +190,44 @@
   <div class="page-container">
 
     <div class="page active" id="page-home">
-      <div class="greeting-banner">
-        <div class="greeting-time" id="greetingTime"></div>
-        <div class="greeting-name" id="greetingName">歡迎回來！</div>
-        <div class="greeting-desc" id="greetingDesc">今天也辛苦了</div>
-        <div style="display:flex; align-items:center; gap:8px; margin-top:10px; flex-wrap:wrap;">
-          <span class="greeting-badge" id="greetingBadge">🏪 載入中...</span>
-          <span id="todayShiftBadge" style="display:none; background:rgba(255,255,255,0.25); border-radius:20px; padding:4px 12px; font-size:12px; font-weight:700;"></span>
-        </div>
-      </div>
-
-      <div id="homeClockCard" onclick="window.location.href='clock.html'" style="background:linear-gradient(135deg,#34a853,#1e7e34);border-radius:16px;padding:16px 18px;margin-bottom:12px;display:flex;align-items:center;gap:14px;cursor:pointer;box-shadow:0 3px 12px rgba(52,168,83,.3);">
-        <div id="homeClockIcon" style="font-size:32px;line-height:1;">🕐</div>
-        <div style="flex:1;">
-          <div id="homeClockTitle" style="font-size:18px;font-weight:900;color:#ffffff;">上下班打卡</div>
-          <div id="homeClockSub" style="font-size:12.5px;color:rgba(255,255,255,.92);margin-top:2px;">記得打卡，並誠實於現場打卡 🙏</div>
+      <!-- 頂部深藍帶：打卡卡跨在深藍與內容區交界（2026-09-15 首頁改版，原問候橫幅已拿掉，今天班別併進打卡卡） -->
+      <div class="home-hero">
+        <div id="homeClockCard" class="home-clock" onclick="window.location.href='clock.html'">
+          <div id="homeClockIcon" class="home-clock-ic">🕐</div>
+          <div style="flex:1; min-width:0;">
+            <div id="homeClockTitle" class="home-clock-title">上下班打卡</div>
+            <div id="homeClockSub" class="home-clock-sub">記得打卡，並誠實於現場打卡 🙏</div>
+          </div>
+          <span id="todayShiftBadge" class="home-clock-shift" style="display:none;"></span>
         </div>
       </div>
 
       <!-- 缺卡／出勤異常提醒：近 7 天，資料由 updateHomeAttnAlert() 填入（沒事就整塊隱藏） -->
       <div id="homeAttnAlert" style="display:none; margin-bottom:12px;"></div>
 
-      <!-- 下週班表已發布：取代 2026-09-02 砍掉的「班表已發布」LINE 推播（免費額度 200 則/月不夠用）。
-           由 subscribeNextWeekPublish() 即時開關，關掉後記在 localStorage，同一週不再出現。 -->
-      <div id="homeNextWeekBanner" style="display:none; margin-bottom:12px; background:linear-gradient(135deg,#4285f4,#1a73e8); border-radius:14px; padding:13px 15px; box-shadow:0 3px 12px rgba(66,133,244,.28); align-items:center; gap:12px;">
-        <div style="font-size:26px; line-height:1;">🗓️</div>
-        <div style="flex:1; min-width:0;">
-          <div style="font-size:15px; font-weight:900; color:#fff;">下週班表已發布</div>
-          <div id="homeNextWeekBannerSub" style="font-size:12px; color:rgba(255,255,255,.92); margin-top:2px;">點這裡看你下週的班</div>
+      <!-- 提醒膠囊：原本 6 條橫幅合成一排。各自的顯示邏輯不變（JS 仍以 style.display='flex' 開關同一批 id）。
+           下週班表已發布：取代 2026-09-02 砍掉的「班表已發布」LINE 推播，由 subscribeNextWeekPublish() 即時開關，關掉後記在 localStorage。 -->
+      <div class="pill-row" id="homePills">
+        <div id="pendingBadgeBar" class="hpill" style="display:none;" onclick="document.getElementById('pendingCard').scrollIntoView({behavior:'smooth'})">
+          <span class="dot d-red"></span><span class="hpill-t">待處理 <b id="pendingBadgeCount">0</b></span>
         </div>
-        <button onclick="event.stopPropagation(); dismissNextWeekBanner();" aria-label="關閉" style="background:rgba(255,255,255,.22); border:none; color:#fff; border-radius:8px; width:26px; height:26px; font-size:15px; font-weight:800; cursor:pointer; flex-shrink:0;">×</button>
+        <div id="salaryAckBanner" class="hpill" style="display:none;" onclick="gotoSalaryAck()">
+          <span class="dot d-org"></span><span class="hpill-t">薪資待簽收（<span id="salaryAckMonths"></span>）</span>
+        </div>
+        <div id="pnlPendingBanner" class="hpill" style="display:none;" onclick="window.location.href='performance.html'">
+          <span class="dot d-org"></span><span class="hpill-t">績效待輸入（<span id="pnlPendingMonths"></span>）</span>
+        </div>
+        <div id="homeNextWeekBanner" class="hpill" style="display:none;">
+          <span class="dot d-blue"></span><span class="hpill-t">下週班表已發布</span>
+          <button class="hpill-x" onclick="event.stopPropagation(); dismissNextWeekBanner();" aria-label="關閉">×</button>
+        </div>
+        <div id="leaveHintBanner" class="hpill" style="display:none;" onclick="window.location.href='leave-request.html'">
+          <span class="dot d-yel"></span><span class="hpill-t" id="leaveHintText">劃休開放中</span>
+          <button class="hpill-x" onclick="event.stopPropagation(); dismissLeaveHint();" aria-label="關閉">×</button>
+        </div>
+        <div id="lineBindHome" class="hpill" style="display:none;" onclick="openLineBindModal()">
+          <span class="dot d-green"></span><span class="hpill-t">綁定 LINE 通知</span>
+        </div>
       </div>
 
       <div id="announceBannerWrap" style="display:none; margin-bottom:10px;">
@@ -230,35 +238,39 @@
         <div id="announceBanner" style="display:flex; gap:10px; overflow-x:auto; padding-bottom:4px; -webkit-overflow-scrolling:touch; scrollbar-width:none;"></div>
       </div>
 
-      <div id="pendingBadgeBar" style="display:none; background:linear-gradient(135deg,#fce8e6,#fef2f2); border:1.5px solid var(--danger); border-radius:12px; padding:10px 14px; margin-bottom:12px; cursor:pointer; align-items:center; gap:10px;" onclick="document.getElementById('pendingCard').scrollIntoView({behavior:'smooth'})">
-        <div style="font-size:18px;">🔔</div>
-        <div style="flex:1; font-size:13px; font-weight:800; color:var(--danger);">有 <span id="pendingBadgeCount">0</span> 件待處理事項</div>
-        <div style="color:var(--danger); font-size:16px; font-weight:900;">›</div>
+      <!-- 常用功能 3＋3：內容由 home-nav.js renderQuickBtns() 依 users/{uid}.homeFavs 或角色預設畫出 -->
+      <div class="card fav-card" id="favPersonalCard">
+        <div class="fav-h"><span class="fav-t">常用功能</span><button class="fav-edit" onclick="openFavEditor()">編輯</button></div>
+        <div class="fav-grid" id="grid-personal"></div>
+      </div>
+      <div class="card fav-card" id="mgmtSection" style="display:none;">
+        <div class="fav-h"><span class="fav-t">常用管理</span><button class="fav-edit" onclick="openFavEditor()">編輯</button></div>
+        <div class="fav-grid" id="grid-mgmt"></div>
       </div>
 
-      <div id="salaryAckBanner" style="display:none; background:linear-gradient(135deg,#fff3e0,#fef2f2); border:1.5px solid #e65100; border-radius:12px; padding:10px 14px; margin-bottom:12px; cursor:pointer; align-items:center; gap:10px;" onclick="gotoSalaryAck()">
-        <div style="font-size:18px;">✍️</div>
-        <div style="flex:1; font-size:13px; font-weight:800; color:#e65100;">你有薪資待簽收（<span id="salaryAckMonths"></span>），點此簽收</div>
-        <div style="color:#e65100; font-size:16px; font-weight:900;">›</div>
-      </div>
-
-      <div id="pnlPendingBanner" style="display:none; background:linear-gradient(135deg,#fff3e0,#fff8ee); border:1.5px solid #e67e22; border-radius:12px; padding:10px 14px; margin-bottom:12px; cursor:pointer; align-items:center; gap:10px;" onclick="window.location.href='performance.html'">
-        <div style="font-size:18px;">📊</div>
-        <div style="flex:1; font-size:13px; font-weight:800; color:#c0620f;">經營績效待輸入（<span id="pnlPendingMonths"></span>），點此前往</div>
-        <div style="color:#c0620f; font-size:16px; font-weight:900;">›</div>
-      </div>
-
-      <div id="leaveHintBanner" style="display:none; background:linear-gradient(135deg,#fff8e1,#fffde7); border:1.5px solid #f0c000; border-radius:12px; padding:10px 14px; margin-bottom:12px; align-items:center; gap:10px;">
-        <div style="font-size:18px;">📅</div>
-        <div style="flex:1; font-size:13px; font-weight:700; color:#8a6d00;" id="leaveHintText">劃休開放中，需要休假記得去劃休～</div>
-        <button onclick="window.location.href='leave-request.html'" style="background:#f0c000; color:#fff; border:none; border-radius:8px; padding:6px 12px; font-size:12px; font-weight:800; cursor:pointer; flex-shrink:0;">去劃休</button>
-        <button onclick="dismissLeaveHint()" style="background:none; border:none; color:#8a6d00; font-size:16px; cursor:pointer; padding:2px 6px; flex-shrink:0;">✕</button>
-      </div>
-
-      <div id="lineBindHome" style="display:none; align-items:center; gap:8px; background:#e6f7ea; border:1px solid #06c755; border-radius:10px; padding:7px 12px; margin-bottom:12px; cursor:pointer;" onclick="openLineBindModal()">
-        <span style="font-size:15px;">🔔</span>
-        <span style="flex:1; font-size:12px; font-weight:700; color:#0b7a3b;">綁定 LINE，接收薪資／劃休主動通知</span>
-        <span style="color:#0b7a3b; font-size:14px; font-weight:900;">›</span>
+      <!-- 門市工具：快捷鍵（全員可見）。CITY手順是自建頁（city.html），另外兩個是外部連結。工具變多時 .tool-row 會自動變成左右滑 -->
+      <div class="tool-shortcuts">
+        <div class="tool-title">門市工具</div>
+        <div class="tool-row">
+          <a class="tool-item" href="city.html">
+            <span class="tool-ring ring-city"><span class="tool-face">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h12v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V9z"/><path d="M16 11h1.5a2.5 2.5 0 0 1 0 5H16"/><path d="M8 3v3M12 3v3"/></svg>
+            </span></span>
+            <span class="tool-label">CITY手順</span>
+          </a>
+          <a class="tool-item" href="https://bk-bc.github.io/Barcode/" target="_blank" rel="noopener">
+            <span class="tool-ring ring-barcode"><span class="tool-face">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="3" y="5" width="2" height="14"/><rect x="6.5" y="5" width="1" height="14"/><rect x="9" y="5" width="2.5" height="14"/><rect x="13" y="5" width="1" height="14"/><rect x="15.5" y="5" width="2" height="14"/><rect x="19" y="5" width="1.5" height="14"/></svg>
+            </span></span>
+            <span class="tool-label">條碼查詢</span>
+          </a>
+          <a class="tool-item" href="https://www.wds.com.tw/webchat/?action=dispatch2&amp;bb=2&amp;openExternalBrowser=1" target="_blank" rel="noopener">
+            <span class="tool-ring ring-wds"><span class="tool-face">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><circle cx="9" cy="12" r=".6" fill="currentColor"/><circle cx="12.5" cy="12" r=".6" fill="currentColor"/><circle cx="16" cy="12" r=".6" fill="currentColor"/></svg>
+            </span></span>
+            <span class="tool-label">大智通小智</span>
+          </a>
+        </div>
       </div>
 
       <div class="card">
@@ -288,44 +300,6 @@
         </div>
       </div>
 
-      <!-- 門市工具：快捷鍵（全員可見）。CITY手順是自建頁（city.html），另外兩個是外部連結。工具變多時 .tool-row 會自動變成左右滑 -->
-      <div class="tool-shortcuts">
-        <div class="tool-title">門市工具</div>
-        <div class="tool-row">
-          <a class="tool-item" href="city.html">
-            <span class="tool-ring ring-city"><span class="tool-face">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h12v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V9z"/><path d="M16 11h1.5a2.5 2.5 0 0 1 0 5H16"/><path d="M8 3v3M12 3v3"/></svg>
-            </span></span>
-            <span class="tool-label">CITY手順</span>
-          </a>
-          <a class="tool-item" href="https://bk-bc.github.io/Barcode/" target="_blank" rel="noopener">
-            <span class="tool-ring ring-barcode"><span class="tool-face">
-              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="3" y="5" width="2" height="14"/><rect x="6.5" y="5" width="1" height="14"/><rect x="9" y="5" width="2.5" height="14"/><rect x="13" y="5" width="1" height="14"/><rect x="15.5" y="5" width="2" height="14"/><rect x="19" y="5" width="1.5" height="14"/></svg>
-            </span></span>
-            <span class="tool-label">條碼查詢</span>
-          </a>
-          <a class="tool-item" href="https://www.wds.com.tw/webchat/?action=dispatch2&amp;bb=2&amp;openExternalBrowser=1" target="_blank" rel="noopener">
-            <span class="tool-ring ring-wds"><span class="tool-face">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><circle cx="9" cy="12" r=".6" fill="currentColor"/><circle cx="12.5" cy="12" r=".6" fill="currentColor"/><circle cx="16" cy="12" r=".6" fill="currentColor"/></svg>
-            </span></span>
-            <span class="tool-label">大智通小智</span>
-          </a>
-        </div>
-      </div>
-
-      <div class="card" style="padding:14px 14px 10px;">
-        <div class="func-section">
-          <div class="func-grid expanded" id="grid-personal"></div>
-        </div>
-        <div class="func-section" id="mgmtSection" style="display:none; border-top:1px solid var(--border); padding-top:10px; margin-top:8px;">
-          <div class="func-section-header" onclick="toggleFuncSection('mgmt')">
-            <div class="func-section-title">管理功能</div>
-            <span class="func-section-arrow open" id="arrow-mgmt">›</span>
-          </div>
-          <div class="func-grid expanded" id="grid-mgmt"></div>
-        </div>
-      </div>
-
       <div id="statsArea"></div>
 
       <div class="card" id="pendingCard">
@@ -340,147 +314,8 @@
       </div>
     </div>
 
-    <div class="page" id="page-schedule">
-      <div style="text-align:center; padding:40px 20px;">
-        <div style="font-size:40px; margin-bottom:12px;">📅</div>
-        <div style="font-size:16px; font-weight:900; margin-bottom:8px;">正在跳轉到班表...</div>
-      </div>
-    </div>
+  </div>
 
-    <div class="page" id="page-apply">
-      <div class="sub-header">
-        <button class="sub-header-back" onclick="switchPage('home')">← 首頁</button>
-        <div class="sub-header-title">假期申請</div>
-      </div>
-      <div class="card" style="text-align:center; padding:32px 20px;">
-        <div class="wip-icon">📅</div>
-        <div class="wip-title">劃休申請</div>
-        <div class="wip-desc">點擊下方按鈕前往劃休申請系統</div>
-        <button onclick="window.location.href='leave-request.html'"
-          style="margin-top:16px; padding:13px 28px; background:var(--primary); color:white; border:none; border-radius:12px; font-size:15px; font-weight:800; cursor:pointer;">
-          📅 前往劃休申請
-        </button>
-      </div>
-    </div>
-
-    <div class="page" id="page-salary">
-      <div class="sub-header">
-        <button class="sub-header-back" onclick="switchPage('home')">← 首頁</button>
-        <div class="sub-header-title">薪資計算</div>
-      </div>
-      <div class="card" style="text-align:center; padding:40px 20px;">
-        <div class="wip-icon">💹</div>
-        <div class="wip-title">薪資計算</div>
-        <div class="wip-desc">薪資結構試算、月結明細、加班費計算功能開發中，敬請期待！</div>
-        <div class="wip-badge">🔨 新增中</div>
-      </div>
-    </div>
-
-    <div class="page" id="page-profile">
-      <div class="sub-header">
-        <button class="sub-header-back" onclick="switchPage('home')">← 首頁</button>
-        <div class="sub-header-title">個人資料</div>
-        <button class="sub-header-action" onclick="doLogout()">🚪 登出</button>
-      </div>
-      <div class="profile-header">
-        <div class="profile-avatar" id="profileAvatar">👤</div>
-        <div class="profile-name" id="profileName">--</div>
-        <div class="profile-role" id="profileRoleText">--</div>
-        <div class="profile-store" id="profileStoreText">--</div>
-      </div>
-
-      <div class="menu-list">
-        <div class="menu-item" onclick="window.location.href='employee-mgmt.html?mode=self'">
-          <div class="menu-item-icon" style="background:#e8f0fe;">👤</div>
-          <div class="menu-item-text">
-            <div class="menu-item-title">帳號管理</div>
-            <div class="menu-item-sub" id="menuAccountSub">帳號資訊</div>
-          </div>
-          <div class="menu-item-arrow">›</div>
-        </div>
-        <div class="menu-item" onclick="window.location.href='todo.html'">
-          <div class="menu-item-icon" style="background:#fff8e1;">🗒️</div>
-          <div class="menu-item-text">
-            <div class="menu-item-title">代辦事項</div>
-            <div class="menu-item-sub">待辦清單與公告提醒</div>
-          </div>
-          <div class="menu-item-arrow">›</div>
-        </div>
-        <div class="menu-item" onclick="window.location.href='leave.html'">
-          <div class="menu-item-icon" style="background:#f3e8ff;">🏖️</div>
-          <div class="menu-item-text">
-            <div class="menu-item-title">特休 / 補休</div>
-            <div class="menu-item-sub">餘額查詢、使用紀錄與明細</div>
-          </div>
-          <div class="menu-item-arrow">›</div>
-        </div>
-        <div class="menu-item" onclick="openLineBindModal()">
-          <div class="menu-item-icon" style="background:#e6f7ea;">🔔</div>
-          <div class="menu-item-text">
-            <div class="menu-item-title">LINE 通知綁定</div>
-            <div class="menu-item-sub" id="lineBindSub">綁定後可收薪資/劃休等主動通知</div>
-          </div>
-          <div class="menu-item-arrow">›</div>
-        </div>
-        <div class="menu-item" onclick="showWip('劃休紀錄')">
-          <div class="menu-item-icon" style="background:#fce8e6;">📜</div>
-          <div class="menu-item-text">
-            <div class="menu-item-title">劃休紀錄</div>
-            <div class="menu-item-sub">畫休異動歷史紀錄</div>
-          </div>
-          <div class="menu-item-arrow">›</div>
-        </div>
-        <div class="menu-item" id="menuSysConfig" style="display:none;" onclick="window.location.href='settings.html'">
-          <div class="menu-item-icon" style="background:#fce8e6;">⚙️</div>
-          <div class="menu-item-text">
-            <div class="menu-item-title" style="color:var(--danger);">系統基礎設定</div>
-            <div class="menu-item-sub">門市管理、班別設定</div>
-          </div>
-          <div class="menu-item-arrow">›</div>
-        </div>
-        <div class="menu-item" id="menuRolePreview" style="display:none;" onclick="openRolePreviewModal()">
-          <div class="menu-item-icon" style="background:#f3e8ff;">🎭</div>
-          <div class="menu-item-text">
-            <div class="menu-item-title" style="color:#9334e6;">角色預覽</div>
-            <div class="menu-item-sub" id="menuRolePreviewSub">以不同角色體驗介面</div>
-          </div>
-          <div class="menu-item-arrow">›</div>
-        </div>
-        <div class="menu-item" id="menuStoreConfig" style="display:none;" onclick="window.location.href='settings.html'">
-          <div class="menu-item-icon" style="background:#e8f0fe;">🔧</div>
-          <div class="menu-item-text">
-            <div class="menu-item-title" style="color:var(--primary);">門市班別設定</div>
-            <div class="menu-item-sub">班別快捷、備註快捷按鈕</div>
-          </div>
-          <div class="menu-item-arrow">›</div>
-        </div>
-      </div>
-    </div>
-
-  </div><nav class="bottom-nav">
-    <button class="nav-item active" data-page="home" onclick="switchPage('home')">
-      <span class="nav-icon">🏠</span>
-      <span class="nav-label">首頁</span>
-    </button>
-    <button class="nav-item" data-page="schedule" onclick="window.location.href='schedule-V2.html'">
-      <span class="nav-icon">📅</span>
-      <span class="nav-label">班表</span>
-    </button>
-    <button class="nav-item" data-page="apply" onclick="switchPage('apply')">
-      <div class="nav-badge" data-count="0" id="applyBadge">
-        <span class="nav-icon">📝</span>
-      </div>
-      <span class="nav-label">申請</span>
-    </button>
-    <button class="nav-item" onclick="goToSalary()">
-      <span class="nav-icon">💰</span>
-      <span class="nav-label">薪資</span>
-    </button>
-    <button class="nav-item" data-page="profile" onclick="switchPage('profile')">
-      <span class="nav-icon">👤</span>
-      <span class="nav-label">個人</span>
-    </button>
-  </nav>
 
 </div><div class="modal-overlay" id="wipModal" onclick="closeWip(event)">
   <div class="modal-box">
@@ -493,177 +328,32 @@
   </div>
 </div>
 
-<div class="bottom-sheet-overlay" id="settingsOverlay" onclick="closeSettingsSheet()"></div>
-<div class="bottom-sheet" id="settingsSheet">
-  <div class="bs-handle"></div>
-  <div id="settingsProfile" style="display:flex; align-items:center; gap:12px; padding:0 20px 16px;">
-    <div style="width:44px; height:44px; border-radius:50%; background:var(--primary); display:flex; align-items:center; justify-content:center; font-size:20px; font-weight:800; color:white;" id="settingsAvatar">👤</div>
-    <div>
-      <div style="font-size:15px; font-weight:800;" id="settingsName">--</div>
-      <div style="font-size:12px; color:var(--text-muted);" id="settingsRole">--</div>
+<!-- ===== ☰ 全部功能（左側抽屜）：取代原本的 ⚙️ 帳號選單、特補休 sheet、更多管理、加盟主專區；內容由 home-nav.js 畫出 ===== -->
+<div class="nav-drawer-overlay" id="navDrawerOverlay" onclick="closeNavDrawer()"></div>
+<aside class="nav-drawer" id="navDrawer" aria-label="全部功能" aria-hidden="true">
+  <div class="nd-top">
+    <div class="nd-me">
+      <div class="nd-av" id="ndAvatar">👤</div>
+      <div style="flex:1; min-width:0;">
+        <div class="nd-name" id="ndName">--</div>
+        <div class="nd-role" id="ndRole">--</div>
+      </div>
+      <button class="nd-close" onclick="closeNavDrawer()" aria-label="關閉">✕</button>
     </div>
+    <input id="ndSearch" class="nd-search" type="search" placeholder="🔍 搜尋功能，例如「盤點」" autocomplete="off" oninput="renderNavDrawer()">
   </div>
-  <div class="bs-title">帳號與設定</div>
-  <div class="bs-item" onclick="closeSettingsSheet(); window.location.href='employee-mgmt.html?mode=self';">
-    <div class="bs-item-icon" style="background:#e8f0fe;">👤</div>
-    <div class="bs-item-text">
-      <div class="bs-item-label">帳號管理</div>
-      <div class="bs-item-sub">修改密碼、個人資料</div>
-    </div>
-    <div class="bs-item-arrow">›</div>
-  </div>
-  <!-- 更新日誌：員工看得到獨立入口；店長以上整合進「系統設定」 -->
-  <div class="bs-item" id="bsChangelog" style="display:none;" onclick="closeSettingsSheet(); window.location.href='settings.html';">
-    <div class="bs-item-icon" style="background:#f3e8ff;">📋</div>
-    <div class="bs-item-text">
-      <div class="bs-item-label">更新日誌</div>
-      <div class="bs-item-sub">查看系統功能更新紀錄</div>
-    </div>
-    <div class="bs-item-arrow">›</div>
-  </div>
-  <div class="bs-item" id="bsStoreConfig" style="display:none;" onclick="closeSettingsSheet(); window.location.href='settings.html';">
-    <div class="bs-item-icon" style="background:#e8f5e9;">🔧</div>
-    <div class="bs-item-text">
-      <div class="bs-item-label">系統設定</div>
-      <div class="bs-item-sub">班別、工時、投保級距、更新日誌等</div>
-    </div>
-    <div class="bs-item-arrow">›</div>
-  </div>
-  <div class="bs-divider"></div>
-  <div class="bs-item" onclick="closeSettingsSheet(); doLogout();">
-    <div class="bs-item-icon" style="background:#fce8e6;">🚪</div>
-    <div class="bs-item-text">
-      <div class="bs-item-label" style="color:var(--danger);">登出</div>
-      <div class="bs-item-sub">退出目前帳號</div>
-    </div>
-  </div>
-  <div style="height:16px;"></div>
-</div>
+  <div class="nd-body" id="ndBody"></div>
+</aside>
 
-<div class="bottom-sheet-overlay" id="leaveOverlay" onclick="closeLeaveSheet()"></div>
-<div class="bottom-sheet" id="leaveSheet">
-  <div class="bs-handle"></div>
-  <div class="bs-title">特補休 · 劃休</div>
-  <div class="bs-item" onclick="closeLeaveSheet(); window.location.href='leave-request.html';">
-    <div class="bs-item-icon" style="background:#e8f0fe;">📅</div>
-    <div class="bs-item-text">
-      <div class="bs-item-label">劃休申請</div>
-      <div class="bs-item-sub">排休、特休、補休月曆申請</div>
-    </div>
-    <div class="bs-item-arrow">›</div>
+<!-- ===== 編輯常用 ===== -->
+<div class="bottom-sheet-overlay" id="favEditOverlay" onclick="closeFavEditor()"></div>
+<div class="bottom-sheet" id="favEditSheet" role="dialog" aria-labelledby="favEditTitle">
+  <div class="fe-head">
+    <button class="fe-cancel" onclick="closeFavEditor()">取消</button>
+    <div class="fe-h" id="favEditTitle">編輯常用</div>
+    <button class="fe-done" onclick="saveFavEditor()">完成</button>
   </div>
-  <div class="bs-item" onclick="closeLeaveSheet(); window.location.href='leave.html?mode=self';">
-    <div class="bs-item-icon" style="background:#f3e8ff;">🏖️</div>
-    <div class="bs-item-text">
-      <div class="bs-item-label">特補休紀錄</div>
-      <div class="bs-item-sub">餘額查詢、批次與異動明細</div>
-    </div>
-    <div class="bs-item-arrow">›</div>
-  </div>
-  <div class="bs-item" onclick="closeLeaveSheet(); window.location.href='my-attendance.html';">
-    <div class="bs-item-icon" style="background:#e8f5e9;">🗓️</div>
-    <div class="bs-item-text">
-      <div class="bs-item-label">我的出勤</div>
-      <div class="bs-item-sub">查自己的打卡紀錄、遲到早退</div>
-    </div>
-    <div class="bs-item-arrow">›</div>
-  </div>
-  <div style="height:16px;"></div>
-</div>
-
-<div class="bottom-sheet-overlay" id="moreMgmtOverlay" onclick="closeMoreMgmtSheet()"></div>
-<div class="bottom-sheet" id="moreMgmtSheet">
-  <div class="bs-handle"></div>
-  <div class="bs-title">管理功能</div>
-  <div class="bs-item" onclick="closeMoreMgmtSheet(); window.location.href='employee-mgmt.html';">
-    <div class="bs-item-icon" style="background:#e8f5e9;">👥</div>
-    <div class="bs-item-text">
-      <div class="bs-item-label">員工資料</div>
-      <div class="bs-item-sub">帳號、職位、調店、離職</div>
-    </div>
-    <div class="bs-item-arrow">›</div>
-  </div>
-  <div class="bs-item" onclick="closeMoreMgmtSheet(); window.location.href='leave.html?mode=mgmt';">
-    <div class="bs-item-icon" style="background:#f3e8ff;">📆</div>
-    <div class="bs-item-text">
-      <div class="bs-item-label">員工特補休</div>
-      <div class="bs-item-sub">假別管理、紀錄查詢</div>
-    </div>
-    <div class="bs-item-arrow">›</div>
-  </div>
-  <div class="bs-item" id="bsMgmtPerformance" onclick="closeMoreMgmtSheet(); window.location.href='performance.html';">
-    <div class="bs-item-icon" style="background:#fff3e0;">📊</div>
-    <div class="bs-item-text">
-      <div class="bs-item-label">經營績效專區</div>
-      <div class="bs-item-sub">每月門市損益輸入、同期比較</div>
-    </div>
-    <div class="bs-item-arrow">›</div>
-  </div>
-  <div class="bs-item" id="bsMgmtOwner" style="display:none;" onclick="closeMoreMgmtSheet(); window.location.href='owner-dashboard.html';">
-    <div class="bs-item-icon" style="background:#ede7f6;">👑</div>
-    <div class="bs-item-text">
-      <div class="bs-item-label">加盟主決策儀表板</div>
-      <div class="bs-item-sub">三店總覽、店長管理力、決策警示（含人事分析／薪資匯出）</div>
-    </div>
-    <div class="bs-item-arrow">›</div>
-  </div>
-  <div class="bs-item" id="bsRolePreview" style="display:none;" onclick="closeMoreMgmtSheet(); openRolePreviewModal();">
-    <div class="bs-item-icon" style="background:#f3e8ff;">🎭</div>
-    <div class="bs-item-text">
-      <div class="bs-item-label">角色預覽</div>
-      <div class="bs-item-sub">以不同角色體驗介面（含離職受限預覽）</div>
-    </div>
-    <div class="bs-item-arrow">›</div>
-  </div>
-  <div class="bs-item" id="bsMgmtInspection" onclick="closeMoreMgmtSheet(); window.location.href='inspection.html?ref=home.html';">
-    <div class="bs-item-icon" style="background:#e0f2f1;">📋</div>
-    <div class="bs-item-text">
-      <div class="bs-item-label">盤點資料</div>
-      <div class="bs-item-sub">輪班表、出勤記錄表、薪資單（PDF）</div>
-    </div>
-    <div class="bs-item-arrow">›</div>
-  </div>
-  <div class="bs-item" id="bsMgmtAttendance" onclick="closeMoreMgmtSheet(); window.location.href='attendance.html';">
-    <div class="bs-item-icon" style="background:#e8f5e9;">🗂️</div>
-    <div class="bs-item-text">
-      <div class="bs-item-label">出勤管理</div>
-      <div class="bs-item-sub">打卡記錄、遲到早退、到場待對應</div>
-    </div>
-    <div class="bs-item-arrow">›</div>
-  </div>
-  <div class="bs-item" id="bsMgmtAudit" style="display:none;" onclick="closeMoreMgmtSheet(); window.location.href='data-audit.html';">
-    <div class="bs-item-icon" style="background:#e3f2fd;">🩺</div>
-    <div class="bs-item-text">
-      <div class="bs-item-label">資料健檢</div>
-      <div class="bs-item-sub">假別／到職日／跨店 一致性一鍵檢查</div>
-    </div>
-    <div class="bs-item-arrow">›</div>
-  </div>
-  <div style="height:16px;"></div>
-</div>
-
-<!-- 加盟主專區 sheet（人事分析 + 薪資匯出）-->
-<div class="bottom-sheet-overlay" id="ownerZoneOverlay" onclick="closeOwnerZoneSheet()"></div>
-<div class="bottom-sheet" id="ownerZoneSheet">
-  <div class="bs-handle"></div>
-  <div class="bs-title">🏢 加盟主專區</div>
-  <div class="bs-item" onclick="closeOwnerZoneSheet(); window.location.href='analytics.html';">
-    <div class="bs-item-icon" style="background:#f3e8ff;">📊</div>
-    <div class="bs-item-text">
-      <div class="bs-item-label">人事分析</div>
-      <div class="bs-item-sub">多月趨勢、支援成本、員工時薪</div>
-    </div>
-    <div class="bs-item-arrow">›</div>
-  </div>
-  <div class="bs-item" onclick="closeOwnerZoneSheet(); window.location.href='export.html';">
-    <div class="bs-item-icon" style="background:#e8f5e9;">📤</div>
-    <div class="bs-item-text">
-      <div class="bs-item-label">薪資匯出</div>
-      <div class="bs-item-sub">Excel / PDF 薪資報表</div>
-    </div>
-    <div class="bs-item-arrow">›</div>
-  </div>
-  <div style="height:16px;"></div>
+  <div id="favEditBody" class="fe-body"></div>
 </div>
 
 <div class="modal-overlay" id="rolePreviewModal" onclick="closeWip(event)">
@@ -749,5 +439,7 @@
 </div>
 
 <script src="home-page.js"></script>
+<script src="home-nav.js"></script>
+<script src="home-tour.js"></script>
 </body>
 </html>

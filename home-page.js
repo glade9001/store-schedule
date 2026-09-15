@@ -115,7 +115,8 @@ async function updateHomeClockStatus(){
   const sub=document.getElementById('homeClockSub');
   if(!card||!sub) return;
   const store=currentUser.store, emp=currentUser.empName;
-  const GREEN='linear-gradient(135deg,#34a853,#1e7e34)', GREEN_SH='0 3px 12px rgba(52,168,83,.3)';
+  // 2026-09-15 首頁改版：正常狀態改用主色藍（綠色留給「完成」語意）；紅色仍是「班已開始還沒打卡」
+  const GREEN='#1a73e8', GREEN_SH='0 8px 22px rgba(14,33,64,.28)';
   const RED='linear-gradient(135deg,#ea4335,#c5221f)', RED_SH='0 3px 14px rgba(234,67,53,.4)';
   const setGreen=(ic,txt)=>{ card.style.background=GREEN; card.style.boxShadow=GREEN_SH; if(icon)icon.textContent=ic; sub.textContent=txt; };
   const setRed=(ic,txt)=>{ card.style.background=RED; card.style.boxShadow=RED_SH; if(icon)icon.textContent=ic; sub.textContent=txt; };
@@ -169,7 +170,7 @@ async function updateHomeClockStatus(){
     shifts.sort((a,b)=>a.startMs-b.startMs);
     const up=shifts.find(s=>Date.now()<=s.startMs+punchWindowMs().inAfter)||shifts[0];
     if(Date.now()>=up.startMs){ setRed('⚠️',`你今天 ${up.shift}${atTail} 的班已開始，還沒打上班卡！`); }
-    else { setGreen('🕐',`今天 ${up.shift}${atTail} 上班，記得準時打卡`); }
+    else { setGreen('🕐',`記得準時打卡${atTail}`); } // 班別時段已顯示在卡片右側的 todayShiftBadge
   }catch(e){}
 }
 
@@ -941,7 +942,7 @@ async function checkLeaveHint(){
     const md=x=>`${x.getMonth()+1}/${x.getDate()}`;
     const dow=['日','一','二','三','四','五','六'][info.deadline.getDay()];
     const el=document.getElementById('leaveHintText');
-    if(el) el.innerHTML = `${md(info.mon)}–${md(info.sun)} 劃休開放中，需要休假記得去劃休～<br><span style="font-size:11px;font-weight:600;">截止 ${md(info.deadline)}（週${dow}）23:59</span>`;
+    if(el) el.textContent = `${md(info.mon)}–${md(info.sun)} 可劃休・${md(info.deadline)}（${dow}）截止`;
     bar.style.display='flex';
   }catch(e){ console.error('checkLeaveHint 失敗', e); }
 }
@@ -1178,25 +1179,11 @@ async function initApp() {
   document.getElementById('headerStore').textContent = storeLabel;
   document.getElementById('headerAvatar').textContent = dName ? dName[0] : '👤';
 
-  // Greeting
-  const now = new Date();
-  const { greet, icon } = getGreeting();
-  document.getElementById('greetingTime').textContent = `${icon} ${now.getMonth()+1}月${now.getDate()}日 · ${['週日','週一','週二','週三','週四','週五','週六'][now.getDay()]}`;
-  document.getElementById('greetingName').textContent = `嗨，${dName}！`;
-  document.getElementById('greetingDesc').textContent = greet;
-  document.getElementById('greetingBadge').textContent = currentUser.store ? `🏪 ${currentUser.store}` : `🏬 全門市管理`;
-
-  // 個人頁面更新
-  document.getElementById('profileAvatar').textContent = dName ? dName[0] : '👤';
-  document.getElementById('profileName').textContent = dName;
-  document.getElementById('profileRoleText').textContent = ROLE_LABELS[currentUser.role] || currentUser.role || '管理者';
-  document.getElementById('profileStoreText').textContent = currentUser.store ? currentUser.store : '全門市';
-
   // ===== 根據權限調整 UI =====
   // 待處理卡片：所有人都顯示（員工看代辦，管理者看排班/薪資/特休等）
   document.getElementById('pendingCard').style.display = 'block';
 
-  renderQuickBtns();
+  initHomeNav(); // 常用功能 3＋3 與 ☰（home-nav.js）；讀回設定後視情況自動跳新版教學
   checkSalaryAck(); // 背景檢查薪資待簽收，完成後顯示橫幅
   checkPnlPending(); // 背景檢查經營績效待輸入
   checkHireDateGate(); // 店長：補齊缺到職日的員工（強制）
@@ -1204,21 +1191,9 @@ async function initApp() {
   checkLeaveHint(); // 背景檢查下週劃休提醒
   checkLineBindHint(); // 未綁定 LINE → 首頁顯示小條
 
-  if(canManageEmployee()) {
-    document.getElementById('menuAccountSub').textContent = '管理員工帳號密碼';
-  } else {
-    document.getElementById('menuAccountSub').textContent = '查看帳號 / 修改密碼';
-  }
-
   const permColors = { employee: '#34a853', manager: '#1a73e8', owner: '#9334e6', admin: '#d93025' };
   document.getElementById('headerStore').style.background = (permColors[currentUser.permission] || '#5f6368') + '55';
 
-  const sysMenuItem = document.getElementById('menuSysConfig');
-  if(sysMenuItem) sysMenuItem.style.display = canSysConfig() ? 'flex' : 'none';
-  const storeConfigItem = document.getElementById('menuStoreConfig');
-  if(storeConfigItem) storeConfigItem.style.display = canSchedule() ? 'flex' : 'none';
-  const rolePrevItem = document.getElementById('menuRolePreview');
-  if(rolePrevItem) rolePrevItem.style.display = (currentUser.permission === 'admin') ? 'flex' : 'none';
 
   // ✅ 班表讀取加 timeout + catch，任何錯誤都不影響整頁顯示
   await Promise.race([
@@ -1762,7 +1737,7 @@ function renderStatsArea() {
         </div>
         <div class="stat-card" style="padding: 10px 4px; display: flex; flex-direction: column; align-items: center;">
           <div class="stat-icon">⚡</div>
-          <div class="stat-val" id="statMonthOT" style="color:var(--danger); font-size:20px;">--</div>
+          <div class="stat-val" id="statMonthOT" style="font-size:20px;">--</div>
           <div class="stat-label" style="font-size: 9px;">本月加班 (h)</div>
         </div>
       </div>`;
@@ -2263,6 +2238,9 @@ async function loadPendingItems() {
   const pendingCard = document.getElementById('pendingCard');
   const badge = document.getElementById('pendingBadgeBar');
 
+  const menuDot = document.getElementById('headerMenuDot'); // ☰ 紅點：抽屜最上面會列出待處理件數
+  if(menuDot) menuDot.hidden = pending.length === 0;
+
   if(badge) {
     if(pending.length > 0) {
       badge.style.display = 'flex';
@@ -2286,123 +2264,6 @@ async function loadPendingItems() {
         ${p.link ? `<div style="color:var(--primary); font-size:16px; font-weight:900; padding-left:8px;">›</div>` : ''}
       </div>`).join('');
   }
-}
-
-// ===== 頁面切換 =====
-function switchPage(name) {
-  if(name === 'salary') { goToSalary(); return; }
-
-  const pageEl = document.getElementById(`page-${name}`);
-  if(!pageEl) { console.warn('找不到頁面:', name); return; }
-
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  pageEl.classList.add('active');
-  document.querySelector(`[data-page="${name}"]`)?.classList.add('active');
-
-  // 註：原本這裡呼叫 loadProfilePage()，但該函式全專案都不存在，每次點「個人」都會拋 ReferenceError。
-  // 個人頁的欄位（profileName/profileRoleText/profileStoreText）已由 initApp() 於登入時填好，不需另外載入。
-}
-
-// ===== 快速功能按鈕動態渲染 =====
-function renderQuickBtns() {
-  const personal = document.getElementById('grid-personal');
-  const mgmt     = document.getElementById('grid-mgmt');
-  const mgmtSec  = document.getElementById('mgmtSection');
-  if(!personal) return;
-
-  // 折疊狀態記憶
-  const mState = localStorage.getItem('funcSection-mgmt') !== 'collapsed';
-  setFuncSectionState('mgmt', mState);
-
-  // ===== 常用功能（所有人，3個）=====
-  personal.innerHTML = `
-    <button class="func-btn blue-dark" onclick="window.location.href='schedule-V2.html'">
-      <div class="func-icon">📅</div><div class="func-label">班表</div>
-    </button>
-    <button class="func-btn purple" onclick="openLeaveSheet()">
-      <div class="func-icon">🏖️</div><div class="func-label" style="text-align:center;line-height:1.4;">特補休/劃休</div>
-    </button>
-    ${currentUser.empName ? `
-    <button class="func-btn orange" onclick="window.location.href='my-salary.html'">
-      <div class="func-icon">💰</div><div class="func-label">薪水</div>
-    </button>` : ''}`;
-
-  // ===== 管理功能（店長以上）=====
-  if(!canSchedule()) { mgmtSec.style.display='none'; return; }
-  mgmtSec.style.display = 'block';
-
-  mgmt.innerHTML = `
-    <button class="func-btn blue-dark" onclick="window.location.href='schedule-V2.html?mode=admin'">
-      <div class="func-icon">📋</div><div class="func-label">排班</div>
-    </button>
-    <button class="func-btn orange-dark" onclick="window.location.href='salary.html'">
-      <div class="func-icon">💳</div><div class="func-label">算薪水</div>
-    </button>
-    <button class="func-btn gray" onclick="openMoreMgmtSheet()">
-      <div class="func-icon">⋯</div><div class="func-label">更多管理</div>
-    </button>`;
-
-  // 更多管理 sheet 的項目顯示：加盟主專區（人事分析＋薪資匯出）
-  const bsOwner = document.getElementById('bsMgmtOwner');
-  if(bsOwner) bsOwner.style.display = canViewReport() ? 'flex' : 'none';
-  const bsRp = document.getElementById('bsRolePreview');
-  if(bsRp) bsRp.style.display = (currentUser?.permission === 'admin') ? 'flex' : 'none';
-}
-
-// ===== Bottom Sheet 控制 =====
-function openSettingsSheet() {
-  // 更新 sheet 裡的使用者資訊
-  const dName = displayNameMap[currentUser.empName] || currentUser.empName || '';
-  document.getElementById('settingsAvatar').textContent = dName ? dName[0] : '👤';
-  document.getElementById('settingsName').textContent = dName || currentUser.empName || '--';
-  document.getElementById('settingsRole').textContent =
-    ({ employee:'員工', manager:'店長', owner:'加盟主', admin:'系統管理者' }[currentUser.permission] || '') +
-    (currentUser.store ? ` · ${currentUser.store}` : '');
-  // 系統設定（整合門市設定＋更新日誌）：店長以上顯示，settings.html 內再依權限顯示各區塊
-  const canCfg = canSchedule();
-  const bsStore = document.getElementById('bsStoreConfig');
-  if(bsStore) bsStore.style.display = canCfg ? 'flex' : 'none';
-  // 更新日誌：員工才顯示獨立入口（店長以上已整合在系統設定內）
-  const bsChangelog = document.getElementById('bsChangelog');
-  if(bsChangelog) bsChangelog.style.display = canCfg ? 'none' : 'flex';
-
-  document.getElementById('settingsOverlay').classList.add('active');
-  document.getElementById('settingsSheet').classList.add('active');
-}
-function closeSettingsSheet() {
-  document.getElementById('settingsOverlay').classList.remove('active');
-  document.getElementById('settingsSheet').classList.remove('active');
-}
-function openMoreMgmtSheet() {
-  const bsOwner = document.getElementById('bsMgmtOwner'); // 加盟主專區（人事分析＋薪資匯出）
-  if(bsOwner) bsOwner.style.display = canViewReport() ? 'flex' : 'none';
-  const bsRp = document.getElementById('bsRolePreview');
-  if(bsRp) bsRp.style.display = (currentUser?.permission === 'admin') ? 'flex' : 'none';
-  const bsAudit = document.getElementById('bsMgmtAudit'); // 資料健檢（僅系統管理者）
-  if(bsAudit) bsAudit.style.display = canSysConfig() ? 'flex' : 'none';
-  document.getElementById('moreMgmtOverlay').classList.add('active');
-  document.getElementById('moreMgmtSheet').classList.add('active');
-}
-function closeMoreMgmtSheet() {
-  document.getElementById('moreMgmtOverlay').classList.remove('active');
-  document.getElementById('moreMgmtSheet').classList.remove('active');
-}
-function openOwnerZoneSheet() {
-  document.getElementById('ownerZoneOverlay').classList.add('active');
-  document.getElementById('ownerZoneSheet').classList.add('active');
-}
-function closeOwnerZoneSheet() {
-  document.getElementById('ownerZoneOverlay').classList.remove('active');
-  document.getElementById('ownerZoneSheet').classList.remove('active');
-}
-function openLeaveSheet() {
-  document.getElementById('leaveOverlay').classList.add('active');
-  document.getElementById('leaveSheet').classList.add('active');
-}
-function closeLeaveSheet() {
-  document.getElementById('leaveOverlay').classList.remove('active');
-  document.getElementById('leaveSheet').classList.remove('active');
 }
 
 // ===== 離職員工清單 =====
@@ -2459,24 +2320,6 @@ async function reinstateEmp(empName, store) {
     // 清單已隨 modal 關閉，openRetiredEmpModal() 每次開啟都會重新讀取，不需要在這裡刷新。
   } catch(e) { showToast('❌ 失敗：' + e.message); }
   hideLoading();
-}
-
-// 折疊/展開
-function toggleFuncSection(key) {
-  const grid  = document.getElementById(`grid-${key}`);
-  const arrow = document.getElementById(`arrow-${key}`);
-  if(!grid) return;
-  const isOpen = grid.classList.contains('expanded');
-  setFuncSectionState(key, !isOpen);
-  localStorage.setItem(`funcSection-${key}`, isOpen ? 'collapsed' : 'expanded');
-}
-function setFuncSectionState(key, open) {
-  const grid  = document.getElementById(`grid-${key}`);
-  const arrow = document.getElementById(`arrow-${key}`);
-  if(!grid) return;
-  grid.classList.toggle('expanded',  open);
-  grid.classList.toggle('collapsed', !open);
-  if(arrow) arrow.classList.toggle('open', open);
 }
 
 function goToSchedule() { window.location.href = 'schedule-V2.html'; }

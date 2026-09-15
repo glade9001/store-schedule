@@ -52,13 +52,13 @@ window.onload = async () => {
   // 依權限顯示區塊
   const showEl=(id,ok)=>{const el=document.getElementById(id);if(el)el.style.display=ok?'block':'none';};
   // 各設定項依權限顯示（分類分組）
-  showEl('itemClock', canAdmin()); showEl('itemStoreMgmt', canAdmin()); showEl('itemCity', canAdmin()); showEl('itemMaint', canAdmin()); showEl('itemLineKw', canAdmin()); showEl('itemNotice', canAdmin());
+  showEl('itemClock', canAdmin()); showEl('itemStoreMgmt', canAdmin()); showEl('itemCity', canAdmin()); showEl('itemMaint', canAdmin()); showEl('itemLineKw', canAdmin()); showEl('itemNotice', canAdmin()); showEl('itemTour', canAdmin());
   showEl('itemShift', canManager());
   showEl('itemInsurance', canOwner()); showEl('itemHoliday', canOwner());
   showEl('itemChangelog', true);
-  if(canAdmin()){ loadLineKeywords(); loadMaintenanceState(); loadClockConfig(); loadCitySummary(); loadNoticeStats(); }
+  if(canAdmin()){ loadLineKeywords(); loadMaintenanceState(); loadClockConfig(); loadCitySummary(); loadNoticeStats(); loadTourStats(); }
   // 群組標題：該類任一項可見才顯示整組
-  [['grpOps',['itemClock','itemShift','itemStoreMgmt','itemCity']],['grpPayLaw',['itemInsurance','itemHoliday']],['grpSystem',['itemMaint','itemLineKw','itemNotice','itemChangelog']]]
+  [['grpOps',['itemClock','itemShift','itemStoreMgmt','itemCity']],['grpPayLaw',['itemInsurance','itemHoliday']],['grpSystem',['itemMaint','itemLineKw','itemNotice','itemTour','itemChangelog']]]
     .forEach(([g,items])=>{ const any=items.some(id=>{const el=document.getElementById(id);return el&&el.style.display!=='none';}); showEl(g,any); });
 
   hideLoading();
@@ -169,6 +169,49 @@ async function loadNoticeStats() {
     box.textContent = '讀取失敗：' + e.message;
   }
 }
+// ===== 新版首頁教學完成率（users/{uid}.homeTour，見 home-tour.js）=====
+// 應看名單與公告已讀統計相同：各店 employees「在職」者，以 empName 對 users.empName
+var TOUR_VERSION_FOR_STATS = 'home-2026-09';   // 與 home-tour.js 的 HOME_TOUR_VERSION 同值
+async function loadTourStats() {
+  const box = document.getElementById('tourStats');
+  if(!box) return;
+  try {
+    const today = new Date(Date.now() + 8*3600000).toISOString().slice(0,10);
+    const roster = [];
+    for(const st of (appConfig.stores || [])) {
+      const es = await window.db.collection('stores').doc(st).collection('employees').get().catch(() => null);
+      if(es) es.forEach(d => {
+        const e = d.data() || {};
+        if(e.status === '調走') return;
+        if(e.status === '離職' && (!e.retireDate || today >= e.retireDate)) return;
+        roster.push({ name: d.id, store: st, disp: e.displayName || d.id });
+      });
+    }
+    const us = await window.db.collection('users').get();
+    const tourBy = new Map();
+    us.forEach(d => { const u = d.data() || {}; if(u.empName) tourBy.set(u.empName, u.homeTour || null); });
+    const buckets = { done: [], skipped: [], none: [] };
+    roster.forEach(r => {
+      const t = tourBy.get(r.name);
+      if(t && t.v === TOUR_VERSION_FOR_STATS && t.done) buckets.done.push(r);
+      else if(t && t.v === TOUR_VERSION_FOR_STATS && t.skips > 0) buckets.skipped.push({ ...r, skips: t.skips });
+      else buckets.none.push(r);
+    });
+    const byStore = (list, fmt) => {
+      const g = {};
+      list.forEach(r => (g[r.store] ||= []).push(fmt ? fmt(r) : _esc(r.disp)));
+      return Object.entries(g).map(([st, ns]) => `<br><b style="color:var(--text);">${_esc(st)}</b>　${ns.join('、')}`).join('');
+    };
+    box.innerHTML = `<div style="border:1.5px solid var(--border);border-radius:12px;padding:10px 12px;">
+      <div style="margin-bottom:6px;"><b style="font-size:18px;color:var(--primary);">${buckets.done.length}</b> / ${roster.length} 位在職員工看完教學</div>
+      ${buckets.skipped.length ? `<div style="font-size:12px;color:var(--text-muted);line-height:1.7;margin-bottom:4px;">跳過或中途離開（跳過 2 次後不再自動出現）：${byStore(buckets.skipped, r => `${_esc(r.disp)}(${r.skips})`)}</div>` : ''}
+      ${buckets.none.length ? `<div style="font-size:12px;color:var(--text-muted);line-height:1.7;">還沒開過新版首頁：${byStore(buckets.none)}</div>` : '<div style="font-size:12px;color:#137333;">✅ 全部在職員工都開過新版首頁了</div>'}
+    </div>`;
+  } catch(e) {
+    box.textContent = '讀取失敗：' + e.message;
+  }
+}
+
 async function stopNotice(id) {
   if(!confirm('停止跳出這則公告？已讀紀錄會保留。')) return;
   try {
