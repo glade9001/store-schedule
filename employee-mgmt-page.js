@@ -108,8 +108,10 @@ async function renderLineCard() {
         <button onclick="lineUnbind()" style="width:100%; padding:11px; background:#fce8e6; color:var(--danger); border:none; border-radius:10px; font-weight:700; cursor:pointer; margin-top:8px;">解除綁定</button>`;
       return;
     }
-    body.innerHTML = `<div>綁定後，沒開推播通知時，薪資、班表異動等通知會改用 LINE 發給你（開了推播就只收推播）。</div>
-      <button onclick="lineGenCode()" style="width:100%; padding:11px; background:#06c755; color:#fff; border:none; border-radius:10px; font-weight:800; cursor:pointer; margin-top:14px;">🔔 綁定 LINE 通知</button>`;
+    // 2026-09-15 起不再請人綁 LINE：沒綁的人改引導開推播
+    body.innerHTML = `<div>系統通知已改用<b>推播通知</b>，不需要綁定 LINE。</div>
+      <div style="margin-top:6px; font-size:13px; color:var(--text-muted);">到首頁左上角 ☰ →「推播通知」開啟（iPhone 要先加入主畫面）。</div>
+      <button onclick="window.location.href='home.html'" style="width:100%; padding:11px; background:var(--primary); color:#fff; border:none; border-radius:10px; font-weight:800; cursor:pointer; margin-top:14px;">回首頁開啟推播</button>`;
   } catch(e) { body.innerHTML = '載入失敗：' + e.message; }
 }
 async function lineGenCode() {
@@ -257,7 +259,7 @@ async function loadEmpAdminList(store) {
             <span style="font-size:11px;background:#f1f3f4;padding:2px 7px;border-radius:20px;font-weight:700;color:#555;">${emp.role||''}</span>
             ${lineBound.has(emp.id)
               ? '<span title="已綁定 LINE 通知" style="font-size:11px;background:#e7f7ed;padding:2px 7px;border-radius:20px;font-weight:700;color:#06c755;">🟢 LINE</span>'
-              : '<span title="尚未綁定 LINE 通知" style="font-size:11px;background:#f1f3f4;padding:2px 7px;border-radius:20px;font-weight:700;color:#9aa0a6;">⚪ 未綁</span>'}
+              : ''}
           </div>
           <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
             📅 ${hireDateMap[emp.id] ? hireDateMap[emp.id] : '未設到職日'}

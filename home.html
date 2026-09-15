@@ -242,9 +242,6 @@
           <span class="hpill-ic">🔔</span><span class="hpill-t">開啟推播通知</span>
           <button class="hpill-x" onclick="event.stopPropagation(); hidePushPill();" aria-label="隱藏 7 天">×</button>
         </div>
-        <div id="lineBindHome" class="hpill" style="display:none;" onclick="openLineBindModal()">
-          <span class="dot d-green"></span><span class="hpill-t">綁定 LINE 通知</span>
-        </div>
       </div>
 
       <div id="announceBannerWrap" style="display:none; margin-bottom:10px;">
@@ -446,8 +443,9 @@
   <div id="mtName" style="font-size:14px; font-weight:700; opacity:.95; margin-bottom:14px;"></div>
   <div style="font-size:15px; opacity:.92; margin-bottom:24px; line-height:1.7;">系統正在維護，請稍後再登入。<br>造成不便敬請見諒 🙏</div>
   <div style="width:100%; max-width:340px;">
-    <button id="mtBindBtn" onclick="openLineBindModal()" style="display:none; width:100%; padding:13px; background:#fff; color:#06c755; border:1.5px solid #06c755; border-radius:12px; font-size:15px; font-weight:800; cursor:pointer; margin-bottom:10px;">🟢 綁定 LINE</button>
-    <button id="mtNotifyBtn" onclick="maintenanceNotifyMe()" style="width:100%; padding:14px; background:#06c755; color:#fff; border:none; border-radius:12px; font-size:15px; font-weight:800; cursor:pointer; margin-bottom:10px;">🔔 維護完成後請通知我</button>
+    <!-- 2026-09-15 起不再請人綁 LINE：沒開推播（也沒綁 LINE）的人改顯示「開啟推播通知」 -->
+    <button id="mtBindBtn" onclick="openPushSettings()" style="display:none; width:100%; padding:13px; background:#fff; color:#1a73e8; border:1.5px solid #1a73e8; border-radius:12px; font-size:15px; font-weight:800; cursor:pointer; margin-bottom:10px;">🔔 開啟推播通知</button>
+    <button id="mtNotifyBtn" onclick="maintenanceNotifyMe()" style="width:100%; padding:14px; background:#34a853; color:#fff; border:none; border-radius:12px; font-size:15px; font-weight:800; cursor:pointer; margin-bottom:10px;">🔔 維護完成後請通知我</button>
     <div id="mtNotifyHint" style="font-size:12px; opacity:.9; line-height:1.7;"></div>
   </div>
   <button onclick="doLogout()" style="margin-top:26px; padding:11px 26px; background:rgba(255,255,255,.18); color:#fff; border:1px solid rgba(255,255,255,.5); border-radius:10px; font-size:14px; font-weight:700; cursor:pointer;">登出</button>

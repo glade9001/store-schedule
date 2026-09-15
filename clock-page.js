@@ -52,11 +52,7 @@ window.onload=async()=>{
     document.getElementById('wrap').innerHTML=`<div class="card maint"><div class="maint-icon">🚧</div><div class="maint-title">維護中敬請期待</div><div class="maint-sub">打卡功能尚未對您開放，請稍候。</div></div>`;
     return;
   }
-  // 檢查是否已綁定 LINE（未綁 → 打卡頁提醒去綁）
-  try{
-    if(currentUser.uid){ const bs=await window.db.collection('lineBindings').doc(currentUser.uid).get(); isBound=bs.exists; }
-    else { const qq=await window.db.collection('lineBindings').where('empName','==',currentUser.empName).limit(1).get(); isBound=!qq.empty; }
-  }catch(e){}
+  // 2026-09-15 起不再請人綁 LINE（通知改推播）：不再查綁定、不顯示「尚未綁定 LINE」提醒（isBound 維持預設 true）
   // 讀打卡提醒偏好（暫停期間不顯示設定，省一次讀取）
   if(!CLOCK_REMIND_SUSPENDED){
     try{ const rp=await window.db.collection('clockRemindPrefs').doc(currentUser.empName).get(); if(rp.exists){ const d=rp.data()||{}; remindPref={inBefore:Number(d.inBefore)||0, outRemind:!!d.outRemind}; } }catch(e){}
@@ -416,7 +412,7 @@ function render(){
   const openWarn = (openIn||carriedOpenIn) ? `<div style="background:#fff3e0;border:1.5px solid #ffc27a;border-radius:12px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;"><span style="font-size:20px;">⏰</span><div style="flex:1;font-size:12.5px;font-weight:700;color:#c0620f;line-height:1.5;">你有一筆上班尚未打下班${carriedOpenIn?`（${carriedOpenIn.date} 跨日班）`:''}，記得補打下班</div></div>` : '';
   // 昨日上班卡沒收尾且已過補打期限：不擋今天打卡，但要講清楚該去補登，否則會留著缺卡
   const staleWarn = staleOpenIn ? `<div style="background:#fff3e0;border:1.5px solid #ffc27a;border-radius:12px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;"><span style="font-size:20px;">📝</span><div style="flex:1;font-size:12.5px;font-weight:700;color:#c0620f;line-height:1.5;">${staleOpenIn.date} 有一筆上班沒有對應的下班卡（已超過補打時間）<br><span style="font-weight:600;">今天的打卡不受影響；那天的下班請按下方「補登／修改」申請</span></div><button onclick="openReqModal()" style="background:#c0620f;color:#fff;border:none;border-radius:8px;padding:7px 12px;font-weight:800;font-size:12px;cursor:pointer;white-space:nowrap;">去補登</button></div>` : '';
-  const bindWarn = !isBound ? `<div onclick="window.location.href='home.html'" style="background:#fff3e0;border:1.5px solid #ffc27a;border-radius:12px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;cursor:pointer;"><span style="font-size:20px;">🔔</span><div style="flex:1;font-size:12.5px;font-weight:700;color:#c0620f;line-height:1.5;">你尚未綁定 LINE，打卡結果與異常通知收不到<br>點此前往首頁綁定 LINE</div><span style="color:#c0620f;font-size:18px;">›</span></div>` : '';
+  const bindWarn = '';
   // A2 今日狀態醒目提醒：有排班卻還沒打上班卡
   let a2Warn='';
   { const hasInToday=todayPunches.some(p=>p.type==='上班');

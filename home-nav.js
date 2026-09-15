@@ -54,7 +54,8 @@ var HOME_FEATURES = [
   { id: 'account',   group: 'sys', icon: '👤', label: '帳號管理',     sub: '修改密碼、個人資料',         go: 'employee-mgmt.html?mode=self', kw: '密碼' },
   { id: 'push',      group: 'sys', icon: '📣', label: '推播通知',     sub: '開啟、測試、關閉這台手機的推播', run: function () { openPushSettings(); }, kw: '通知 推播' },
   { id: 'a2hs',      group: 'sys', icon: '📲', label: '加入主畫面',   sub: '像 App 一樣從手機桌面打開',   run: function () { openA2hsGuide(); }, show: function () { return !hpStandalone(); }, kw: '安裝 桌面 App' },
-  { id: 'lineBind',  group: 'sys', icon: '🔔', label: 'LINE 通知綁定', sub: '綁定後可收薪資等主動通知', run: function () { openLineBindModal(); } },
+  // 2026-09-15 起不再請人綁 LINE：只有已綁定的人看得到（用來解除綁定），狀態由 home-page.js checkLineBindHint 設定
+  { id: 'lineBind',  group: 'sys', icon: '🟢', label: 'LINE 通知綁定', sub: '已綁定；沒開推播時通知會用 LINE 發', run: function () { openLineBindModal(); }, show: function () { return typeof lineBoundState !== 'undefined' && lineBoundState === true; } },
   { id: 'settings',  group: 'sys', icon: '🔧', label: '系統設定',     sub: '班別、工時、投保級距、更新日誌', go: 'settings.html', show: hnIsLead, kw: '設定 更新日誌' },
   { id: 'changelog', group: 'sys', icon: '📋', label: '更新日誌',     sub: '系統功能更新紀錄',           go: 'settings.html', show: function () { return !hnIsLead(); } },
   { id: 'tour',      group: 'sys', icon: '🎓', label: '重看新版教學', sub: '再看一次首頁改版導覽',       run: function () { startHomeTour(true); } },

@@ -612,9 +612,8 @@ async function startOnboardConfirm(){
 }
 function onboardConfirmOK(){
   closeModal('onboardConfirmModal');
-  // LINE 綁定於 LINE 端非同步完成；關閉綁定視窗後進入 App，未綁定者首頁仍會持續提醒
-  _afterLineBindCb = () => { initApp(); };
-  openLineBindModal();
+  // 2026-09-15 起新員工不綁 LINE，通知一律用推播：直接進首頁，由新版教學與每週推播邀請（home-push.js）接手
+  initApp();
 }
 
 // ===== Google 登入 =====
@@ -964,13 +963,14 @@ async function dismissLeaveHint(){
 }
 
 // ===== LINE 通知綁定（綁定碼版）=====
-// 首頁小條：僅在「未綁定」時顯示，綁定後（下次載入）自動消失
+// 2026-09-15 起不再請人綁 LINE（通知改推播優先）：首頁綁定小條已拿掉；
+// 這裡只查「是否已綁定」，給 ☰ 決定要不要顯示「LINE 通知綁定」（留給已綁定的人解除綁定用）
+var lineBoundState = false;
 async function checkLineBindHint(){
   try{
     if(!currentUser?.uid) return;
-    const el=document.getElementById('lineBindHome'); if(!el) return;
     const bs=await window.db.collection('lineBindings').doc(currentUser.uid).get().catch(()=>null);
-    el.style.display = (bs && bs.exists) ? 'none' : 'flex';
+    lineBoundState = !!(bs && bs.exists);
   }catch(e){ console.error('checkLineBindHint', e); }
 }
 function closeLineBind(){ document.getElementById('lineBindOverlay').style.display='none'; const mt=document.getElementById('maintenanceScreen'); if(mt && mt.style.display!=='none') renderMaintenanceNotifyState(); if(_afterLineBindCb){ const cb=_afterLineBindCb; _afterLineBindCb=null; cb(); } }
@@ -1044,18 +1044,21 @@ async function renderMaintenanceNotifyState() {
   const uid = currentUser.uid;
   const nameEl = document.getElementById('mtName');
   if(nameEl) nameEl.textContent = '👤 ' + (currentUser.displayName || currentUser.empName || '');
-  let opted = false, bound = false;
+  let opted = false, bound = false, pushOn = false;
   try { const b = await window.db.collection('lineBindings').doc(uid).get(); bound = !!(b.exists && b.data().lineUserId); } catch(e) {}
   try { const n = await window.db.collection('maintenanceNotify').doc(uid).get(); opted = n.exists; } catch(e) {}
+  try { pushOn = typeof hpGetSubscription === 'function' && !!(await hpGetSubscription()); } catch(e) {}
+  // 通知走推播優先、LINE 補位（onMaintenanceEnded → deliverToPeople）；2026-09-15 起不再引導綁 LINE
+  const reachable = pushOn || bound;
   const bindBtn = document.getElementById('mtBindBtn');
   const btn = document.getElementById('mtNotifyBtn'), hint = document.getElementById('mtNotifyHint');
-  if(bindBtn) bindBtn.style.display = bound ? 'none' : 'block'; // 只有「真的已綁定」才隱藏綁定鈕
+  if(bindBtn) bindBtn.style.display = reachable ? 'none' : 'block';
   if(opted) {
     btn.textContent = '✅ 已登記，完成後通知你'; btn.disabled = true; btn.style.opacity = '.75';
-    hint.textContent = bound ? '維護完成會用 LINE 通知你' : '⚠️ 尚未綁定 LINE，請點上方「綁定 LINE」完成，才收得到通知';
+    hint.textContent = pushOn ? '維護完成會推播通知你' : bound ? '維護完成會用 LINE 通知你' : '⚠️ 這台手機還沒開推播，完成時收不到通知，請點上方「開啟推播通知」';
   } else {
     btn.textContent = '🔔 維護完成後請通知我'; btn.disabled = false; btn.style.opacity = '1';
-    hint.textContent = bound ? '' : '（未綁定 LINE？可先點「綁定 LINE」，或點「通知我」會一起帶你綁定）';
+    hint.textContent = reachable ? '' : '（要收到通知，請先點上方「開啟推播通知」）';
   }
 }
 async function maintenanceNotifyMe() {
@@ -1064,11 +1067,8 @@ async function maintenanceNotifyMe() {
     await window.db.collection('maintenanceNotify').doc(uid).set({
       uid, empName: currentUser.empName || '', displayName: currentUser.displayName || currentUser.empName || '', store: currentUser.store || '', at: new Date().toISOString()
     }, { merge: true });
-    let bound = false;
-    try { const b = await window.db.collection('lineBindings').doc(uid).get(); bound = !!(b.exists && b.data().lineUserId); } catch(e) {}
     showToast('✅ 已登記，維護完成會通知你');
     await renderMaintenanceNotifyState();
-    if(!bound) openLineBindModal(); // 未綁定 → 同時開綁定流程
   } catch(e) { showToast('登記失敗：' + e.message); }
 }
 
@@ -1203,7 +1203,7 @@ async function initApp() {
   checkHireDateGate(); // 店長：補齊缺到職日的員工（強制）
   checkPnlAnomaly(); // 店長：經營績效資料異常提醒（如營業淨額多打一位數）
   checkLeaveHint(); // 背景檢查下週劃休提醒
-  checkLineBindHint(); // 未綁定 LINE → 首頁顯示小條
+  checkLineBindHint(); // 只記錄是否已綁 LINE（☰ 的解除綁定入口用）
 
   const permColors = { employee: '#34a853', manager: '#1a73e8', owner: '#9334e6', admin: '#d93025' };
   document.getElementById('headerStore').style.background = (permColors[currentUser.permission] || '#5f6368') + '55';
