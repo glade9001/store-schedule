@@ -2052,6 +2052,32 @@ exports.scheduledManagerDigest = onSchedule(
         }
       }
 
+      // 4-2. 本月補登概況（2026-09-16）：逐筆審核看不出「誰一直補」，97.5% 全准就是這樣來的。
+      //      只在每週一與每月 1 號發，避免天天重複同一份名單。
+      const dow = new Date(Date.now() + 8 * 3600000).getUTCDay();
+      const dom = new Date(Date.now() + 8 * 3600000).getUTCDate();
+      if (dow === 1 || dom === 1) {
+        const ym = taipeiYM();
+        const rqSnap = await db.collection("stores").doc(store).collection("attendanceRequests")
+          .where("targetDate", ">=", `${ym}-01`).where("targetDate", "<=", `${ym}-31`).get().catch(() => null);
+        const byEmp = {}; let claim = 0; const byReason = {};
+        if (rqSnap) rqSnap.forEach((d) => {
+          const r = d.data() || {};
+          const dn = r.displayName || r.empName || "";
+          byEmp[dn] = (byEmp[dn] || 0) + 1;
+          if (r.claimOnTime) claim++;
+          const rc = r.reasonCode || "(未分類)";
+          byReason[rc] = (byReason[rc] || 0) + 1;
+        });
+        const total = Object.values(byEmp).reduce((a, b) => a + b, 0);
+        if (total) {
+          const top = Object.entries(byEmp).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([n, c]) => `・${n} ${c} 張`).join("\n");
+          const rmap = { forgot: "忘記打卡", device: "手機沒帶/沒電", system: "打不進去", support: "支援他店不知在哪打", noshift: "沒排班但到場", wrongtime: "時間打錯", other: "其他" };
+          const rtop = Object.entries(byReason).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, c]) => `${rmap[k] || k} ${c}`).join("、");
+          blocks.push(`📋 ${+ym.slice(5)} 月補登 ${total} 張${claim ? `（其中 ${claim} 張自述準時）` : ""}\n${top}\n・主要原因：${rtop}`);
+        }
+      }
+
       // 5. 薪資未簽收（員工端提醒有 3 次上限，之後就靠店長當面處理）
       const salSnap = await db.collection("stores").doc(store).collection("salary").doc(ackYM).get().catch(() => null);
       if (salSnap && salSnap.exists && (salSnap.data().status || "draft") === "published") {
