@@ -395,6 +395,10 @@ async function openAccountModal(empName, store) {
       { v:'admin',    l:'⚙️ 系統管理者' }
     ];
     permSel.innerHTML = perms.map(p => `<option value="${p.v}" ${(existingDoc?.permission||'employee')===p.v?'selected':''}>${p.l}</option>`).join('');
+    // 2026-09-16 資安收緊：權限只有加盟主／admin 能改（firestore.rules），店長看得到但不能動，免得存檔才被擋
+    permSel.disabled = !canOwner();
+    const permHint = document.getElementById('accountPermHint');
+    if(permHint) permHint.style.display = canOwner() ? 'none' : 'block';
 
   } catch(e) { showToast('❌ 讀取失敗：' + e.message); }
   hideLoading();
@@ -733,6 +737,7 @@ async function saveNewEmployee() {
   const username = document.getElementById('addEmpUsername').value.trim().toUpperCase();
   const password = document.getElementById('addEmpPassword').value;
   const perm     = document.getElementById('addEmpPermission').value;
+  if(!canOwner() && !['employee','manager'].includes(perm)) { showToast('⚠️ 只有加盟主或系統管理者能設定這個權限等級'); return; }
   const startDate= document.getElementById('addEmpStartDate').value;
 
   if(!dispName) { showToast('⚠️ 請輸入姓名'); return; }
