@@ -305,7 +305,7 @@ async function load(){
       const needRev = r.source==='offline' && r.needReview;
       html+=`<div class="prow"><span class="ptag ${tag}">${r.type}</span><span style="font-weight:800;">${time}</span><span class="meta">@${r.atStore}${r.shift?` · 班 ${r.shift}`:''}${srcTag}</span><span class="pstat ${needRev?'s-warn':sc}">${needRev?'離線待核':st}</span></div>`;
       html+=`<div style="display:flex;align-items:center;gap:6px;padding:0 0 6px 4px;">
-        <span class="meta" style="flex:1;">${r.note?('💬 '+r.note):'<span style="color:#cbd5e1;">（可加備註說明，如忘記打卡實際時間）</span>'}</span>
+        <span class="meta" style="flex:1;">${r.empNote?(`<span style="color:#c0620f;">🗣️ ${r.empNote}</span>`+(r.note?`<br>💬 ${r.note}`:'')):(r.note?('💬 '+r.note):'<span style="color:#cbd5e1;">（可加備註說明，如忘記打卡實際時間）</span>')}</span>
         <button onclick="editNote('${r._store}','${r.id}')" style="background:#eef2ff;color:#4338ca;border:none;border-radius:6px;padding:3px 9px;font-size:11px;font-weight:800;cursor:pointer;">💬 備註</button>
       </div>`;
       if(r.otStatus==='pending') html+=`<div class="meta" style="padding:0 0 6px 4px;color:#c0620f;">📝 加班申請待店長審核：${r.otContent||''}</div>`;
@@ -322,7 +322,7 @@ async function load(){
         <div style="font-size:11px;color:var(--text-muted);margin-top:3px;line-height:1.5;">以排班時數為基準（超時封頂）、核准加班才加、到場/私事不計${mh.openCnt?`；另有 ${mh.openCnt} 筆上班未打下班暫不計入`:''}</div></div>
       <div style="font-size:27px;font-weight:900;color:#137333;white-space:nowrap;">${mh.hours.toFixed(1)}<span style="font-size:13px;font-weight:700;">h</span></div>
     </div></div>`;
-  if(list) list.innerHTML=reqHtml+sumHtml+html;
+  if(list) list.innerHTML=todoHtml+reqHtml+sumHtml+html;
 }
 // 本月有效工時：以排班時數為基準(超時封頂)、核准加班才加、到場/私事不計；配對上下班、跨日自動接續、排除缺卡/註銷
 function schedHours(sh){ return shiftTotalHours(sh); }   // 見 shift-utils.js（支援半點班／兩頭班）
