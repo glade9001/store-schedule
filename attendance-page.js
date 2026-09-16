@@ -152,6 +152,7 @@ async function loadRequests(){
     reqs.map(r=>`<div style="border-top:1px dashed #f0d9b0;padding:8px 0;">
       <div style="font-size:14px;font-weight:800;">${empDisplay(r.empName)}
         <span style="color:var(--text-muted);font-weight:600;font-size:13px;">${r.targetDate} ${r.punchType} ${r.requestedTime}</span>
+        ${r.claimOnTime?`<span title="申報時間剛好落在排班開始時間附近，系統無從查證" style="font-size:11px;background:#fff7ed;color:#c0620f;border-radius:20px;padding:1px 7px;font-weight:800;">自述準時</span>`:''}
         ${(cnt[r.empName]||0)>=3?`<span title="本月補登張數" style="font-size:11px;background:#fdecea;color:#b3261e;border-radius:20px;padding:1px 7px;font-weight:800;">本月第 ${cnt[r.empName]} 張</span>`:(cnt[r.empName]||0)>1?`<span style="font-size:11px;color:var(--text-muted);font-weight:700;">本月第 ${cnt[r.empName]} 張</span>`:''}</div>
       <div class="meta" style="margin:2px 0;">${r.reasonCode?`<span style="font-size:11px;background:#eef3fb;color:#1557b0;border-radius:20px;padding:1px 7px;font-weight:800;">${REQ_REASON_LABELS[r.reasonCode]||r.reasonCode}</span> ${r.reasonText||''}`:`原因：${r.reason||'<span style="color:#b3261e;">未填</span>'}`}${r.homeStore&&r.homeStore!==r.atStore?` · 原店 ${r.homeStore}`:''}</div>
       <div style="display:flex;gap:8px;margin-top:6px;">

@@ -1705,7 +1705,7 @@ exports.onPunchResolveMissFlag = onDocumentWritten(
 //    駁回結果 App 內看得到；審核進度由 scheduledManagerDigest 每日摘要涵蓋。
 // C. 缺卡排程：每小時，班別結束後 2 小時仍無打卡 → 標記+通知(去重)
 exports.scheduledMissingClock = onSchedule(
-  { schedule: "5 * * * *", timeZone: "Asia/Taipei", region: "asia-east1" },
+  { schedule: "5 * * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [VAPID_PRIVATE] },
   async () => {
     const db = admin.firestore();
     if (await maintenanceOn(db)) return;
@@ -1718,6 +1718,19 @@ exports.scheduledMissingClock = onSchedule(
     const nowTp = new Date(Date.now() + 8 * 3600000);
     const ds = nowTp.toISOString().slice(0, 10);
     const nowMin = nowTp.getUTCHours() * 60 + nowTp.getUTCMinutes();
+    // 缺卡一成立就推播「待補單」給本人（2026-09-16）：我的出勤頁會列出待補清單，點補登即帶好日期／班別／門市。
+    // 只發推播（沒開推播的人不發 LINE），夜間非緊急會排到 08:00。
+    const pushIdx = await loadPushIndex(db);
+    const vapid = VAPID_PRIVATE.value();
+    const notifyMiss = async (emp, homeStore, date, shift, missWhat) => {
+      const uid = pushUidOf(pushIdx, emp, homeStore);
+      if (!uid) return;
+      await sendOrQueuePush(db, [uid], {
+        title: `🔴 ${date} ${missWhat}`,
+        body: `${shift || ""} 的班沒有完整打卡紀錄，點這裡補登（填時間與原因即可送出）`,
+        url: "my-attendance.html", tag: `miss-${date}-${emp}`,
+      }, vapid, false).catch(() => {});
+    };
     const wk = weekStrOfTp(nowTp);
     const dayName = WEEK_DAYS[(nowTp.getUTCDay() + 6) % 7];
     const notifyBy = conf.clockIn.notifyByStore || {};
@@ -1795,10 +1808,8 @@ exports.scheduledMissingClock = onSchedule(
           // 缺卡＝沒有打卡時間：不寫 deviceTs/tsMs(否則出勤表會顯示成像有打卡的掃描時間)；等手動補卡才有真時間
           ts: admin.firestore.FieldValue.serverTimestamp(), deviceTs: null, tsMs: null,
         });
-        // ✂️ 員工端即時通知已取消（2026-09-02）→ 改由 scheduledMissClockReminder 每人每 7 天
-        //    一則「未補清單」。逐張發在 8 月是 164 則，而缺卡幾乎都是一人一天一張，
-        //    改「每天彙整」只能省 1 則（實測），唯一有效的省法是拉長節流間隔。
-        // ✂️ 店長端即時通知已取消 → 改由 scheduledManagerDigest 彙整（2026-08-17）
+        // LINE 時代的逐張通知早已取消（額度）；改推播後不花額度，缺卡一成立就通知本人來補。
+        await notifyMiss(emp, homeStore, ds, sh.shift, missWhat);
       }
 
       // 昨日「跨日班(夜班)」的下班卡落在今天：到「下班+2h」才統一判上/下班缺卡，不拆成兩天
@@ -1850,7 +1861,7 @@ exports.scheduledMissingClock = onSchedule(
             // 缺卡＝沒有打卡時間：不寫 deviceTs/tsMs；等手動補卡才有真時間
             ts: admin.firestore.FieldValue.serverTimestamp(), deviceTs: null, tsMs: null,
           });
-          // ✂️ 同上：員工端改由 scheduledMissClockReminder 節流彙整、店長端由 scheduledManagerDigest 催。
+          await notifyMiss(emp, homeStore, dsY, sh.shift, missWhat);
         }
       }
     }

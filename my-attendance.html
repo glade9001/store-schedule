@@ -75,7 +75,7 @@ window.onload=async()=>{
   }
   curMonth=curYm();
   document.getElementById('wrap').innerHTML=`<div class="bar"><span style="font-weight:800;">📅 月份</span><input type="month" id="ymSel" value="${curMonth}" onchange="curMonth=this.value;load();">
-    <button onclick="openReqModal()" style="margin-left:auto;background:var(--primary);color:#fff;border:none;border-radius:10px;padding:9px 12px;font-weight:800;font-size:13px;cursor:pointer;">＋ 補登/修改申請</button>
+    <button onclick="openReqModal()" title="沒排班卻到場、打卡時間打錯、系統問題等" style="margin-left:auto;background:#eef2f7;color:#475569;border:none;border-radius:10px;padding:9px 12px;font-weight:800;font-size:13px;cursor:pointer;">其他情況補登／修改</button>
   </div>
   <div id="reqModal" style="display:none;position:fixed;inset:0;background:rgba(30,41,59,.6);z-index:9000;justify-content:center;align-items:center;padding:20px;">
     <div style="background:#fff;border-radius:16px;padding:18px;max-width:400px;width:100%;">
@@ -114,6 +114,26 @@ window.onload=async()=>{
   hideLoading();
 };
 
+// 從待補單開啟：日期、門市、缺哪一張都帶好，建議時間用班別的起訖，員工只要確認時間並選原因
+async function openFixModal(store, date, shift, punchType){
+  openReqModal();
+  document.getElementById('rqStore').value=store;
+  document.getElementById('rqDate').value=date;
+  document.getElementById('rqType').value=punchType;
+  const segs=(typeof parseShiftSegs==='function')?parseShiftSegs(shift||''):[];
+  if(segs.length){
+    const h = punchType==='下班' ? segs[segs.length-1].endH : segs[0].startH;
+    const hh=((Math.floor(h)%24)+24)%24, mm=Math.round((h-Math.floor(h))*60);
+    document.getElementById('rqTime').value=`${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
+  }
+  const hint=document.getElementById('rqStoreHint');
+  if(hint) hint.innerHTML=`✅ 系統偵測到 <b>${date} ${shift||''}</b> 缺${punchType}卡，已帶好門市與時間<br><span style="color:#c0620f;">請確認時間是否為你<b>實際</b>上下班的時間</span>`;
+  await syncReqStore();
+  document.getElementById('rqStore').value=store;
+  document.getElementById('rqDate').value=date;
+  document.getElementById('rqType').value=punchType;
+}
+
 function openReqModal(){
   const stores=(appConfig.stores||[]).filter(s=>s!=='人力支援');
   const sel=document.getElementById('rqStore');
@@ -127,6 +147,7 @@ function openReqModal(){
 }
 // 門市預設值跟著「那天的排班」走（同 clock.html）：支援日的班在別家店，
 // 照舊的「本店」預設送出去就會送錯店 → 缺卡單配不到、工時也配不起來。
+var _rqShifts=[];   // 當天排班（供「自述準時」判定用）
 async function syncReqStore(){
   const hint=document.getElementById('rqStoreHint'); if(!hint) return;
   const ds=document.getElementById('rqDate').value;
@@ -135,6 +156,7 @@ async function syncReqStore(){
   hint.textContent='查詢當天排班中…';
   try{
     const hits=await findShiftStoresOn(ds, currentUser.empName, currentUser.store||'', appConfig.stores||[]);
+    _rqShifts=hits||[];
     if(!hits.length){ hint.textContent='當天查無排班，門市請自行選擇。'; return; }
     const uniq=[...new Set(hits.map(h=>h.store))];
     if(uniq.length===1) sel.value=uniq[0];
@@ -185,6 +207,20 @@ async function submitReq(){
   const requestedTime=document.getElementById('rqTime').value;
   if(!atStore||!targetDate||!requestedTime){ alert('請填寫門市、日期、時間'); return; }
   const rr=collectReqReason(); if(!rr) return;
+  // 自述準時（2026-09-16）：補上班卡且申報時間落在排班開始 ±5 分鐘內 → 標記。
+  // 系統無從查證員工幾點到店，能做的是讓「每次都剛好準時」這件事在店長眼前看得見。
+  let claimOnTime=false;
+  try{
+    if(punchType==='上班'){
+      const hit=(_rqShifts||[]).find(h=>h.store===atStore) || (_rqShifts||[])[0];
+      const segs=(hit && typeof parseShiftSegs==='function') ? parseShiftSegs(hit.shift||'') : [];
+      if(segs.length){
+        const startMin=Math.round(segs[0].startH*60);
+        const [hh,mm]=requestedTime.split(':').map(Number);
+        claimOnTime = Math.abs((hh*60+mm) - startMin) <= 5;
+      }
+    }
+  }catch(e){}
   if(await salaryLockedFor(atStore, targetDate.slice(0,7))){
     alert(`${targetDate.slice(0,7)} 的薪資已送審，無法自行補登。\n請聯絡店長協助補登（店長端仍可代補）。`);
     return;
@@ -194,7 +230,7 @@ async function submitReq(){
     await window.db.collection('stores').doc(atStore).collection('attendanceRequests').add({
       empName:currentUser.empName, displayName:currentUser.displayName||currentUser.empName,
       homeStore:currentUser.store||'', atStore, type:'補登/修改', targetDate, punchType, requestedTime,
-      reason:rr.reason, reasonCode:rr.reasonCode, reasonText:rr.reasonText,
+      reason:rr.reason, reasonCode:rr.reasonCode, reasonText:rr.reasonText, claimOnTime,
       status:'pending', createdAt:new Date().toISOString(), createdBy:currentUser.empName
     });
     hideLoading();
@@ -220,6 +256,22 @@ async function load(){
         if(String(r.targetDate||r.createdAt||'').startsWith(curMonth)) reqs.push(r); });
     }));
   }catch(e){ if(list) list.innerHTML=`<div class="empty">讀取失敗：${e.message}</div>`; return; }
+  // ===== 系統開給你的待補單（2026-09-16）=====
+  // 缺卡由排程判定後自動成立一張待補單並推播；員工只要填時間與原因，不必自己從頭找日期／班別。
+  // 已經送出（待審或已核准）的就不再列，避免重複補同一張。
+  const submitted=new Set(reqs.filter(q=>q.status!=='rejected').map(q=>`${q.targetDate}|${q.punchType}`));
+  const missTypes=(note)=>String(note||'').includes('下班') ? ['下班'] : String(note||'').includes('上班') ? ['上班'] : ['上班','下班'];
+  const todo=[];
+  recs.filter(r=>!r.voided && (r.status==='缺卡'||r.type==='缺卡')).forEach(r=>{
+    missTypes(r.note).forEach(t=>{ if(!submitted.has(`${r.date}|${t}`)) todo.push({store:r._store, date:r.date, shift:r.shift||'', punchType:t, note:r.note||'缺卡'}); });
+  });
+  todo.sort((a,b)=>a.date.localeCompare(b.date));
+  let todoHtml='';
+  if(todo.length){
+    todoHtml=`<div class="daycard" style="border:1.5px solid #f5c2bd;background:#fff5f5;"><div class="dayhdr" style="color:#b3261e;">🔴 待補打卡（${todo.length}）<span style="font-size:11px;font-weight:600;color:var(--text-muted);margin-left:6px;">系統偵測到缺卡，填時間與原因即可送出</span></div>`+
+      todo.map(t=>`<div class="prow"><span class="meta" style="flex:1;font-weight:700;color:var(--text);">${t.date}　${t.shift||'—'}　缺${t.punchType}卡　@${t.store}</span>
+        <button onclick="openFixModal('${t.store}','${t.date}','${t.shift}','${t.punchType}')" style="background:var(--primary);color:#fff;border:none;border-radius:8px;padding:6px 12px;font-weight:800;font-size:12px;cursor:pointer;">補登</button></div>`).join('')+`</div>`;
+  }
   // 我的補登/修改申請（近期＋狀態）
   let reqHtml='';
   if(reqs.length){
@@ -231,7 +283,7 @@ async function load(){
         return `<div class="prow"><span class="meta" style="flex:1;font-weight:700;color:var(--text);">${q.targetDate} ${q.punchType} ${q.requestedTime} @${q.atStore}</span><span class="pstat ${sc}">${stt}</span></div>`;
       }).join('')+`</div>`;
   }
-  if(!recs.length){ if(list) list.innerHTML=reqHtml+'<div class="empty">這個月尚無打卡紀錄</div>'; return; }
+  if(!recs.length){ if(list) list.innerHTML=todoHtml+reqHtml+'<div class="empty">這個月尚無打卡紀錄</div>'; return; }
   recs.sort((a,b)=>(b.deviceTs||b.date||'').localeCompare(a.deviceTs||a.date||''));
   const byDate={};
   recs.forEach(r=>{ const k=r.shiftDate||r.date; (byDate[k]=byDate[k]||[]).push(r); });
