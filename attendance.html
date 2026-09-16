@@ -53,6 +53,22 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
 </div>
 <div class="wrap" id="wrap"></div>
 <!-- 修改／註銷 打卡 modal -->
+<!-- 店長代補（2026-09-16）：員工沒補、或薪資已送審鎖住時，由店長代為補登，紀錄上留「代補」記號 -->
+<div id="proxyModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;align-items:center;justify-content:center;padding:16px;">
+  <div style="background:#fff;border-radius:16px;max-width:420px;width:100%;padding:20px;">
+    <div style="font-size:17px;font-weight:900;margin-bottom:6px;">🧑‍💼 店長代補打卡</div>
+    <div id="proxyInfo" style="font-size:13px;color:var(--text-muted);line-height:1.7;margin-bottom:12px;"></div>
+    <label style="display:block;font-size:12px;font-weight:700;margin-bottom:4px;">補哪一張</label>
+    <select id="proxyType" style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:10px;margin-bottom:10px;"><option>上班</option><option>下班</option></select>
+    <label style="display:block;font-size:12px;font-weight:700;margin-bottom:4px;">時間</label>
+    <input type="time" id="proxyTime" style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:10px;margin-bottom:10px;">
+    <label style="display:block;font-size:12px;font-weight:700;margin-bottom:4px;">原因（必填，法規要求留存）</label>
+    <input type="text" id="proxyReason" placeholder="例：員工已離職，依班表補登" style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:10px;margin-bottom:12px;">
+    <div style="font-size:11.5px;color:#c0620f;background:#fff7ed;border-radius:8px;padding:8px 10px;line-height:1.6;margin-bottom:12px;">這筆會標記為「店長代補」，並記錄是誰補的。請確認時間與員工核對過。</div>
+    <button onclick="saveProxyPunch()" style="width:100%;padding:12px;background:var(--primary);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;cursor:pointer;margin-bottom:8px;">確認代補</button>
+    <button onclick="document.getElementById('proxyModal').style.display='none'" style="width:100%;padding:9px;background:none;color:#94a3b8;border:none;font-size:13px;font-weight:700;cursor:pointer;">取消</button>
+  </div>
+</div>
 <div id="editModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;align-items:center;justify-content:center;padding:16px;">
   <div style="background:#fff;border-radius:16px;max-width:420px;width:100%;padding:18px;max-height:90vh;overflow:auto;">
     <div style="font-size:16px;font-weight:900;margin-bottom:4px;">✏️ 修改／註銷打卡</div>

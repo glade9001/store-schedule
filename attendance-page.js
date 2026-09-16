@@ -250,6 +250,68 @@ async function approveOffline(id){
 }
 // 修改／註銷（勞基法：不可直接刪除竄改；一律保留原始時間＋強制原因＋editLog 留痕備查）
 let _editId=null, _editRec=null;
+// ===== 店長代補（2026-09-16）=====
+// 場景：員工離職/長期不補、或該月薪資已送審（員工端已鎖）時，由店長依班表代為補登。
+// 一律留下 proxyBy／proxyReason；若該月薪資已送審或已發布，另標 afterSalaryLock 提醒工時可能要重算。
+let _proxyMiss=null;
+async function openProxyPunch(id){
+  const ref=window.db.collection('stores').doc(curStore).collection('attendance').doc(id);
+  let snap; try{ snap=await ref.get(); }catch(e){ alert('讀取失敗：'+e.message); return; }
+  if(!snap.exists){ alert('找不到這筆紀錄'); return; }
+  _proxyMiss={id, ...snap.data()};
+  const note=_proxyMiss.note||'';
+  document.getElementById('proxyInfo').innerHTML=`${empDisplay(_proxyMiss.empName)}　${_proxyMiss.date}　班別 <b>${_proxyMiss.shift||'—'}</b>　<span style="color:var(--danger);font-weight:800;">${note||'缺卡'}</span>`;
+  document.getElementById('proxyType').value = note.includes('下班') ? '下班' : '上班';
+  // 預設時間＝班別的開始/結束，店長再依實際調整
+  const segs=(typeof parseShiftSegs==='function')?parseShiftSegs(_proxyMiss.shift||''):[];
+  let hh='';
+  if(segs.length){
+    const h = document.getElementById('proxyType').value==='下班' ? segs[segs.length-1].endH : segs[0].startH;
+    const hh24=((Math.floor(h)%24)+24)%24, mm=Math.round((h-Math.floor(h))*60);
+    hh=`${String(hh24).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
+  }
+  document.getElementById('proxyTime').value=hh;
+  document.getElementById('proxyReason').value='';
+  document.getElementById('proxyModal').style.display='flex';
+}
+async function saveProxyPunch(){
+  if(!_proxyMiss) return;
+  const type=document.getElementById('proxyType').value;
+  const tv=document.getElementById('proxyTime').value;
+  const reason=document.getElementById('proxyReason').value.trim();
+  if(!tv){ alert('請填時間'); return; }
+  if(reason.length<3){ alert('請填代補原因（法規要求留存備查）'); return; }
+  showLoading('代補中…');
+  try{
+    const date=_proxyMiss.date;
+    const punchMs=Date.parse(`${date}T${tv}:00+08:00`);
+    const sm=await matchSchedShift(curStore, _proxyMiss.empName, _proxyMiss.homeStore||curStore, date, tv, type);
+    const locked=await salaryLocked(curStore, date.slice(0,7));
+    const att=window.db.collection('stores').doc(curStore).collection('attendance');
+    await att.add({
+      empName:_proxyMiss.empName, displayName:_proxyMiss.displayName||_proxyMiss.empName, date, type,
+      atStore:curStore, homeStore:_proxyMiss.homeStore||curStore, status:'補登', source:'manual',
+      deviceTs:new Date(punchMs).toISOString(), tsMs:punchMs,
+      shift:sm.shift||_proxyMiss.shift||'', shiftDate:sm.shiftDate||date, weekday:shiftDayName(date),
+      lateMin:(type==='上班' && sm.startMs!=null) ? lateMinutesOf(punchMs, sm.startMs) : 0,
+      proxyBy:currentUser.empName, proxyReason:reason, afterSalaryLock:locked,
+      editedBy:currentUser.empName, editNote:`店長代補：${reason}`,
+      ts:firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    document.getElementById('proxyModal').style.display='none';
+    hideLoading(); alert('✅ 已代補，缺卡會由系統自動註銷');
+    await load();
+  }catch(e){ hideLoading(); alert('代補失敗：'+e.message); }
+}
+// 該月薪資是否已送審／已發布（送審後員工端不能自行補登，店長代補要留記號）
+async function salaryLocked(store, ym){
+  try{
+    const d=await window.db.collection('stores').doc(store).collection('salary').doc(ym).get();
+    const st=d.exists ? (d.data().status||'draft') : 'draft';
+    return ['submitted','published'].includes(st);
+  }catch(e){ return false; }
+}
+
 async function openEditPunch(id){
   const ref=window.db.collection('stores').doc(curStore).collection('attendance').doc(id);
   let snap; try{ snap=await ref.get(); }catch(e){ alert('讀取失敗：'+e.message); return; }
@@ -338,6 +400,8 @@ function punchRow(r, showEmp){
   const needRev = r.source==='offline' && r.needReview;
   const reviewBtn = needRev?`<button onclick="approveOffline('${r.id}')" title="核可離線打卡" style="background:#e6f4ea;color:#137333;border:none;border-radius:8px;padding:5px 9px;font-weight:800;font-size:11px;cursor:pointer;margin-left:6px;">✔核可</button>`:'';
   const editBtn=`<button onclick="openEditPunch('${r.id}')" title="修改／註銷（需填原因，保留原始紀錄）" style="background:#eef2ff;color:#4338ca;border:none;border-radius:8px;padding:5px 9px;font-weight:800;font-size:11px;cursor:pointer;margin-left:6px;">✏️</button>`;
+  const proxyBtn=(!r.voided && (r.status==='缺卡'||r.type==='缺卡'))
+    ? `<button onclick="openProxyPunch('${r.id}')" title="店長代為補登（會留下代補記號）" style="background:#fff7ed;color:#c0620f;border:none;border-radius:8px;padding:5px 9px;font-weight:800;font-size:11px;cursor:pointer;margin-left:6px;">🧑‍💼代補</button>` : '';
   // 底色依「要不要處理」分流（2026-08-28）：原本缺卡／遲到／早退三種共用同一個紅底，
   // 但缺卡是待辦（影響工時與薪資，要去催補登、補完就消失），遲到／早退是既成事實
   // （店長做什麼都不會讓它消失）。同色會讓整片紅字失去輕重，跟首頁那張卡是同一個道理。
@@ -352,11 +416,12 @@ function punchRow(r, showEmp){
     <span class="ptag ${tag}">${r.type}</span>
     <span style="font-weight:800;">${time}</span>
     <span class="meta">@${r.atStore}${r.distanceM!=null?` · ${r.distanceM}m`:''}${r.accuracy!=null&&r.accuracy>100?`<span style="color:#c5221f;font-weight:800;" title="手機沒用到 GPS，退回基地台/WiFi 粗略定位，這筆的位置不可信"> · ⚠️定位誤差±${Math.round(r.accuracy)}m</span>`:''}${r.shift?` · 班 ${r.shift}`:''}${r.homeStore&&r.homeStore!==r.atStore?` · 原店 ${r.homeStore}`:''}${srcTag}${voided?' · <span style="color:var(--danger);font-weight:800;">已註銷</span>':''}</span>
-    <span class="pstat ${needRev?'s-warn':sc}">${needRev?'離線待核':(anom?'⚠️ '+st:st)}</span>${reviewBtn}${voided?'':editBtn}
+    <span class="pstat ${needRev?'s-warn':sc}">${needRev?'離線待核':(anom?'⚠️ '+st:st)}</span>${reviewBtn}${voided?'':proxyBtn}${voided?'':editBtn}
   </div>`;
   if(r.note) h+=`<div class="meta" style="padding:0 0 6px 4px;">💬 ${r.note}${r.noteBy?`（${r.noteBy}）`:''}</div>`;
   // 員工在打卡當下自己留的說明（遲到才想起來打卡時；只是說明，時間未被修改）
   if(r.empNote) h+=`<div class="meta" style="padding:0 0 6px 4px;color:#c0620f;">🗣️ 員工說明：${r.empNote}</div>`;
+  if(r.proxyBy) h+=`<div class="meta" style="padding:0 0 6px 4px;color:#8a5cf6;">🧑‍💼 店長代補（${r.proxyBy}）${r.proxyReason?`：${r.proxyReason}`:''}${r.afterSalaryLock?' · ⚠️ 薪資已送審後補登，工時可能需重算':''}</div>`;
   if(r.origStatus && r.origStatus!==r.status) h+=`<div class="meta" style="padding:0 0 6px 4px;color:#8a5cf6;">🕰️ 原判定：${r.origStatus}${r.origLateMin?` ${r.origLateMin} 分`:''}（補登後改為 ${r.status}）</div>`;
   if(r.editReason||r.voidReason) h+=`<div class="meta" style="padding:0 0 6px 4px;color:#8a5cf6;">✏️ ${voided?'註銷':'修改'}原因：${r.voidReason||r.editReason}${(r.voidedBy||r.editedBy)?`（${r.voidedBy||r.editedBy}）`:''}${(r.origTs&&!voided)?` · 原時間 ${fmtT(r.origTs)}`:''}</div>`;
   if(!voided && r.otStatus){

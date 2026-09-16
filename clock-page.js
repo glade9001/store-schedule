@@ -372,6 +372,14 @@ function onReqReasonChange(){
   if(hint){ hint.innerHTML=REQ_REASON_HINTS[code]||''; hint.style.display=REQ_REASON_HINTS[code]?'block':'none'; }
   if(ta) ta.placeholder = code==='other' ? '請說明原因（必填，至少 5 個字）' : '補充說明（選填）';
 }
+// 薪資送審後鎖定（2026-09-16 使用者定案）：該月薪資 submitted/published 後員工不能自行補登，改由店長代補（會留記號）
+async function salaryLockedFor(store, ym){
+  try{
+    const d=await window.db.collection('stores').doc(store).collection('salary').doc(ym).get();
+    const st=d.exists ? (d.data().status||'draft') : 'draft';
+    return ['submitted','published'].includes(st);
+  }catch(e){ return false; }   // 查不到就不擋，避免連線問題讓人補不了卡
+}
 // 回傳 null＝驗證未過（已提示使用者）
 function collectReqReason(){
   var code=document.getElementById('rqReasonCode').value;
@@ -386,6 +394,10 @@ async function submitReq(){
   const punchType=document.getElementById('rqType').value;
   const requestedTime=document.getElementById('rqTime').value;
   const rr=collectReqReason(); if(!rr) return;
+  if(await salaryLockedFor(atStore, targetDate.slice(0,7))){
+    alert(`${targetDate.slice(0,7)} 的薪資已送審，無法自行補登。\n請聯絡店長協助補登（店長端仍可代補）。`);
+    return;
+  }
   if(!st||!targetDate||!requestedTime){ toast('請填門市、日期、時間'); return; }
   try{
     await window.db.collection('stores').doc(st).collection('attendanceRequests').add({
