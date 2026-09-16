@@ -93,8 +93,19 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
     <select id="rqType" style="width:100%;padding:9px;border:1.5px solid #e2e8f0;border-radius:8px;margin:4px 0 10px;"><option>上班</option><option>下班</option></select>
     <label style="font-size:13px;font-weight:700;">正確時間</label>
     <input type="time" id="rqTime" style="width:100%;padding:9px;border:1.5px solid #e2e8f0;border-radius:8px;margin:4px 0 10px;">
-    <label style="font-size:13px;font-weight:700;">原因</label>
-    <textarea id="rqReason" rows="2" placeholder="例：忘記打卡被判遲到，實際 09:00 上班" style="width:100%;padding:9px;border:1.5px solid #e2e8f0;border-radius:8px;margin:4px 0 12px;font-family:inherit;"></textarea>
+    <label style="font-size:13px;font-weight:700;">原因（必選）</label>
+    <select id="rqReasonCode" onchange="onReqReasonChange()" style="width:100%;padding:9px;border:1.5px solid #e2e8f0;border-radius:8px;margin:4px 0 8px;">
+      <option value="">請選擇原因…</option>
+      <option value="forgot">忘記打卡</option>
+      <option value="device">手機沒帶／沒電／故障</option>
+      <option value="system">打不進去（定位抓不到、系統出錯）</option>
+      <option value="support">支援他店，不知道在哪打卡</option>
+      <option value="noshift">沒排班但有到場（臨時支援／加班）</option>
+      <option value="wrongtime">打卡時間錯誤，要修改</option>
+      <option value="other">其他（請說明）</option>
+    </select>
+    <div id="rqReasonHint" style="display:none;font-size:12px;line-height:1.6;background:#eef4ff;color:#1557b0;border-radius:8px;padding:8px 10px;margin:0 0 8px;"></div>
+    <textarea id="rqReason" rows="2" placeholder="補充說明（選填）" style="width:100%;padding:9px;border:1.5px solid #e2e8f0;border-radius:8px;margin:0 0 12px;font-family:inherit;"></textarea>
     <div style="display:flex;gap:8px;">
       <button onclick="document.getElementById('reqModal').style.display='none'" style="flex:1;padding:11px;background:#eef1f4;border:none;border-radius:10px;font-weight:700;cursor:pointer;">取消</button>
       <button onclick="submitReq()" style="flex:1;padding:11px;background:var(--primary);color:#fff;border:none;border-radius:10px;font-weight:800;cursor:pointer;">送出申請</button>

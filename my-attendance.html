@@ -90,8 +90,19 @@ window.onload=async()=>{
       <select id="rqType" style="width:100%;padding:9px;border:1.5px solid var(--border);border-radius:8px;margin:4px 0 10px;"><option>上班</option><option>下班</option></select>
       <label style="font-size:13px;font-weight:700;">時間</label>
       <input type="time" id="rqTime" style="width:100%;padding:9px;border:1.5px solid var(--border);border-radius:8px;margin:4px 0 10px;">
-      <label style="font-size:13px;font-weight:700;">原因</label>
-      <textarea id="rqReason" rows="2" placeholder="例：忘記打卡" style="width:100%;padding:9px;border:1.5px solid var(--border);border-radius:8px;margin:4px 0 12px;"></textarea>
+      <label style="font-size:13px;font-weight:700;">原因（必選）</label>
+      <select id="rqReasonCode" onchange="onReqReasonChange()" style="width:100%;padding:9px;border:1.5px solid var(--border);border-radius:8px;margin:4px 0 8px;">
+        <option value="">請選擇原因…</option>
+        <option value="forgot">忘記打卡</option>
+        <option value="device">手機沒帶／沒電／故障</option>
+        <option value="system">打不進去（定位抓不到、系統出錯）</option>
+        <option value="support">支援他店，不知道在哪打卡</option>
+        <option value="noshift">沒排班但有到場（臨時支援／加班）</option>
+        <option value="wrongtime">打卡時間錯誤，要修改</option>
+        <option value="other">其他（請說明）</option>
+      </select>
+      <div id="rqReasonHint" style="display:none;font-size:12px;line-height:1.6;background:#eef4ff;color:#1557b0;border-radius:8px;padding:8px 10px;margin:0 0 8px;"></div>
+      <textarea id="rqReason" rows="2" placeholder="補充說明（選填）" style="width:100%;padding:9px;border:1.5px solid var(--border);border-radius:8px;margin:0 0 12px;font-family:inherit;"></textarea>
       <div style="display:flex;gap:8px;">
         <button onclick="document.getElementById('reqModal').style.display='none'" style="flex:1;padding:11px;background:#eef1f4;border:none;border-radius:10px;font-weight:700;cursor:pointer;">取消</button>
         <button onclick="submitReq()" style="flex:1;padding:11px;background:var(--primary);color:#fff;border:none;border-radius:10px;font-weight:800;cursor:pointer;">送出申請</button>
@@ -110,6 +121,7 @@ function openReqModal(){
   const d=new Date();   // ⚠️ 不可用 toISOString()：那是 UTC，台灣 00:00~08:00 會變成「昨天」
   document.getElementById('rqDate').value=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   document.getElementById('rqTime').value=''; document.getElementById('rqReason').value='';
+  document.getElementById('rqReasonCode').value=''; onReqReasonChange();
   document.getElementById('reqModal').style.display='flex';
   syncReqStore();
 }
@@ -132,19 +144,46 @@ async function syncReqStore(){
       : `⚠️ 當天在多家店有班：<b>${txt}</b>　請自行確認要補哪一家`;
   }catch(e){ hint.textContent='（查不到當天排班，門市請自行確認）'; }
 }
+// ===== 補登原因分類（2026-09-16）=====
+// 原本是選填的自由輸入 → 8/1~9/16 的 321 張申請有 189 張（59%）空白，店長看到「原因：—」、也無從統計根因。
+// 改成必選分類（選「其他」才強制打字），並另存 reasonCode/reasonText 供統計；reason 仍組成文字供既有顯示與通知使用。
+var REQ_REASONS={forgot:'忘記打卡', device:'手機沒帶／沒電／故障', system:'打不進去（定位或系統出錯）', support:'支援他店，不知道在哪打卡', noshift:'沒排班但有到場', wrongtime:'打卡時間錯誤，要修改', other:'其他'};
+var REQ_REASON_HINTS={
+  system:'若你還在店裡，請先回打卡頁按「📨 傳送給系統管理員」附上定位診斷，這樣才查得出原因。',
+  support:'提醒：支援他店時，要在<b>實際上班的那家店</b>打卡，門市請選那一家。',
+  wrongtime:'這是「修改時間」：填正確時間即可，原本的打卡紀錄會保留備查。',
+  noshift:'沒排班卻有到場，請順便提醒店長補排班，否則工時可能算不進去。',
+  other:'請具體說明原因（至少 5 個字），店長才有辦法判斷。'
+};
+function onReqReasonChange(){
+  var code=document.getElementById('rqReasonCode').value;
+  var hint=document.getElementById('rqReasonHint');
+  var ta=document.getElementById('rqReason');
+  if(hint){ hint.innerHTML=REQ_REASON_HINTS[code]||''; hint.style.display=REQ_REASON_HINTS[code]?'block':'none'; }
+  if(ta) ta.placeholder = code==='other' ? '請說明原因（必填，至少 5 個字）' : '補充說明（選填）';
+}
+// 回傳 null＝驗證未過（已提示使用者）
+function collectReqReason(){
+  var code=document.getElementById('rqReasonCode').value;
+  var text=document.getElementById('rqReason').value.trim();
+  if(!code){ alert('請選擇原因'); return null; }
+  if(code==='other' && text.length<5){ alert('選「其他」時請具體說明原因（至少 5 個字）'); return null; }
+  return { reasonCode:code, reasonText:text, reason:REQ_REASONS[code]+(text?'：'+text:'') };
+}
 async function submitReq(){
   const atStore=document.getElementById('rqStore').value;
   const targetDate=document.getElementById('rqDate').value;
   const punchType=document.getElementById('rqType').value;
   const requestedTime=document.getElementById('rqTime').value;
-  const reason=document.getElementById('rqReason').value.trim();
   if(!atStore||!targetDate||!requestedTime){ alert('請填寫門市、日期、時間'); return; }
+  const rr=collectReqReason(); if(!rr) return;
   showLoading('送出中…');
   try{
     await window.db.collection('stores').doc(atStore).collection('attendanceRequests').add({
       empName:currentUser.empName, displayName:currentUser.displayName||currentUser.empName,
       homeStore:currentUser.store||'', atStore, type:'補登/修改', targetDate, punchType, requestedTime,
-      reason, status:'pending', createdAt:new Date().toISOString(), createdBy:currentUser.empName
+      reason:rr.reason, reasonCode:rr.reasonCode, reasonText:rr.reasonText,
+      status:'pending', createdAt:new Date().toISOString(), createdBy:currentUser.empName
     });
     hideLoading();
     document.getElementById('reqModal').style.display='none';

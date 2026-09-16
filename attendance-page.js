@@ -127,6 +127,18 @@ async function saveTol(){
     hideLoading(); alert(`✅ 已設定「${curStore}」遲到容許值：${v} 分`);
   }catch(e){ hideLoading(); alert('儲存失敗：'+e.message); }
 }
+const REQ_REASON_LABELS={forgot:'忘記打卡', device:'手機沒帶／沒電', system:'打不進去（系統）', support:'支援他店不知在哪打', noshift:'沒排班但到場', wrongtime:'打卡時間錯誤', other:'其他'};
+// 本月每位員工的補登張數：店長逐筆審核看不出「同一個人一直補」，97.5% 全准就是這樣來的
+async function monthlyReqCount(){
+  const ym=new Date(Date.now()+8*3600000).toISOString().slice(0,7);
+  const out={};
+  try{
+    const snap=await window.db.collection('stores').doc(curStore).collection('attendanceRequests')
+      .where('targetDate','>=',ym+'-01').where('targetDate','<=',ym+'-31').get();
+    snap.forEach(d=>{ const r=d.data()||{}; if(r.empName) out[r.empName]=(out[r.empName]||0)+1; });
+  }catch(e){ /* 查不到就不顯示次數 */ }
+  return out;
+}
 async function loadRequests(){
   const box=document.getElementById('reqs'); if(!box) return;
   let reqs=[];
@@ -135,10 +147,13 @@ async function loadRequests(){
     snap.forEach(d=>reqs.push({id:d.id,...d.data()}));
   }catch(e){ return; }
   if(!reqs.length){ box.innerHTML=''; return; }
+  const cnt=await monthlyReqCount();
   box.innerHTML=`<div class="card" style="border:1.5px solid #ffd8a8;background:#fff8ee;"><div style="font-size:14px;font-weight:900;color:#c0620f;margin-bottom:8px;">📝 待審核申請（${reqs.length}）</div>`+
     reqs.map(r=>`<div style="border-top:1px dashed #f0d9b0;padding:8px 0;">
-      <div style="font-size:14px;font-weight:800;">${empDisplay(r.empName)}　<span style="color:var(--text-muted);font-weight:600;font-size:13px;">${r.targetDate} ${r.punchType} ${r.requestedTime}</span></div>
-      <div class="meta" style="margin:2px 0;">原因：${r.reason||'—'}${r.homeStore&&r.homeStore!==r.atStore?` · 原店 ${r.homeStore}`:''}</div>
+      <div style="font-size:14px;font-weight:800;">${empDisplay(r.empName)}
+        <span style="color:var(--text-muted);font-weight:600;font-size:13px;">${r.targetDate} ${r.punchType} ${r.requestedTime}</span>
+        ${(cnt[r.empName]||0)>=3?`<span title="本月補登張數" style="font-size:11px;background:#fdecea;color:#b3261e;border-radius:20px;padding:1px 7px;font-weight:800;">本月第 ${cnt[r.empName]} 張</span>`:(cnt[r.empName]||0)>1?`<span style="font-size:11px;color:var(--text-muted);font-weight:700;">本月第 ${cnt[r.empName]} 張</span>`:''}</div>
+      <div class="meta" style="margin:2px 0;">${r.reasonCode?`<span style="font-size:11px;background:#eef3fb;color:#1557b0;border-radius:20px;padding:1px 7px;font-weight:800;">${REQ_REASON_LABELS[r.reasonCode]||r.reasonCode}</span> ${r.reasonText||''}`:`原因：${r.reason||'<span style="color:#b3261e;">未填</span>'}`}${r.homeStore&&r.homeStore!==r.atStore?` · 原店 ${r.homeStore}`:''}</div>
       <div style="display:flex;gap:8px;margin-top:6px;">
         <button onclick="approveReq('${r.id}')" style="flex:1;padding:8px;background:#e6f4ea;color:#137333;border:none;border-radius:8px;font-weight:800;cursor:pointer;">✅ 核准</button>
         <button onclick="rejectReq('${r.id}')" style="flex:1;padding:8px;background:#fce8e6;color:#c5221f;border:none;border-radius:8px;font-weight:800;cursor:pointer;">❌ 駁回</button>
