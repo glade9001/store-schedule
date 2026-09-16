@@ -80,6 +80,16 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
     <button onclick="otCancel()" style="width:100%;padding:9px;background:none;color:#94a3b8;border:none;font-size:13px;font-weight:700;cursor:pointer;">取消打卡</button>
   </div>
 </div>
+<div id="lateNoteModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9500;align-items:center;justify-content:center;padding:18px;">
+  <div style="background:#fff;border-radius:16px;max-width:400px;width:100%;padding:20px;">
+    <div style="font-size:17px;font-weight:900;margin-bottom:8px;">🕐 現在打卡會記為遲到</div>
+    <div id="lnMsg" style="font-size:13px;color:#475569;line-height:1.7;margin-bottom:12px;"></div>
+    <label style="display:block;font-size:12px;font-weight:700;margin-bottom:5px;">說明（選填，會留在這筆紀錄上）</label>
+    <textarea id="lnNote" rows="2" maxlength="200" placeholder="例：07:00 就到，忙到現在才想起來打卡" style="width:100%;padding:10px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;font-family:inherit;margin-bottom:12px;"></textarea>
+    <button onclick="lnSubmit()" style="width:100%;padding:12px;background:var(--primary);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;cursor:pointer;margin-bottom:8px;">確認打卡</button>
+    <button onclick="lnCancel()" style="width:100%;padding:9px;background:none;color:#94a3b8;border:none;font-size:13px;font-weight:700;cursor:pointer;">取消</button>
+  </div>
+</div>
 <div id="reqModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9500;align-items:center;justify-content:center;padding:18px;">
   <div style="background:#fff;border-radius:16px;max-width:400px;width:100%;padding:20px;max-height:90vh;overflow:auto;">
     <div style="font-size:17px;font-weight:900;margin-bottom:6px;">📝 補登／修改打卡申請</div>

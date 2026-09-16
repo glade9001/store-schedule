@@ -2230,6 +2230,9 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
     deviceInfo: deviceInfo || null, punchMethod: (d.punchMethod || "GPS"),
     otIntent, otContent: otIntent ? String(d.otContent || "").slice(0, 300) : "",
     otStatus: otIntent === "apply" ? "pending" : (otIntent === "private" ? "private" : null),
+    // 員工自述（2026-09-16）：遲到才想起來打卡時可留一句說明。**只留說明、不動時間**——
+    // 要改時間一律走補登/修改申請由店長核准（先前「忘記打卡」一鍵改時間已於 9/15 取消）。
+    empNote: String(d.empNote || "").slice(0, 200) || null,
   });
   return { ok: true, atStore, distanceM, status, lateMin, hm: nowTp.toISOString().slice(11, 16) };
 });

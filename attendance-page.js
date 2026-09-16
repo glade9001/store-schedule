@@ -355,6 +355,8 @@ function punchRow(r, showEmp){
     <span class="pstat ${needRev?'s-warn':sc}">${needRev?'離線待核':(anom?'⚠️ '+st:st)}</span>${reviewBtn}${voided?'':editBtn}
   </div>`;
   if(r.note) h+=`<div class="meta" style="padding:0 0 6px 4px;">💬 ${r.note}${r.noteBy?`（${r.noteBy}）`:''}</div>`;
+  // 員工在打卡當下自己留的說明（遲到才想起來打卡時；只是說明，時間未被修改）
+  if(r.empNote) h+=`<div class="meta" style="padding:0 0 6px 4px;color:#c0620f;">🗣️ 員工說明：${r.empNote}</div>`;
   if(r.origStatus && r.origStatus!==r.status) h+=`<div class="meta" style="padding:0 0 6px 4px;color:#8a5cf6;">🕰️ 原判定：${r.origStatus}${r.origLateMin?` ${r.origLateMin} 分`:''}（補登後改為 ${r.status}）</div>`;
   if(r.editReason||r.voidReason) h+=`<div class="meta" style="padding:0 0 6px 4px;color:#8a5cf6;">✏️ ${voided?'註銷':'修改'}原因：${r.voidReason||r.editReason}${(r.voidedBy||r.editedBy)?`（${r.voidedBy||r.editedBy}）`:''}${(r.origTs&&!voided)?` · 原時間 ${fmtT(r.origTs)}`:''}</div>`;
   if(!voided && r.otStatus){
