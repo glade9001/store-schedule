@@ -478,13 +478,16 @@ async function loadMonth(){
   let recs=[]; try{ recs=(await fetchMonth()).filter(r=>String(gd(r)).startsWith(ym)); }catch(e){ list.innerHTML=`<div class="empty">讀取失敗：${e.message}</div>`; return; }
   const anoms=recs.filter(r=>isAnomRec(r) || (r.source==='offline'&&r.needReview&&!r.voided) || (r.otStatus==='pending'&&!r.voided)).sort((a,b)=>(gd(a)+(a.deviceTs||'')).localeCompare(gd(b)+(b.deviceTs||'')));
   const cnt=t=>anoms.filter(r=>r.status===t).length;
+  // 2026-09-16 使用者指示：遲到不算「待處理」——它是既成事實，店長做什麼都不會消失；
+  // 待處理＝真的要動手的（缺卡未補、離線補傳待複核、加班待審）。遲到照常列在下面清單裡供查看。
+  const todo=anoms.filter(r=>r.status!=='遲到');
   document.getElementById('sum').innerHTML=`<div class="sumbar">
-    <div class="chip"><div class="chip-n" style="color:${anoms.length?'var(--danger)':'var(--text)'}">${anoms.length}</div><div class="chip-l">本月待處理</div></div>
+    <div class="chip"><div class="chip-n" style="color:${todo.length?'var(--danger)':'var(--text)'}">${todo.length}</div><div class="chip-l">本月待處理</div></div>
     <div class="chip"><div class="chip-n">${cnt('遲到')}</div><div class="chip-l">遲到</div></div>
     <div class="chip"><div class="chip-n">${cnt('早退')}</div><div class="chip-l">早退</div></div>
     <div class="chip"><div class="chip-n">${cnt('缺卡')}</div><div class="chip-l">缺卡</div></div>
   </div>`;
-  if(!anoms.length){ list.innerHTML='<div class="empty">🎉 本月無待處理異常</div>'; return; }
+  if(!anoms.length){ list.innerHTML='<div class="empty">🎉 本月無異常</div>'; return; }
   const byDate={}; anoms.forEach(r=>{ const k=gd(r); (byDate[k]=byDate[k]||[]).push(r); });
   let html='';
   Object.keys(byDate).sort().forEach(dt=>{
