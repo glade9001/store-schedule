@@ -517,7 +517,9 @@ async function saveAccountSetting() {
       data.pendingRole = firebase.firestore.FieldValue.delete();
       data.roleChangeDate = firebase.firestore.FieldValue.delete();
     }
-    if(pwd) data.password = pwd;
+    // ⚠️ 2026-09-15 起不再把密碼寫進 account：登入一律走 Firebase Auth，全專案沒有任何程式讀 account.password，
+    //    但 account 是「登入即可讀」的集合，且出勤/人事分析/排班/薪資等頁面會整份撈到瀏覽器＝等於公開所有人的密碼。
+    //    密碼只透過 adminResetPassword（Admin SDK）寫進 Auth。
 
     // ✅ 調薪歷史：若角色或薪資有變動，記錄一筆歷史
     if(!existing.empty) {
@@ -765,7 +767,7 @@ async function saveNewEmployee() {
     const uid = await _createAuthUser(username, password);
 
     const accountData = {
-      ID: username, password,
+      ID: username,   // ⚠️ 不再存 password（理由同 saveEmpAccount）：密碼只進 Firebase Auth
       displayName: dispName || sysName,
       empName: sysName,
       store, role, permission: perm, linked: true
