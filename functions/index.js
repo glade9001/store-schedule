@@ -2619,19 +2619,26 @@ exports.scheduledAutoPublishPush = onSchedule(
 // 2026-09-15 使用者定案：回歸員工自己勾選；下班提醒就在「下班時間」發（回放顯示晚 15 分再提醒有六成是還在店裡的人，
 // 但延後又會讓人走出打卡範圍，最後決定維持原設計）。只發推播：沒開推播的人不發 LINE。
 // 與舊版差異：①跨日班的下班時間落在今天也提醒（舊版只看當天排班）②下班時連上班卡都沒有，改提醒「上下班都還沒打」（舊版不發）。
+const CLOCK_REMIND_DEFAULT = { inBefore: 10, outRemind: true }; // 沒設定過＝上班前 10 分鐘＋下班時間都提醒（前端 clock-page.js 同值）
 const CLOCK_REMIND_WIN = 15 * 60000; // 視窗 15 分鐘＋clockRemindLog 去重：排程晚跑也不漏、不重複
 exports.scheduledClockRemindPush = onSchedule(
   { schedule: "*/5 * * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [VAPID_PRIVATE] },
   async () => {
     const db = admin.firestore();
-    const prefsSnap = await db.collection("clockRemindPrefs").get().catch(() => null);
-    if (!prefsSnap || prefsSnap.empty) return;
-    const prefs = {};
-    prefsSnap.forEach((d) => { const x = d.data() || {}; if (Number(x.inBefore) > 0 || x.outRemind) prefs[d.id] = x; });
-    if (!Object.keys(prefs).length) return;
+    // 2026-09-16 使用者指示：上下班提醒改成**預設開啟**（沒設定過的人就用預設），要關的人自己在打卡頁取消勾選。
+    // clockRemindPrefs/{empName} 只記「與預設不同」的設定；沒有文件＝預設值。
     const idx = await loadPushIndex(db);
-    const wanted = Object.keys(prefs).filter((emp) => idx.uidByEmp[emp]);
-    if (!wanted.length) return; // 開了提醒的人都還沒開推播 → 不讀排班
+    if (!Object.keys(idx.uidByEmp).length) return; // 沒人開推播 → 不讀排班
+    const prefsSnap = await db.collection("clockRemindPrefs").get().catch(() => null);
+    const saved = {};
+    if (prefsSnap) prefsSnap.forEach((d) => { saved[d.id] = d.data() || {}; });
+    const prefs = {};
+    for (const emp of Object.keys(idx.uidByEmp)) {
+      const x = saved[emp];
+      const p = x ? { inBefore: Number(x.inBefore) || 0, outRemind: !!x.outRemind } : CLOCK_REMIND_DEFAULT;
+      if (p.inBefore > 0 || p.outRemind) prefs[emp] = p;
+    }
+    if (!Object.keys(prefs).length) return; // 全部的人都自己關掉了
     if (await maintenanceOn(db)) return;
     const cfg = await db.collection("settings").doc("globalConfig").get().catch(() => null);
     const conf = cfg && cfg.exists ? cfg.data() : {};

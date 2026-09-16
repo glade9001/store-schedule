@@ -1,4 +1,6 @@
-let currentUser=null, appConfig={}, geoCfg={}, myGeo=null, atStore='', distanceM=null, todayShifts=[], todayPunches=[], locating=false, isBound=true, carriedOpenIn=null, candShifts=[], openPunch=null, staleOpenIn=null, remindPref={inBefore:0,outRemind:false};
+// 打卡提醒預設值（2026-09-16 起預設開啟，與 functions/index.js CLOCK_REMIND_DEFAULT 同值；員工可自行關閉）
+const CLOCK_REMIND_DEFAULT={inBefore:10, outRemind:true};
+let currentUser=null, appConfig={}, geoCfg={}, myGeo=null, atStore='', distanceM=null, todayShifts=[], todayPunches=[], locating=false, isBound=true, carriedOpenIn=null, candShifts=[], openPunch=null, staleOpenIn=null, remindPref={...CLOCK_REMIND_DEFAULT};
 // 週文件 id 必須是排班表 getWeekDates() 的精準反函式（每週以「週一」起算）。
 // 舊公式把「當下日期(含時間)」直接套年度週次 → 每個週六/週日都算成下一週，打卡因此讀到下週班表。
 function week1Monday(yr){ const d=new Date(yr,0,1), day=d.getDay(); d.setDate(d.getDate()+(day<=4?1-day:8-day)); return d; }
@@ -55,7 +57,7 @@ window.onload=async()=>{
   // 2026-09-15 起不再請人綁 LINE（通知改推播）：不再查綁定、不顯示「尚未綁定 LINE」提醒（isBound 維持預設 true）
   // 讀打卡提醒偏好（暫停期間不顯示設定，省一次讀取）
   if(!CLOCK_REMIND_SUSPENDED){
-    try{ const rp=await window.db.collection('clockRemindPrefs').doc(currentUser.empName).get(); if(rp.exists){ const d=rp.data()||{}; remindPref={inBefore:Number(d.inBefore)||0, outRemind:!!d.outRemind}; } }catch(e){}
+    try{ const rp=await window.db.collection('clockRemindPrefs').doc(currentUser.empName).get(); if(rp.exists){ const d=rp.data()||{}; remindPref={inBefore:Number(d.inBefore)||0, outRemind:!!d.outRemind}; } }catch(e){} // 沒有文件＝維持預設（都開）
   }
   await syncServerTime();
   refreshGeoPerm();   // 讀定位權限狀態，供診斷顯示
@@ -482,7 +484,7 @@ function render(){
       下班時間提醒下班打卡
     </label>
     <div id="remPushHint" style="font-size:12px;margin-top:8px;line-height:1.6;"></div>
-    <div style="font-size:11px;color:var(--text-muted);margin-top:4px;line-height:1.5;">※ 上班前分鐘數上限 30 分。已經打過卡就不提醒；未排班的日子不提醒。</div>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:4px;line-height:1.5;">※ 兩項<b>預設都開啟</b>，不想收到可以取消勾選。上班前分鐘數上限 30 分；已經打過卡就不提醒，未排班的日子也不提醒。</div>
   </div>`}
   ${todayPunches.length?`<div class="card"><div style="font-size:13px;font-weight:800;color:var(--text-muted);margin-bottom:8px;">今日打卡</div>${plist}</div>`:''}
   <div style="padding:2px 10px 16px;">
