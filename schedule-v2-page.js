@@ -727,9 +727,15 @@ async function revokeHolidayComp(empName, fullDate, holidayName) {
 }
 
 // ===== 國定假日偵測：這格儲存時檢查是否需要發/撤銷補休 =====
+// 計薪模式：payAsPartTime（如楷岳，職務店長但領時薪）在排班端也比照工讀——統計看工時、國定假日不發補休
+// （與 salary.html effSalaryRole 同一旗標）
+function isPartTimeEmp(emp) {
+  return !!emp && (!!emp.payAsPartTime || (emp.role||'').includes('工讀'));
+}
+
 async function checkHolidayCompOnSave(empName, fullDate, prevShift, newShift, emp) {
   // 工讀生不處理補休
-  if(!emp || (emp.role||'').includes('工讀')) return;
+  if(!emp || isPartTimeEmp(emp)) return;
 
   const holidayName = TW_HOLIDAYS_SCHED[fullDate];
   if(!holidayName) return; // 不是國定假日
@@ -810,7 +816,7 @@ async function runHistoricalCompFix() {
       empSnap.forEach(d => {
         const data = d.data();
         if(!['離職','調走'].includes(data.status)) {
-          if((data.role||'').includes('工讀')) {
+          if(isPartTimeEmp(data)) {
             skippedPartTime++;
           } else {
             emps.push({ name: d.id, ...data });
@@ -2902,7 +2908,7 @@ function updateWeekTotalCell() {
   (appData.employees || []).forEach(emp => {
     if(emp.name.startsWith('🆘')) return;
     const role = emp.role || '';
-    const isPartTime = role === '工讀';
+    const isPartTime = isPartTimeEmp(emp);
     if(isPartTime) {
       const wage = parseFloat(emp.wage || 0);
       let monthH = 0;
@@ -2973,7 +2979,7 @@ async function updateSummary(idx, emp) {
   const weekStr = document.getElementById('weekSelector').value;
   const store = document.getElementById('storeSelector').value;
   const role = emp.role || '';
-  const isPartTime = (role === '工讀');
+  const isPartTime = isPartTimeEmp(emp);
   const isFullTime = (role === '正職' || role === '店長' || role === '加盟主');
 
   // 本週涵蓋月份（可能跨月）
