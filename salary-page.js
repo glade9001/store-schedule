@@ -2570,7 +2570,7 @@ function renderEmpList() {
   el.innerHTML = emps.map((emp, idx) => {
     let rec = getSalaryRecord(emp.name) || buildDefaultRecord(emp);
 // 工讀：強制同步排班偵測到的國定假日出勤時數
-    if(emp.role === ROLE_PART) {
+    if(effSalaryRole(emp, rec) === ROLE_PART) {
       const autoH = calcEmpHolidayHours(emp.name);
       if(parseFloat(rec.holidayHours || 0) !== autoH) {
         rec.holidayHours = autoH;
@@ -2608,7 +2608,7 @@ function openEmpModal(empName, tabIdx) {
   if(!getSalaryRecord(empName)) salaryData.records.push(rec);
 
 // ✅ 正職/店長：開啟 Modal 時再次確認是否需同步（排班資料可能在 loadSalaryData 後又更新）
-  if(emp.role !== ROLE_PART) {
+  if(effSalaryRole(emp, rec) !== ROLE_PART) {
     const { otH: schedOtH } = calcEmpHours(emp.name);
     if(!rec.otHoursManual && schedOtH !== parseFloat(rec.otHours||0)) {
       rec.otHours = schedOtH;
@@ -3633,8 +3633,8 @@ async function autoSaveDraft() {
   salaryData.records.forEach(rec => {
     const emp = empList.find(e => e.name === rec.empName);
     if(!emp) return;
-    if(emp.role === ROLE_PART) {
-      // 工讀生：同步最新工時
+    if(effSalaryRole(emp, rec) === ROLE_PART) {
+      // 工讀生（含 payAsPartTime）：同步最新工時
       rec.hours = calcEmpHours(emp.name).totalH;
     } else {
       // 正職/店長：同步時薪另計金額
@@ -4268,7 +4268,7 @@ function renderCostModal(supportOut, supportIn, frozen) {
     const healthEr = pf(rec.healthEr||0);
     const pensionEr= (rec.insuranceGrade != null)
       ? pf(rec.pensionEr||0)
-      : (emp.role===ROLE_PART ? 0 : Math.round((pf(rec.baseSalary)+pf(rec.fullAttendBonus))*0.06));
+      : (effSalaryRole(emp, rec)===ROLE_PART ? 0 : Math.round((pf(rec.baseSalary)+pf(rec.fullAttendBonus))*0.06));
     return { emp, laborEr, healthEr, pensionEr, total: laborEr + healthEr + pensionEr };
   });
   const totalEr = erRows.reduce((s, r) => s + r.total, 0);
@@ -4279,7 +4279,7 @@ function renderCostModal(supportOut, supportIn, frozen) {
   // 國定假日費用
   const holRows = empList.map(emp => {
     const rec = getSalaryRecord(emp.name) || {};
-    const isPart = emp.role === ROLE_PART;
+    const isPart = effSalaryRole(emp, rec) === ROLE_PART;
     const amt = isPart ? Math.round(pf(rec.wage)*pf(rec.holidayHours)) : pf(rec.holidayOtPay);
     return { emp, amt };
   }).filter(r => r.amt > 0);
@@ -4393,7 +4393,7 @@ function renderCostModal(supportOut, supportIn, frozen) {
   } else {
     holRows.forEach(r => {
       const rec = getSalaryRecord(r.emp.name)||{};
-      const isPart = r.emp.role === ROLE_PART;
+      const isPart = effSalaryRole(r.emp, rec) === ROLE_PART;
       const note = isPart ? `${pf(rec.holidayHours)}h × $${pf(rec.wage)}` : '假日加班費';
       html += `<div class="cost-holiday-row">
         <span style="flex:1;font-weight:700;">${getDisplayName(r.emp.name)}<span class="cost-emp-role-tag">${r.emp.role||''}</span></span>
