@@ -71,10 +71,10 @@ function renderQuotaNotice(){
   const fullN = dailyLimits.fullTime ?? 2;
   const partTxt = partTimeUnlimited ? '不限' : `${dailyLimits.partTime ?? 1} 人`;
   const _open = lrNewestOpenSunday();
-  const _rule = `<div style="margin:8px 12px 0;padding:10px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;font-size:13px;color:#166534;font-weight:600;line-height:1.6;">🗓️ 劃休開放未來 4 週：<b>每週一 16:00 開放新的一週</b>（目前開放到 ${fmtDate(_open)}）；每週的截止時間是前一週週一 23:59。灰色的日子可以點進去看劃休名單。</div>`;
+  const _rule = `<div style="margin:8px 12px 0;padding:10px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;font-size:13px;color:#166534;font-weight:600;line-height:1.6;">🗓️ 劃休開放未來 4 週：<b>每週一 16:00 開放新的一週</b>（目前開放到 ${fmtDate(_open)}）；每週的截止時間是前一週週一 23:59。</div>`;
   el.innerHTML = _rule + (quotaHardBlock
     ? `<div style="margin:8px 12px;padding:10px 12px;background:#fef2f2;border:1px solid #fecaca;border-radius:10px;font-size:13px;color:#b91c1c;font-weight:700;line-height:1.6;">⛔ 每日名額上限（強制）：正職 ${fullN} 人／天、工讀 ${partTxt}／天（特／補／排一起計）。<br>額滿後排休／補休<b>無法送出</b>；特休為法定權利仍可送出（候補→可請店長協商）。</div>`
-    : `<div style="margin:8px 12px;padding:10px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;font-size:13px;color:#1d4ed8;font-weight:600;line-height:1.6;">📋 每日名額：正職 ${fullN} 人／天、工讀 ${partTxt}／天（特／補／排一起計）。額滿仍可送出（候補，先送先優先）；特休候補可請店長協商。</div>`);
+    : `<div style="margin:8px 12px;padding:10px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;font-size:13px;color:#1d4ed8;font-weight:600;line-height:1.6;">📋 每日名額：正職 ${fullN} 人／天、工讀 ${partTxt}／天（特／補／排一起計）。額滿仍可送出（候補，先送先優先）。</div>`);
 }
 
 // ===== 禁休模式切換 =====
