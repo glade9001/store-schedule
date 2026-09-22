@@ -17,7 +17,8 @@ let myRequests = []; // 本人所有申請
 let storeRequests = []; // 本店所有申請（看名額）
 let publishData = {}; // weekStr -> published bool
 let annualBalance = 0; // 特休可用天數
-let compBalance = 0;   // 補休可用天數
+let compBalance = 0;   // 補休可用天數（已生效）
+let compPending = [];  // 還沒生效的國定假日補休 [{date, n}]
 let weekReqCount = 0;  // 本週排休已申請天數（正職用）
 let displayNameMap = {};
 
@@ -553,19 +554,12 @@ async function loadBalance(){
     });
   }
 
-  // 補休：comp/{year}
-  const cSnap = await window.db.collection('employees').doc(empName).collection('comp').doc(String(yr)).get().catch(()=>null);
-  const cData = cSnap?.exists ? cSnap.data() : { earned:0, used:0 };
-  compBalance = (cData.earned||0) - (cData.used||0); // 允許負數（撤回補休時）
-  // 加上遞延
-  const prevSnap = await window.db.collection('employees').doc(empName).collection('comp').doc(String(yr-1)).get().catch(()=>null);
-  if(prevSnap?.exists){
-    const pd = prevSnap.data();
-    if(pd.carried && !pd.settled){
-      const carriedRem = Math.max(0, (pd.earned||0) - (pd.used||0) - (pd.carriedUsed||0));
-      compBalance += carriedRem;
-    }
-  }
+  // 補休：只算「已生效」的——國定假日補休要過了那天才能用（comp-avail.js，2026-09-22）
+  try{
+    const ca = await caCompAvailability(empName);
+    compBalance = ca.effective;           // 允許負數（撤回補休時）
+    compPending = ca.pending;             // 還沒生效的國定假日補休
+  }catch(e){ compBalance = 0; compPending = []; }
 }
 
 function addMonths(dateStr, months){
@@ -666,7 +660,7 @@ function renderCalendar(){
     <div class="balance-card" style="${compBalance < 0 ? 'border:1.5px solid var(--danger);' : ''}">
       <div class="balance-label">🗓️ 補休可用</div>
       <div class="balance-val comp" style="${compBalance < 0 ? 'color:var(--danger);' : ''}">${compBalance}</div>
-      <div class="balance-sub">${compBalance < 0 ? '<span style="color:var(--danger);font-size:9px;">待下次發放抵銷</span>' : '天'}</div>
+      <div class="balance-sub">${compBalance < 0 ? '<span style="color:var(--danger);font-size:9px;">待下次發放抵銷</span>' : '天'}${compPending.length ? `<div style="font-size:10px;color:var(--text-muted);margin-top:2px;">另有國定假日補休：${caPendingText(compPending)}</div>` : ''}</div>
     </div>
   </div>`;
 
@@ -830,11 +824,10 @@ function renderCalBody(){
     const _dayAll = storeRequests.filter(r=>r.date===dateStr && !['cancelled','unfulfilled'].includes(r.status));
     const _offFull = _dayAll.filter(r=>isFullTimeReq(r)).length;
     const _limitFull = dailyLimits.fullTime || 0;
+    // 2026-09-22：拿掉「休 N」數字（格子裡已列出是誰，手機上還會擠掉名字），只在正職名額已滿時標「額滿」
     let _heat = '';
-    if(_dayAll.length && !isPast){
-      const cls2 = _limitFull>0 && _offFull>=_limitFull ? 'heat-red'
-                 : _limitFull>0 && (_limitFull-_offFull===1) ? 'heat-yellow' : 'heat-green';
-      _heat = `<span class="cal-heat ${cls2}">休${_dayAll.length}</span>`;
+    if(!isPast && _limitFull>0 && _offFull>=_limitFull){
+      _heat = `<span class="cal-heat heat-red" title="正職劃休名額已滿，再送出會是候補">額滿</span>`;
     }
     html += `<div class="${cls}" ${onclick}>
       <div class="cal-date">${d}${_heat}${holidayHtml}${typeof lshBadge==='function' && !isPast ? lshBadge(dateStr) : ''}</div>
@@ -1076,7 +1069,7 @@ async function submitApply(){
     return;
   }
   if(!isProxy && applyType==='comp' && compBalance < cost){
-    showToast('⚠️ 補休餘額不足');
+    showToast(compPending.length ? `⚠️ 補休還沒生效：國定假日補休要過了那天才能用（${caPendingText(compPending)}）` : '⚠️ 補休餘額不足');
     return;
   }
 

@@ -2661,6 +2661,18 @@ async function applyShift() {
     const newHours = document.getElementById('modalHours').value;
 
     currentCell.dataset.lawoverrides = ''; // 預設清空（重新評估）
+    // 補休還沒生效（國定假日補休要過了那天才能用）→ 警告、可放行（2026-09-22）
+    if(newShift === '補休' && currentCell.dataset.shift !== '補休' && typeof caCompAvailability === 'function') {
+      try {
+        const ca = await caCompAvailability(empName);
+        if(ca.effective < 1) {
+          const msg = `⚠️ ${getDisplayName(empName)}目前可用的補休只有 ${ca.effective} 天` +
+            (ca.pending.length ? `\n（另有國定假日補休還沒生效：${caPendingText(ca.pending)}）` : '') +
+            `\n\n國定假日補休要過了那天才能用，避免之後改班表收回時變成負數。\n確定還是要排補休？`;
+          if(!confirm(msg)) return;
+        }
+      } catch(e) { console.warn('補休檢查失敗:', e); }
+    }
     if(newShift && newShift !== '排休' && newShift !== '指休' && newShift !== '清空') {
       const { errors, softBlocks } = detectScheduleConflicts(empName, day, weekStr, newShift, newHours);
 
@@ -2846,7 +2858,14 @@ function applyPaintToCell(btn, eIdx) {
   // ✅ 特休/補休：扣天數（非虛擬行才扣）
   if(!isVirtual) {
     const week = document.getElementById('weekSelector').value;
-    deductLeave(btn.dataset.emp, btn.dataset.day, week, prevShift, btn.dataset.shift||'');
+    const _ded = deductLeave(btn.dataset.emp, btn.dataset.day, week, prevShift, btn.dataset.shift||'');
+    // 畫筆排補休：不能中途問，扣完之後提醒補休還沒生效（2026-09-22）
+    if(btn.dataset.shift === '補休' && prevShift !== '補休' && typeof caCompAvailability === 'function') {
+      const _emp = btn.dataset.emp;
+      Promise.resolve(_ded).then(() => caCompAvailability(_emp)).then(ca => {
+        if(ca.effective < 0) showToast(`⚠️ ${getDisplayName(_emp)}可用補休不足（${ca.effective} 天）` + (ca.pending.length ? `；國定假日補休 ${caPendingText(ca.pending)}` : ''));
+      }).catch(()=>{});
+    }
 
     // 🎌 國定假日補休偵測
     const dates3 = getWeekDates(week);
