@@ -2,6 +2,7 @@
 // 資料模型與推算邏輯在 auto-schedule-core.js；這支只管畫面與讀寫。
 // 設定文件：stores/{store}/config/autoSchedule（catch-all 規則：登入者可讀寫，與 config/shifts 相同）
 
+let aspDayEdit = null; // 正在編輯逐日例外的格子 {idx, season, day}
 let aspOpenDays = new Set(); // 需求區展開中的星期（手機上七天全展開太長）
 let aspUser = null, aspStore = '', aspCfg = null, aspEmps = [], aspStats = {}, aspWeeks = {}, aspDirty = false;
 const aspIsOwner = () => ['owner', 'admin'].includes(aspUser?.permission);
@@ -62,7 +63,7 @@ async function aspOnStoreChange() {
 }
 
 async function aspLoadStore() {
-  aspSetDirty(false);
+  aspSetDirty(false); aspDayEdit = null;
   const storeRef = window.db.collection('stores').doc(aspStore);
   const thisWeek = shiftWeekStr(aspTodayStr());
   const fromWeek = shiftWeekStr(shiftDateAdd(aspTodayStr(), -7 * aspHistoryWeeks));
@@ -141,7 +142,7 @@ function aspBanner(type, msg) {
 function aspReinfer() {
   if (!confirm('用歷史班表重新帶入「人數需求」與「可上班別」？\n目前畫面上的修改會被覆蓋（寒暑假日期保留）。')) return;
   const inf = asInferFromHistory(aspWeeks, aspEmps, aspCfg.seasons, {});
-  aspCfg.demand = inf.demand; aspCfg.staff = inf.staff; aspStats = inf.stats;
+  aspCfg.demand = inf.demand; aspCfg.staff = inf.staff; aspStats = inf.stats; aspDayEdit = null;
   aspSetDirty(true); aspRenderAll();
   aspToast('已重新帶入，確認後記得儲存');
 }
@@ -264,7 +265,7 @@ function aspRenderStaff() {
           ${chips || (st.auto ? '<span class="empty-chips">還沒有可上班別，自動排班不會排這個人</span>' : '')}
           <span class="chip-add"><input list="shiftList" placeholder="＋ 班別" id="add-${idx}-${season}" onkeydown="if(event.key==='Enter')aspAddShift(${idx},'${season}')">
           <button class="btn-mini" onclick="aspAddShift(${idx},'${season}')">加入</button></span>
-        </div></div>`;
+        </div>${aspDayRow(idx, st, season)}</div>`;
     };
     return `<div class="card ${st.auto ? '' : 'emp-off'}">
       <div class="emp-head">
@@ -276,6 +277,62 @@ function aspRenderStaff() {
     </div>`;
   }).join('');
 }
+// ── 逐日例外：某季某個星期幾「不能上」或「只能上指定班別」──
+function aspDayRow(idx, st, season) {
+  const ex = st[season + 'Days'] || {};
+  const pills = asDayNames().map(d => {
+    const v = ex[d];
+    const cls = v === 'off' ? 'off' : (Array.isArray(v) ? 'only' : '');
+    const sub = v === 'off' ? '不能上' : (Array.isArray(v) ? v.join(' ') : '');
+    const on = aspDayEdit && aspDayEdit.idx === idx && aspDayEdit.season === season && aspDayEdit.day === d;
+    return `<button class="day-pill ${cls} ${on ? 'on' : ''}" onclick="aspPickDay(${idx},'${season}','${d}')">${d.slice(1)}${sub ? `<small>${aspEsc(sub)}</small>` : ''}</button>`;
+  }).join('');
+  let editor = '';
+  if (aspDayEdit && aspDayEdit.idx === idx && aspDayEdit.season === season) {
+    const d = aspDayEdit.day, v = ex[d];
+    const mode = v === 'off' ? 'off' : (Array.isArray(v) ? 'only' : 'default');
+    const onlyChips = Array.isArray(v) ? v.map((sh, i) => `<span class="chip"><span class="chip-txt">${aspEsc(sh)}</span><button class="chip-x" onclick="aspDelDayShift(${i})" aria-label="移除">×</button></span>`).join('') : '';
+    editor = `<div class="day-editor">
+      <div class="day-editor-title">${d}（${season === 'term' ? '學期中' : '寒暑假'}）</div>
+      <div class="seg">
+        <button class="${mode === 'default' ? 'sel' : ''}" onclick="aspSetDayMode('default')">照上面班別</button>
+        <button class="${mode === 'off' ? 'sel' : ''}" onclick="aspSetDayMode('off')">不能上</button>
+        <button class="${mode === 'only' ? 'sel' : ''}" onclick="aspSetDayMode('only')">只上指定班別</button>
+      </div>
+      ${mode === 'only' ? `<div class="chips" style="margin-top:6px;">${onlyChips}
+        <span class="chip-add"><input list="shiftList" placeholder="＋ 班別" id="dayadd" onkeydown="if(event.key==='Enter')aspAddDayShift()">
+        <button class="btn-mini" onclick="aspAddDayShift()">加入</button></span></div>` : ''}
+      <div style="text-align:right;margin-top:6px;"><button class="btn-mini" onclick="aspPickDay(${idx},'${season}','${d}')">完成</button></div>
+    </div>`;
+  }
+  return `<div class="day-row-label">每週可上日 <span class="meta">（點星期幾設定例外）</span></div><div class="day-pills">${pills}</div>${editor}`;
+}
+function aspPickDay(idx, season, day) {
+  const same = aspDayEdit && aspDayEdit.idx === idx && aspDayEdit.season === season && aspDayEdit.day === day;
+  aspDayEdit = same ? null : { idx, season, day };
+  aspRenderStaff();
+}
+function aspDayMap() {
+  const st = aspStaffOf(aspDayEdit.idx), k = aspDayEdit.season + 'Days';
+  return st[k] = st[k] || {};
+}
+function aspSetDayMode(mode) {
+  const m = aspDayMap(), d = aspDayEdit.day;
+  if (mode === 'default') delete m[d];
+  else if (mode === 'off') m[d] = 'off';
+  else if (!Array.isArray(m[d])) m[d] = []; // 先開空清單，加了班別才生效（空的＝照上面班別）
+  aspSetDirty(true); aspRenderStaff();
+}
+function aspAddDayShift() {
+  const n = asNormShift(document.getElementById('dayadd').value);
+  if (!n) { aspToast('班別格式不對，例：15-23、18-23'); return; }
+  const m = aspDayMap(), d = aspDayEdit.day;
+  if (!Array.isArray(m[d])) m[d] = [];
+  if (!m[d].includes(n)) m[d].push(n);
+  aspSetDirty(true); aspRenderStaff();
+}
+function aspDelDayShift(i) { aspDayMap()[aspDayEdit.day].splice(i, 1); aspSetDirty(true); aspRenderStaff(); }
+
 function aspStaffOf(idx) {
   const name = aspEmps[idx].name;
   return aspCfg.staff[name] = aspCfg.staff[name] || { auto: true, term: [], vacation: [], note: '' };
@@ -304,7 +361,14 @@ async function aspSave() {
   const btn = document.getElementById('saveBtn');
   // 只存在職的人：離職／調走的留著只會讓之後的自動排班誤排
   const staff = {};
-  aspEmps.forEach(e => { if (aspCfg.staff[e.name]) staff[e.name] = aspCfg.staff[e.name]; });
+  aspEmps.forEach(e => {
+    const st = aspCfg.staff[e.name];
+    if (!st) return;
+    ['termDays', 'vacationDays'].forEach(k => { // 選了「只上指定」卻沒加班別＝照上面班別，不存空陣列
+      Object.keys(st[k] || {}).forEach(d => { if (Array.isArray(st[k][d]) && !st[k][d].length) delete st[k][d]; });
+    });
+    staff[e.name] = st;
+  });
   const demand = {};
   asDayNames().forEach(d => { demand[d] = (aspCfg.demand[d] || []).map(b => ({ s: +b.s, e: +b.e, n: +b.n })); });
   const doc = {

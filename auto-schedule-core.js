@@ -9,6 +9,9 @@
  *   seasons: { summer:{from:'07-01', to:'08-31'}, winter:{from:'01-20', to:'02-20'} }  每年重複的 MM-DD
  *   staff  : { 員工名: { auto:true, term:['18-23',…], vacation:['15-23',…], note:'' } }
  *            term＝學期中、vacation＝寒暑假可上的班別，第一個＝主力。auto=false＝不自動排（店長等，手動排）。
+ *            termDays / vacationDays＝逐日例外：{ 週二:'off', 週三:['15-23'] }
+ *              'off'＝那天不能上；陣列＝那天只能上這些班；沒寫的日子照整季的 term / vacation。
+ *              （學生每學期課表不同，例：小羊這學期週二、四不能上，週三只能 15-23）
  *
  * 依賴 shift-utils.js（parseShiftSegs / shiftWeekStr / shiftDateAdd），班別文法只認那一份。
  * 本檔只有 function 宣告、沒有頂層 const/let —— 任何頁面掛上來都不會撞名。
@@ -190,4 +193,18 @@ function asInferFromHistory(weeks, emps, seasons, opt) {
   });
 
   return { demand: demand, staff: staff, stats: stats };
+}
+
+/**
+ * 某人某天可上的班別（已套用季節與逐日例外）。回 [] ＝那天不能排。
+ * @param {Object} st      staff[名] 設定
+ * @param {string} dateStr 'YYYY-MM-DD'
+ */
+function asAvailableShifts(st, dateStr, seasons) {
+  if (!st || !st.auto) return [];
+  var season = asSeasonOf(dateStr, seasons);
+  var ex = (st[season + 'Days'] || {})[shiftDayName(dateStr)];
+  if (ex === 'off') return [];
+  if (Array.isArray(ex) && ex.length) return ex.slice();
+  return (st[season] || []).slice();
 }

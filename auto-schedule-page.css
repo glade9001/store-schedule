@@ -78,6 +78,21 @@ select.sm{padding:6px 6px;border:1.5px solid var(--border);border-radius:8px;fon
 .emp-off{opacity:.55;}
 .empty-chips{font-size:12px;color:var(--danger);font-weight:700;}
 
+/* 逐日例外 */
+.day-row-label{font-size:11.5px;font-weight:800;color:var(--text-muted);margin:8px 0 4px;}
+.day-pills{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
+.day-pill{border:1.5px solid var(--border);background:#fff;border-radius:9px;padding:5px 0;font-size:13px;font-weight:900;color:var(--text);cursor:pointer;display:flex;flex-direction:column;align-items:center;min-width:0;line-height:1.2;}
+.day-pill small{font-size:9.5px;font-weight:700;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 2px;}
+.day-pill.off{background:#f1f5f9;color:#94a3b8;border-color:#e2e8f0;}
+.day-pill.off small{color:var(--danger);}
+.day-pill.only{background:#fff3e0;border-color:#f6b26b;color:#9a4a00;}
+.day-pill.on{outline:2.5px solid var(--primary);outline-offset:1px;}
+.day-editor{background:#fffaf3;border:1.5px solid #fcd9b0;border-radius:10px;padding:9px 10px;margin-top:6px;}
+.day-editor-title{font-size:12.5px;font-weight:900;margin-bottom:6px;}
+.seg{display:flex;gap:4px;}
+.seg button{flex:1;border:1.5px solid var(--border);background:#fff;border-radius:8px;padding:6px 2px;font-size:12px;font-weight:800;cursor:pointer;color:var(--text);}
+.seg button.sel{background:var(--primary);border-color:var(--primary);color:#fff;}
+
 /* 儲存列 */
 .savebar{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--border);padding:10px 16px calc(10px + env(safe-area-inset-bottom));display:flex;align-items:center;justify-content:flex-end;gap:12px;z-index:200;}
 .dirty-hint{font-size:12.5px;font-weight:700;color:var(--warn);flex:1;}
