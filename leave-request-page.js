@@ -879,7 +879,8 @@ function openApplyModal(dateStr){
     document.getElementById('applyModalTitle').textContent = '劃休名單';
     document.getElementById('applyModalSub').textContent = `${fmtDateFull(dateStr)}（週${['日','一','二','三','四','五','六'][dObj0.getDay()]}）・僅供查看`;
     renderOthersBox(dateStr, true);
-    document.getElementById('limitBox').innerHTML = `<div class="info-box">🔒 ${roReason}，無法在這裡申請或修改。</div>`;
+    document.getElementById('limitBox').innerHTML = `<div class="info-box">🔒 ${roReason}，無法在這裡申請或修改。</div>`
+      + (!isPast && typeof lshModalBox === 'function' ? lshModalBox(dateStr) : ''); // 灰色但確定缺人的日子也說明缺哪段
     openModal('applyModal');
     return;
   }
