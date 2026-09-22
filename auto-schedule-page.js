@@ -196,10 +196,12 @@ function aspRenderDemand() {
         <select class="sm" onchange="aspEditBand('${d}',${i},'e',this.value)">${aspHourOptions(b.e, 7.5, 31)}</select>
         <span class="stepper"><button onclick="aspStepBand('${d}',${i},-1)">−</button><span>${b.n} 人</span><button onclick="aspStepBand('${d}',${i},1)">＋</button></span>
         <button class="btn-x" onclick="aspDelBand('${d}',${i})" aria-label="刪除這個時段">✕</button>
-      </div>`).join('');
+      </div>
+      <div class="band-min">最少 <span class="stepper sm"><button onclick="aspStepMin('${d}',${i},-1)">−</button><span>${aspMinOf(b)} 人</span><button onclick="aspStepMin('${d}',${i},1)">＋</button></span>
+        <span class="meta">${aspMinOf(b) < b.n ? `少於 ${b.n} 人可以，排不到只提醒、不開待補` : '一定要排滿，排不到開 🆘 待補'}</span></div>`).join('');
     const warn = aspBandWarn(bands);
     const open = aspOpenDays.has(d);
-    const summary = bands.map(b => `${asHourLabel(b.s).replace('隔天 ', '')}–${asHourLabel(b.e).replace('隔天 ', '')} ${b.n}人`).join('・') || '還沒有時段';
+    const summary = bands.map(b => `${asHourLabel(b.s).replace('隔天 ', '')}–${asHourLabel(b.e).replace('隔天 ', '')} ${b.n}人${aspMinOf(b) < b.n ? `(最少${aspMinOf(b)})` : ''}`).join('・') || '還沒有時段';
     return `<div class="card">
       <div class="day-head" onclick="aspToggleDay('${d}')" style="cursor:pointer;"><span class="day-name">${d}</span><span class="btn-mini">${open ? '收合 ▲' : '編輯 ▼'}</span></div>
       ${aspCovBar(bands)}
@@ -225,6 +227,13 @@ function aspEditBand(d, i, f, v) {
 function aspStepBand(d, i, delta) {
   const b = aspCfg.demand[d][i];
   b.n = Math.max(1, Math.min(9, b.n + delta));
+  aspSetDirty(true); aspRenderDemand();
+}
+// 最少人數：沒存＝跟目標一樣（一定要排滿）
+function aspMinOf(b) { return b.min == null ? b.n : Math.min(b.min, b.n); }
+function aspStepMin(d, i, delta) {
+  const b = aspCfg.demand[d][i];
+  b.min = Math.max(0, Math.min(b.n, aspMinOf(b) + delta));
   aspSetDirty(true); aspRenderDemand();
 }
 function aspDelBand(d, i) { aspCfg.demand[d].splice(i, 1); aspSetDirty(true); aspRenderDemand(); }
@@ -370,7 +379,13 @@ async function aspSave() {
     staff[e.name] = st;
   });
   const demand = {};
-  asDayNames().forEach(d => { demand[d] = (aspCfg.demand[d] || []).map(b => ({ s: +b.s, e: +b.e, n: +b.n })); });
+  asDayNames().forEach(d => {
+    demand[d] = (aspCfg.demand[d] || []).map(b => {
+      const o = { s: +b.s, e: +b.e, n: +b.n };
+      if (aspMinOf(b) < o.n) o.min = aspMinOf(b); // 跟目標一樣就不存
+      return o;
+    });
+  });
   const doc = {
     version: 1, demand, seasons: aspCfg.seasons, staff,
     updatedAt: new Date().toISOString(),
