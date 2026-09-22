@@ -50,7 +50,8 @@ window.onload = async () => {
     const sel = document.getElementById('storeSel');
     sel.style.display = 'block';
     sel.innerHTML = stores.map(s => `<option value="${aspEsc(s)}">${aspEsc(s)}</option>`).join('');
-    aspStore = stores.includes('美德') ? '美德' : stores[0]; // 美德是示範店
+    const want = new URLSearchParams(location.search).get('store'); // 從排班頁「產生草稿」帶過來的門市
+    aspStore = stores.includes(want) ? want : (stores.includes('美德') ? '美德' : stores[0]);
     sel.value = aspStore;
   } else {
     aspStore = aspUser.store || '';

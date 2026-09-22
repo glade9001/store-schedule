@@ -1,4 +1,5 @@
 // 排班頁「🤖 產生草稿」：讀設定與資料 → auto-schedule-core.js asGenerateDraft → 預覽 → 店長按套用才填進班表。
+// 開放：能排這家店的人都看得到按鈕；設定未完成就點 → 請他先去自動排班設定。
 // ⚠️ 鐵則（使用者 2026-09-22）：不可改過去資料，尤其已發布的班表 —— 已發布／已過去的週一律不能產生、不能套用；
 //    只填空白格，店長已排的格子不動。
 // 依賴 schedule-v2-page.js 的全域：appData、appConfig、currentUser、virtualRowNames、weekPublishData、
@@ -8,11 +9,26 @@
 
 var asdLast = null; // 最近一次草稿結果 { week, store, res }
 
-/** 示範期：只有美德、只有 admin／owner／美德店長（與 auto-schedule-page.js aspCanUse 同一條） */
+/** 能排這家店的人都看得到按鈕（2026-09-22 起不限美德）；設定還沒完成時點了會請他先去設定 */
 function asdAllowedUser(store) {
-  var p = currentUser && currentUser.permission;
-  if (store !== '美德') return false;
-  return p === 'admin' || p === 'owner' || (p === 'manager' && currentUser.store === '美德');
+  return canScheduleStore(store);
+}
+
+/** 設定算「完成」：已儲存，且至少一天有人數需求、至少一個自動排班的人有可上班別（空白存檔不算） */
+function asdConfigReady(cfg) {
+  if (!cfg) return false;
+  var hasDemand = asDayNames().some(function (d) { return ((cfg.demand || {})[d] || []).length > 0; });
+  var hasStaff = Object.keys(cfg.staff || {}).some(function (n) {
+    var st = cfg.staff[n];
+    return st && st.auto && ((st.term || []).length > 0 || Object.keys(st.termDays || {}).length > 0);
+  });
+  return hasDemand && hasStaff;
+}
+
+function asdGoSetup(store) {
+  if (confirm('「' + store + '」需先完成自動排班設定（每天各時段需要幾人、每個人可上的班別），才能產生草稿。\n\n要現在前往設定嗎？')) {
+    location.href = 'auto-schedule.html?store=' + encodeURIComponent(store) + '&ref=' + encodeURIComponent('schedule-V2.html?mode=admin');
+  }
 }
 
 /** 這週能不能產生草稿：回傳 '' ＝可以，否則是原因 */
@@ -58,8 +74,8 @@ async function asdGenerate() {
       storeRef.collection('weeks').where(FP, '>=', fromWeek).where(FP, '<=', toWeek).get(),
       storeRef.collection('leaveRequests').get()
     ]);
-    if (!snaps[0].exists) { hideLoading(); showToast('⚠️ 這家店還沒有自動排班設定，請先到「自動排班設定」儲存'); return; }
-    var cfg = snaps[0].data();
+    var cfg = snaps[0].exists ? snaps[0].data() : null;
+    if (!asdConfigReady(cfg)) { hideLoading(); asdGoSetup(store); return; }
     var weeks = {};
     snaps[1].forEach(function (d) { weeks[d.id] = d.data().records || []; });
     // 本週用記憶體裡的（含還沒存的修改），不用資料庫那份
