@@ -7,9 +7,10 @@ let aspDayEdit = null; // 正在編輯逐日例外的格子 {idx, season, day}
 let aspOpenDays = new Set(); // 需求區展開中的星期（手機上七天全展開太長）
 let aspUser = null, aspStore = '', aspCfg = null, aspEmps = [], aspStats = {}, aspWeeks = {}, aspDirty = false;
 const aspIsOwner = () => ['owner', 'admin'].includes(aspUser?.permission);
-// 入口（首頁 ☰）所有店長都看得到；示範期只有 admin、owner 與美德店長能用，其他店長進來看到說明卡
+// 2026-09-22 起設定頁開放給所有店長（只能設定自己的店；owner/admin 可切三店）。
+// 「🤖 產生草稿」仍只限美德（auto-schedule-draft.js asdAllowedUser）
 const aspIsLead = () => ['manager', 'owner', 'admin'].includes(aspUser?.permission);
-const aspCanUse = () => aspIsOwner() || (aspUser?.permission === 'manager' && aspUser?.store === '美德');
+const aspCanUse = () => aspIsLead();
 const aspHistoryWeeks = 26; // 歷史推算看最近半年（涵蓋學期中＋暑假）
 
 function aspLoading(t) { document.getElementById('loadingText').textContent = t || '載入中…'; document.getElementById('loadingOverlay').classList.remove('hidden'); }
@@ -39,7 +40,6 @@ window.onload = async () => {
   const fb = await new Promise(r => { const u = firebase.auth().onAuthStateChanged(x => { u(); r(x); }); });
   if (!fb) { localStorage.removeItem('currentUser'); location.replace('home.html'); return; }
   if (!aspIsLead()) { aspToast('僅店長以上可用'); setTimeout(() => location.replace('home.html'), 1200); return; }
-  if (!aspCanUse()) { aspShowDemoOnly(); aspLoaded(); return; }
 
   let stores = [];
   try {
@@ -58,17 +58,6 @@ window.onload = async () => {
   await aspLoadStore();
   aspLoaded();
 };
-
-// 其他門市店長：不載入任何資料，只顯示示範說明
-function aspShowDemoOnly() {
-  document.querySelector('.content').innerHTML = `<div class="card demo-card">
-    <div class="demo-icon">🤖</div>
-    <div class="demo-title">自動排班目前在美德示範中</div>
-    <div class="demo-text">系統會依「各時段需要幾個人」和「每個人能上的班別」自動排出班表草稿，店長再微調發布。<br>
-      目前先在美德試用、調整規則，確認好用後會開放各門市設定。</div>
-  </div>`;
-  document.querySelector('.savebar').style.display = 'none';
-}
 
 async function aspOnStoreChange() {
   const sel = document.getElementById('storeSel');
