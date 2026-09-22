@@ -21,7 +21,8 @@
 .asd-alert.blue{background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;}
 .asd-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:6px 0 8px;border:1px solid #e2e8f0;border-radius:10px;}
 .asd-table{border-collapse:collapse;width:100%;min-width:600px;font-size:12.5px;}
-.asd-table th{background:#f8fafc;font-weight:800;padding:6px 4px;border-bottom:1px solid #e2e8f0;white-space:nowrap;}
+/* 排班頁本身的 th 是白字、藍底、sticky（班表用），這裡要蓋掉 */
+.asd-table th{background:#f8fafc !important;color:#334155 !important;position:static !important;font-weight:800;padding:6px 4px;border-bottom:1px solid #e2e8f0;white-space:nowrap;}
 .asd-table th small,.asd-name small,.asd-sum small{display:block;font-size:10px;font-weight:600;color:#94a3b8;}
 .asd-name{font-weight:800;padding:6px 8px;white-space:nowrap;position:sticky;left:0;background:#fff;border-right:1px solid #e2e8f0;}
 .asd-cell{text-align:center;padding:6px 3px;border-bottom:1px solid #f1f5f9;white-space:nowrap;font-weight:700;}
