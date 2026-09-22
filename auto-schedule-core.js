@@ -292,6 +292,7 @@ function asRng(seed) {
  *   emps      [{name, role, payAsPartTime, wage, base}]  本店在職（role 用計薪身分判斷正職/工讀）
  *   weeks     { weekStr: records[] } 本店：本週、上週、以及本週涵蓋月份的所有週
  *   leaves    leaveRequests [{date, empName, type, shift, status}]
+ *   holidays  國定假日 { 'YYYY-MM-DD': 名稱 }：工讀那天上班多算國定假日加給，草稿會優先排正職
  *   away      已核准的跨店支援 [{name, di, shift, store}]：那天去別店，本店不排；工時仍算進這個人（週工時、間隔、連上天數）
  *   catalog   門市可用班別（已正規化）
  *   opt       { restarts, seed, capMonthly }
@@ -515,6 +516,7 @@ function asGenerateDraft(inp) {
   W.keep = 400;
   if (opt.weights) Object.keys(opt.weights).forEach(function (k) { W[k] = opt.weights[k]; }); // 調參／回測用
   var keepMap = opt.keep || {}; // { '名字|dayIdx': 原本的班 }（依最新劃休重排時傳入）
+  var holidays = inp.holidays || {}; // { 'YYYY-MM-DD': 名稱 } 國定假日（呼叫端傳入 holidays.js 的 builtinHolidayMap）
   var rng = asRng(opt.seed || 20260922);
 
   var endAbs = function (di, shift) { var sp = shiftSpan(shift); return sp ? di * 24 + sp.endH : null; };
@@ -537,6 +539,8 @@ function asGenerateDraft(inp) {
       var inGap = false, runs = 0;
       for (var i = 0; i < asSlots(); i++) {
         var have = cov[di][i], d = dem[di];
+        // 需求時段交界（人數不同）就算新的一段：18-23 缺 1＋23-7 缺 1 首尾相連，但要兩個人來支援（10/10 實例）
+        if (inGap && i > 0 && (d.n[i] !== d.n[i - 1] || d.min[i] !== d.min[i - 1])) inGap = false;
         if (have < d.min[i]) {
           cost += tag('W.min * (d.min[i] ', W.min * (d.min[i] - have));
           if (!inGap) { cost += tag('gapSeg', W.gapSeg); runs++; } inGap = true;
@@ -612,6 +616,8 @@ function asGenerateDraft(inp) {
         var byMonth = {};
         for (var dm = 0; dm < 7; dm++) if (isW(row[dm])) { var mk = dates[dm].slice(0, 7); byMonth[mk] = (byMonth[mk] || 0) + hrs(row[dm]); }
         var pay = 0;
+        // 國定假日上班：工讀多付 1 倍時薪（國定假日加給），正職是給補休 → 草稿優先排正職（使用者 2026-09-22）
+        for (var dh = 0; dh < 7; dh++) if (holidays[dates[dh]] && isW(row[dh]) && !p.cells[dh].fixed) pay += hrs(row[dh]) * p.wage;
         Object.keys(byMonth).forEach(function (m) {
           var hrs = byMonth[m];
           pay += hrs * p.wage * 1.06;
