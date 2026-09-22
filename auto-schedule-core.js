@@ -511,7 +511,10 @@ function asGenerateDraft(inp) {
   //   只看排休，員工自己劃的指休不算；比缺半小時人力(1000)輕，人力優先
   // gapSeg：每段待補的固定成本；softOT：正職清單明寫的班多 1 小時，加班費以外再加的偏好成本（不輕易用）
   var W = { min: 1000, tgt: 300, ot: 100000, offDev: 20000, sixth: 800, rot: 60, capPerDollar: 1, fair: 4, ptShift: 250, pairOff: 900, gapSeg: 6000, softOT: 200 };
+  // keep：重排時每改動一格原本的草稿格扣的分（比缺半小時人力 1000 輕：要補人還是會改，但不會為了小事大洗牌）
+  W.keep = 400;
   if (opt.weights) Object.keys(opt.weights).forEach(function (k) { W[k] = opt.weights[k]; }); // 調參／回測用
+  var keepMap = opt.keep || {}; // { '名字|dayIdx': 原本的班 }（依最新劃休重排時傳入）
   var rng = asRng(opt.seed || 20260922);
 
   var endAbs = function (di, shift) { var sp = shiftSpan(shift); return sp ? di * 24 + sp.endH : null; };
@@ -549,6 +552,7 @@ function asGenerateDraft(inp) {
         var sh = row[di], c = p.cells[di];
         var o = c.fixed ? null : c.optMap[sh];
         if (o) cost += tag('o.pen', o.pen);
+        if (!c.fixed) { var kv = keepMap[p.name + '|' + di]; if (kv !== undefined && kv !== sh) cost += tag('keep', W.keep); }
         if (isW(sh)) {
           var h = hrs(sh); wkH += h; wkNormal += Math.min(h, 8);
           if (h > 12) cost += tag('1e6', 1e6);                 // 單日 12 小時上限（硬）
@@ -639,8 +643,10 @@ function asGenerateDraft(inp) {
 
   function initState(randomize) {
     return P.map(function (p) {
-      return p.cells.map(function (c) {
+      return p.cells.map(function (c, di) {
         if (c.fixed) return c.fixed;
+        var kv = keepMap[p.name + '|' + di];
+        if (!randomize && kv !== undefined && c.choices.indexOf(kv) >= 0) return kv; // 重排：從原本的班出發
         if (!randomize) return c.choices.length > 1 ? c.choices[1] : '排休';
         return c.choices[Math.floor(rng() * c.choices.length)];
       });

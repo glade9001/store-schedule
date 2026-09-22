@@ -130,7 +130,12 @@ async function asdGenerate(mode) {
     showLoading('🤖 排班中…（約需幾秒）');
     await new Promise(function (r) { setTimeout(r, 30); }); // 讓「排班中」先畫出來
     var t0 = Date.now();
-    var res = asGenerateDraft({ weekStr: week, cfg: cfg, emps: emps, weeks: weeks, leaves: leaves, away: away, catalog: catalog, opt: {} });
+    // 重排：告訴草稿原本的草稿格排什麼，盡量維持（只動跟劃休變動有關的格子）
+    var keep = {};
+    if (mode === 'redraft') curRecs.forEach(function (r) {
+      if (r.draft && !String(r.name).startsWith('🆘') && asIsHomeRecord(r)) { var di = asDayNames().indexOf(r.day); if (di >= 0) keep[r.name + '|' + di] = String(r.shift || '').trim(); }
+    });
+    var res = asGenerateDraft({ weekStr: week, cfg: cfg, emps: emps, weeks: weeks, leaves: leaves, away: away, catalog: catalog, opt: { keep: keep } });
     asdLast = { week: week, store: store, res: res, ms: Date.now() - t0, cur: weeks[week], mode: mode, before: curRecs, fixes: fixes };
     hideLoading();
     asdShowPreview();
