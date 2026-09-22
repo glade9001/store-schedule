@@ -192,3 +192,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);
 
 .empty-state{text-align:center;padding:30px 16px;color:var(--text-muted);}
 .empty-icon{font-size:36px;margin-bottom:8px;}
+
+/* ⚠️缺人提醒（leave-shortage.js，美德試用） */
+.cal-short{display:inline-block;font-size:9.5px;font-weight:800;color:#b45309;background:#fef3c7;border-radius:6px;padding:0 4px;margin-left:2px;vertical-align:middle;white-space:nowrap;}
+.info-box.short{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;}

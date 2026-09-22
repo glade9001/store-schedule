@@ -562,6 +562,7 @@ async function loadRequests(){
     .orderBy('createdAt','desc').get().catch(()=>null);
   storeRequests = [];
   myRequests = [];
+  if(typeof lshInvalidate === 'function') lshInvalidate(); // 劃休有變 → 缺人提醒重算
   if(snap){
     snap.forEach(d=>{
       const r = { id: d.id, ...d.data() };
@@ -788,7 +789,7 @@ function renderCalBody(){
       _heat = `<span class="cal-heat ${cls2}">休${_dayAll.length}</span>`;
     }
     html += `<div class="${cls}" ${onclick}>
-      <div class="cal-date">${d}${_heat}${holidayHtml}</div>
+      <div class="cal-date">${d}${_heat}${holidayHtml}${typeof lshBadge==='function' && !isPast ? lshBadge(dateStr) : ''}</div>
       <div class="cal-tags">${tags}</div>
     </div>`;
   }
@@ -798,6 +799,7 @@ function renderCalBody(){
   if(rem > 0) for(let i=0;i<7-rem;i++) html += `<div class="cal-cell empty"></div>`;
 
   body.innerHTML = html;
+  if(typeof lshEnsure === 'function') lshEnsure(viewYear, viewMonth); // ⚠️缺人：背景試排（美德試用），算完會再重畫
 }
 
 function isFullTimeReq(r){
@@ -876,7 +878,7 @@ function renderLimitBox(dateStr){
     document.getElementById('applyConfirmBtn').disabled = true;
     document.getElementById('applyConfirmBtn').style.opacity = '0.5';
   } else {
-    box.innerHTML = '';
+    box.innerHTML = typeof lshModalBox === 'function' ? lshModalBox(dateStr) : ''; // ⚠️這天預估人力不夠（只提醒不擋）
     document.getElementById('applyConfirmBtn').disabled = false;
     document.getElementById('applyConfirmBtn').style.opacity = '1';
   }
