@@ -6,7 +6,8 @@ let aspDayEdit = null; // 正在編輯逐日例外的格子 {idx, season, day}
 let aspOpenDays = new Set(); // 需求區展開中的星期（手機上七天全展開太長）
 let aspUser = null, aspStore = '', aspCfg = null, aspEmps = [], aspStats = {}, aspWeeks = {}, aspDirty = false;
 const aspIsOwner = () => ['owner', 'admin'].includes(aspUser?.permission);
-const aspCanUse = () => ['manager', 'owner', 'admin'].includes(aspUser?.permission);
+// 示範期只開給 admin、owner 與美德店長（home-nav.js hnAutoScheduleVisible 要同步）
+const aspCanUse = () => aspIsOwner() || (aspUser?.permission === 'manager' && aspUser?.store === '美德');
 const aspHistoryWeeks = 26; // 歷史推算看最近半年（涵蓋學期中＋暑假）
 
 function aspLoading(t) { document.getElementById('loadingText').textContent = t || '載入中…'; document.getElementById('loadingOverlay').classList.remove('hidden'); }
@@ -35,7 +36,7 @@ window.onload = async () => {
   try { aspUser = JSON.parse(saved); } catch (e) { location.replace('home.html'); return; }
   const fb = await new Promise(r => { const u = firebase.auth().onAuthStateChanged(x => { u(); r(x); }); });
   if (!fb) { localStorage.removeItem('currentUser'); location.replace('home.html'); return; }
-  if (!aspCanUse()) { aspToast('僅店長以上可用'); setTimeout(() => location.replace('home.html'), 1200); return; }
+  if (!aspCanUse()) { aspToast('自動排班目前只開放美德示範'); setTimeout(() => location.replace('home.html'), 1200); return; }
 
   let stores = [];
   try {

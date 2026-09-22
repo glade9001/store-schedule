@@ -21,6 +21,8 @@ var HN_GROUPS = [
 
 function hnIsLead() { return ['manager', 'owner', 'admin'].includes(currentUser?.permission); }
 function hnIsOwner() { return ['owner', 'admin'].includes(currentUser?.permission); }
+// 自動排班示範期（2026-09-22）：只開給 admin、owner 與美德店長；auto-schedule-page.js 的 aspCanUse 要同步
+function hnAutoScheduleVisible() { return hnIsOwner() || (currentUser?.permission === 'manager' && currentUser?.store === '美德'); }
 function hnIsAdmin() { return currentUser?.permission === 'admin'; }
 
 var HOME_FEATURES = [
@@ -33,7 +35,7 @@ var HOME_FEATURES = [
   { id: 'todo',      group: 'me', icon: '✅', label: '代辦清單',   sub: '待辦事項與公告',           go: 'todo.html', kw: '待辦 公告' },
   // ── 管理（店長以上）──
   { id: 'adminSchedule', group: 'sched',  icon: '📋', label: '排班',       sub: '排班、發布班表',             go: 'schedule-V2.html?mode=admin', show: hnIsLead },
-  { id: 'autoSchedule',  group: 'sched',  icon: '🤖', label: '自動排班設定', sub: '時段人數需求、人員可上班別', go: 'auto-schedule.html?ref=home.html', show: hnIsLead, kw: 'AI 自動排班 需求 可上班別 寒暑假' },
+  { id: 'autoSchedule',  group: 'sched',  icon: '🤖', label: '自動排班設定', sub: '時段人數需求、人員可上班別', go: 'auto-schedule.html?ref=home.html', show: hnAutoScheduleVisible, kw: 'AI 自動排班 需求 可上班別 寒暑假' },
   { id: 'attendance',    group: 'sched',  icon: '🗂️', label: '出勤管理',   sub: '打卡紀錄、補登審核、缺卡',   go: 'attendance.html', show: hnIsLead, kw: '打卡 補登 審核 遲到' },
   { id: 'inspection',    group: 'sched',  icon: '📦', label: '盤點資料',   sub: '輪班表、出勤記錄表、薪資單', go: 'inspection.html?ref=home.html', show: hnIsLead },
   { id: 'salary',        group: 'people', icon: '💳', label: '算薪水',     sub: '每月薪資計算與發布',         go: 'salary.html', show: hnIsLead, kw: '薪資' },
