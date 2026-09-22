@@ -72,7 +72,7 @@ function renderQuotaNotice(){
   const fullN = dailyLimits.fullTime ?? 2;
   const partTxt = partTimeUnlimited ? '不限' : `${dailyLimits.partTime ?? 1} 人`;
   const _open = lrNewestOpenSunday();
-  const _rule = `<div style="margin:8px 12px 0;padding:10px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;font-size:13px;color:#166534;font-weight:600;line-height:1.6;">🗓️ 劃休開放未來 4 週：<b>每週一 16:00 開放新的一週</b>（目前開放到 ${fmtDate(_open)}）；每週的截止時間是前一週週一 23:59。</div>`;
+  const _rule = `<div style="margin:8px 12px 0;padding:10px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;font-size:13px;color:#166534;font-weight:600;line-height:1.6;">🗓️ 劃休開放未來 ${canSchedule() ? '8 週（店長以上；員工 4 週）' : '4 週'}：<b>每週一 16:00 開放新的一週</b>（目前開放到 ${fmtDate(_open)}）；每週的截止時間是前一週週一 23:59。</div>`;
   el.innerHTML = _rule + (quotaHardBlock
     ? `<div style="margin:8px 12px;padding:10px 12px;background:#fef2f2;border:1px solid #fecaca;border-radius:10px;font-size:13px;color:#b91c1c;font-weight:700;line-height:1.6;">⛔ 每日名額上限（強制）：正職 ${fullN} 人／天、工讀 ${partTxt}／天（特／補／排一起計）。<br>額滿後排休／補休<b>無法送出</b>；特休為法定權利仍可送出（候補→可請店長協商）。</div>`
     : `<div style="margin:8px 12px;padding:10px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;font-size:13px;color:#1d4ed8;font-weight:600;line-height:1.6;">📋 每日名額：正職 ${fullN} 人／天、工讀 ${partTxt}／天（特／補／排一起計）。額滿仍可送出（候補，先送先優先）。</div>`);
@@ -262,7 +262,7 @@ function getDeadlineForWeek(weekStr){
 }
 
 // ===== 開放範圍（使用者 2026-09-22）=====
-// 只開放未來 4 週：每週一 16:00 開放新的一週（週一 16:00 後最新開放到「本週＋5 週」那週，之前到「＋4 週」）。
+// 只開放未來 4 週（店長以上 8 週）：每週一 16:00 開放新的一週（週一 16:00 後最新開放到「本週＋5 週」那週，之前到「＋4 週」）。
 // 各週截止仍是前一週週一 23:59（getDeadlineForWeek），所以平常同時開放的剛好是 4 週。
 function lrYmd(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function lrNewestOpenSunday(){
@@ -270,7 +270,9 @@ function lrNewestOpenSunday(){
   const mon = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   mon.setDate(mon.getDate() - ((mon.getDay()+6)%7));
   const openAt = new Date(mon); openAt.setHours(16,0,0,0);
-  const sun = new Date(mon); sun.setDate(mon.getDate() + (now >= openAt ? 35 : 28) + 6);
+  // 店長以上開放 8 週（使用者 2026-09-22），員工 4 週
+  const extra = canSchedule() ? 28 : 0;
+  const sun = new Date(mon); sun.setDate(mon.getDate() + (now >= openAt ? 35 : 28) + extra + 6);
   return lrYmd(sun);
 }
 function isNotYetOpen(dateStr){ return dateStr > lrNewestOpenSunday(); }
@@ -450,8 +452,9 @@ function getAllowedMonthRange(){
   // 員工：看到開放範圍的最後一個月；店長：當月 + 下月 + 下下月（可預先查看）
   const open = lrNewestOpenSunday();
   const oY = +open.slice(0,4), oM = +open.slice(5,7) - 1;
+  // 店長以上：下下月與開放範圍取較遠的那個（8 週可能跨到第三個月）
   const max = canSchedule()
-    ? { year: nnY, month: nnM }
+    ? ((oY > nnY || (oY === nnY && oM > nnM)) ? { year: oY, month: oM } : { year: nnY, month: nnM })
     : { year: oY, month: oM };
   return { min, max };
 }
