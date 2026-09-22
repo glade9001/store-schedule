@@ -36,3 +36,10 @@
 .asd-name.gap{color:#b91c1c;}
 .asd-cell.new.gap{background:#fee2e2;color:#b91c1c;}
 .asd-cell small{display:block;font-size:10px;font-weight:600;}
+.asd-gapchk{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:#334155;margin-right:auto;cursor:pointer;}
+.asd-gapchk input{width:17px;height:17px;}
+.asd-cell.chg{outline:2.5px solid #7c3aed;outline-offset:-3px;}
+.chg-legend{color:#7c3aed;}
+.leave-conflict-banner{align-items:center;gap:10px;background:#f5f3ff;border-bottom:2px solid #c4b5fd;padding:8px 14px;font-size:13px;color:#4c1d95;flex-shrink:0;}
+.leave-conflict-banner .lc-text{flex:1;line-height:1.6;}
+.leave-conflict-banner .lc-btn{flex:0 0 auto;border:none;background:#7c3aed;color:#fff;border-radius:9px;padding:7px 12px;font-size:13px;font-weight:800;cursor:pointer;}

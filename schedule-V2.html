@@ -88,13 +88,16 @@
         🔒 此為歷史班表（已過週次），僅供查閱。如需修改請點擊上方「✏️ 編輯歷史班表」
       </div>
 
+      <!-- 劃休衝突提醒（auto-schedule-draft.js asdRenderConflicts） -->
+      <div id="leaveConflictBanner" class="leave-conflict-banner" style="display:none;"></div>
+
       <!-- 工具列 -->
       <div class="tool-bar" id="adminToolBar">
         <button class="tool-btn paint" id="paintModeBtn" onclick="togglePaintMode()">🖌️ 畫筆</button>
         <button class="tool-btn undo" onclick="undoLastAction()">↩️ 上一步</button>
         <button class="tool-btn save" onclick="saveScheduleData(true)">💾 儲存</button>
         <button class="tool-btn img" onclick="exportImage()">📸 產圖</button>
-        <button class="tool-btn draft" id="draftBtn" style="display:none;" onclick="asdGenerate()">🤖 產生草稿</button>
+        <button class="tool-btn draft" id="draftBtn" style="display:none;" onclick="asdGenerate('new')">🤖 產生草稿</button>
         <button class="tool-btn add" onclick="addVirtualRow()">➕ 待補</button>
         <button class="tool-btn" id="crossGapBtn" style="display:none;background:#fee2e2;color:#b91c1c;border:1.5px solid #fca5a5;" onclick="openSupportBoard()">🆘 請求支援</button>
         <button class="tool-btn log" onclick="openLogModal()">📜 畫休紀錄</button>

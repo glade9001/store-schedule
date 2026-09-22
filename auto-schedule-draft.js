@@ -53,12 +53,21 @@ function asdRefreshBtn() {
   btn.title = why || '依自動排班設定排出這週空白格的草稿，預覽後再決定要不要套用';
 }
 
-async function asdGenerate() {
+var asdIncludeGaps = true; // 「本次自動新增待補格」（預覽勾選；不勾＝不新增也不移除任何待補格）
+
+/**
+ * mode：'new'＝填空白格；'redraft'＝依最新劃休重排（2026-09-22）
+ *   重排：①劃休衝突先修正（新劃休→指休／特休／補休，原本的班清空；只休半天→碰到的班清空；取消劃休→指休清空）
+ *         ②清掉「草稿排、店長沒動過」的格子 ③勾「自動新增待補格」時，清掉草稿開、還沒人認領的待補
+ *         ——店長手動改過的格子、他店已認領的待補一律不動
+ */
+async function asdGenerate(mode) {
+  mode = mode === 'redraft' ? 'redraft' : 'new';
   var store = document.getElementById('storeSelector').value;
   var week = document.getElementById('weekSelector').value;
   var why = asdBlockReason(store, week);
   if (why) { showToast('⚠️ ' + why); return; }
-  showLoading('🤖 讀取設定與班表…');
+  showLoading(mode === 'redraft' ? '🔄 依最新劃休重排…' : '🤖 讀取設定與班表…');
   try {
     syncUIToMemory(); // 畫面上還沒存的修改也算「店長已排」
     var storeRef = window.db.collection('stores').doc(store);
@@ -79,7 +88,25 @@ async function asdGenerate() {
     var weeks = {};
     snaps[1].forEach(function (d) { weeks[d.id] = d.data().records || []; });
     // 本週用記憶體裡的（含還沒存的修改），不用資料庫那份
-    weeks[week] = (appData.records || []).filter(function (r) { return r.week === week; });
+    var curRecs = (appData.records || []).filter(function (r) { return r.week === week; });
+    var fixes = [], working = curRecs.map(function (r) { return Object.assign({}, r); });
+    if (mode === 'redraft') {
+      fixes = asdConflicts(week);
+      fixes.forEach(function (f) {
+        var r = working.find(function (x) { return x.name === f.name && x.day === f.day && asIsHomeRecord(x); });
+        if (r) { r.shift = f.to; r.actualHours = 0; delete r.draft; }
+        else if (f.to) working.push({ week: week, day: f.day, name: f.name, shift: f.to, location: '本店', actualHours: 0 });
+      });
+      var fixedKey = {}; fixes.forEach(function (f) { fixedKey[f.name + '|' + f.day] = 1; });
+      working = working.filter(function (r) {
+        if (fixedKey[r.name + '|' + r.day]) return true;
+        var gap = String(r.name).startsWith('🆘');
+        if (gap) return !(asdIncludeGaps && r.draft && !r.supportEmp && !r.approvalStatus); // 他店已認領的待補不動
+        return !r.draft; // 草稿排、店長沒動過 → 清掉重排
+      });
+      working = working.filter(function (r) { return String(r.shift || '').trim() || r.note || r.supportEmp; });
+    }
+    weeks[week] = working;
     var leaves = [];
     snaps[2].forEach(function (d) { leaves.push(d.data()); });
     var emps = (appData.employees || []).filter(function (e) { return !String(e.name).startsWith('🆘') && !e._transferThisWeek; })
@@ -104,7 +131,7 @@ async function asdGenerate() {
     await new Promise(function (r) { setTimeout(r, 30); }); // 讓「排班中」先畫出來
     var t0 = Date.now();
     var res = asGenerateDraft({ weekStr: week, cfg: cfg, emps: emps, weeks: weeks, leaves: leaves, away: away, catalog: catalog, opt: {} });
-    asdLast = { week: week, store: store, res: res, ms: Date.now() - t0, cur: weeks[week] };
+    asdLast = { week: week, store: store, res: res, ms: Date.now() - t0, cur: weeks[week], mode: mode, before: curRecs, fixes: fixes };
     hideLoading();
     asdShowPreview();
   } catch (e) {
@@ -112,6 +139,66 @@ async function asdGenerate() {
     console.error('產生草稿失敗:', e);
     showToast('❌ 產生草稿失敗：' + e.message);
   }
+}
+
+// ───────── 劃休衝突（排班頁上方提醒＋重排用）─────────
+/**
+ * 目前班表跟最新劃休對不上的格子：
+ *   新劃休：整天排休→指休、特休→特休、補休→補休（原本排什麼都改掉）；只休早上／晚上→碰到那段的班清空
+ *   取消劃休：班表還是指休、且這天已沒有有效劃休 → 清空
+ * @returns [{name, day, from, to, why}]
+ */
+function asdConflicts(week) {
+  var out = [];
+  var recs = (appData.records || []).filter(function (r) { return r.week === week && asIsHomeRecord(r); });
+  var cell = function (n, d) { var r = recs.find(function (x) { return x.name === n && x.day === d; }); return r ? String(r.shift || '').trim() : ''; };
+  var alive = function (r) { return ['cancelled', 'unfulfilled', 'rejected'].indexOf(r.status) < 0; };
+  var mon = asWeekMonday(week), days = asDayNames();
+  var lrs = appData.leaveRequests || [];
+  days.forEach(function (d, di) {
+    var date = shiftDateAdd(mon, di);
+    var names = {};
+    lrs.forEach(function (r) { if (r.date === date) names[r.empName] = 1; });
+    Object.keys(names).forEach(function (n) {
+      if (String(n).startsWith('🆘')) return;
+      var act = lrs.filter(function (r) { return r.date === date && r.empName === n && alive(r); });
+      var cur = cell(n, d);
+      var full = act.filter(function (r) { return !r.shift || r.shift === 'full'; })[0];
+      if (full) {
+        var to = full.type === 'annual' ? '特休' : full.type === 'comp' ? '補休' : '指休';
+        // 空白格不算衝突（還沒排，產生草稿時本來就會照劃休給）
+        if (cur && cur !== to) out.push({ name: n, day: d, date: date, from: cur, to: to, why: '新劃休' });
+        return;
+      }
+      var half = act[0];
+      if (half && asIsWorkShift(cur)) {
+        var sp = shiftSpan(cur), sH = sp.startH < 7 ? sp.startH + 24 : sp.startH, eH = sH + shiftTotalHours(cur);
+        var hit = half.shift === 'morning' ? sH < 15 : eH > 15;
+        if (hit) out.push({ name: n, day: d, date: date, from: cur, to: '', why: half.shift === 'morning' ? '劃休早上' : '劃休晚上' });
+        return;
+      }
+      if (!act.length && cur === '指休') out.push({ name: n, day: d, date: date, from: cur, to: '', why: '已取消劃休' });
+    });
+  });
+  return out;
+}
+
+/** 排班頁上方：列出劃休衝突＋「依最新劃休重排」 */
+function asdRenderConflicts() {
+  var el = document.getElementById('leaveConflictBanner');
+  if (!el) return;
+  var store = document.getElementById('storeSelector').value;
+  var week = document.getElementById('weekSelector').value;
+  if (!asdAllowedUser(store) || asdBlockReason(store, week)) { el.style.display = 'none'; return; }
+  var list = asdConflicts(week);
+  if (!list.length) { el.style.display = 'none'; return; }
+  var md = function (ds) { return (+ds.slice(5, 7)) + '/' + (+ds.slice(8)); };
+  var items = list.map(function (f) {
+    return getDisplayName(f.name) + ' ' + md(f.date) + ' ' + f.why + '：' + (f.from || '空白') + ' → ' + (f.to || '清空重排');
+  });
+  el.innerHTML = '<div class="lc-text"><b>📋 劃休有變動（' + list.length + ' 筆）</b>：' + asdEsc(items.slice(0, 4).join('；')) +
+    (items.length > 4 ? '…等' : '') + '</div><button class="lc-btn" onclick="asdGenerate(\'redraft\')">🔄 依最新劃休重排</button>';
+  el.style.display = 'flex';
 }
 
 // ───────── 預覽 ─────────
@@ -124,10 +211,13 @@ function asdEnsureModal() {
   ov.innerHTML = '<div class="asd-sheet"><div class="asd-head"><div class="asd-title" id="asdTitle"></div>' +
     '<button class="asd-x" onclick="asdClose()" aria-label="關閉">✕</button></div>' +
     '<div class="asd-body" id="asdBody"></div>' +
-    '<div class="asd-foot"><button class="asd-btn ghost" onclick="asdClose()">關閉</button>' +
+    '<div class="asd-foot"><label class="asd-gapchk"><input type="checkbox" id="asdGapChk" checked onchange="asdToggleGaps(this.checked)"> 本次自動新增待補格</label>' +
+    '<button class="asd-btn ghost" onclick="asdClose()">關閉</button>' +
     '<button class="asd-btn primary" id="asdApplyBtn" onclick="asdApply()">✅ 套用到班表</button></div></div>';
   document.body.appendChild(ov);
 }
+/** 勾選變了 → 重算（重排時要不要保留舊待補會影響人力；新草稿則只影響要不要開待補） */
+function asdToggleGaps(v) { asdIncludeGaps = !!v; if (asdLast) asdGenerate(asdLast.mode); }
 function asdClose() { var ov = document.getElementById('asdOverlay'); if (ov) ov.classList.remove('show'); }
 
 function asdEsc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -137,7 +227,10 @@ function asdShowPreview() {
   var L = asdLast, res = L.res, days = asDayNames();
   var mon = asWeekMonday(L.week);
   var md = function (i) { var d = shiftDateAdd(mon, i); return (+d.slice(5, 7)) + '/' + (+d.slice(8)); };
-  document.getElementById('asdTitle').textContent = '🤖 ' + L.week.slice(-3) + ' 班表草稿（' + md(0) + '～' + md(6) + '）';
+  document.getElementById('asdTitle').textContent = (L.mode === 'redraft' ? '🔄 ' + L.week.slice(-3) + ' 依最新劃休重排（' : '🤖 ' + L.week.slice(-3) + ' 班表草稿（') + md(0) + '～' + md(6) + '）';
+  var gc = document.getElementById('asdGapChk'); if (gc) gc.checked = asdIncludeGaps;
+  var beforeMap = {};
+  (L.before || []).forEach(function (r) { if (asIsHomeRecord(r)) beforeMap[r.name + '|' + r.day] = String(r.shift || '').trim(); });
 
   var curMap = {};
   L.cur.forEach(function (r) { if (String(r.shift || '').trim()) curMap[r.name + '|' + r.day] = r.shift; });
@@ -145,11 +238,19 @@ function asdShowPreview() {
   res.cells.forEach(function (c) { draftMap[c.name + '|' + c.day] = c; });
   var newCount = res.cells.filter(function (c) { return !curMap[c.name + '|' + c.day]; }).length;
 
-  var h = '<div class="asd-note">只會填<b>空白格</b>（共 ' + newCount + ' 格），店長已排的格子不動。橘色＝草稿要填的；灰色＝已排好的。套用後照樣可以改。</div>';
+  var h = L.mode === 'redraft'
+    ? '<div class="asd-note">依最新劃休重排：<b>店長手動改過的格子、他店已認領的待補都不動</b>，只重排草稿排的格子。<b class="chg-legend">紫框</b>＝跟現在班表不一樣的格子。</div>'
+    : '<div class="asd-note">只會填<b>空白格</b>（共 ' + newCount + ' 格），店長已排的格子不動。橘色＝草稿要填的；灰色＝已排好的。套用後照樣可以改。</div>';
+  if (L.fixes && L.fixes.length) {
+    h += '<div class="asd-alert blue"><b>📋 依劃休修正 ' + L.fixes.length + ' 格：</b><br>' + L.fixes.map(function (f) {
+      return asdEsc(getDisplayName(f.name)) + ' ' + md(asDayNames().indexOf(f.day)) + ' ' + f.why + '：' + asdEsc(f.from || '空白') + ' → ' + (f.to || '重排');
+    }).join('<br>') + '</div>';
+  }
+  if (!asdIncludeGaps) h += '<div class="asd-alert amber">這次不新增待補格：缺口只列出來，現有待補格照原樣保留。</div>';
 
   // 提醒區
   var alerts = [];
-  if (res.gaps.length) alerts.push('<div class="asd-alert red"><b>🆘 補不到最少人數，會開待補 ' + res.gaps.length + ' 格：</b><br>' +
+  if (res.gaps.length) alerts.push('<div class="asd-alert red"><b>🆘 補不到最少人數' + (asdIncludeGaps ? '，會開待補 ' : '（這次不開待補）') + res.gaps.length + ' 格：</b><br>' +
     res.gaps.map(function (g) { return g.day + ' ' + g.shift; }).join('、') + '</div>');
   if (res.soft.length) alerts.push('<div class="asd-alert amber"><b>⚠️ 未達目標人數（在最少人數以上，不開待補）：</b><br>' +
     res.soft.map(function (g) { return g.day + ' ' + g.label; }).join('、') + '</div>');
@@ -171,15 +272,19 @@ function asdShowPreview() {
       var cur = curMap[n + '|' + d], c = draftMap[n + '|' + d];
       var aw = (pe.away || [])[days.indexOf(d)];
       if (aw && !cur) { h += '<td class="asd-cell locked" title="已核准的跨店支援">支援' + asdEsc(aw.store) + '<small>' + asdEsc(aw.shift) + '</small></td>'; return; }
-      if (cur) { h += '<td class="asd-cell locked">' + asdEsc(cur) + '</td>'; return; }
-      if (!c) { h += '<td class="asd-cell"></td>'; return; }
+      var was = beforeMap[n + '|' + d] || '';
+      var now = cur || (c ? c.shift : '');
+      var chg = L.mode === 'redraft' && was !== now ? ' chg' : '';
+      var wasTxt = chg ? '<small>原 ' + asdEsc(was || '空白') + '</small>' : '';
+      if (cur) { h += '<td class="asd-cell locked' + chg + '">' + asdEsc(cur) + wasTxt + '</td>'; return; }
+      if (!c) { h += '<td class="asd-cell' + chg + '">' + wasTxt + '</td>'; return; }
       var cls = c.shift === '指休' ? 'zhi' : (c.shift === '排休' ? 'off' : (asIsWorkShift(c.shift) ? 'work' : 'off'));
-      h += '<td class="asd-cell new ' + cls + '" title="' + asdEsc(c.why || '') + '">' + asdEsc(c.shift === '指休' ? '休(劃)' : c.shift) + '</td>';
+      h += '<td class="asd-cell new ' + cls + chg + '" title="' + asdEsc(c.why || '') + '">' + asdEsc(c.shift === '指休' ? '休(劃)' : c.shift) + wasTxt + '</td>';
     });
     h += '<td class="asd-sum">' + pe.hours + 'h<small>休' + pe.offs + (pe.pt ? '' : '／應' + pe.offTarget) + '</small></td></tr>';
   });
   // 待補列：現有的（灰＝原本的班、紅＝這次補進去的）＋新開的（紅）
-  asdGapRows(res.gaps, asdExistingGapRows(L.week)).forEach(function (r) {
+  asdGapRows(asdIncludeGaps ? res.gaps : [], asdExistingGapRows(L.week)).forEach(function (r) {
     var added = Object.keys(r.days).length;
     if (!r.isNew && !added && !Object.keys(r.locked).length) return; // 空的舊待補列而且這次也沒用到 → 不顯示
     var hrs = 0;
@@ -196,7 +301,7 @@ function asdShowPreview() {
   h += '<div class="asd-meta">排班規則：人力優先 → 正職 40 小時、不自動加班、當月應休平均到各週 → 工讀先顧成本再求時數接近。耗時 ' + (L.ms / 1000).toFixed(1) + ' 秒。</div>';
 
   document.getElementById('asdBody').innerHTML = h;
-  document.getElementById('asdApplyBtn').disabled = newCount === 0 && res.gaps.length === 0;
+  document.getElementById('asdApplyBtn').disabled = L.mode !== 'redraft' && newCount === 0 && (!asdIncludeGaps || res.gaps.length === 0);
   document.getElementById('asdOverlay').classList.add('show');
 }
 
@@ -227,7 +332,9 @@ function asdGapRows(gaps, existing) {
 /** 本週現有的待補列與已占用的天（記錄有班別、備註或支援都算占用） */
 function asdExistingGapRows(week) {
   var names = virtualRowNames.slice();
-  var recs = (appData.records || []).filter(function (r) { return r.week === week && String(r.name).startsWith('🆘'); });
+  // 重排時用「重排後保留下來」的待補（草稿開、沒人認領的已清掉）
+  var src = (asdLast && asdLast.week === week && asdLast.mode === 'redraft') ? asdLast.cur : (appData.records || []);
+  var recs = src.filter(function (r) { return r.week === week && String(r.name).startsWith('🆘'); });
   recs.forEach(function (r) { if (names.indexOf(r.name) < 0) names.push(r.name); });
   return names.map(function (n) {
     var days = {};
@@ -247,15 +354,46 @@ async function asdApply() {
   if (store !== L.store || week !== L.week) { showToast('⚠️ 已切換門市或週次，請重新產生草稿'); asdClose(); return; }
   var why = asdBlockReason(store, week); // 預覽期間可能被發布了
   if (why) { showToast('⚠️ ' + why); asdClose(); return; }
-  if (!confirm('把草稿填進 ' + week.slice(-3) + ' 的空白格' + (L.res.gaps.length ? '，並新增 🆘 待補 ' + L.res.gaps.length + ' 格' : '') + '？\n店長已排的格子不會被改。')) return;
+  var gapN = asdIncludeGaps ? L.res.gaps.length : 0;
+  var ask = L.mode === 'redraft'
+    ? '依最新劃休重排 ' + week.slice(-3) + '？\n會修正劃休對不上的 ' + (L.fixes || []).length + ' 格、重排草稿排的格子' + (gapN ? '，並開待補 ' + gapN + ' 格' : '') + '。\n店長手動改過的格子、他店已認領的待補不會動。'
+    : '把草稿填進 ' + week.slice(-3) + ' 的空白格' + (gapN ? '，並新增 🆘 待補 ' + gapN + ' 格' : '') + '？\n店長已排的格子不會被改。';
+  if (!confirm(ask)) return;
 
   syncUIToMemory();
-  var filled = 0, compCells = [], holidayCells = [];
-  var findRec = function (n, d) { return appData.records.find(function (r) { return r.name === n && r.day === d && r.week === week; }); };
+  var filled = 0, compCells = [], holidayCells = [], leaveMoves = [];
+  var findRec = function (n, d) { return appData.records.find(function (r) { return r.name === n && r.day === d && r.week === week && asIsHomeRecord(r); }); };
   var mkRec = function (n, d, shift) {
     return { week: week, day: d, name: n, shift: shift, location: '本店', note: '', actualHours: asIsWorkShift(shift) ? shiftTotalHours(shift) : 0,
-      isOT: false, isHourly: false, supportEmp: '', approvalStatus: '', supportUpdatedAt: '', requestOff: false, lawOverrides: [] };
+      isOT: false, isHourly: false, supportEmp: '', approvalStatus: '', supportUpdatedAt: '', requestOff: false, lawOverrides: [], draft: true };
   };
+  if (L.mode === 'redraft') {
+    // ① 劃休修正（照預覽時算好的；之後店長若又改了同一格，以店長為準就跳過）
+    (L.fixes || []).forEach(function (f) {
+      var ex = findRec(f.name, f.day), cur = ex ? String(ex.shift || '').trim() : '';
+      if (cur !== (f.from || '')) return;
+      if (f.to) {
+        if (ex) { ex.shift = f.to; ex.actualHours = 0; ex.isOT = false; delete ex.draft; }
+        else appData.records.push(Object.assign(mkRec(f.name, f.day, f.to), { draft: false }));
+      } else if (ex) {
+        appData.records.splice(appData.records.indexOf(ex), 1);
+      }
+      leaveMoves.push({ name: f.name, day: f.day, from: cur, to: f.to || '' });
+    });
+    // ② 清掉草稿格（店長沒動過）＋勾選時清掉草稿開、沒人認領的待補
+    var fixedKey = {}; (L.fixes || []).forEach(function (f) { fixedKey[f.name + '|' + f.day] = 1; });
+    appData.records = appData.records.filter(function (r) {
+      if (r.week !== week || !r.draft || fixedKey[r.name + '|' + r.day]) return true;
+      if (String(r.name).startsWith('🆘')) {
+        if (!asdIncludeGaps || r.supportEmp || r.approvalStatus) return true;
+        return false;
+      }
+      if (r.shift === '特休' || r.shift === '補休') leaveMoves.push({ name: r.name, day: r.day, from: r.shift, to: '' });
+      return false;
+    });
+    // 待補列名單同步：整列都被清空的草稿待補列拿掉
+    virtualRowNames = virtualRowNames.filter(function (n) { return appData.records.some(function (r) { return r.week === week && r.name === n; }) || !(L.before || []).some(function (r) { return r.name === n && r.draft; }); });
+  }
   L.res.cells.forEach(function (c) {
     var ex = findRec(c.name, c.day);
     if (ex && String(ex.shift || '').trim()) return; // 預覽之後店長又排了 → 以店長為準
@@ -264,7 +402,7 @@ async function asdApply() {
     if (c.shift === '補休') compCells.push(c);
     if (asIsWorkShift(c.shift)) holidayCells.push(c);
   });
-  var gapRows = asdGapRows(L.res.gaps, asdExistingGapRows(week));
+  var gapRows = asdIncludeGaps ? asdGapRows(L.res.gaps, asdExistingGapRows(week)) : [];
   var newRows = 0, gapCells = 0;
   gapRows.forEach(function (r) {
     var ds = Object.keys(r.days);
@@ -281,7 +419,8 @@ async function asdApply() {
   renderSchedule();
   triggerAutoSave();
 
-  // 補休要扣帳本；國定假日上班要問補休——跟手動排班走同一套
+  // 特休／補休帳本：劃休修正與清掉的草稿格照實扣還；補休要扣帳本；國定假日上班要問補休——跟手動排班走同一套
+  for (var k = 0; k < leaveMoves.length; k++) await deductLeave(leaveMoves[k].name, leaveMoves[k].day, week, leaveMoves[k].from, leaveMoves[k].to);
   for (var i = 0; i < compCells.length; i++) await deductLeave(compCells[i].name, compCells[i].day, week, '', '補休');
   var mon = asWeekMonday(week);
   for (var j = 0; j < holidayCells.length; j++) {
@@ -289,5 +428,5 @@ async function asdApply() {
     var emp = (appData.employees || []).find(function (e) { return e.name === c.name; });
     await checkHolidayCompOnSave(c.name, shiftDateAdd(mon, c.di), '', c.shift, emp);
   }
-  showToast('✅ 已填入 ' + filled + ' 格' + (gapCells ? '、待補 ' + gapCells + ' 格' + (newRows ? '（新開 ' + newRows + ' 列）' : '（都放進現有待補列）') : '') + '，可再手動調整');
+  showToast((L.mode === 'redraft' ? '✅ 已依最新劃休重排：修正 ' + leaveMoves.length + ' 格、' : '✅ ') + '已填入 ' + filled + ' 格' + (gapCells ? '、待補 ' + gapCells + ' 格' + (newRows ? '（新開 ' + newRows + ' 列）' : '（都放進現有待補列）') : '') + '，可再手動調整');
 }

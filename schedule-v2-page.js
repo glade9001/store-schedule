@@ -1721,6 +1721,7 @@ let dayViewDayIdx = null;   // 三店人力檢視選中的星期（0=週一..6=�
 // 註：內部的 mode key 仍是 'day'（改名會波及 toggleScheduleContainers／updateViewToggleUI／viewBtn-day）
 function renderSchedule() {
   renderIncomingSupportBanner();
+  if(typeof asdRenderConflicts === 'function') asdRenderConflicts(); // 📋 劃休有變動 → 依最新劃休重排
   switch(scheduleViewMode) {
     case 'day': return renderDayView();
     default:    return renderTable();
@@ -2091,6 +2092,7 @@ function buildCellButton(emp, eIdx, day, store, weekStr, isReadonly) {
   btn.dataset.approval = rec.approvalStatus || '';
   btn.dataset.reqoff = rec.requestOff || false;
   btn.dataset.lawoverrides = (rec.lawOverrides && rec.lawOverrides.length) ? JSON.stringify(rec.lawOverrides) : '';
+  btn.dataset.draft = rec.draft ? 'true' : ''; // 🤖 草稿排的格子（店長改過就拿掉）→「依最新劃休重排」只重排這些
   btn.dataset.eidx = eIdx;
 
   // 待審核徽章
@@ -2650,6 +2652,7 @@ async function applyShift() {
   if(fmtErr) { alert('❌ ' + fmtErr); return; }
 
   pushToUndo(currentCell);
+  currentCell.dataset.draft = ''; // 店長手動改過 → 不再算草稿格（重排時保留）
   const isVirtual = currentCell.dataset.emp.startsWith('🆘');
 
   // ✅ 排班衝突偵測（非虛擬行才檢查）
@@ -2838,6 +2841,7 @@ function applyPaintToCell(btn, eIdx) {
   const target=paintShift==='清空' ? '' : paintShift;
   if(btn.dataset.shift===target) return;
   pushToUndo(btn);
+  btn.dataset.draft=''; // 畫筆＝店長手動 → 不再算草稿格
   const isVirtual=btn.dataset.emp.startsWith('🆘');
   const prevShift = btn.dataset.shift; // 記錄原班別
   btn.dataset.lawoverrides=''; // 畫筆不跑勞基法偵測 → 清掉舊放行標記避免殘留
@@ -3132,7 +3136,7 @@ function syncUIToMemory() {
     // ✅ 以「格子自己的週」為準（非全域 selector），避免換週瞬間把畫面資料標成新週而覆蓋他週
     const week=btn.dataset.week||selWeek;
     const idx=appData.records.findIndex(r=>r.name===btn.dataset.emp&&r.day===btn.dataset.day&&r.week===week);
-    const data={ week, day:btn.dataset.day, name:btn.dataset.emp, shift:btn.dataset.shift||'', location:btn.dataset.loc||'本店', note:btn.dataset.note||'', actualHours:parseFloat(btn.dataset.hours||0), isOT:btn.dataset.ot==='true', isHourly:btn.dataset.hourly==='true', supportEmp:btn.dataset.support||'', approvalStatus:btn.dataset.approval||'', supportUpdatedAt:btn.dataset.supportat||'', requestOff:btn.dataset.reqoff==='true', lawOverrides: btn.dataset.lawoverrides ? JSON.parse(btn.dataset.lawoverrides) : [] };
+    const data={ week, day:btn.dataset.day, name:btn.dataset.emp, shift:btn.dataset.shift||'', location:btn.dataset.loc||'本店', note:btn.dataset.note||'', actualHours:parseFloat(btn.dataset.hours||0), isOT:btn.dataset.ot==='true', isHourly:btn.dataset.hourly==='true', supportEmp:btn.dataset.support||'', approvalStatus:btn.dataset.approval||'', supportUpdatedAt:btn.dataset.supportat||'', requestOff:btn.dataset.reqoff==='true', lawOverrides: btn.dataset.lawoverrides ? JSON.parse(btn.dataset.lawoverrides) : [], ...(btn.dataset.draft==='true' ? { draft:true } : {}) };
     const hasData=btn.dataset.shift||btn.dataset.note||btn.dataset.ot==='true'||btn.dataset.support||btn.dataset.reqoff==='true';
     if(hasData) { if(idx!==-1) appData.records[idx]=data; else appData.records.push(data); }
     else { if(idx!==-1) appData.records.splice(idx,1); }
@@ -3148,7 +3152,7 @@ function syncUIToMemory() {
 
 // ===== Undo =====
 function pushToUndo(btn) {
-  undoStack.push({ btn, s:btn.dataset.shift, h:btn.dataset.hours, l:btn.dataset.loc, n:btn.dataset.note, ot:btn.dataset.ot, supp:btn.dataset.support, app:btn.dataset.approval, reqOff:btn.dataset.reqoff, lo:btn.dataset.lawoverrides });
+  undoStack.push({ btn, s:btn.dataset.shift, h:btn.dataset.hours, l:btn.dataset.loc, n:btn.dataset.note, ot:btn.dataset.ot, supp:btn.dataset.support, app:btn.dataset.approval, reqOff:btn.dataset.reqoff, lo:btn.dataset.lawoverrides, dr:btn.dataset.draft||'' });
   if(undoStack.length>30) undoStack.shift();
 }
 function undoLastAction() {
@@ -3156,7 +3160,7 @@ function undoLastAction() {
   const l=undoStack.pop();
   const fromShift=l.btn.dataset.shift||''; // 回復前的班別
   l.btn.dataset.shift=l.s; l.btn.dataset.hours=l.h; l.btn.dataset.loc=l.l; l.btn.dataset.note=l.n;
-  l.btn.dataset.ot=l.ot; l.btn.dataset.support=l.supp; l.btn.dataset.approval=l.app; l.btn.dataset.reqoff=l.reqOff; l.btn.dataset.lawoverrides=l.lo||'';
+  l.btn.dataset.ot=l.ot; l.btn.dataset.support=l.supp; l.btn.dataset.approval=l.app; l.btn.dataset.reqoff=l.reqOff; l.btn.dataset.lawoverrides=l.lo||''; l.btn.dataset.draft=l.dr||'';
   // 🌟 undo 也要同步特休/補休扣還（否則回復班別後假別對不上）
   if(fromShift!==(l.s||'')) deductLeave(l.btn.dataset.emp, l.btn.dataset.day, document.getElementById('weekSelector').value, fromShift, l.s||'');
   syncUIToMemory(); renderSchedule(); triggerAutoSave();
