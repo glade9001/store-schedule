@@ -9,7 +9,8 @@
       "functions/**",
       "firestore.rules",
       "README.md",
-      "storage.rules"
+      "storage.rules",
+      "tools/**"
     ],
     "headers": [
       {
