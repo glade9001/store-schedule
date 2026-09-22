@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="莉學商行">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="theme-color" content="#e67e22">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>🤖 自動排班設定</title>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+<script src="firebase-init.js"></script>
+<link rel="stylesheet" href="auto-schedule-page.css">
+</head>
+<body>
+<div id="loadingOverlay"><div class="spinner"></div><div id="loadingText">載入中…</div></div>
+
+<div class="header">
+  <button class="header-back" onclick="aspGoBack()">← 返回</button>
+  <div class="header-title">🤖 自動排班設定</div>
+  <select class="header-store" id="storeSel" onchange="aspOnStoreChange()" style="display:none;"></select>
+</div>
+
+<div class="content">
+  <div class="note">
+    這裡設定<b>自動排班</b>要用的規則：每天各時段要幾個人、每個人能上哪些班。<br>
+    第一次會從<b>歷史班表</b>自動帶入，請店長確認、修改後按<b>儲存</b>。產生班表草稿的功能下一步才會開放（先以美德示範）。
+  </div>
+  <div id="statusBanner" class="banner" style="display:none;"></div>
+
+  <div class="toolbar">
+    <button class="btn-ghost" onclick="aspReinfer()">↺ 重新從歷史帶入</button>
+    <span class="meta" id="metaInfo"></span>
+  </div>
+
+  <!-- 寒暑假 -->
+  <div class="sec-title">① 寒暑假日期 <span class="sec-sub">決定套用「學期中」還是「寒暑假」的可上班別，每年重複</span></div>
+  <div class="card" id="seasonCard"></div>
+
+  <!-- 需求 -->
+  <div class="sec-title">② 每天各時段需要幾個人 <span class="sec-sub">以 07:00 到隔天 07:00 為一天，半小時為單位</span></div>
+  <div id="demandWrap"></div>
+
+  <!-- 人員 -->
+  <div class="sec-title">③ 人員可上班別 <span class="sec-sub">第一個＝主力班別；點班別可設為主力、按 × 移除</span></div>
+  <div id="staffWrap"></div>
+  <datalist id="shiftList"></datalist>
+</div>
+
+<div class="savebar">
+  <span id="dirtyHint" class="dirty-hint"></span>
+  <button class="btn-primary" id="saveBtn" onclick="aspSave()">💾 儲存設定</button>
+</div>
+
+<div id="toast"></div>
+
+<script src="shift-utils.js"></script>
+<script src="auto-schedule-core.js"></script>
+<script src="auto-schedule-page.js"></script>
+</body>
+</html>
