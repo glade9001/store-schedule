@@ -10,7 +10,7 @@
  *            ⚠️ 不存「班別組合」：週六工讀排 8-15 還是 16-23 要看正職上哪班，組合寫死就表達不了。
  *   seasons: { summer:{from:'07-01', to:'08-31'}, winter:{from:'01-20', to:'02-20'} }  每年重複的 MM-DD
  *   staff  : { 員工名: { auto:true, term:['18-23',…], vacation:['15-23',…], note:'' } }
- *            term＝學期中、vacation＝寒暑假可上的班別，第一個＝主力。auto=false＝不自動排（店長等，手動排）。
+ *            term＝學期中、vacation＝寒暑假可上的班別，第一個＝主力。auto=false＝不自動排、由店長手動排（如楷岳）。
  *            termDays / vacationDays＝逐日例外：{ 週二:'off', 週三:['15-23'] }
  *              'off'＝那天不能上；陣列＝那天只能上這些班；沒寫的日子照整季的 term / vacation。
  *              （學生每學期課表不同，例：小羊這學期週二、四不能上，週三只能 15-23）
@@ -212,8 +212,8 @@ function asInferFromHistory(weeks, emps, seasons, opt) {
     var term = pick('term'), vac = pick('vacation');
     if (!term.length) term = vac.slice();   // 某一季沒有歷史 → 先沿用另一季，請店長修
     if (!vac.length) vac = term.slice();
-    var lead = ['店長', '加盟主'].indexOf(e.role) >= 0;
-    staff[e.name] = { auto: !lead, term: term, vacation: vac, note: '' };
+    // 預設都自動排（使用者 2026-09-22：店長、加盟主也自動；手動的人由設定頁的開關個別關掉，如楷岳）
+    staff[e.name] = { auto: true, term: term, vacation: vac, note: '' };
     stats[e.name] = {
       termCount: cnt.term, vacCount: cnt.vacation,
       weeklyHours: recentWeeks.length ? Math.round(hours / recentWeeks.length * 10) / 10 : 0

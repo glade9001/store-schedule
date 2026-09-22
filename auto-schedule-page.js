@@ -155,8 +155,10 @@ function aspBanner(type, msg) {
 }
 
 function aspReinfer() {
-  if (!confirm('用歷史班表重新帶入「人數需求」與「可上班別」？\n目前畫面上的修改會被覆蓋（寒暑假日期保留）。')) return;
+  if (!confirm('用歷史班表重新帶入「人數需求」與「可上班別」？\n目前畫面上的修改會被覆蓋（寒暑假日期、各人的「自動排班」開關保留）。')) return;
   const inf = asInferFromHistory(aspWeeks, aspEmps, aspCfg.seasons, {});
+  // 「自動排班」開關是店長的決定，不是歷史推得出來的 → 重新帶入時保留（美德楷岳才不會被改回自動）
+  Object.keys(inf.staff).forEach(n => { if (aspCfg.staff[n] && aspCfg.staff[n].auto === false) inf.staff[n].auto = false; });
   aspCfg.demand = inf.demand; aspCfg.staff = inf.staff; aspStats = inf.stats; aspDayEdit = null;
   aspSetDirty(true); aspRenderAll();
   aspToast('已重新帶入，確認後記得儲存');
