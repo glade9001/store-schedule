@@ -934,9 +934,11 @@ function renderOthersBox(dateStr, showEmpty){
     const t = fmtReqTime(r.createdAt);
     const half = r.shift==='morning'?'（早）':r.shift==='evening'?'（晚）':'';
     const proxy = r.proxyBy ? ` <span style="color:var(--text-muted);font-size:10px;">店長代登</span>` : '';
+    const canProxyCancel = canSchedule() && !isMe && r.date >= today(); // 店長以上可代員工取消（過去的不行）
+    const cancelBtn = canProxyCancel ? `<button class="proxy-cancel" onclick="event.stopPropagation();openCancelModal('${r.id}')">取消</button>` : '';
     return `<div class="other-item" style="${isMe?'font-weight:800;background:#eef4ff;border-radius:6px;':''}">
       <span style="color:var(--text-muted);font-size:11px;min-width:16px;">${i+1}.</span>
-      <div class="other-dot" style="background:${color};"></div>${isMe?'你':getDN(r.empName)} — ${typeLabel}${half}${proxy}${t?` <span style="color:var(--text-muted);font-size:10px;">${t}</span>`:''}</div>`;
+      <div class="other-dot" style="background:${color};"></div><span style="flex:1;">${isMe?'你':getDN(r.empName)} — ${typeLabel}${half}${proxy}${t?` <span style="color:var(--text-muted);font-size:10px;">${t}</span>`:''}</span>${cancelBtn}</div>`;
   }).join('');
   box.innerHTML = `<div class="others-list"><div class="others-title">同日劃休（依送出時間順位）</div>${items}</div>`;
 }
@@ -1204,10 +1206,14 @@ function renderReqCard(r){
 // ===== 取消申請 =====
 function openCancelModal(reqId){
   cancelTargetId = reqId;
-  const r = myRequests.find(x=>x.id===reqId);
+  // 店長以上可代員工取消（2026-09-22）：從本店全部申請找
+  const r = myRequests.find(x=>x.id===reqId) || (canSchedule() ? storeRequests.find(x=>x.id===reqId) : null);
   if(!r) return;
   const typeLabel = r.type==='annual'?'特休':r.type==='comp'?'補休':'排休';
-  document.getElementById('cancelDesc').textContent = `確定取消 ${fmtDateFull(r.date)} 的${typeLabel}申請嗎？`;
+  const isProxy = r.empName !== currentUser.empName;
+  document.getElementById('cancelDesc').textContent = isProxy
+    ? `確定代 ${getDN(r.empName)} 取消 ${fmtDateFull(r.date)} 的${typeLabel}申請嗎？（會記錄由你代取消）`
+    : `確定取消 ${fmtDateFull(r.date)} 的${typeLabel}申請嗎？`;
   openModal('cancelModal');
 }
 
@@ -1215,15 +1221,22 @@ async function confirmCancel(){
   if(!cancelTargetId) return;
   showLoading('取消中...');
   try{
+    const _r = storeRequests.find(x=>x.id===cancelTargetId) || {};
+    const _proxy = _r.empName && _r.empName !== currentUser.empName;
+    const _now = new Date().toISOString();
     await window.db.collection('stores').doc(currentStore).collection('leaveRequests').doc(cancelTargetId).update({
       status: 'cancelled',
-      updatedAt: new Date().toISOString()
+      updatedAt: _now,
+      cancelledAt: _now,
+      ...(_proxy ? { cancelledBy: currentUser.displayName || currentUser.empName } : {})
     });
-    showToast('✅ 已取消申請');
+    showToast(_proxy ? `✅ 已代 ${getDN(_r.empName)} 取消申請` : '✅ 已取消申請');
     closeModal('cancelModal');
     cancelTargetId = '';
     await loadRequests();
     renderTab();
+    // 從當天名單代取消 → 名單也要更新
+    if(_r.date && document.getElementById('applyModal').classList.contains('active')) renderOthersBox(_r.date, true);
   }catch(e){ showToast('❌ 失敗：'+e.message); }
   hideLoading();
 }
