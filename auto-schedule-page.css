@@ -85,6 +85,38 @@ select.sm{padding:6px 6px;border:1.5px solid var(--border);border-radius:8px;fon
 .emp-off{opacity:.55;}
 .empty-chips{font-size:12px;color:var(--danger);font-weight:700;}
 
+/* 完成度 */
+.progress{border-radius:12px;padding:10px 13px;font-size:13px;line-height:1.8;margin-bottom:10px;}
+.progress.todo{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;}
+.progress.done{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;font-weight:700;}
+.progress a{color:inherit;text-decoration:underline;cursor:pointer;font-weight:700;}
+/* 需求分組 */
+.diff-tag{font-size:11px;font-weight:800;color:#b45309;background:#fef3c7;border-radius:8px;padding:1px 7px;margin-left:4px;}
+select.mini-sel{font-size:12px;padding:4px 6px;}
+/* 人員×星期總覽 */
+.wg-legend{font-size:11.5px;color:var(--text-muted);margin-bottom:6px;line-height:1.6;}
+.wg-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+/* 手機 390px 要七天都看得到：固定欄寬、名字欄窄一點、班別字小一點會自動換行 */
+.wg-table{border-collapse:collapse;width:100%;table-layout:fixed;font-size:12.5px;}
+.wg-table th:first-child{width:62px;}
+.wg-table th{font-weight:800;color:var(--text-muted);padding:4px 2px;border-bottom:1px solid var(--border);}
+.wg-name{font-weight:800;padding:6px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:#fff;}
+.wg-name small{display:block;font-size:10px;color:var(--text-muted);font-weight:600;}
+.wg-cell{text-align:center;padding:6px 2px;border:1px solid #f1f5f9;cursor:pointer;color:#94a3b8;font-weight:800;line-height:1.3;font-size:12px;}
+.wg-cell.off{background:#fef2f2;color:#dc2626;}
+.wg-cell.only{background:#fff3e0;color:#9a4a00;font-size:10.5px;letter-spacing:-.3px;word-break:break-all;}
+.wg-cell.none{color:#f59e0b;}
+.wg-cell.na{cursor:default;background:#f8fafc;}
+.wg-cell.on{outline:2.5px solid var(--primary);outline-offset:-2px;}
+.wg-manual .wg-name{color:#94a3b8;}
+.ex-line{font-size:12px;color:#9a4a00;margin-top:6px;}
+details.emp-ref summary{cursor:pointer;color:var(--text-muted);font-size:11.5px;}
+/* 供需 */
+.sup{font-size:13px;line-height:1.7;padding:3px 0;}
+.sup.red{color:#b91c1c;}
+.sup.amber{color:#92400e;}
+.sup.ok{color:#065f46;font-weight:700;}
+
 /* 每週上限 */
 .cap-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12.5px;font-weight:700;margin-top:6px;}
 .cap-row input{width:64px;padding:5px 7px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;text-align:center;}

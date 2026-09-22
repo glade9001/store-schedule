@@ -31,6 +31,7 @@
     第一次會從<b>歷史班表</b>自動帶入（排法太零碎的部分會留空），請店長確認、修改後按<b>儲存</b>。產生班表草稿目前先在美德試用，各店設定完成後再開放。
   </div>
   <div id="statusBanner" class="banner" style="display:none;"></div>
+  <div id="progressBox" class="progress"></div>
 
   <div class="toolbar">
     <button class="btn-ghost" onclick="aspReinfer()">↺ 重新從歷史帶入</button>
@@ -45,13 +46,17 @@
   </div>
 
   <!-- 需求 -->
-  <div class="sec-title">① 每天各時段需要幾個人 <span class="sec-sub">以 07:00 到隔天 07:00 為一天，半小時為單位</span></div>
+  <div class="sec-title" id="demandSec">① 每天各時段需要幾個人 <span class="sec-sub">平日、假日各一份；哪天不一樣再「單獨設定」。以 07:00 到隔天 07:00 為一天</span></div>
   <div id="demandWrap"></div>
 
   <!-- 人員 -->
-  <div class="sec-title">② 人員可上班別 <span class="sec-sub">第一個＝主力班別；點班別可設為主力、按 × 移除</span></div>
+  <div class="sec-title" id="staffSec">② 人員 <span class="sec-sub">先看總覽表：點格子設定某人哪天不能上／只能上什麼；下面逐人設定可以排的班</span></div>
   <div class="season-switch" id="seasonSwitch" style="display:none;"></div>
+  <div class="card" id="weekGrid"></div>
   <div id="staffWrap"></div>
+
+  <div class="sec-title" id="supplySec">③ 人力夠不夠 <span class="sec-sub">每個時段「至少要幾人」跟「有幾個人能上」的比較</span></div>
+  <div id="supplyWrap"></div>
   <datalist id="shiftList"></datalist>
 </div>
 
