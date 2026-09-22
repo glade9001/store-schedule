@@ -2,6 +2,7 @@
 // 資料模型與推算邏輯在 auto-schedule-core.js；這支只管畫面與讀寫。
 // 設定文件：stores/{store}/config/autoSchedule（catch-all 規則：登入者可讀寫，與 config/shifts 相同）
 
+let aspSeason = null; // ③ 目前在設定哪一季：'term' 學期中／'vacation' 寒暑假（一次只顯示一季，兩季並排太難設定）
 let aspDayEdit = null; // 正在編輯逐日例外的格子 {idx, season, day}
 let aspOpenDays = new Set(); // 需求區展開中的星期（手機上七天全展開太長）
 let aspUser = null, aspStore = '', aspCfg = null, aspEmps = [], aspStats = {}, aspWeeks = {}, aspDirty = false;
@@ -161,7 +162,10 @@ function aspReinfer() {
   aspToast('已重新帶入，確認後記得儲存');
 }
 
-function aspRenderAll() { aspRenderSeasons(); aspRenderDemand(); aspRenderStaff(); }
+function aspRenderAll() {
+  if (!aspSeason) aspSeason = asSeasonOf(aspTodayStr(), aspCfg.seasons); // 預設開今天所屬的季節
+  aspRenderSeasons(); aspRenderDemand(); aspRenderSeasonSwitch(); aspRenderStaff();
+}
 
 // ───────── ① 寒暑假 ─────────
 function aspMdPicker(key, field) {
@@ -180,7 +184,7 @@ function aspRenderSeasons() {
 function aspSetSeason(key, field, mm, dd) {
   const cur = ((aspCfg.seasons[key] || {})[field] || '01-01').split('-');
   aspCfg.seasons[key] = { ...(aspCfg.seasons[key] || {}), [field]: (mm || cur[0]) + '-' + (dd || cur[1]) };
-  aspSetDirty(true); aspRenderSeasons();
+  aspSetDirty(true); aspRenderSeasons(); aspRenderSeasonSwitch();
 }
 
 // ───────── ② 人數需求 ─────────
@@ -271,6 +275,17 @@ function aspCopyDay(src, scope) {
 function aspTopCounts(cnt, k) {
   return Object.entries(cnt || {}).sort((a, b) => b[1] - a[1]).slice(0, k).map(([s, n]) => `${s}×${n}`).join('、') || '無紀錄';
 }
+function aspRenderSeasonSwitch() {
+  const cur = asSeasonOf(aspTodayStr(), aspCfg.seasons);
+  const btn = (k, label) => `<button class="${aspSeason === k ? 'sel' : ''}" onclick="aspSetSeasonView('${k}')">${label}${cur === k ? '<small>現在</small>' : ''}</button>`;
+  document.getElementById('seasonSwitch').innerHTML = btn('term', '📚 學期中') + btn('vacation', '🏖️ 寒暑假');
+}
+function aspSetSeasonView(k) {
+  if (aspSeason === k) return;
+  aspSeason = k; aspDayEdit = null;
+  aspRenderSeasonSwitch(); aspRenderStaff();
+}
+
 function aspRenderStaff() {
   const wrap = document.getElementById('staffWrap');
   if (!aspEmps.length) { wrap.innerHTML = '<div class="card meta">這家店沒有在職人員</div>'; return; }
@@ -295,8 +310,8 @@ function aspRenderStaff() {
         <span class="emp-name">${aspEsc(e.name)}</span><span class="role-tag ${ft ? 'ft' : ''}">${aspEsc(roleTxt)}</span>
         <label class="toggle"><input type="checkbox" ${st.auto ? 'checked' : ''} onchange="aspToggleAuto(${idx},this.checked)">自動排班</label>
       </div>
-      <div class="emp-ref">歷史參考：近 12 週週均 ${ref.weeklyHours ?? 0} 小時｜學期中常上 ${aspEsc(aspTopCounts(ref.termCount, 3))}｜寒暑假常上 ${aspEsc(aspTopCounts(ref.vacCount, 3))}</div>
-      ${st.auto ? block('term', '📚 學期中') + block('vacation', '🏖️ 寒暑假') : '<div class="meta">不自動排，由店長手動排這個人。</div>'}
+      <div class="emp-ref">歷史參考：近 12 週週均 ${ref.weeklyHours ?? 0} 小時｜${aspSeason === 'term' ? '學期中' : '寒暑假'}常上 ${aspEsc(aspTopCounts(aspSeason === 'term' ? ref.termCount : ref.vacCount, 3))}</div>
+      ${st.auto ? block(aspSeason, aspSeason === 'term' ? '📚 學期中' : '🏖️ 寒暑假') : '<div class="meta">不自動排，由店長手動排這個人。</div>'}
     </div>`;
   }).join('');
 }
