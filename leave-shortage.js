@@ -43,32 +43,34 @@ function lshMinSlots(dateStr) {
   return mn;
 }
 
-/** 某人這天能上的時段（48 格集合）；劃休整天→空，只休早上／晚上→去掉那段 */
-function lshCanCover(name, st, dateStr) {
+/** 某人這天能上的時段（48 格集合）；劃休整天→空，只休早上／晚上→去掉 15:00 前／後 */
+function lshCanCover(name, st, dateStr, reqs) {
   var lv = { full: false, morning: false, evening: false };
-  storeRequests.forEach(function (r) {
+  (reqs || storeRequests).forEach(function (r) {
     if (r.empName !== name || r.date !== dateStr || ['cancelled', 'unfulfilled', 'rejected'].indexOf(r.status) >= 0) return;
     if (r.shift === 'morning') lv.morning = true; else if (r.shift === 'evening') lv.evening = true; else lv.full = true;
   });
   var set = {};
   if (lv.full) return set;
+  // 半天劃休只扣掉休的那一段（工讀可排範圍內較短的班：週二只能上 7-16 的阿默劃晚上休，早上照樣能上）
+  var cut = (15 - asAxisStart()) * 2; // 15:00 在軸上的格子
   asAvailableShifts(st, dateStr, lshBase.cfg.seasons).forEach(function (sh) {
-    var sp = shiftSpan(sh); if (!sp) return;
-    var s = sp.startH < asAxisStart() ? sp.startH + 24 : sp.startH;
-    if (lv.morning && s < 15) return;                 // 同草稿規則：早上休不排 15:00 前開始的班
-    if (lv.evening && s + shiftTotalHours(sh) > 15) return;
-    asShiftSlots(sh).forEach(function (i) { set[i] = 1; });
+    asShiftSlots(sh).forEach(function (i) {
+      if (lv.morning && i < cut) return;
+      if (lv.evening && i >= cut) return;
+      set[i] = 1;
+    });
   });
   return set;
 }
 
 /** 這天的判斷：[{s, e, kind:'short'|'tight', who:[能上的人]}] */
-function lshDayInfo(dateStr) {
+function lshDayInfo(dateStr, reqs) {
   if (!lshEnabled() || !lshBase || !lshBase.cfg) return [];
   var mn = lshMinSlots(dateStr);
   var staff = lshBase.cfg.staff || {};
   var covers = Object.keys(staff).filter(function (n) { return staff[n] && staff[n].auto; })
-    .map(function (n) { return { name: n, set: lshCanCover(n, staff[n], dateStr) }; });
+    .map(function (n) { return { name: n, set: lshCanCover(n, staff[n], dateStr, reqs) }; });
   var segs = [];
   for (var i = 0; i < asSlots(); i++) {
     if (!mn[i]) continue;
@@ -115,9 +117,8 @@ function lshFor(dateStr) {
 function lshBadge(dateStr) {
   if (!lshEnabled() || !lshBase || !lshBase.cfg || dateStr < today()) return '';
   var f = lshFor(dateStr);
-  if (f.short.length) return '<span class="cal-short red" title="這天已經不夠人">⚠️缺人</span>';
-  if (f.mine.length) return '<span class="cal-short" title="你這天劃休就會缺人">⚠️關鍵</span>';
-  return '';
+  // 使用者 2026-09-22：月曆只標「確定缺人」；會不會因為某人劃休而缺，在他按送出時才試算、再確認
+  return f.short.length ? '<span class="cal-short red" title="這天已經不夠人">⚠️缺人</span>' : '';
 }
 
 /** 申請視窗說明（只提醒，不擋） */
@@ -127,11 +128,28 @@ function lshModalBox(dateStr) {
   if (f.short.length) out += '<div class="info-box short">⚠️ <b>這天已經不夠人</b>：' +
     f.short.map(function (g) { return lshLabel(g) + '（至少 ' + g.need + ' 人，能上的只有 ' + (g.who.length ? g.who.join('、') : '0 人') + '）'; }).join('、') +
     '。<br>依目前設定與大家已送出的劃休計算；如果可以，請改其他天。</div>';
-  if (f.mine.length) out += '<div class="info-box short">⚠️ <b>你這天劃休就會缺人</b>：' +
-    f.mine.map(function (g) { return lshLabel(g) + '能上的只有 ' + g.who.join('、'); }).join('；') + '。如果可以，請改其他天。</div>';
-  if (f.structMine.length) out += '<div class="info-box">ℹ️ ' + f.structMine.map(lshLabel).join('、') +
-    ' 這個時段平常就只有 ' + f.structMine[0].who.join('、') + ' 能上，休假的日子本來就會開待補由店長安排，這是店裡人力的問題，不影響你劃休。</div>';
-  if (f.tight.length && !f.mine.length) out += '<div class="info-box">👀 店長參考：這天人力剛好夠——' +
-    f.tight.map(function (g) { return lshLabel(g) + '（' + g.who.join('、') + '）'; }).join('、') + '，再有人劃休就會缺。</div>';
   return out;
+}
+
+/**
+ * 按「確認送出」時呼叫：這筆劃休會不會讓某個時段變成不夠人？會的話回傳確認訊息，不會就回 ''。
+ * 只算「因為這筆才缺」的（本來就缺的不算）；結構性的（大夜本來就只有宇璿）也不算——他休哪天都一樣。
+ */
+function lshConfirmMessage(dateStr, shiftKind) {
+  if (!lshEnabled() || !lshBase || !lshBase.cfg || !currentUser) return '';
+  var me = currentUser.empName;
+  var st = (lshBase.cfg.staff || {})[me];
+  if (!st || !st.auto) return '';
+  var before = lshDayInfo(dateStr);
+  var after = lshDayInfo(dateStr, storeRequests.concat([{ empName: me, date: dateStr, shift: shiftKind, status: 'noted' }]));
+  var wasShort = function (g) { return before.some(function (b) { return b.kind === 'short' && b.s < g.e && g.s < b.e; }); };
+  var added = after.filter(function (g) {
+    if (g.kind !== 'short' || wasShort(g)) return false;
+    var tb = before.filter(function (b) { return b.kind === 'tight' && b.s < g.e && g.s < b.e && b.who.indexOf(me) >= 0; })[0];
+    return !(tb && lshStructural(dateStr, tb));
+  });
+  if (!added.length) return '';
+  return '⚠️ 你這天劃休後，下面這些時段能上的人會不夠：\n' +
+    added.map(function (g) { return '・' + lshLabel(g) + '：至少要 ' + g.need + ' 人，只剩 ' + (g.who.length ? g.who.join('、') : '0 人'); }).join('\n') +
+    '\n\n（依自動排班設定與大家已送出的劃休計算）\n確定還是要劃休嗎？';
 }

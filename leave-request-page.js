@@ -1009,6 +1009,12 @@ async function submitApply(){
     return;
   }
 
+  // 人力試算：這筆劃休會讓某時段不夠人 → 再確認一次（美德試用，只提醒不擋；leave-shortage.js）
+  if(typeof lshConfirmMessage === 'function'){
+    const _m = lshConfirmMessage(applyDate, applyShift);
+    if(_m && !confirm(_m)) return;
+  }
+
   const note = document.getElementById('applyNote').value.trim();
   showLoading('送出申請中...');
   try{
