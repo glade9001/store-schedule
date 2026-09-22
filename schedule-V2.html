@@ -18,6 +18,8 @@
 <script src="holidays.js"></script>
 <script src="schedule-draw.js"></script>
 <script src="shift-utils.js"></script>
+<script src="auto-schedule-core.js"></script>
+<link rel="stylesheet" href="auto-schedule-draft.css">
 <link rel="stylesheet" href="schedule-V2-page.css">
 </head>
 <body>
@@ -91,6 +93,7 @@
         <button class="tool-btn undo" onclick="undoLastAction()">↩️ 上一步</button>
         <button class="tool-btn save" onclick="saveScheduleData(true)">💾 儲存</button>
         <button class="tool-btn img" onclick="exportImage()">📸 產圖</button>
+        <button class="tool-btn draft" id="draftBtn" style="display:none;" onclick="asdGenerate()">🤖 產生草稿</button>
         <button class="tool-btn add" onclick="addVirtualRow()">➕ 待補</button>
         <button class="tool-btn" id="crossGapBtn" style="display:none;background:#fee2e2;color:#b91c1c;border:1.5px solid #fca5a5;" onclick="openSupportBoard()">🆘 請求支援</button>
         <button class="tool-btn log" onclick="openLogModal()">📜 畫休紀錄</button>
@@ -339,5 +342,6 @@
 <div class="toast" id="toast"></div>
 
 <script src="schedule-v2-page.js"></script>
+<script src="auto-schedule-draft.js"></script>
 </body>
 </html>
