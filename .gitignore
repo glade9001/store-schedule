@@ -1,1 +1,3 @@
 .firebase/
+# 自動排班離線工具抓下來的資料（含姓名、班表、薪資），repo 是公開的，絕對不可提交
+tools/autosched/.cache/
