@@ -1788,7 +1788,9 @@ exports.scheduledMissingClock = onSchedule(
         const sInfo = statusMap[emp] || {};
         if (!isSupport && ["離職", "調走"].includes(sInfo.status) && (!sInfo.eff || ds >= sInfo.eff)) continue;
         const homeStore = isSupport ? sh.supportEmp.slice(0, sh.supportEmp.indexOf("-")) : store;
-        const empPunches = punches.filter((p) => p.empName === emp && !p.voided &&
+        // 「到場」＝沒配到任何班別的打卡，不能拿來抵缺卡（與補登自動註銷同一規則）。
+        // 2026-09-22：聯鑫宥 9/18 早上沒打卡，下午 15:17／17:15 兩筆「到場」卡把 08-16 的缺卡蓋掉，沒被抓到也沒被提醒補登。
+        const empPunches = punches.filter((p) => p.empName === emp && !p.voided && p.status !== "到場" &&
           (p.shiftDate || p.date) === ds);
         const hasIn = empPunches.some((p) => p.type === "上班");
         const hasOut = empPunches.some((p) => p.type === "下班");
@@ -1843,7 +1845,7 @@ exports.scheduledMissingClock = onSchedule(
           const overnight = shiftIsOvernight(sh.shift);
           // 刻意不比對班別字串：排班若在打卡後被修改，比對會反而生出新的誤判缺卡。
           // 這裡只要求「同一個人、屬於這一天的班」，與原行為一致。
-          const mine = yPool.filter((p) => p.empName === emp);
+          const mine = yPool.filter((p) => p.empName === emp && p.status !== "到場"); // 「到場」不抵缺卡（同上）
           const hasInY = mine.some((p) => p.type === "上班");
           const hasOutT = mine.some((p) => p.type === "下班");
           if (hasInY && hasOutT) continue;
@@ -2727,7 +2729,8 @@ exports.scheduledClockRemindPush = onSchedule(
         if (att) att.forEach((d) => pool.push(d.data()));
       }
       for (const x of due) {
-        const mine = pool.filter((p) => p.empName === x.emp && !p.voided && p.type !== "缺卡" && (p.shiftDate || p.date) === x.shiftDay);
+        // 「到場」卡不算這個班打過（不相干時間的一張卡不能讓提醒失效）
+        const mine = pool.filter((p) => p.empName === x.emp && !p.voided && p.type !== "缺卡" && p.status !== "到場" && (p.shiftDate || p.date) === x.shiftDay);
         const hasIn = mine.some((p) => p.type === "上班");
         const hasOut = mine.some((p) => p.type === "下班");
         if (x.kind === "in" && hasIn) continue;
