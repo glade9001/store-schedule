@@ -153,12 +153,48 @@ function asdShowPreview() {
     });
     h += '<td class="asd-sum">' + pe.hours + 'h<small>休' + pe.offs + (pe.pt ? '' : '／應' + pe.offTarget) + '</small></td></tr>';
   });
+  // 待補：原本就有的（灰、不動）＋草稿要新開的（紅）
+  var oldVirtual = [];
+  L.cur.forEach(function (r) { if (String(r.name).startsWith('🆘') && oldVirtual.indexOf(r.name) < 0) oldVirtual.push(r.name); });
+  var existingNames = virtualRowNames.concat(oldVirtual.filter(function (n) { return virtualRowNames.indexOf(n) < 0; }));
+  var gapRow = function (name, cellFn, cls) {
+    var hrs = 0;
+    var tds = days.map(function (d) {
+      var v = cellFn(d);
+      if (v && asIsWorkShift(v)) hrs += shiftTotalHours(v);
+      return v ? '<td class="asd-cell ' + cls + '">' + asdEsc(v) + '</td>' : '<td class="asd-cell"></td>';
+    }).join('');
+    return '<tr class="asd-gap-row"><td class="asd-name gap">' + asdEsc(name) + '<small>' + (cls === 'locked' ? '已開' : '新開') + '</small></td>' + tds +
+      '<td class="asd-sum">' + (hrs ? hrs + 'h' : '') + '</td></tr>';
+  };
+  oldVirtual.forEach(function (n) {
+    h += gapRow(n, function (d) { return curMap[n + '|' + d] || ''; }, 'locked');
+  });
+  asdGapRows(res.gaps, existingNames).forEach(function (r) {
+    h += gapRow(r.name, function (d) { return r.days[d] || ''; }, 'new gap');
+  });
   h += '</tbody></table></div>';
   h += '<div class="asd-meta">排班規則：人力優先 → 正職 40 小時、不自動加班、當月應休平均到各週 → 工讀先顧成本再求時數接近。耗時 ' + (L.ms / 1000).toFixed(1) + ' 秒。</div>';
 
   document.getElementById('asdBody').innerHTML = h;
   document.getElementById('asdApplyBtn').disabled = newCount === 0 && res.gaps.length === 0;
   document.getElementById('asdOverlay').classList.add('show');
+}
+
+/** 待補分列：同一天缺多段就開多列；名稱接在現有待補後面（預覽與套用共用，看到的列＝套用後的列） */
+function asdGapRows(gaps, existingNames) {
+  var rows = [];
+  (gaps || []).forEach(function (g) {
+    var row = rows.find(function (r) { return !r.days[g.day]; });
+    if (!row) {
+      var k = 1;
+      while (existingNames.indexOf('🆘待補' + k) >= 0 || rows.some(function (r) { return r.name === '🆘待補' + k; })) k++;
+      row = { name: '🆘待補' + k, days: {} };
+      rows.push(row);
+    }
+    row.days[g.day] = g.shift;
+  });
+  return rows;
 }
 
 // ───────── 套用 ─────────
@@ -187,18 +223,7 @@ async function asdApply() {
     if (c.shift === '補休') compCells.push(c);
     if (asIsWorkShift(c.shift)) holidayCells.push(c);
   });
-  // 待補：同一天缺多段就開多列
-  var gapRows = [];
-  L.res.gaps.forEach(function (g) {
-    var row = gapRows.find(function (r) { return !r.days[g.day]; });
-    if (!row) {
-      var k = 1;
-      while (virtualRowNames.indexOf('🆘待補' + k) >= 0 || gapRows.some(function (r) { return r.name === '🆘待補' + k; })) k++;
-      row = { name: '🆘待補' + k, days: {} };
-      gapRows.push(row);
-    }
-    row.days[g.day] = g.shift;
-  });
+  var gapRows = asdGapRows(L.res.gaps, virtualRowNames);
   gapRows.forEach(function (r) {
     virtualRowNames.push(r.name);
     Object.keys(r.days).forEach(function (d) { appData.records.push(mkRec(r.name, d, r.days[d])); });

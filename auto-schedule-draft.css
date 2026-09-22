@@ -32,3 +32,6 @@
 .asd-cell.new.zhi{color:#dc2626;}
 .asd-sum{text-align:center;font-weight:800;padding:6px 4px;white-space:nowrap;}
 .asd-meta{font-size:11px;color:#94a3b8;line-height:1.6;}
+.asd-gap-row td{border-top:1px dashed #fecaca;}
+.asd-name.gap{color:#b91c1c;}
+.asd-cell.new.gap{background:#fee2e2;color:#b91c1c;}
