@@ -197,3 +197,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);
 .cal-short{display:inline-block;font-size:9.5px;font-weight:800;color:#b45309;background:#fef3c7;border-radius:6px;padding:0 4px;margin-left:2px;vertical-align:middle;white-space:nowrap;}
 .cal-short.red{color:#b91c1c;background:#fee2e2;}
 .info-box.short{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;}
+
+/* 唯讀的劃休名單（灰色日子點進去） */
+#applyModal.readonly .form-field, #applyModal.readonly #applyConfirmBtn, #applyModal.readonly #quotaWarn, #applyModal.readonly #weekQuotaWarn{display:none !important;}
+.apply-for{width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:15px;font-weight:700;background:#fff;}

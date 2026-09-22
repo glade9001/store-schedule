@@ -70,9 +70,11 @@ function renderQuotaNotice(){
   }
   const fullN = dailyLimits.fullTime ?? 2;
   const partTxt = partTimeUnlimited ? '不限' : `${dailyLimits.partTime ?? 1} 人`;
-  el.innerHTML = quotaHardBlock
+  const _open = lrNewestOpenSunday();
+  const _rule = `<div style="margin:8px 12px 0;padding:10px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;font-size:13px;color:#166534;font-weight:600;line-height:1.6;">🗓️ 劃休開放未來 4 週：<b>每週一 16:00 開放新的一週</b>（目前開放到 ${fmtDate(_open)}）；每週的截止時間是前一週週一 23:59。灰色的日子可以點進去看劃休名單。</div>`;
+  el.innerHTML = _rule + (quotaHardBlock
     ? `<div style="margin:8px 12px;padding:10px 12px;background:#fef2f2;border:1px solid #fecaca;border-radius:10px;font-size:13px;color:#b91c1c;font-weight:700;line-height:1.6;">⛔ 每日名額上限（強制）：正職 ${fullN} 人／天、工讀 ${partTxt}／天（特／補／排一起計）。<br>額滿後排休／補休<b>無法送出</b>；特休為法定權利仍可送出（候補→可請店長協商）。</div>`
-    : `<div style="margin:8px 12px;padding:10px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;font-size:13px;color:#1d4ed8;font-weight:600;line-height:1.6;">📋 每日名額：正職 ${fullN} 人／天、工讀 ${partTxt}／天（特／補／排一起計）。額滿仍可送出（候補，先送先優先）；特休候補可請店長協商。</div>`;
+    : `<div style="margin:8px 12px;padding:10px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;font-size:13px;color:#1d4ed8;font-weight:600;line-height:1.6;">📋 每日名額：正職 ${fullN} 人／天、工讀 ${partTxt}／天（特／補／排一起計）。額滿仍可送出（候補，先送先優先）；特休候補可請店長協商。</div>`);
 }
 
 // ===== 禁休模式切換 =====
@@ -127,26 +129,24 @@ async function loadBlockedDates() {
 }
 
 // ===== 下週劃休開放設定 =====
-// ===== 劃休截止提醒（LINE）：自行勾選才發，預設不發 =====
-// 2026-08-17：LINE 免費方案額度有限，這則屬於「善意提醒」而非必要通知，
-// 因此從「全體每日發」改成 opt-in。偏好寫 notifyPrefs/{empName}.leaveRemind。
-let leaveRemindPref = false;
-async function loadLeaveRemindPref() {
-  try{
-    const d = await window.db.collection('notifyPrefs').doc(currentUser.empName).get();
-    leaveRemindPref = !!(d.exists && d.data().leaveRemind);
-  }catch(e){ leaveRemindPref = false; }
+// 劃休截止提醒：原本「截止前 2 天用 LINE 提醒」的勾選已移除（2026-09-22），改由首頁提醒統一通知
+
+// ===== 店長代劃休（2026-09-22）=====
+// 員工口頭／LINE 告知的休假，由店長在這裡代為登記：一樣進系統、照送出時間排順位，名單上標「店長代登」。
+let lrProxyEmps = []; // [{name, part}] 本店在職員工（店長以上才讀）
+async function lrLoadProxyEmps(){
+  lrProxyEmps = [];
+  if(!canSchedule()) return;
+  const snap = await window.db.collection('stores').doc(currentStore).collection('employees').get().catch(()=>null);
+  if(snap) snap.forEach(d=>{
+    const e = d.data();
+    if(d.id.startsWith('🆘') || ['離職','調走'].includes(e.status)) return;
+    lrProxyEmps.push({ name: d.id, part: e.role === '工讀' || !!e.payAsPartTime });
+  });
 }
-async function toggleLeaveRemind(el) {
-  const on = el.checked;
-  try{
-    await window.db.collection('notifyPrefs').doc(currentUser.empName).set({
-      empName: currentUser.empName, store: currentUser.store || '',
-      leaveRemind: on, updatedAt: new Date().toISOString()
-    }, { merge:true });
-    leaveRemindPref = on;
-    showToast(on ? '✅ 已開啟劃休截止提醒（需綁定 LINE）' : '已關閉劃休截止提醒');
-  }catch(e){ el.checked = !on; showToast('儲存失敗：' + e.message); }
+function lrApplyTarget(){
+  const sel = document.getElementById('applyFor');
+  return (canSchedule() && sel && sel.value) ? sel.value : currentUser.empName;
 }
 
 async function loadLeaveWindow() {
@@ -189,6 +189,7 @@ async function switchStoreTab(store) {
   );
   // 重新讀 displayName
   displayNameMap = {};
+  await lrLoadProxyEmps();
   const accSnap = await window.db.collection('users').where('store','==',store).get().catch(()=>null);
   if(accSnap) accSnap.forEach(d=>{ const a=d.data(); if(a.empName&&a.displayName) displayNameMap[a.empName]=a.displayName; });
   // 重新讀門市 config（每日上限）
@@ -259,7 +260,22 @@ function getDeadlineForWeek(weekStr){
   return deadline;
 }
 
+// ===== 開放範圍（使用者 2026-09-22）=====
+// 只開放未來 4 週：每週一 16:00 開放新的一週（週一 16:00 後最新開放到「本週＋5 週」那週，之前到「＋4 週」）。
+// 各週截止仍是前一週週一 23:59（getDeadlineForWeek），所以平常同時開放的剛好是 4 週。
+function lrYmd(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function lrNewestOpenSunday(){
+  const now = new Date();
+  const mon = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  mon.setDate(mon.getDate() - ((mon.getDay()+6)%7));
+  const openAt = new Date(mon); openAt.setHours(16,0,0,0);
+  const sun = new Date(mon); sun.setDate(mon.getDate() + (now >= openAt ? 35 : 28) + 6);
+  return lrYmd(sun);
+}
+function isNotYetOpen(dateStr){ return dateStr > lrNewestOpenSunday(); }
+
 function isDateLocked(dateStr){
+  if(isNotYetOpen(dateStr)) return true; // 還沒開放
   const weekStr = dateToWeekStr(dateStr);
   const deadline = getDeadlineForWeek(weekStr);
   const locked = new Date() > deadline;
@@ -430,9 +446,12 @@ function getAllowedMonthRange(){
   if(nnM > 11){ nnM = 0; nnY++; }
 
   const min = { year: curY, month: curM }; // 最早可申請月份：當月
+  // 員工：看到開放範圍的最後一個月；店長：當月 + 下月 + 下下月（可預先查看）
+  const open = lrNewestOpenSunday();
+  const oY = +open.slice(0,4), oM = +open.slice(5,7) - 1;
   const max = canSchedule()
-    ? { year: nnY, month: nnM }   // 店長：當月 + 下月 + 下下月
-    : { year: nextY, month: nextM }; // 員工：當月 + 下月
+    ? { year: nnY, month: nnM }
+    : { year: oY, month: oM };
   return { min, max };
 }
 
@@ -468,7 +487,7 @@ window.onload = async () => {
     // 讀取假日資料（Firestore 優先，否則用內建）
     await loadHolidays();
     // 讀取禁休日期 + 下週開放設定 + 個人劃休提醒偏好
-    await Promise.all([loadBlockedDates(), loadLeaveWindow(), loadLeaveRemindPref()]);
+    await Promise.all([loadBlockedDates(), loadLeaveWindow()]);
 
     // 加盟主/admin：建立門市切換 bar
     if(isMultiStore()) {
@@ -494,6 +513,7 @@ window.onload = async () => {
     } catch(e) {}
 
     // 讀取顯示名稱
+    await lrLoadProxyEmps();
     const accSnap = await window.db.collection('users').where('store','==',currentStore).get().catch(()=>null);
     if(accSnap) accSnap.forEach(d=>{ const a=d.data(); if(a.empName&&a.displayName) displayNameMap[a.empName]=a.displayName; });
 
@@ -572,6 +592,38 @@ async function loadRequests(){
   }
   // 計算本週排休已申請數（正職）
   calcWeekOffCount();
+  if(canSchedule()) lrAutoClosePending(); // 背景：過期的特休／補休自動結案
+}
+
+// ===== 特休、補休日期過後自動結案（2026-09-22）=====
+// 店長多半直接排進班表、沒回來按核准，員工一直看到「待確認」。
+// 店長以上打開本頁時：待確認、日期已過的特休／補休 → 對班表：那天是特休／補休＝已安排，否則＝未安排；留下結案紀錄。
+async function lrAutoClosePending(){
+  const t = today();
+  const due = storeRequests.filter(r=>r.status==='pending' && ['annual','comp'].includes(r.type) && r.date < t);
+  if(!due.length) return;
+  try{
+    const ref = window.db.collection('stores').doc(currentStore);
+    const weeks = {};
+    await Promise.all([...new Set(due.map(r=>shiftWeekStr(r.date)))].map(async w=>{
+      const sn = await ref.collection('weeks').doc(w).get();
+      weeks[w] = sn.exists ? (sn.data().records || []) : [];
+    }));
+    const now = new Date().toISOString();
+    let n = 0;
+    for(const r of due){
+      const want = r.type==='annual' ? '特休' : '補休';
+      const cell = (weeks[shiftWeekStr(r.date)] || []).find(x=>x.name===r.empName && x.day===shiftDayName(r.date) && !String(x.location||'').startsWith('支援'));
+      const sh = cell ? String(cell.shift||'').trim() : '';
+      const st = sh === want ? 'fulfilled' : 'unfulfilled';
+      await ref.collection('leaveRequests').doc(r.id).update({
+        status: st, updatedAt: now, closedAt: now, closedBy: '系統（日期過後自動結案）',
+        closeNote: sh === want ? `班表已排${want}` : `班表那天是「${sh || '空白'}」`
+      });
+      r.status = st; n++;
+    }
+    if(n){ showToast(`已自動結案 ${n} 筆過期的特休／補休申請`); renderTab(); }
+  }catch(e){ console.warn('特補休自動結案失敗:', e); }
 }
 
 function calcWeekOffCount(){
@@ -659,11 +711,6 @@ function renderCalendar(){
         <div style="font-size:11px;margin-top:2px;">截止：${monM}/${monD}（一）23:59</div>
       </div>
     </div>`;
-    // 劃休截止提醒：預設不開，要的人自己勾
-    html += `<label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:9px 11px;background:#fff;border:1.5px solid var(--border,#e2e8f0);border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;">
-      <input type="checkbox" ${leaveRemindPref?'checked':''} onchange="toggleLeaveRemind(this)" style="width:17px;height:17px;flex:none;">
-      <span>截止前 2 天用 LINE 提醒我還沒劃休<span style="font-weight:600;color:var(--text-muted,#64748b);">（預設不提醒；需綁定 LINE）</span></span>
-    </label>`;
   }
 
   // 月份導航
@@ -775,7 +822,8 @@ function renderCalBody(){
     let onclick = '';
     if(isBlockMode && !isPast && canSchedule()) {
       onclick = `onclick="toggleBlockDate('${dateStr}')"`;
-    } else if((canClick || hasMyReq) && !isBlockMode) {
+    } else if(!isBlockMode) {
+      // 灰色（過去／已截止／未開放／禁休）也能點：唯讀看劃休名單（使用者 2026-09-22）
       onclick = `onclick="openApplyModal('${dateStr}')"`;
     }
     // ── 每日熱度：依正職滿度上色(計入所有假別)，引導避開額滿日 ──
@@ -817,15 +865,35 @@ function changeMonth(dir){
 // ===== 開啟申請 Modal =====
 function openApplyModal(dateStr){
   const isPast = dateStr < today();
-  if(isPast) return;
-  if(blockedDates.includes(dateStr) && !canSchedule()) {
-    showToast('🚫 此日已設為全店禁休');
+  // 不能申請的日子 → 唯讀：只看當天劃休名單
+  const roReason = isPast ? '這天已經過了'
+    : (blockedDates.includes(dateStr) && !canSchedule()) ? '🚫 這天設為全店禁休'
+    : isNotYetOpen(dateStr) ? `還沒開放（每週一 16:00 開放新的一週，目前開放到 ${fmtDate(lrNewestOpenSunday())}）`
+    : isDateLocked(dateStr) ? '這週的劃休已截止'
+    : '';
+  const modal = document.getElementById('applyModal');
+  modal.classList.toggle('readonly', !!roReason);
+  if(roReason){
+    applyDate = '';
+    const dObj0 = new Date(dateStr + 'T00:00:00');
+    document.getElementById('applyModalTitle').textContent = '劃休名單';
+    document.getElementById('applyModalSub').textContent = `${fmtDateFull(dateStr)}（週${['日','一','二','三','四','五','六'][dObj0.getDay()]}）・僅供查看`;
+    renderOthersBox(dateStr, true);
+    document.getElementById('limitBox').innerHTML = `<div class="info-box">🔒 ${roReason}，無法在這裡申請或修改。</div>`;
+    openModal('applyModal');
     return;
   }
 
   applyDate = dateStr;
   applyType = 'off';
   applyShift = 'full';
+  // 店長代劃休：選單預設自己
+  const forGroup = document.getElementById('applyForGroup');
+  if(forGroup){
+    forGroup.style.display = canSchedule() && lrProxyEmps.length ? '' : 'none';
+    document.getElementById('applyFor').innerHTML = `<option value="${currentUser.empName}">自己（${getDN(currentUser.empName)}）</option>` +
+      lrProxyEmps.filter(e=>e.name!==currentUser.empName).map(e=>`<option value="${e.name}">${getDN(e.name)}${e.part?'（工讀）':''}</option>`).join('');
+  }
 
   const dObj = new Date(dateStr + 'T00:00:00');
   const dowLabel = ['日','一','二','三','四','五','六'][dObj.getDay()];
@@ -850,22 +918,28 @@ function fmtReqTime(iso){
   const d = new Date(iso);
   return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 }
-function renderOthersBox(dateStr){
+function renderOthersBox(dateStr, showEmpty){
   const alive = r => !['cancelled','unfulfilled'].includes(r.status);
   // 整日劃休依送出時間排序＝優先序（先送先贏）；含本人
   const all = storeRequests.filter(r=>r.date===dateStr && alive(r))
     .sort((a,b)=>(a.createdAt||'').localeCompare(b.createdAt||''));
   const box = document.getElementById('othersBox');
-  if(!all.length){ box.style.display='none'; return; }
+  if(!all.length){
+    if(showEmpty){ box.style.display='block'; box.innerHTML = '<div class="others-list"><div class="others-title">這天沒有人劃休</div></div>'; }
+    else box.style.display='none';
+    return;
+  }
   box.style.display = 'block';
   const items = all.map((r,i)=>{
     const color = r.type==='annual'?'var(--purple)':r.type==='comp'?'var(--comp-blue)':'var(--primary)';
     const typeLabel = r.type==='annual'?'特休':r.type==='comp'?'補休':'排休';
     const isMe = r.empName===currentUser.empName;
     const t = fmtReqTime(r.createdAt);
+    const half = r.shift==='morning'?'（早）':r.shift==='evening'?'（晚）':'';
+    const proxy = r.proxyBy ? ` <span style="color:var(--text-muted);font-size:10px;">店長代登</span>` : '';
     return `<div class="other-item" style="${isMe?'font-weight:800;background:#eef4ff;border-radius:6px;':''}">
       <span style="color:var(--text-muted);font-size:11px;min-width:16px;">${i+1}.</span>
-      <div class="other-dot" style="background:${color};"></div>${isMe?'你':getDN(r.empName)} — ${typeLabel}${t?` <span style="color:var(--text-muted);font-size:10px;">${t}</span>`:''}</div>`;
+      <div class="other-dot" style="background:${color};"></div>${isMe?'你':getDN(r.empName)} — ${typeLabel}${half}${proxy}${t?` <span style="color:var(--text-muted);font-size:10px;">${t}</span>`:''}</div>`;
   }).join('');
   box.innerHTML = `<div class="others-list"><div class="others-title">同日劃休（依送出時間順位）</div>${items}</div>`;
 }
@@ -977,8 +1051,11 @@ async function submitApply(){
     return;
   }
 
+  const target = lrApplyTarget();
+  const isProxy = target !== currentUser.empName;
   // 每日強制擋(排休/補休) + 每週上限(排休)— 統一由 isApplyBlocked 判定（特休永不擋）
-  if(isApplyBlocked()){
+  // 店長代劃休：店長自己就是做決定的人，不受名額／每週上限／餘額檢查擋
+  if(!isProxy && isApplyBlocked()){
     const full = isFullTime();
     const myLimit = dailyLimits[full ? 'fullTime' : 'partTime'];
     const usedDaily = storeRequests.filter(r=>r.date===applyDate && !['cancelled','unfulfilled'].includes(r.status) && isFullTimeReq(r)===full).length;
@@ -993,25 +1070,25 @@ async function submitApply(){
 
   // 餘額檢查（特補休）全日/早班/晚班皆扣 1 天
   const cost = 1;
-  if(applyType==='annual' && annualBalance < cost){
+  if(!isProxy && applyType==='annual' && annualBalance < cost){
     showToast('⚠️ 特休餘額不足');
     return;
   }
-  if(applyType==='comp' && compBalance < cost){
+  if(!isProxy && applyType==='comp' && compBalance < cost){
     showToast('⚠️ 補休餘額不足');
     return;
   }
 
   // 重複申請檢查
-  const dup = myRequests.find(r=>r.date===applyDate && !['cancelled','unfulfilled'].includes(r.status));
+  const dup = storeRequests.find(r=>r.empName===target && r.date===applyDate && !['cancelled','unfulfilled'].includes(r.status));
   if(dup){
-    showToast('⚠️ 此日已有申請記錄');
+    showToast(isProxy ? `⚠️ ${getDN(target)}這天已有申請記錄` : '⚠️ 此日已有申請記錄');
     return;
   }
 
   // 人力試算：這筆劃休會讓某時段不夠人 → 再確認一次（美德試用，只提醒不擋；leave-shortage.js）
   if(typeof lshConfirmMessage === 'function'){
-    const _m = lshConfirmMessage(applyDate, applyShift);
+    const _m = lshConfirmMessage(applyDate, applyShift, target);
     if(_m && !confirm(_m)) return;
   }
 
@@ -1019,9 +1096,11 @@ async function submitApply(){
   showLoading('送出申請中...');
   try{
     const now = new Date();
+    const tEmp = lrProxyEmps.find(e=>e.name===target);
     const data = {
-      empName: currentUser.empName,
-      empType: isFullTime() ? 'full' : 'part',
+      empName: target,
+      empType: isProxy ? (tEmp && tEmp.part ? 'part' : 'full') : (isFullTime() ? 'full' : 'part'),
+      ...(isProxy ? { proxyBy: currentUser.displayName || currentUser.empName } : {}),
       type: applyType,
       date: applyDate,
       shift: applyShift,

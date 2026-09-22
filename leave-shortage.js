@@ -135,9 +135,9 @@ function lshModalBox(dateStr) {
  * 按「確認送出」時呼叫：這筆劃休會不會讓某個時段變成不夠人？會的話回傳確認訊息，不會就回 ''。
  * 只算「因為這筆才缺」的（本來就缺的不算）；結構性的（大夜本來就只有宇璿）也不算——他休哪天都一樣。
  */
-function lshConfirmMessage(dateStr, shiftKind) {
+function lshConfirmMessage(dateStr, shiftKind, who) {
   if (!lshEnabled() || !lshBase || !lshBase.cfg || !currentUser) return '';
-  var me = currentUser.empName;
+  var me = who || currentUser.empName; // 店長代劃休時算的是被代登的人
   var st = (lshBase.cfg.staff || {})[me];
   if (!st || !st.auto) return '';
   var before = lshDayInfo(dateStr);
@@ -149,7 +149,7 @@ function lshConfirmMessage(dateStr, shiftKind) {
     return !(tb && lshStructural(dateStr, tb));
   });
   if (!added.length) return '';
-  return '⚠️ 你這天劃休後，下面這些時段能上的人會不夠：\n' +
+  return '⚠️ ' + (me === currentUser.empName ? '你' : me) + '這天劃休後，下面這些時段能上的人會不夠：\n' +
     added.map(function (g) { return '・' + lshLabel(g) + '：至少要 ' + g.need + ' 人，只剩 ' + (g.who.length ? g.who.join('、') : '0 人'); }).join('\n') +
     '\n\n（依自動排班設定與大家已送出的劃休計算）\n確定還是要劃休嗎？';
 }
