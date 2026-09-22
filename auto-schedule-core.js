@@ -299,6 +299,7 @@ function asRng(seed) {
  */
 function asGenerateDraft(inp) {
   var opt = inp.opt || {};
+  var isW = null, hrs = null, spanOf = null, slotsOf = null, spillOf = null; // 快取函式，下面建立
   var cfg = inp.cfg, days = asDayNames(), week = inp.weekStr;
   var mon = asWeekMonday(week);
   var dates = days.map(function (_, i) { return shiftDateAdd(mon, i); });
@@ -415,16 +416,16 @@ function asGenerateDraft(inp) {
       if (lv.comp) { p.cells.push({ fixed: '補休', why: '申請補休' }); continue; }
       var avail = asAvailableShifts(p.st, dt, cfg.seasons);
       var opts = [];
-      var add = function (s, pen) {
+      var add = function (s, pen, listed) {
         s = asNormShift(s); if (!s) return;
-        for (var i = 0; i < opts.length; i++) if (opts[i].s === s) { opts[i].pen = Math.min(opts[i].pen, pen); return; }
-        opts.push({ s: s, pen: pen, h: shiftTotalHours(s), slots: asShiftSlots(s), spill: asShiftSpillSlots(s), span: shiftSpan(s) });
+        for (var i = 0; i < opts.length; i++) if (opts[i].s === s) { opts[i].pen = Math.min(opts[i].pen, pen); opts[i].listed = opts[i].listed || !!listed; return; }
+        opts.push({ s: s, pen: pen, listed: !!listed, h: shiftTotalHours(s), slots: asShiftSlots(s), spill: asShiftSpillSlots(s), span: shiftSpan(s) });
       };
       avail.forEach(function (s, i) {
         var dur = shiftTotalHours(s);
         if (!p.pt) {
           // 正職：完整班別。清單寫的是時間範圍（例：浚週末 7-23）→ 取範圍內 8～9 小時的門市班別
-          if (dur <= 9) add(s, i === 0 ? 0 : 20);
+          if (dur <= 9) add(s, i === 0 ? 0 : 20, true); // listed：清單明寫的 9 小時班（如宇璿 23-8）可以多 1 小時
           else catalog.forEach(function (c) { var h = shiftTotalHours(c); if (h >= 8 && h <= 9 && asShiftWithin(c, s)) add(c, 20); });
         } else {
           add(s, i === 0 ? 0 : 20); // 清單原班別，★ 主力最優先
@@ -477,11 +478,28 @@ function asGenerateDraft(inp) {
   // 固定人力（鎖住的格子，包含草稿人員自己的鎖格）
   var baseCov = days.map(function () { return new Array(asSlots()).fill(0); });
   var addCov = function (cov, di, shift, sign) {
-    asShiftSlots(shift).forEach(function (i) { cov[di][i] += sign; });
-    if (di < 6) asShiftSpillSlots(shift).forEach(function (i) { cov[di + 1][i] += sign; });
+    var sl = slotsOf ? slotsOf(shift) : asShiftSlots(shift), sp = spillOf ? spillOf(shift) : asShiftSpillSlots(shift);
+    for (var i = 0; i < sl.length; i++) cov[di][sl[i]] += sign;
+    if (di < 6) for (var j = 0; j < sp.length; j++) cov[di + 1][sp[j]] += sign;
   };
   fixedWork.forEach(function (f) { addCov(baseCov, f.di, f.shift, 1); });
   prevSundayWork.forEach(function (sh) { asShiftSpillSlots(sh).forEach(function (i) { baseCov[0][i]++; }); });
+
+  // ── 快取：成本函式會被呼叫上萬次，班別解析、上週資料都先算好（W41 從 6.6 秒降下來）──
+  var _mW = {}, _mH = {}, _mSp = {}, _mSl = {}, _mSpill = {};
+  isW = function (sh) { return _mW[sh] !== undefined ? _mW[sh] : (_mW[sh] = asIsWorkShift(sh)); };
+  hrs = function (sh) { return _mH[sh] !== undefined ? _mH[sh] : (_mH[sh] = shiftTotalHours(sh)); };
+  spanOf = function (sh) { return _mSp[sh] !== undefined ? _mSp[sh] : (_mSp[sh] = shiftSpan(sh)); };
+  slotsOf = function (sh) { return _mSl[sh] || (_mSl[sh] = asShiftSlots(sh)); };
+  spillOf = function (sh) { return _mSpill[sh] || (_mSpill[sh] = asShiftSpillSlots(sh)); };
+  P.forEach(function (p) {
+    var prev = prevByName[p.name] || [];
+    var row = days.map(function (_, k) { var x = prev.filter(function (y) { return y.di === k; })[0]; return x ? x.shift : ''; });
+    var run = 0; for (var k = 6; k >= 0; k--) { if (isW(row[k])) run++; else break; }
+    var pairIn = false; for (var q = 0; q < 6; q++) if (row[q] === '排休' && row[q + 1] === '排休') pairIn = true;
+    var sp = isW(row[6]) ? spanOf(row[6]) : null;
+    p.prev = { run: run, lastEnd: sp ? -24 + sp.endH : null, pair: pairIn, sunOff: row[6] === '排休' };
+  });
 
   // ── 狀態：每人 7 格目前選的值（字串；鎖格就是鎖住的值）──
   // 權重（分數≈新台幣）：缺人以每半小時計；ot＝草稿不自動排加班，所以比任何缺人都貴——寧可開待補
@@ -491,7 +509,9 @@ function asGenerateDraft(inp) {
   //   使用者定案（2026-09-22）：先以人力排滿為主；工讀本月工時太高由店長人工判斷（先開跨店支援，沒人再換回），草稿只提醒
   // pairOff：正職連續兩週都被排「兩天相連的排休」→ 中間會連上很多天、一直覺得在上班（使用者 2026-09-22）。
   //   只看排休，員工自己劃的指休不算；比缺半小時人力(1000)輕，人力優先
-  var W = { min: 1000, tgt: 300, ot: 100000, offDev: 20000, sixth: 800, rot: 60, capPerDollar: 1, fair: 4, ptShift: 250, pairOff: 900 };
+  // gapSeg：每段待補的固定成本；softOT：正職清單明寫的班多 1 小時，加班費以外再加的偏好成本（不輕易用）
+  var W = { min: 1000, tgt: 300, ot: 100000, offDev: 20000, sixth: 800, rot: 60, capPerDollar: 1, fair: 4, ptShift: 250, pairOff: 900, gapSeg: 6000, softOT: 200 };
+  if (opt.weights) Object.keys(opt.weights).forEach(function (k) { W[k] = opt.weights[k]; }); // 調參／回測用
   var rng = asRng(opt.seed || 20260922);
 
   var endAbs = function (di, shift) { var sp = shiftSpan(shift); return sp ? di * 24 + sp.endH : null; };
@@ -506,61 +526,69 @@ function asGenerateDraft(inp) {
         var c = p.cells[di];
         if (c.fixed) continue; // 鎖格已在 baseCov
         var sh = state[pi][di];
-        if (asIsWorkShift(sh)) addCov(cov, di, sh, 1);
+        if (isW(sh)) addCov(cov, di, sh, 1);
       }
     });
-    // 1) 人力：少於最少重罰、少於目標中罰
-    for (var di = 0; di < 7; di++) for (var i = 0; i < asSlots(); i++) {
-      var have = cov[di][i], d = dem[di];
-      if (have < d.min[i]) cost += tag('W.min * (d.min[i] ', W.min * (d.min[i] - have));
-      if (have < d.n[i]) cost += tag('W.tgt * (d.n[i] - ', W.tgt * (d.n[i] - Math.max(have, d.min[i])));
+    // 1) 人力：少於最少重罰、少於目標中罰；每多一段待補再加固定成本（1 小時的 8-9 待補找不到人補，寧可少開幾段）
+    for (var di = 0; di < 7; di++) {
+      var inGap = false;
+      for (var i = 0; i < asSlots(); i++) {
+        var have = cov[di][i], d = dem[di];
+        if (have < d.min[i]) { cost += tag('W.min * (d.min[i] ', W.min * (d.min[i] - have)); if (!inGap) cost += tag('gapSeg', W.gapSeg); inGap = true; }
+        else inGap = false;
+        if (have < d.n[i]) cost += tag('W.tgt * (d.n[i] - ', W.tgt * (d.n[i] - Math.max(have, d.min[i])));
+      }
     }
     // 2) 每個人
     var ptMonthHours = [];
     P.forEach(function (p, pi) {
       var row = state[pi];
-      var wkH = 0, offs = 0, overDay = 0;
+      var wkH = 0, wkNormal = 0, offs = 0, overDay = 0;
       var workFlags = [];
       for (var di = 0; di < 7; di++) {
         var sh = row[di], c = p.cells[di];
-        if (!c.fixed) { var o = c.optMap[sh]; if (o) cost += tag('o.pen', o.pen); }
-        if (asIsWorkShift(sh)) {
-          var h = shiftTotalHours(sh); wkH += h;
+        var o = c.fixed ? null : c.optMap[sh];
+        if (o) cost += tag('o.pen', o.pen);
+        if (isW(sh)) {
+          var h = hrs(sh); wkH += h; wkNormal += Math.min(h, 8);
           if (h > 12) cost += tag('1e6', 1e6);                 // 單日 12 小時上限（硬）
-          if (h > 8 && !c.fixed) overDay += h - 8; // 草稿不自動排加班
+          if (h > 8 && !c.fixed) {
+            // 使用者 2026-09-22：7-8 點缺人時，寧可夜班多上 1 小時（宇璿 23-8）也不要開 8-9 這種碎待補。
+            // 只有正職清單上明寫的班、多 1 小時以內才算軟加班（照加班費計）；其他仍不自動排加班
+            if (!p.pt && o && o.listed && h - 8 <= 1) cost += tag('softOT', (h - 8) * (Math.ceil(p.base / 240) * 1.34 + W.softOT));
+            else overDay += h - 8;
+          }
           if (p.pt && !c.fixed) cost += tag('W.ptShift', W.ptShift);
           workFlags.push(true);
         } else { workFlags.push(false); if (sh === '排休' || sh === '指休') offs++; }
       }
       cost += tag('W.ot * overDay', W.ot * overDay);
-      if (wkH > 40) cost += tag('W.ot * (wkH - 40)', W.ot * (wkH - 40));
+      if (wkNormal > 40) cost += tag('weekly40', W.ot * (wkNormal - 40)); // 正常工時一週 40；每天超過 8 的部分已算加班
       // 每人每週上限（設定頁填的；草稿不超過，要超過由店長手動）
       var mh = p.st.maxHours, md = p.st.maxDays;
       if (mh != null && mh !== '' && wkH > +mh) cost += tag('maxHours', W.ot * (wkH - mh));
       if (md != null && md !== '') { var wdn = workFlags.filter(Boolean).length; if (wdn > +md) cost += tag('maxDays', W.ot * 8 * (wdn - md)); }
       // 連續上班（接上週尾巴）：第 7 天硬擋、第 6 天軟擋
-      var prev = prevByName[p.name] || [];
-      var run = 0;
-      for (var k = 6; k >= 0; k--) { var pr = prev.filter(function (x) { return x.di === k; })[0]; if (pr && asIsWorkShift(pr.shift)) run++; else break; }
+      var run = p.prev.run;
       for (var dj = 0; dj < 7; dj++) {
         if (workFlags[dj]) { run++; if (run >= 7) cost += tag('1e6', 1e6); else if (run === 6) cost += tag('W.sixth', W.sixth); } else run = 0;
       }
       // 11 小時間隔（含上週日 → 本週一）
-      var lastEnd = null;
-      var prevSun = prev.filter(function (x) { return x.di === 6 && asIsWorkShift(x.shift); })[0];
-      if (prevSun) lastEnd = endAbs(-1, prevSun.shift);
+      var lastEnd = p.prev.lastEnd;
       for (var dk = 0; dk < 7; dk++) {
-        if (!asIsWorkShift(row[dk])) continue;
-        var s0 = startAbs(dk, row[dk]);
+        if (!isW(row[dk])) continue;
+        var sp0 = spanOf(row[dk]), s0 = dk * 24 + sp0.startH;
         if (lastEnd != null && s0 - lastEnd > 0 && s0 - lastEnd < 11) cost += tag('1e6', 1e6);
-        lastEnd = endAbs(dk, row[dk]);
+        lastEnd = dk * 24 + sp0.endH;
       }
       if (!p.pt) {
         cost += tag('W.offDev * Math.ab', W.offDev * Math.abs(offs - p.offTarget));
         // 連續兩週都連休（只算排休；上週日＋本週一相連也算本週）
-        var prevRow = days.map(function (_, k) { var x = prev.filter(function (y) { return y.di === k; })[0]; return x ? x.shift : ''; });
-        var pairIn = function (r) { for (var q = 0; q < 6; q++) if (r[q] === '排休' && r[q + 1] === '排休') return true; return false; };
-        if (pairIn(prevRow) && (pairIn(row) || (prevRow[6] === '排休' && row[0] === '排休'))) cost += tag('pairOff', W.pairOff);
+        if (p.prev.pair) {
+          var pairNow = p.prev.sunOff && row[0] === '排休';
+          for (var q = 0; q < 6 && !pairNow; q++) if (row[q] === '排休' && row[q + 1] === '排休') pairNow = true;
+          if (pairNow) cost += tag('pairOff', W.pairOff);
+        }
         // 平日／假日輪流：本月已休的假日比例越高，這週再休假日越貴
         var mo = ms(p.name, monthsOfWeek[0]);
         for (var dw = 0; dw < 7; dw++) {
@@ -571,7 +599,7 @@ function asGenerateDraft(inp) {
       } else {
         // 工讀：實際薪資成本、每月上限（按月份進度攤）
         var byMonth = {};
-        for (var dm = 0; dm < 7; dm++) if (asIsWorkShift(row[dm])) { var mk = dates[dm].slice(0, 7); byMonth[mk] = (byMonth[mk] || 0) + shiftTotalHours(row[dm]); }
+        for (var dm = 0; dm < 7; dm++) if (isW(row[dm])) { var mk = dates[dm].slice(0, 7); byMonth[mk] = (byMonth[mk] || 0) + hrs(row[dm]); }
         var pay = 0;
         Object.keys(byMonth).forEach(function (m) {
           var hrs = byMonth[m];
@@ -654,7 +682,7 @@ function asGenerateDraft(inp) {
   }
 
   var bestState = initState(false), bestCost = improve(bestState);
-  var restarts = opt.restarts == null ? 12 : opt.restarts;
+  var restarts = opt.restarts == null ? 4 : opt.restarts; // 收尾搜尋夠強，4 次跟 12 次結果一樣（W41 實測）
   for (var r = 0; r < restarts; r++) {
     var s = initState(true), c = improve(s);
     if (c < bestCost) { bestCost = c; bestState = s; }
@@ -681,6 +709,49 @@ function asGenerateDraft(inp) {
           }
         }
       }
+      if (improved) bestCost = improve(bestState); else break;
+    }
+  })();
+
+  // ── 收尾 2：換休假日＋重排那兩天其他人 ──
+  // 例（使用者 2026-09-22，W41）：浚週二上 15-23、改休週三；週三由小羊 15-23、軒暄 18-23 補上 → 週二兩格待補都消失。
+  // 光把浚的休假從週二換到週三，缺口只是搬到週三（看起來沒變好），要連同那兩天其他人一起重排才看得出來。
+  (function polishSwapRepair() {
+    var snapshot = function () { return bestState.map(function (r) { return r.slice(); }); };
+    for (var round = 0; round < 3; round++) {
+      var improved = false;
+      P.forEach(function (p, pi) {
+        for (var x = 0; x < 7; x++) for (var y = x + 1; y < 7; y++) {
+          var cx = p.cells[x], cy = p.cells[y];
+          if (cx.fixed || cy.fixed) continue;
+          var vx = bestState[pi][x], vy = bestState[pi][y];
+          if ((vx === '排休') === (vy === '排休')) continue; // 只換「休⇄上班」
+          var saved = snapshot();
+          // 休假換過去；上班那天改成那天能上的班（原班別優先）
+          var work = vx === '排休' ? vy : vx;
+          var workDay = vx === '排休' ? x : y, offDay = vx === '排休' ? y : x;
+          var ch = p.cells[workDay === x ? y : x];
+          bestState[pi][workDay] = '排休';
+          bestState[pi][offDay] = ch.choices.indexOf(work) >= 0 ? work : (ch.choices[1] || '排休');
+          // 重排那兩天其他人：逐格試所有選項，留最好的（一輪）
+          var cur = costOf(bestState);
+          [x, y].forEach(function (d) {
+            P.forEach(function (q, qi) {
+              if (qi === pi || q.cells[d].fixed) return;
+              var orig = bestState[qi][d];
+              q.cells[d].choices.forEach(function (v) {
+                if (v === bestState[qi][d]) return;
+                var keep = bestState[qi][d];
+                bestState[qi][d] = v;
+                var c = costOf(bestState);
+                if (c < cur - 1e-9) cur = c; else bestState[qi][d] = keep;
+              });
+            });
+          });
+          if (cur < bestCost - 1e-9) { bestCost = cur; improved = true; }
+          else bestState = saved;
+        }
+      });
       if (improved) bestCost = improve(bestState); else break;
     }
   })();
