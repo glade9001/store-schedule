@@ -257,7 +257,7 @@ function asAvailableShifts(st, dateStr, seasons) {
  *  - 劃休（leaveRequests 未取消）一定照給：整天→指休；半天→那段不排
  *  - 正職：只排清單上的完整班別；以 40h 為主、不自動排加班（>8h/天或 >40h/週重罰）；
  *          當月應休＝該月六日數（只算排休/指休），平均攤到各週，跨月週按天數拆算；
- *          盡量不連上第 6 天；最後讓平日／假日休假輪流
+ *          盡量不連上第 6 天；不要連續兩週都排連休（只看排休）；最後讓平日／假日休假輪流
  *  - 工讀：可排落在「單一」可上班別時間內的較短班（不延長、不合併），長度不限；
  *          每月盡量 ≤ 1.8 萬（按月份進度攤）；先顧成本、再讓時數接近
  *  - 補不到「最少人數」的時段 → 開該段 🆘 待補；介於最少與目標之間只提醒
@@ -488,7 +488,9 @@ function asGenerateDraft(inp) {
   // ptShift＝工讀每多上一班的固定成本（通勤），讓草稿偏好少人、較長的班，不排 14-15 這種碎班
   // capPerDollar：1.8 萬只當「差不多的人選先排工時少的」參考——每小時 196×1＋薪資 208 ≈ 400，永遠比缺人(每小時 600～2000)輕。
   //   使用者定案（2026-09-22）：先以人力排滿為主；工讀本月工時太高由店長人工判斷（先開跨店支援，沒人再換回），草稿只提醒
-  var W = { min: 1000, tgt: 300, ot: 100000, offDev: 20000, sixth: 800, rot: 60, capPerDollar: 1, fair: 4, ptShift: 250 };
+  // pairOff：正職連續兩週都被排「兩天相連的排休」→ 中間會連上很多天、一直覺得在上班（使用者 2026-09-22）。
+  //   只看排休，員工自己劃的指休不算；比缺半小時人力(1000)輕，人力優先
+  var W = { min: 1000, tgt: 300, ot: 100000, offDev: 20000, sixth: 800, rot: 60, capPerDollar: 1, fair: 4, ptShift: 250, pairOff: 900 };
   var rng = asRng(opt.seed || 20260922);
 
   var endAbs = function (di, shift) { var sp = shiftSpan(shift); return sp ? di * 24 + sp.endH : null; };
@@ -554,6 +556,10 @@ function asGenerateDraft(inp) {
       }
       if (!p.pt) {
         cost += tag('W.offDev * Math.ab', W.offDev * Math.abs(offs - p.offTarget));
+        // 連續兩週都連休（只算排休；上週日＋本週一相連也算本週）
+        var prevRow = days.map(function (_, k) { var x = prev.filter(function (y) { return y.di === k; })[0]; return x ? x.shift : ''; });
+        var pairIn = function (r) { for (var q = 0; q < 6; q++) if (r[q] === '排休' && r[q + 1] === '排休') return true; return false; };
+        if (pairIn(prevRow) && (pairIn(row) || (prevRow[6] === '排休' && row[0] === '排休'))) cost += tag('pairOff', W.pairOff);
         // 平日／假日輪流：本月已休的假日比例越高，這週再休假日越貴
         var mo = ms(p.name, monthsOfWeek[0]);
         for (var dw = 0; dw < 7; dw++) {
