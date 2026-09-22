@@ -11,6 +11,8 @@
  *   seasons: { summer:{from:'07-01', to:'08-31'}, winter:{from:'01-20', to:'02-20'} }  每年重複的 MM-DD
  *   staff  : { 員工名: { auto:true, term:['18-23',…], vacation:['15-23',…], note:'' } }
  *            term＝學期中、vacation＝寒暑假可上的班別，第一個＝主力。auto=false＝不自動排、由店長手動排（如楷岳）。
+ *            maxDays / maxHours＝每週最多幾天／幾小時（null＝不限；正職另有 40 小時上限）。草稿不會超過，
+ *              營運需要超過時由店長手動排（排班頁「知情放行」留紀錄）。
  *            termDays / vacationDays＝逐日例外：{ 週二:'off', 週三:['15-23'] }
  *              'off'＝那天不能上；陣列＝那天只能上這些班；沒寫的日子照整季的 term / vacation。
  *              （學生每學期課表不同，例：小羊這學期週二、四不能上，週三只能 15-23）
@@ -284,6 +286,7 @@ function asRng(seed) {
  *   emps      [{name, role, payAsPartTime, wage, base}]  本店在職（role 用計薪身分判斷正職/工讀）
  *   weeks     { weekStr: records[] } 本店：本週、上週、以及本週涵蓋月份的所有週
  *   leaves    leaveRequests [{date, empName, type, shift, status}]
+ *   away      已核准的跨店支援 [{name, di, shift, store}]：那天去別店，本店不排；工時仍算進這個人（週工時、間隔、連上天數）
  *   catalog   門市可用班別（已正規化）
  *   opt       { restarts, seed, capMonthly }
  * @returns {{cells, gaps, soft, notes, perEmp, cost}}
@@ -329,6 +332,10 @@ function asGenerateDraft(inp) {
     var p = k.split('|'), sh = locked[k];
     if (asIsWorkShift(sh)) fixedWork.push({ name: p[0], di: +p[1], shift: sh });
   });
+
+  // ── 已核准的跨店支援（那天人在別店）──
+  var awayBy = {};
+  (inp.away || []).forEach(function (a) { if (asIsWorkShift(a.shift)) awayBy[a.name + '|' + a.di] = a; });
 
   // ── 劃休 ──
   var leaveBy = {}; // name|date → {full, morning, evening, comp}
@@ -394,6 +401,8 @@ function asGenerateDraft(inp) {
     for (var di = 0; di < 7; di++) {
       var dt = dates[di], key = p.name + '|' + di;
       if (locked[key] != null) { p.cells.push({ fixed: locked[key] }); continue; }
+      var aw = awayBy[key];
+      if (aw) { p.cells.push({ fixed: aw.shift, away: aw.store, why: '支援' + aw.store }); continue; } // 使用者 2026-09-22：已核准支援的那天不排本店
       if ((p.from && dt < p.from) || (p.to && dt > p.to)) { p.cells.push({ fixed: '未在職', why: '未在職' }); continue; } // 標記值：不是班別也不算休假
       var lv = leaveBy[p.name + '|' + dt] || {};
       if (lv.full) { p.cells.push({ fixed: '指休', why: '劃休' }); continue; }
@@ -516,6 +525,10 @@ function asGenerateDraft(inp) {
       }
       cost += tag('W.ot * overDay', W.ot * overDay);
       if (wkH > 40) cost += tag('W.ot * (wkH - 40)', W.ot * (wkH - 40));
+      // 每人每週上限（設定頁填的；草稿不超過，要超過由店長手動）
+      var mh = p.st.maxHours, md = p.st.maxDays;
+      if (mh != null && mh !== '' && wkH > +mh) cost += tag('maxHours', W.ot * (wkH - mh));
+      if (md != null && md !== '') { var wdn = workFlags.filter(Boolean).length; if (wdn > +md) cost += tag('maxDays', W.ot * 8 * (wdn - md)); }
       // 連續上班（接上週尾巴）：第 7 天硬擋、第 6 天軟擋
       var prev = prevByName[p.name] || [];
       var run = 0;
@@ -664,7 +677,7 @@ function asGenerateDraft(inp) {
   P.forEach(function (p, pi) {
     p.cells.forEach(function (c, di) {
       if (c.fixed && locked[p.name + '|' + di] != null) return; // 店長已排的不輸出
-      if (c.why === '未在職') return;
+      if (c.why === '未在職' || c.away) return; // 未在職、去別店支援的格子不寫進本店班表
       var sh = c.fixed || bestState[pi][di];
       var why = c.why || '';
       if (!c.fixed && asIsWorkShift(sh)) {
@@ -754,7 +767,7 @@ function asGenerateDraft(inp) {
         }
       });
     }
-    perEmp[p.name] = { pt: p.pt, hours: h, offs: offs, offTarget: p.pt ? null : p.offTarget, offTargetRaw: p.offTargetRaw,
+    perEmp[p.name] = { away: p.cells.map(function (c) { return c.away ? { store: c.away, shift: c.fixed } : null; }), pt: p.pt, hours: h, offs: offs, offTarget: p.pt ? null : p.offTarget, offTargetRaw: p.offTargetRaw,
       monthHours: monthsOfWeek.map(function (m) { return { m: m, before: ms(p.name, m).hours }; }) };
   });
 
@@ -776,4 +789,28 @@ function asBuildCatalog(cfgShifts, weeks, minUse) {
   });
   Object.keys(cnt).forEach(function (n) { if (cnt[n] >= (minUse || 3) && out.indexOf(n) < 0) out.push(n); });
   return out;
+}
+
+/**
+ * 推算結果太零碎就別預填（使用者 2026-09-22：複雜的店先顯示空白，讓店長自己填，比修一堆碎時段好）
+ *  - 需求：任一天有半點交界或超過 6 段 → 整份需求清空
+ *  - 個人：可上班別超過 3 種或含半點班 → 那個人的清單清空
+ * @returns {{demandBlank:boolean, blankStaff:string[]}}
+ */
+function asBlankIfComplex(inf) {
+  var half = function (h) { return Math.round(h * 2) % 2 !== 0; };
+  var demandBlank = asDayNames().some(function (d) {
+    var b = inf.demand[d] || [];
+    return b.length > 6 || b.some(function (x) { return half(x.s) || half(x.e); });
+  });
+  if (demandBlank) asDayNames().forEach(function (d) { inf.demand[d] = []; });
+  var blankStaff = [];
+  Object.keys(inf.staff).forEach(function (n) {
+    var st = inf.staff[n];
+    var messy = function (list) {
+      return list.length > 3 || list.some(function (sh) { return parseShiftSegs(sh).some(function (g) { return half(g.startH) || half(g.endH); }); });
+    };
+    if (messy(st.term) || messy(st.vacation)) { st.term = []; st.vacation = []; blankStaff.push(n); }
+  });
+  return { demandBlank: demandBlank, blankStaff: blankStaff };
 }

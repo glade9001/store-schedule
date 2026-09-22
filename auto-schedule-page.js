@@ -120,9 +120,14 @@ async function aspLoadStore() {
   aspStats = inf.stats;
 
   if (!hasCfg) {
+    const cx = asBlankIfComplex(inf);
     aspCfg.demand = inf.demand;
     aspCfg.staff = inf.staff;
-    aspBanner('info', `這家店還沒有設定，已依最近 ${Object.keys(aspWeeks).length} 週的班表自動帶入。請逐項確認、修改後按「儲存設定」。`);
+    const blanks = [];
+    if (cx.demandBlank) blanks.push('人數需求');
+    if (cx.blankStaff.length) blanks.push(cx.blankStaff.join('、') + ' 的可上班別');
+    aspBanner('info', `這家店還沒有設定，已依最近 ${Object.keys(aspWeeks).length} 週的班表自動帶入。` +
+      (blanks.length ? `其中${blanks.join('，以及')}歷史排法太零碎，先留空請店長自己填。` : '') + '請逐項確認、修改後按「儲存設定」。');
     aspSetDirty(true);
   } else {
     // 新進員工還沒設定 → 用歷史推算補上；已不在職的人留在文件裡也不顯示（儲存時清掉）
@@ -312,6 +317,10 @@ function aspRenderStaff() {
         <span class="emp-name">${aspEsc(e.name)}</span><span class="role-tag ${ft ? 'ft' : ''}">${aspEsc(roleTxt)}</span>
         <label class="toggle"><input type="checkbox" ${st.auto ? 'checked' : ''} onchange="aspToggleAuto(${idx},this.checked)">自動排班</label>
       </div>
+      ${st.auto ? `<div class="cap-row">每週最多
+        <input type="number" inputmode="numeric" min="1" max="7" value="${st.maxDays ?? ''}" placeholder="不限" onchange="aspSetCap(${idx},'maxDays',this.value)"> 天
+        <input type="number" inputmode="decimal" min="1" max="${ft ? 40 : 80}" step="0.5" value="${st.maxHours ?? ''}" placeholder="${ft ? '40' : '不限'}" onchange="aspSetCap(${idx},'maxHours',this.value)"> 小時
+        ${ft ? '<span class="meta">（正職最多 40）</span>' : ''}</div>` : ''}
       <div class="emp-ref">歷史參考：近 12 週週均 ${ref.weeklyHours ?? 0} 小時｜${aspSeason === 'term' ? '學期中' : '寒暑假'}常上 ${aspEsc(aspTopCounts(aspSeason === 'term' ? ref.termCount : ref.vacCount, 3))}</div>
       ${st.auto ? block(aspSeason, aspSeason === 'term' ? '📚 學期中' : '🏖️ 寒暑假') : '<div class="meta">不自動排，由店長手動排這個人。</div>'}
     </div>`;
@@ -376,6 +385,13 @@ function aspDelDayShift(i) { aspDayMap()[aspDayEdit.day].splice(i, 1); aspSetDir
 function aspStaffOf(idx) {
   const name = aspEmps[idx].name;
   return aspCfg.staff[name] = aspCfg.staff[name] || { auto: true, term: [], vacation: [], note: '' };
+}
+// 每週上限：空白＝不限（正職仍受 40 小時）；超過只能由店長在排班頁手動排
+function aspSetCap(idx, key, v) {
+  const st = aspStaffOf(idx), n = parseFloat(v);
+  if (v === '' || !(n > 0)) delete st[key];
+  else st[key] = key === 'maxDays' ? Math.min(7, Math.round(n)) : Math.round(n * 2) / 2;
+  aspSetDirty(true);
 }
 function aspToggleAuto(idx, v) { aspStaffOf(idx).auto = v; aspSetDirty(true); aspRenderStaff(); }
 function aspMakeMain(idx, season, i) {

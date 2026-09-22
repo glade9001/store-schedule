@@ -35,3 +35,4 @@
 .asd-gap-row td{border-top:1px dashed #fecaca;}
 .asd-name.gap{color:#b91c1c;}
 .asd-cell.new.gap{background:#fee2e2;color:#b91c1c;}
+.asd-cell small{display:block;font-size:10px;font-weight:600;}

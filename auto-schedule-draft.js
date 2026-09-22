@@ -73,6 +73,13 @@ async function asdGenerate() {
           wage: parseFloat(sal.wage || e.wage || 0), base: parseFloat(sal.baseSalary != null ? sal.baseSalary : (e.baseSalary || 0)),
           startDate: e.startDate || '', departDate: e.status === '離職' ? (e.departDate || '') : '' };
       });
+    // 已核准的跨店支援：那天人在別店，本店不排（排班頁載入時已把他店支援本店員工的記錄放進 allStoresRecords）
+    var DAYS = asDayNames();
+    var away = (appData.allStoresRecords || []).filter(function (r) {
+      return r._store !== store && r.week === week && r.approvalStatus === 'approved' && String(r.supportEmp || '').startsWith(store + '-');
+    }).map(function (r) {
+      return { name: String(r.supportEmp).slice(store.length + 1), di: DAYS.indexOf(r.day), shift: r.shift, store: r._store };
+    }).filter(function (a) { return a.di >= 0; });
     var hist = {};
     Object.keys(weeks).forEach(function (w) { if (w < week) hist[w] = weeks[w]; });
     var catalog = asBuildCatalog(appConfig.shifts || [], hist, 3);
@@ -80,7 +87,7 @@ async function asdGenerate() {
     showLoading('🤖 排班中…（約需幾秒）');
     await new Promise(function (r) { setTimeout(r, 30); }); // 讓「排班中」先畫出來
     var t0 = Date.now();
-    var res = asGenerateDraft({ weekStr: week, cfg: cfg, emps: emps, weeks: weeks, leaves: leaves, catalog: catalog, opt: {} });
+    var res = asGenerateDraft({ weekStr: week, cfg: cfg, emps: emps, weeks: weeks, leaves: leaves, away: away, catalog: catalog, opt: {} });
     asdLast = { week: week, store: store, res: res, ms: Date.now() - t0, cur: weeks[week] };
     hideLoading();
     asdShowPreview();
@@ -146,6 +153,8 @@ function asdShowPreview() {
     h += '<tr><td class="asd-name">' + asdEsc(getDisplayName(n)) + '<small>' + (pe.pt ? '工讀' : '正職') + '</small></td>';
     days.forEach(function (d) {
       var cur = curMap[n + '|' + d], c = draftMap[n + '|' + d];
+      var aw = (pe.away || [])[days.indexOf(d)];
+      if (aw && !cur) { h += '<td class="asd-cell locked" title="已核准的跨店支援">支援' + asdEsc(aw.store) + '<small>' + asdEsc(aw.shift) + '</small></td>'; return; }
       if (cur) { h += '<td class="asd-cell locked">' + asdEsc(cur) + '</td>'; return; }
       if (!c) { h += '<td class="asd-cell"></td>'; return; }
       var cls = c.shift === '指休' ? 'zhi' : (c.shift === '排休' ? 'off' : (asIsWorkShift(c.shift) ? 'work' : 'off'));
