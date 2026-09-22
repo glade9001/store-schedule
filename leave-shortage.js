@@ -122,12 +122,12 @@ function lshBadge(dateStr) {
 }
 
 /** 申請視窗說明（只提醒，不擋） */
-function lshModalBox(dateStr) {
+function lshModalBox(dateStr, readOnly) {
   if (!lshEnabled() || !lshBase || !lshBase.cfg) return '';
   var f = lshFor(dateStr), out = '';
   if (f.short.length) out += '<div class="info-box short">⚠️ <b>這天已經不夠人</b>：' +
     f.short.map(function (g) { return lshLabel(g) + '（至少 ' + g.need + ' 人，能上的只有 ' + (g.who.length ? g.who.join('、') : '0 人') + '）'; }).join('、') +
-    '。<br>依目前設定與大家已送出的劃休計算；如果可以，請改其他天。</div>';
+    '。<br>依目前設定與大家已送出的劃休計算' + (readOnly ? '，店長會再安排。' : '；如果可以，請改其他天。') + '</div>';
   return out;
 }
 
