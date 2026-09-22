@@ -510,7 +510,7 @@ function asGenerateDraft(inp) {
   // pairOff：正職連續兩週都被排「兩天相連的排休」→ 中間會連上很多天、一直覺得在上班（使用者 2026-09-22）。
   //   只看排休，員工自己劃的指休不算；比缺半小時人力(1000)輕，人力優先
   // gapSeg：每段待補的固定成本；softOT：正職清單明寫的班多 1 小時，加班費以外再加的偏好成本（不輕易用）
-  var W = { min: 1000, tgt: 300, ot: 100000, offDev: 20000, sixth: 800, rot: 60, capPerDollar: 1, fair: 4, ptShift: 250, pairOff: 900, gapSeg: 6000, softOT: 200, gap2: 1500 };
+  var W = { min: 1000, tgt: 300, ot: 100000, offDev: 20000, sixth: 800, rot: 60, capPerDollar: 1, fair: 4, ptShift: 250, pairOff: 900, gapSeg: 6000, softOT: 200, gap2: 1500, gapDay: 12000 };
   // keep：重排時每改動一格原本的草稿格扣的分（比缺半小時人力 1000 輕：要補人還是會改，但不會為了小事大洗牌）
   W.keep = 400;
   if (opt.weights) Object.keys(opt.weights).forEach(function (k) { W[k] = opt.weights[k]; }); // 調參／回測用
@@ -534,18 +534,20 @@ function asGenerateDraft(inp) {
     });
     // 1) 人力：少於最少重罰、少於目標中罰；每多一段待補再加固定成本（1 小時的 8-9 待補找不到人補，寧可少開幾段）
     for (var di = 0; di < 7; di++) {
-      var inGap = false;
+      var inGap = false, runs = 0;
       for (var i = 0; i < asSlots(); i++) {
         var have = cov[di][i], d = dem[di];
         if (have < d.min[i]) {
           cost += tag('W.min * (d.min[i] ', W.min * (d.min[i] - have));
-          if (!inGap) cost += tag('gapSeg', W.gapSeg); inGap = true;
+          if (!inGap) { cost += tag('gapSeg', W.gapSeg); runs++; } inGap = true;
           // 同一時段缺 2 人以上：第 2 格起再加分——兩個支援的人同時在，都不熟門市（使用者 2026-09-22）
           if (d.min[i] - have >= 2) cost += tag('gap2', W.gap2 * (d.min[i] - have - 1));
         }
         else inGap = false;
         if (have < d.n[i]) cost += tag('W.tgt * (d.n[i] - ', W.tgt * (d.n[i] - Math.max(have, d.min[i])));
       }
+      // 同一天第 2 段待補起再加分：一天來支援的人越少越好、待補列也越少（使用者 2026-09-22）
+      if (runs > 1) cost += tag('gapDay', W.gapDay * (runs - 1));
     }
     // 2) 每個人
     var ptMonthHours = [];
