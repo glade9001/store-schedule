@@ -681,17 +681,20 @@ function asGenerateDraft(inp) {
     return best;
   }
 
-  var bestState = initState(false), bestCost = improve(bestState);
-  var restarts = opt.restarts == null ? 4 : opt.restarts; // 收尾搜尋夠強，4 次跟 12 次結果一樣（W41 實測）
+  // 每個起點都做完整收尾（同日兩人交換＋換休重排）再比較：只對最佳起點收尾時，輸入差一點點
+  // （例：班別目錄多一個 7-16）就會停在較差的排法（W41 浚週二休、7 格待補；2026-09-22）
+  var polishAll = function (st, c) { c = polishPairs(st, c); c = polishSwapRepair(st, c); return polishPairs(st, c); };
+  var bestState = initState(false), bestCost = polishAll(bestState, improve(bestState));
+  var restarts = opt.restarts == null ? 4 : opt.restarts;
   for (var r = 0; r < restarts; r++) {
-    var s = initState(true), c = improve(s);
+    var s = initState(true), c = polishAll(s, improve(s));
     if (c < bestCost) { bestCost = c; bestState = s; }
   }
 
   // ── 收尾：同一天兩個人一起換 ──
   // 一次只動一格會卡在「要兩人同時換才補得到」的情況。
   // 例：週六浚改早班＋軒暄補 15-23 才能補滿 8-15，單獨任何一步都不划算，區域搜尋走不過去。
-  (function polishPairs() {
+  function polishPairs(bestState, bestCost) {
     for (var round = 0; round < 3; round++) {
       var improved = false;
       for (var di = 0; di < 7; di++) {
@@ -711,12 +714,14 @@ function asGenerateDraft(inp) {
       }
       if (improved) bestCost = improve(bestState); else break;
     }
-  })();
+    return bestCost;
+  }
 
   // ── 收尾 2：換休假日＋重排那兩天其他人 ──
   // 例（使用者 2026-09-22，W41）：浚週二上 15-23、改休週三；週三由小羊 15-23、軒暄 18-23 補上 → 週二兩格待補都消失。
   // 光把浚的休假從週二換到週三，缺口只是搬到週三（看起來沒變好），要連同那兩天其他人一起重排才看得出來。
-  (function polishSwapRepair() {
+  function polishSwapRepair(st, bestCost) {
+    var bestState = st;
     var snapshot = function () { return bestState.map(function (r) { return r.slice(); }); };
     for (var round = 0; round < 3; round++) {
       var improved = false;
@@ -728,11 +733,13 @@ function asGenerateDraft(inp) {
           if ((vx === '排休') === (vy === '排休')) continue; // 只換「休⇄上班」
           var saved = snapshot();
           // 休假換過去；上班那天改成那天能上的班（原班別優先）
-          var work = vx === '排休' ? vy : vx;
-          var workDay = vx === '排休' ? x : y, offDay = vx === '排休' ? y : x;
-          var ch = p.cells[workDay === x ? y : x];
-          bestState[pi][workDay] = '排休';
-          bestState[pi][offDay] = ch.choices.indexOf(work) >= 0 ? work : (ch.choices[1] || '排休');
+          // ⚠️ 2026-09-22 修：原本把「現在休的那天」「現在上班的那天」寫反，等於原地不動，換休從沒生效過
+          var work = vx === '排休' ? vy : vx;           // 原本上的班
+          var offNow = vx === '排休' ? x : y;           // 現在休的那天 → 改上班
+          var workNow = vx === '排休' ? y : x;          // 現在上班的那天 → 改休
+          var chOff = p.cells[offNow].choices;
+          bestState[pi][workNow] = '排休';
+          bestState[pi][offNow] = chOff.indexOf(work) >= 0 ? work : (chOff[1] || '排休');
           // 重排那兩天其他人：逐格試所有選項，留最好的（一輪）
           var cur = costOf(bestState);
           [x, y].forEach(function (d) {
@@ -749,12 +756,13 @@ function asGenerateDraft(inp) {
             });
           });
           if (cur < bestCost - 1e-9) { bestCost = cur; improved = true; }
-          else bestState = saved;
+          else { for (var ri = 0; ri < saved.length; ri++) bestState[ri] = saved[ri]; }
         }
       });
       if (improved) bestCost = improve(bestState); else break;
     }
-  })();
+    return bestCost;
+  }
 
   // ── 產出 ──
   var cells = [];
