@@ -431,11 +431,11 @@ function asGenerateDraft(inp) {
           catalog.forEach(function (c) { if (c !== asNormShift(s) && asShiftWithin(c, s)) add(c, 40); }); // 範圍內的較短班
         }
       });
-      // 半天劃休：早上休→最早 16:00 才上（使用者 2026-09-22：劉孟絃早上劃休只能上 16-23；
-      //   歷史上早上劃休那天從沒排過 15 點開始的班）；晚上休→不排 15:00 後
+      // 半天劃休：早上休→不排 15:00 前開始的班；晚上休→不排 15:00 後
+      //   （劉孟絃早上劃休只能上 16-23 是他個人的情況，使用者定案由店長手動調整，不做成通用規則）
       opts = opts.filter(function (o) {
         var s = o.span.startH < asAxisStart() ? o.span.startH + 24 : o.span.startH, e = s + o.h;
-        if (lv.morning && s < 16) return false;
+        if (lv.morning && s < 15) return false;
         if (lv.evening && e > 15) return false;
         return true;
       });
