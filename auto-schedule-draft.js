@@ -153,25 +153,19 @@ function asdShowPreview() {
     });
     h += '<td class="asd-sum">' + pe.hours + 'h<small>休' + pe.offs + (pe.pt ? '' : '／應' + pe.offTarget) + '</small></td></tr>';
   });
-  // 待補：原本就有的（灰、不動）＋草稿要新開的（紅）
-  var oldVirtual = [];
-  L.cur.forEach(function (r) { if (String(r.name).startsWith('🆘') && oldVirtual.indexOf(r.name) < 0) oldVirtual.push(r.name); });
-  var existingNames = virtualRowNames.concat(oldVirtual.filter(function (n) { return virtualRowNames.indexOf(n) < 0; }));
-  var gapRow = function (name, cellFn, cls) {
+  // 待補列：現有的（灰＝原本的班、紅＝這次補進去的）＋新開的（紅）
+  asdGapRows(res.gaps, asdExistingGapRows(L.week)).forEach(function (r) {
+    var added = Object.keys(r.days).length;
+    if (!r.isNew && !added && !Object.keys(r.locked).length) return; // 空的舊待補列而且這次也沒用到 → 不顯示
     var hrs = 0;
     var tds = days.map(function (d) {
-      var v = cellFn(d);
-      if (v && asIsWorkShift(v)) hrs += shiftTotalHours(v);
-      return v ? '<td class="asd-cell ' + cls + '">' + asdEsc(v) + '</td>' : '<td class="asd-cell"></td>';
+      if (r.locked[d]) { if (asIsWorkShift(r.locked[d])) hrs += shiftTotalHours(r.locked[d]); return '<td class="asd-cell locked">' + asdEsc(r.locked[d]) + '</td>'; }
+      if (r.days[d]) { hrs += shiftTotalHours(r.days[d]); return '<td class="asd-cell new gap">' + asdEsc(r.days[d]) + '</td>'; }
+      return '<td class="asd-cell"></td>';
     }).join('');
-    return '<tr class="asd-gap-row"><td class="asd-name gap">' + asdEsc(name) + '<small>' + (cls === 'locked' ? '已開' : '新開') + '</small></td>' + tds +
+    var tag = r.isNew ? '新開' : (added ? '已開＋補 ' + added + ' 格' : '已開');
+    h += '<tr class="asd-gap-row"><td class="asd-name gap">' + asdEsc(r.name) + '<small>' + tag + '</small></td>' + tds +
       '<td class="asd-sum">' + (hrs ? hrs + 'h' : '') + '</td></tr>';
-  };
-  oldVirtual.forEach(function (n) {
-    h += gapRow(n, function (d) { return curMap[n + '|' + d] || ''; }, 'locked');
-  });
-  asdGapRows(res.gaps, existingNames).forEach(function (r) {
-    h += gapRow(r.name, function (d) { return r.days[d] || ''; }, 'new gap');
   });
   h += '</tbody></table></div>';
   h += '<div class="asd-meta">排班規則：人力優先 → 正職 40 小時、不自動加班、當月應休平均到各週 → 工讀先顧成本再求時數接近。耗時 ' + (L.ms / 1000).toFixed(1) + ' 秒。</div>';
@@ -181,20 +175,42 @@ function asdShowPreview() {
   document.getElementById('asdOverlay').classList.add('show');
 }
 
-/** 待補分列：同一天缺多段就開多列；名稱接在現有待補後面（預覽與套用共用，看到的列＝套用後的列） */
-function asdGapRows(gaps, existingNames) {
-  var rows = [];
+/**
+ * 待補分列（預覽與套用共用，看到的列＝套用後的列）：列數越少越好。
+ *  1. 先塞進現有待補列的空白天（W40 的🆘待補1只有週二有班，其他六天都能用）
+ *  2. 塞不下才新開，同一天缺幾段就至少要幾列
+ * @param gaps      草稿的待補 [{day, shift}]
+ * @param existing  現有待補列 [{name, days:{週X: 已占用}}]
+ * @returns [{name, isNew, days:{週X: 新填的班}, locked:{週X: 原本的班}}]
+ */
+function asdGapRows(gaps, existing) {
+  var rows = (existing || []).map(function (r) { return { name: r.name, isNew: false, days: {}, locked: r.days || {} }; });
+  var used = function (r, d) { return r.days[d] || r.locked[d]; };
   (gaps || []).forEach(function (g) {
-    var row = rows.find(function (r) { return !r.days[g.day]; });
+    var row = rows.find(function (r) { return !used(r, g.day); });
     if (!row) {
       var k = 1;
-      while (existingNames.indexOf('🆘待補' + k) >= 0 || rows.some(function (r) { return r.name === '🆘待補' + k; })) k++;
-      row = { name: '🆘待補' + k, days: {} };
+      while (rows.some(function (r) { return r.name === '🆘待補' + k; })) k++;
+      row = { name: '🆘待補' + k, isNew: true, days: {}, locked: {} };
       rows.push(row);
     }
     row.days[g.day] = g.shift;
   });
   return rows;
+}
+
+/** 本週現有的待補列與已占用的天（記錄有班別、備註或支援都算占用） */
+function asdExistingGapRows(week) {
+  var names = virtualRowNames.slice();
+  var recs = (appData.records || []).filter(function (r) { return r.week === week && String(r.name).startsWith('🆘'); });
+  recs.forEach(function (r) { if (names.indexOf(r.name) < 0) names.push(r.name); });
+  return names.map(function (n) {
+    var days = {};
+    recs.forEach(function (r) {
+      if (r.name === n && (String(r.shift || '').trim() || r.note || r.supportEmp)) days[r.day] = String(r.shift || '').trim() || '（已用）';
+    });
+    return { name: n, days: days };
+  });
 }
 
 // ───────── 套用 ─────────
@@ -223,10 +239,17 @@ async function asdApply() {
     if (c.shift === '補休') compCells.push(c);
     if (asIsWorkShift(c.shift)) holidayCells.push(c);
   });
-  var gapRows = asdGapRows(L.res.gaps, virtualRowNames);
+  var gapRows = asdGapRows(L.res.gaps, asdExistingGapRows(week));
+  var newRows = 0, gapCells = 0;
   gapRows.forEach(function (r) {
-    virtualRowNames.push(r.name);
-    Object.keys(r.days).forEach(function (d) { appData.records.push(mkRec(r.name, d, r.days[d])); });
+    var ds = Object.keys(r.days);
+    if (!ds.length) return;
+    if (r.isNew) { virtualRowNames.push(r.name); newRows++; }
+    ds.forEach(function (d) {
+      var ex = findRec(r.name, d);
+      if (ex) Object.assign(ex, mkRec(r.name, d, r.days[d])); else appData.records.push(mkRec(r.name, d, r.days[d]));
+      gapCells++;
+    });
   });
 
   asdClose();
@@ -241,5 +264,5 @@ async function asdApply() {
     var emp = (appData.employees || []).find(function (e) { return e.name === c.name; });
     await checkHolidayCompOnSave(c.name, shiftDateAdd(mon, c.di), '', c.shift, emp);
   }
-  showToast('✅ 已填入 ' + filled + ' 格' + (gapRows.length ? '、新增待補 ' + gapRows.length + ' 列' : '') + '，可再手動調整');
+  showToast('✅ 已填入 ' + filled + ' 格' + (gapCells ? '、待補 ' + gapCells + ' 格' + (newRows ? '（新開 ' + newRows + ' 列）' : '（都放進現有待補列）') : '') + '，可再手動調整');
 }
