@@ -170,7 +170,10 @@ function aspReinfer() {
 }
 
 function aspRenderAll() {
-  if (!aspSeason) aspSeason = asSeasonOf(aspTodayStr(), aspCfg.seasons); // 預設開今天所屬的季節
+  if (!aspSeason) aspSeason = asSeasonOf(aspTodayStr(), aspCfg.seasons); // 預設開今天所屬的季節（寒暑假關閉時一律學期中）
+  const on = asSeasonsEnabled();
+  document.getElementById('seasonSection').style.display = on ? '' : 'none';
+  document.getElementById('seasonSwitch').style.display = on ? '' : 'none';
   aspRenderSeasons(); aspRenderDemand(); aspRenderSeasonSwitch(); aspRenderStaff();
 }
 
@@ -321,8 +324,8 @@ function aspRenderStaff() {
         <input type="number" inputmode="numeric" min="1" max="7" value="${st.maxDays ?? ''}" placeholder="不限" onchange="aspSetCap(${idx},'maxDays',this.value)"> 天
         <input type="number" inputmode="decimal" min="1" max="${ft ? 40 : 80}" step="0.5" value="${st.maxHours ?? ''}" placeholder="${ft ? '40' : '不限'}" onchange="aspSetCap(${idx},'maxHours',this.value)"> 小時
         ${ft ? '<span class="meta">（正職最多 40）</span>' : ''}</div>` : ''}
-      <div class="emp-ref">歷史參考：近 12 週週均 ${ref.weeklyHours ?? 0} 小時｜${aspSeason === 'term' ? '學期中' : '寒暑假'}常上 ${aspEsc(aspTopCounts(aspSeason === 'term' ? ref.termCount : ref.vacCount, 3))}</div>
-      ${st.auto ? block(aspSeason, aspSeason === 'term' ? '📚 學期中' : '🏖️ 寒暑假') : '<div class="meta">不自動排，由店長手動排這個人。</div>'}
+      <div class="emp-ref">歷史參考：近 12 週週均 ${ref.weeklyHours ?? 0} 小時｜${asSeasonsEnabled() ? (aspSeason === 'term' ? '學期中' : '寒暑假') : ''}常上 ${aspEsc(aspTopCounts(aspSeason === 'term' ? ref.termCount : ref.vacCount, 3))}</div>
+      ${st.auto ? block(aspSeason, asSeasonsEnabled() ? (aspSeason === 'term' ? '📚 學期中' : '🏖️ 寒暑假') : '可上班別') : '<div class="meta">不自動排，由店長手動排這個人。</div>'}
     </div>`;
   }).join('');
 }

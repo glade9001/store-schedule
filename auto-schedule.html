@@ -38,16 +38,19 @@
   </div>
 
   <!-- 寒暑假 -->
+  <!-- 寒暑假先全面隱藏（asSeasonsEnabled）；元素留著給程式用 -->
+  <div id="seasonSection" style="display:none;">
   <div class="sec-title">① 寒暑假日期 <span class="sec-sub">決定套用「學期中」還是「寒暑假」的可上班別，每年重複</span></div>
   <div class="card" id="seasonCard"></div>
+  </div>
 
   <!-- 需求 -->
-  <div class="sec-title">② 每天各時段需要幾個人 <span class="sec-sub">以 07:00 到隔天 07:00 為一天，半小時為單位</span></div>
+  <div class="sec-title">① 每天各時段需要幾個人 <span class="sec-sub">以 07:00 到隔天 07:00 為一天，半小時為單位</span></div>
   <div id="demandWrap"></div>
 
   <!-- 人員 -->
-  <div class="sec-title">③ 人員可上班別 <span class="sec-sub">第一個＝主力班別；點班別可設為主力、按 × 移除</span></div>
-  <div class="season-switch" id="seasonSwitch"></div>
+  <div class="sec-title">② 人員可上班別 <span class="sec-sub">第一個＝主力班別；點班別可設為主力、按 × 移除</span></div>
+  <div class="season-switch" id="seasonSwitch" style="display:none;"></div>
   <div id="staffWrap"></div>
   <datalist id="shiftList"></datalist>
 </div>

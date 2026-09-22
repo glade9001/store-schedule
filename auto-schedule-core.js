@@ -43,7 +43,8 @@ function asNormShift(s) {
   var segs = parseShiftSegs(s);
   if (!segs.length) return '';
   return segs.map(function (g) {
-    var e = g.endH >= 24 ? g.endH - 24 : g.endH; // 16-0 收在午夜，照店裡寫法存 '16-0' 不是 '16-24'
+    // 16-0 收在午夜，照店裡寫法存 '16-0'；但 7-24 這種長時段（正職寫的可上範圍）保留 24，存成 '7-0' 會看不懂
+    var e = g.endH > 24 || (g.endH === 24 && g.durH < 12) ? g.endH - 24 : g.endH;
     return asFmtNum(g.startH) + '-' + asFmtNum(e);
   }).join(',');
 }
@@ -70,8 +71,13 @@ function asRecordDate(weekStr, dayName) {
   return i < 0 ? '' : shiftDateAdd(asWeekMonday(weekStr), i);
 }
 
+/** 寒暑假分季開關：先關閉（設定頁與草稿都只用「學期中」那一份可上班別） */
+function asSeasonsEnabled() { return false; }
+
 /** 某日期屬於學期中('term')還是寒暑假('vacation')。範圍可跨年（例 12-25～02-20）。 */
 function asSeasonOf(dateStr, seasons) {
+  // 寒暑假功能先全面隱藏（使用者 2026-09-22，含美德）：一律當學期中。設定裡的寒暑假資料保留，之後開啟再用
+  if (!asSeasonsEnabled()) return 'term';
   var md = String(dateStr).slice(5);
   var s = seasons || {};
   var inRange = function (r) {
