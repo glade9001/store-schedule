@@ -52,11 +52,16 @@ function lshWeeksOfMonth(y, m) {
   return out;
 }
 
-/** 月曆畫完後呼叫：背景計算這個月還沒算過的週，算完重畫月曆 */
+/**
+ * 月曆畫完後呼叫：背景計算這個月還沒算過的週，算完重畫月曆。
+ * ⚠️ 要從下週起「一週接一週」試排，前一週的試排結果當成已排好再排下一週：
+ *    各週分開算的話，還沒排的前幾週被當成「正職都沒休」，當月應休全擠到後面 → W44 正職被要求休 6 天、到處缺人（2026-09-22 實測）。
+ */
 function lshEnsure(y, m) {
   if (!lshEnabled() || typeof asGenerateDraft !== 'function') return;
   if (lshBusy) { lshPending = true; return; }
-  var need = lshWeeksOfMonth(y, m).filter(function (w) { return !lshCache[currentStore + '|' + w]; });
+  var targets = lshWeeksOfMonth(y, m);
+  var need = targets.filter(function (w) { return !lshCache[currentStore + '|' + w]; });
   if (!need.length) return;
   lshBusy = true;
   (async function () {
@@ -64,12 +69,24 @@ function lshEnsure(y, m) {
       var base = await lshLoadBase();
       if (!base.cfg) return;
       var leaves = storeRequests.filter(function (r) { return ['cancelled', 'unfulfilled', 'rejected'].indexOf(r.status) < 0; });
-      for (var i = 0; i < need.length; i++) {
+      var sim = {}; Object.keys(base.weeks).forEach(function (w) { sim[w] = base.weeks[w].slice(); }); // 試排用的副本
+      var last = need[need.length - 1];
+      var w = shiftWeekStr(shiftDateAdd(today(), 7)); // 從下週開始接著排
+      while (w <= last) {
         await new Promise(function (r) { setTimeout(r, 0); }); // 讓畫面先動，不卡住
-        var w = need[i];
-        var res = asGenerateDraft({ weekStr: w, cfg: base.cfg, emps: base.emps, weeks: base.weeks, leaves: leaves, catalog: base.catalog, opt: { restarts: 2 } });
+        var res = asGenerateDraft({ weekStr: w, cfg: base.cfg, emps: base.emps, weeks: sim, leaves: leaves, catalog: base.catalog, opt: {} });
         var mon = asWeekMonday(w);
-        lshCache[currentStore + '|' + w] = { gaps: res.gaps.map(function (g) { return { day: g.day, date: shiftDateAdd(mon, g.di), s: g.s, e: g.e, shift: g.shift }; }) };
+        // 試排結果寫進副本（只補空白格），下一週才知道這週誰休了、誰上了多久
+        var recs = (sim[w] || []).slice();
+        res.cells.forEach(function (c) {
+          if (!recs.some(function (r) { return r.name === c.name && r.day === c.day && String(r.shift || '').trim(); }))
+            recs.push({ name: c.name, day: c.day, shift: c.shift, location: '本店', actualHours: asIsWorkShift(c.shift) ? shiftTotalHours(c.shift) : 0 });
+        });
+        res.gaps.forEach(function (g, i) { recs.push({ name: '🆘試排' + i, day: g.day, shift: g.shift, location: '本店', actualHours: g.e - g.s }); });
+        sim[w] = recs;
+        if (targets.indexOf(w) >= 0)
+          lshCache[currentStore + '|' + w] = { gaps: res.gaps.map(function (g) { return { day: g.day, date: shiftDateAdd(mon, g.di), s: g.s, e: g.e, shift: g.shift }; }) };
+        w = shiftWeekStr(shiftDateAdd(mon, 7));
       }
       renderCalBody();
     } catch (e) {
