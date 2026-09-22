@@ -678,12 +678,14 @@ function asGenerateDraft(inp) {
   var cov = baseCov.map(function (a) { return a.slice(); });
   P.forEach(function (p, pi) { p.cells.forEach(function (c, di) { if (!c.fixed && asIsWorkShift(bestState[pi][di])) addCov(cov, di, bestState[pi][di], 1); }); });
   var gaps = [], soft = [];
-  var segs = function (arr) { // 連續 >0 的格子 → [{s,e}]
+  // 連續 >0 的格子 → [{s,e}]；在需求時段交界切開（週五 8-15 早班＋15-18 下午都缺，是兩個人的事，不合成一格 8-18）
+  var segs = function (arr, d) {
     var out = [];
     arr.forEach(function (v, i) {
       if (!v) return;
       var h = asAxisStart() + i / 2, last = out[out.length - 1];
-      if (last && last.e === h) last.e = h + 0.5; else out.push({ s: h, e: h + 0.5 });
+      var sameBand = i > 0 && d.n[i] === d.n[i - 1] && d.min[i] === d.min[i - 1];
+      if (last && last.e === h && sameBand) last.e = h + 0.5; else out.push({ s: h, e: h + 0.5 });
     });
     return out;
   };
@@ -695,11 +697,11 @@ function asGenerateDraft(inp) {
     }
     // 一層一層切：缺 2 人的時段開兩格
     for (var layer = 1; layer <= 5; layer++) {
-      segs(lack.map(function (v) { return v >= layer ? 1 : 0; })).forEach(function (g) {
+      segs(lack.map(function (v) { return v >= layer ? 1 : 0; }), dem[di2]).forEach(function (g) {
         gaps.push({ day: days[di2], di: di2, shift: asRangeToShift(g.s, g.e), s: g.s, e: g.e });
       });
     }
-    segs(lackT.map(function (v) { return v > 0 ? 1 : 0; })).forEach(function (g) {
+    segs(lackT.map(function (v) { return v > 0 ? 1 : 0; }), dem[di2]).forEach(function (g) {
       soft.push({ day: days[di2], di: di2, s: g.s, e: g.e, label: asHourLabel(g.s) + '～' + asHourLabel(g.e) });
     });
   }
