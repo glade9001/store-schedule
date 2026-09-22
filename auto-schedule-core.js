@@ -94,6 +94,24 @@ function asShiftSlots(shiftStr) {
   return out;
 }
 
+/**
+ * 班別延伸到「隔天軸」的格子：23-8 這種大夜在隔天 07:00～08:00 仍在場，
+ * 軸在 07:00 切日，這一段要算給隔天（否則隔天 7-8 點會少算一人——2026-09-22 踩到）。
+ */
+function asShiftSpillSlots(shiftStr) {
+  var out = [];
+  parseShiftSegs(shiftStr).forEach(function (g) {
+    var s = g.startH, e = g.endH;
+    if (s < asAxisStart()) { s += 24; e += 24; }
+    var end = asAxisStart() + 24;
+    for (var h = Math.max(s, end); h < e; h += 0.5) {
+      var i = Math.round((h - end) * 2);
+      if (i >= 0 && i < asSlots()) out.push(i);
+    }
+  });
+  return out;
+}
+
 /** 需求時段 [{s,e,n}] → 48 格人數陣列 */
 function asDemandToSlots(bands) {
   var arr = new Array(asSlots()).fill(0);
@@ -142,14 +160,22 @@ function asInferFromHistory(weeks, emps, seasons, opt) {
 
   // ── 需求：最近 N 週，每個星期幾、每半小時的上班人數取中位數（🆘 待補也算——那是店長認為需要的人）──
   var recent = weekIds.slice(-(opt.demandWeeks || 8));
+  // 先按日期收集上班的班別（週一要看上週日延過來的大夜，所以不能只在同一週裡找）
+  var byDate = {};
+  weekIds.forEach(function (w) {
+    (weeks[w] || []).forEach(function (r) {
+      if (!asIsHomeRecord(r) || !asIsWorkShift(r.shift)) return;
+      var dt = asRecordDate(w, r.day);
+      if (dt) (byDate[dt] = byDate[dt] || []).push(r.shift);
+    });
+  });
   var demand = {};
-  days.forEach(function (d) {
+  days.forEach(function (d, di) {
     var perWeek = recent.map(function (w) {
       var arr = new Array(asSlots()).fill(0);
-      (weeks[w] || []).forEach(function (r) {
-        if (r.day !== d || !asIsHomeRecord(r) || !asIsWorkShift(r.shift)) return;
-        asShiftSlots(r.shift).forEach(function (i) { arr[i]++; });
-      });
+      var dt = shiftDateAdd(asWeekMonday(w), di);
+      (byDate[dt] || []).forEach(function (sh) { asShiftSlots(sh).forEach(function (i) { arr[i]++; }); });
+      (byDate[shiftDateAdd(dt, -1)] || []).forEach(function (sh) { asShiftSpillSlots(sh).forEach(function (i) { arr[i]++; }); });
       return arr;
     }).filter(function (arr) { return arr.some(function (x) { return x > 0; }); }); // 還沒排的週不算
     var med = new Array(asSlots()).fill(0);
