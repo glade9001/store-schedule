@@ -399,11 +399,16 @@ async function submitReq(){
     return;
   }
   if(!st||!targetDate||!requestedTime){ toast('請填門市、日期、時間'); return; }
+  // 這個時間對得上哪一班？對不上就先問（跨夜班的下班是隔天；2026-09-22）
+  let mt={ shift:'', shiftDate:targetDate };
+  try{ mt=await matchSchedShift(st, currentUser.empName, currentUser.store||'', targetDate, requestedTime, punchType); }catch(e){}
+  if(!mt.shift && rr.reasonCode!=='noshift' && !confirm(`⚠️ ${targetDate} ${requestedTime} 的${punchType}卡，對不上你在 ${st} 的任何一個班。\n\n跨夜班的下班是「隔天」早上（例：9/17 大夜 23-07 → 9/18 07:00）。\n確定要這樣送出嗎？`)) return;
   try{
     await window.db.collection('stores').doc(st).collection('attendanceRequests').add({
       empName:currentUser.empName, displayName:currentUser.displayName||currentUser.empName,
       homeStore:currentUser.store||'', atStore:st, type:'補登/修改', targetDate, punchType, requestedTime,
       reason:rr.reason, reasonCode:rr.reasonCode, reasonText:rr.reasonText,
+      shiftDate: mt.shiftDate, matchedShift: mt.shift||'',
       status:'pending', createdAt:new Date().toISOString(), createdBy:currentUser.empName
     });
     document.getElementById('reqModal').style.display='none';

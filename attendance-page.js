@@ -153,44 +153,32 @@ async function loadRequests(){
       <div style="font-size:14px;font-weight:800;">${empDisplay(r.empName)}
         <span style="color:var(--text-muted);font-weight:600;font-size:13px;">${r.targetDate} ${r.punchType} ${r.requestedTime}</span>
         ${r.claimOnTime?`<span title="申報時間剛好落在排班開始時間附近，系統無從查證" style="font-size:11px;background:#fff7ed;color:#c0620f;border-radius:20px;padding:1px 7px;font-weight:800;">自述準時</span>`:''}
+        <span id="rqm-${r.id}" style="font-size:11px;"></span>
         ${(cnt[r.empName]||0)>=3?`<span title="本月補登張數" style="font-size:11px;background:#fdecea;color:#b3261e;border-radius:20px;padding:1px 7px;font-weight:800;">本月第 ${cnt[r.empName]} 張</span>`:(cnt[r.empName]||0)>1?`<span style="font-size:11px;color:var(--text-muted);font-weight:700;">本月第 ${cnt[r.empName]} 張</span>`:''}</div>
       <div class="meta" style="margin:2px 0;">${r.reasonCode?`<span style="font-size:11px;background:#eef3fb;color:#1557b0;border-radius:20px;padding:1px 7px;font-weight:800;">${REQ_REASON_LABELS[r.reasonCode]||r.reasonCode}</span> ${r.reasonText||''}`:`原因：${r.reason||'<span style="color:#b3261e;">未填</span>'}`}${r.homeStore&&r.homeStore!==r.atStore?` · 原店 ${r.homeStore}`:''}</div>
       <div style="display:flex;gap:8px;margin-top:6px;">
         <button onclick="approveReq('${r.id}')" style="flex:1;padding:8px;background:#e6f4ea;color:#137333;border:none;border-radius:8px;font-weight:800;cursor:pointer;">✅ 核准</button>
         <button onclick="rejectReq('${r.id}')" style="flex:1;padding:8px;background:#fce8e6;color:#c5221f;border:none;border-radius:8px;font-weight:800;cursor:pointer;">❌ 駁回</button>
       </div></div>`).join('')+`</div>`;
+  // 每筆補登對得上哪一班（跨夜班的下班在隔天）；對不上的標出來，避免核准錯的補登（2026-09-22 劉金鈴 9/16 07:00 那筆）
+  reqs.forEach(async r=>{
+    try{
+      const m=await matchSchedShift(r.atStore, r.empName, r.homeStore, r.targetDate, r.requestedTime, r.punchType);
+      const el=document.getElementById('rqm-'+r.id); if(!el) return;
+      el.innerHTML = m.shift
+        ? `<span style="color:var(--text-muted);font-weight:700;">→ 補的是 ${fmtMD(m.shiftDate)} ${m.shift} 的班</span>`
+        : `<span title="這個時間不在任何一班的打卡範圍內" style="background:#fdecea;color:#b3261e;border-radius:20px;padding:1px 7px;font-weight:800;">⚠️ 時間沒有對應的班</span>`;
+    }catch(e){}
+  });
 }
+function fmtMD(ds){ return (+String(ds).slice(5,7))+'/'+(+String(ds).slice(8,10)); }
 // 補登卡要自己找出它屬於哪一個排班班次。
 // ⚠️ 不補這兩個欄位的後果（邱韋誠 8/5、8/11 就是這樣來的）：
 //    補登的上班卡 shift 是空的 → 之後員工打下班卡時，clockPunch 會配對到這張沒有班別的上班卡，
 //    matchedShift 拿到空字串 → 直接判成「到場」，而「到場」不計工時。
 // 視窗與 clockPunch 一致：上班＝排班起點前1h~後4h、下班＝排班終點前4h~後1h，取最接近的一班。
 // 跨夜班的下班卡會落在隔天，所以候選要含前後一天。
-async function matchSchedShift(store, empName, homeStore, dateStr, hhmm, punchType){
-  const punchMs = Date.parse(`${dateStr}T${hhmm}:00+08:00`);
-  if(!isFinite(punchMs)) return { shift:'', shiftDate:dateStr };
-  const cand=[];
-  for(const off of [-1,0,1]){
-    const dss=shiftDateAdd(dateStr,off);
-    let wd=null;
-    try{ wd=await window.db.collection('stores').doc(store).collection('weeks').doc(shiftWeekStr(dss)).get(); }catch(e){ continue; }
-    if(!wd||!wd.exists) continue;
-    const dn=shiftDayName(dss);
-    (wd.data().records||[]).forEach(r=>{
-      if(r.day!==dn) return;
-      const mine=(r.name===empName)||(r.supportEmp===`${homeStore||store}-${empName}`&&r.approvalStatus==='approved');
-      if(!mine) return;
-      parseShiftSegs(r.shift).forEach(g=>{
-        const startMs=shiftTimeMs(dss,g.startH);
-        if(!isFinite(startMs)) return;
-        cand.push({ shift:r.shift, shiftDate:dss, startMs, endMs:startMs+g.durH*3600000 });
-      });
-    });
-  }
-  const hit = matchPunchShift(cand, punchMs, punchType);  // 視窗定義見 shift-utils.js
-  return hit ? { shift:hit.shift, shiftDate:hit.shiftDate, startMs:hit.startMs }
-             : { shift:'', shiftDate:dateStr, startMs:null };
-}
+// matchSchedShift 已搬到 shift-utils.js（員工送出補登時也要用同一套判斷，2026-09-22）
 
 async function approveReq(id){
   const ref=window.db.collection('stores').doc(curStore).collection('attendanceRequests').doc(id);

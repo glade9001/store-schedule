@@ -115,23 +115,32 @@ window.onload=async()=>{
 };
 
 // 從待補單開啟：日期、門市、缺哪一張都帶好，建議時間用班別的起訖，員工只要確認時間並選原因
+// ⚠️ 跨夜班的下班卡要帶「隔天」（9/17 大夜 23-07 的下班是 9/18 07:00；原本帶成 9/17 07:00，2026-09-22 修）
+var _fixShiftDate='';   // 這張補登是補哪一天的班（送出時記下，判斷「補過了沒」用）
 async function openFixModal(store, date, shift, punchType){
   openReqModal();
-  document.getElementById('rqStore').value=store;
-  document.getElementById('rqDate').value=date;
-  document.getElementById('rqType').value=punchType;
+  _fixShiftDate=date;
+  let d=date, tm='';
   const segs=(typeof parseShiftSegs==='function')?parseShiftSegs(shift||''):[];
   if(segs.length){
-    const h = punchType==='下班' ? segs[segs.length-1].endH : segs[0].startH;
-    const hh=((Math.floor(h)%24)+24)%24, mm=Math.round((h-Math.floor(h))*60);
-    document.getElementById('rqTime').value=`${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
+    if(punchType==='下班'){ const o=shiftOutAt(date, shift); d=o.date; tm=o.time; }
+    else { const h=segs[0].startH, hh=Math.floor(h), mm=Math.round((h-hh)*60); tm=`${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`; }
   }
+  const setFields=()=>{ document.getElementById('rqStore').value=store; document.getElementById('rqDate').value=d; document.getElementById('rqType').value=punchType; if(tm) document.getElementById('rqTime').value=tm; };
+  setFields();
+  const o=(punchType==='下班' && shift) ? shiftOutAt(date, shift) : null;
   const hint=document.getElementById('rqStoreHint');
-  if(hint) hint.innerHTML=`✅ 系統偵測到 <b>${date} ${shift||''}</b> 缺${punchType}卡，已帶好門市與時間<br><span style="color:#c0620f;">請確認時間是否為你<b>實際</b>上下班的時間</span>`;
+  const setHint=()=>{ if(hint) hint.innerHTML=`✅ 系統偵測到 <b>${date} ${shift||''}</b> 缺${punchType}卡，已帶好門市與時間`+
+    (o&&o.nextDay?`<br><b style="color:#b3261e;">這是跨夜班：下班日期是 ${d}（隔天）</b>`:'')+
+    `<br><span style="color:#c0620f;">請確認時間是否為你<b>實際</b>上下班的時間</span>`; };
+  setHint();
   await syncReqStore();
-  document.getElementById('rqStore').value=store;
-  document.getElementById('rqDate').value=date;
-  document.getElementById('rqType').value=punchType;
+  setFields(); setHint();
+}
+/** 待補清單上的班別說明：跨夜班的下班寫出實際日期時間 */
+function missLabel(t){
+  const o=(t.punchType==='下班' && t.shift) ? shiftOutAt(t.date, t.shift) : null;
+  return `${t.date}　${t.shift||'—'}${o&&o.nextDay?`（下班 ${o.date.slice(5).replace('-','/')} ${o.time}）`:''}　缺${t.punchType}卡`;
 }
 
 function openReqModal(){
@@ -207,6 +216,10 @@ async function submitReq(){
   const requestedTime=document.getElementById('rqTime').value;
   if(!atStore||!targetDate||!requestedTime){ alert('請填寫門市、日期、時間'); return; }
   const rr=collectReqReason(); if(!rr) return;
+  // 這個時間對得上哪一班？對不上就先問（2026-09-22：劉金鈴 9/16 07:00 那筆不屬於任何一班，卻被核准）
+  let mt={ shift:'', shiftDate:_fixShiftDate||targetDate };
+  try{ mt=await matchSchedShift(atStore, currentUser.empName, currentUser.store||'', targetDate, requestedTime, punchType); }catch(e){}
+  if(!mt.shift && !confirm(`⚠️ ${targetDate} ${requestedTime} 的${punchType}卡，對不上你在 ${atStore} 的任何一個班。\n\n跨夜班的下班是「隔天」早上（例：9/17 大夜 23-07 → 9/18 07:00）。\n確定要這樣送出嗎？`)) return;
   // 自述準時（2026-09-16）：補上班卡且申報時間落在排班開始 ±5 分鐘內 → 標記。
   // 系統無從查證員工幾點到店，能做的是讓「每次都剛好準時」這件事在店長眼前看得見。
   let claimOnTime=false;
@@ -231,8 +244,10 @@ async function submitReq(){
       empName:currentUser.empName, displayName:currentUser.displayName||currentUser.empName,
       homeStore:currentUser.store||'', atStore, type:'補登/修改', targetDate, punchType, requestedTime,
       reason:rr.reason, reasonCode:rr.reasonCode, reasonText:rr.reasonText, claimOnTime,
+      shiftDate: mt.shift ? mt.shiftDate : (_fixShiftDate||targetDate), matchedShift: mt.shift||'',
       status:'pending', createdAt:new Date().toISOString(), createdBy:currentUser.empName
     });
+    _fixShiftDate='';
     hideLoading();
     document.getElementById('reqModal').style.display='none';
     alert('✅ 已送出申請，等待店長審核（結果會 LINE 通知你）');
@@ -259,7 +274,8 @@ async function load(){
   // ===== 系統開給你的待補單（2026-09-16）=====
   // 缺卡由排程判定後自動成立一張待補單並推播；員工只要填時間與原因，不必自己從頭找日期／班別。
   // 已經送出（待審或已核准）的就不再列，避免重複補同一張。
-  const submitted=new Set(reqs.filter(q=>q.status!=='rejected').map(q=>`${q.targetDate}|${q.punchType}`));
+  // 以「補哪一天的班」判斷（跨夜班的下班卡 targetDate 是隔天）；舊申請沒記 shiftDate 才退回 targetDate
+  const submitted=new Set(reqs.filter(q=>q.status!=='rejected').map(q=>`${q.shiftDate||q.targetDate}|${q.punchType}`));
   const missTypes=(note)=>String(note||'').includes('下班') ? ['下班'] : String(note||'').includes('上班') ? ['上班'] : ['上班','下班'];
   const todo=[];
   recs.filter(r=>!r.voided && (r.status==='缺卡'||r.type==='缺卡')).forEach(r=>{
@@ -269,7 +285,7 @@ async function load(){
   let todoHtml='';
   if(todo.length){
     todoHtml=`<div class="daycard" style="border:1.5px solid #f5c2bd;background:#fff5f5;"><div class="dayhdr" style="color:#b3261e;">🔴 待補打卡（${todo.length}）<span style="font-size:11px;font-weight:600;color:var(--text-muted);margin-left:6px;">系統偵測到缺卡，填時間與原因即可送出</span></div>`+
-      todo.map(t=>`<div class="prow"><span class="meta" style="flex:1;font-weight:700;color:var(--text);">${t.date}　${t.shift||'—'}　缺${t.punchType}卡　@${t.store}</span>
+      todo.map(t=>`<div class="prow"><span class="meta" style="flex:1;font-weight:700;color:var(--text);">${missLabel(t)}　@${t.store}</span>
         <button onclick="openFixModal('${t.store}','${t.date}','${t.shift}','${t.punchType}')" style="background:var(--primary);color:#fff;border:none;border-radius:8px;padding:6px 12px;font-weight:800;font-size:12px;cursor:pointer;">補登</button></div>`).join('')+`</div>`;
   }
   // 我的補登/修改申請（近期＋狀態）

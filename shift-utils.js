@@ -218,3 +218,46 @@ async function findShiftStoresOn(dateStr, empName, homeStore, stores) {
   if (hits.length) return hits;
   return await scan(shiftDateAdd(dateStr, -1), true);   // 跨夜班的下班卡屬前一天那個班
 }
+
+/**
+ * 班的「下班」落在哪天幾點：跨夜班（23-07）的下班是隔天 07:00。
+ * @returns {{date:string, time:string, nextDay:boolean}|null}
+ * ⚠️ 2026-09-22：待補單預填把 9/17 大夜的下班填成「9/17 07:00」（應為 9/18 07:00）——
+ *    劉金鈴 9/16、9/17 兩張缺卡都照預填送出，結果補到的都是前一晚的班、9/17 那晚一直沒補。
+ */
+function shiftOutAt(dateStr, shiftStr) {
+  var sp = shiftSpan(shiftStr);
+  if (!sp) return null;
+  var add = Math.floor(sp.endH / 24), h = sp.endH - add * 24;
+  var hh = Math.floor(h), mm = Math.round((h - hh) * 60);
+  return { date: shiftDateAdd(dateStr, add), time: String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0'), nextDay: add > 0 };
+}
+
+/**
+ * 補登卡屬於哪一班（員工送出、店長審核共用；原本只在 attendance-page.js）。
+ * 視窗與 clockPunch 一致（punchWindowMs）；跨夜班的下班卡落在隔天，所以候選含前後一天。
+ * @returns {Promise<{shift:string, shiftDate:string, startMs:number|null}>} shift 空字串＝這個時間沒有對應的班
+ */
+async function matchSchedShift(store, empName, homeStore, dateStr, hhmm, punchType) {
+  var punchMs = Date.parse(dateStr + 'T' + hhmm + ':00+08:00');
+  if (!isFinite(punchMs)) return { shift: '', shiftDate: dateStr, startMs: null };
+  var cand = [];
+  for (var off = -1; off <= 1; off++) {
+    var dss = shiftDateAdd(dateStr, off), wd = null;
+    try { wd = await window.db.collection('stores').doc(store).collection('weeks').doc(shiftWeekStr(dss)).get(); } catch (e) { continue; }
+    if (!wd || !wd.exists) continue;
+    var dn = shiftDayName(dss);
+    (wd.data().records || []).forEach(function (r) {
+      if (r.day !== dn) return;
+      var mine = (r.name === empName) || (r.supportEmp === (homeStore || store) + '-' + empName && r.approvalStatus === 'approved');
+      if (!mine) return;
+      parseShiftSegs(r.shift).forEach(function (g) {
+        var startMs = shiftTimeMs(dss, g.startH);
+        if (!isFinite(startMs)) return;
+        cand.push({ shift: r.shift, shiftDate: dss, startMs: startMs, endMs: startMs + g.durH * 3600000 });
+      });
+    });
+  }
+  var hit = matchPunchShift(cand, punchMs, punchType);
+  return hit ? { shift: hit.shift, shiftDate: hit.shiftDate, startMs: hit.startMs } : { shift: '', shiftDate: dateStr, startMs: null };
+}

@@ -1725,9 +1725,17 @@ exports.scheduledMissingClock = onSchedule(
     const notifyMiss = async (emp, homeStore, date, shift, missWhat) => {
       const uid = pushUidOf(pushIdx, emp, homeStore);
       if (!uid) return;
+      // 跨夜班缺下班卡：寫出實際下班日期（員工常把「9/17 大夜」的下班填成 9/17 07:00，其實是 9/18）
+      const sp = shiftSpan(shift || "");
+      let outTxt = "";
+      if (sp && sp.endH >= 24 && String(missWhat).includes("下班")) {
+        const od = new Date(Date.parse(`${date}T00:00:00+08:00`) + Math.floor(sp.endH / 24) * 86400000 + 8 * 3600000);
+        const h = sp.endH % 24;
+        outTxt = `（下班時間是 ${od.getUTCMonth() + 1}/${od.getUTCDate()} ${String(Math.floor(h)).padStart(2, "0")}:${String(Math.round((h % 1) * 60)).padStart(2, "0")}）`;
+      }
       await sendOrQueuePush(db, [uid], {
         title: `🔴 ${date} ${missWhat}`,
-        body: `${shift || ""} 的班沒有完整打卡紀錄，點這裡補登（填時間與原因即可送出）`,
+        body: `${shift || ""} 的班${outTxt}沒有完整打卡紀錄，點這裡補登（填時間與原因即可送出）`,
         url: "my-attendance.html", tag: `miss-${date}-${emp}`,
       }, vapid, false).catch(() => {});
     };
