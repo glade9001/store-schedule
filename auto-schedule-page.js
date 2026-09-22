@@ -72,7 +72,7 @@ async function aspOnStoreChange() {
 }
 
 async function aspLoadStore() {
-  aspCfg = null; aspSetDirty(false); aspDayEdit = null; aspSplitDays = new Set(); aspOpenDays = new Set();
+  aspCfg = null; aspSetDirty(false); aspDayEdit = null; aspSplitDays = new Set(); aspOpenDays = new Set(); aspEditingPay = false;
   const storeRef = window.db.collection('stores').doc(aspStore);
   const thisWeek = shiftWeekStr(aspTodayStr());
   const fromWeek = shiftWeekStr(shiftDateAdd(aspTodayStr(), -7 * aspHistoryWeeks));
@@ -168,7 +168,7 @@ function aspRenderAll() {
   const on = asSeasonsEnabled();
   document.getElementById('seasonSection').style.display = on ? '' : 'none';
   document.getElementById('seasonSwitch').style.display = on ? '' : 'none';
-  aspRenderSeasons(); aspRenderDemand(); aspRenderSeasonSwitch(); aspRenderStaff(); aspRenderChecks();
+  aspRenderSeasons(); aspRenderDemandTabs(); aspRenderDemand(); aspRenderSeasonSwitch(); aspRenderStaff(); aspRenderChecks();
 }
 
 // ───────── ① 寒暑假 ─────────
@@ -198,6 +198,29 @@ const ASP_GROUPS = [
   { key: 'wd', label: '平日', full: '平日（週一～週五）', days: ['週一', '週二', '週三', '週四', '週五'] },
   { key: 'we', label: '假日', full: '週六、週日', days: ['週六', '週日'] }
 ];
+// 發薪週範本（2026-09-22；聯鑫：每月 10 號前後的週末特別忙）：demandPay 跟 demand 同格式，產生草稿時選用
+let aspEditingPay = false;
+function aspDem() {
+  if (!aspEditingPay) return aspCfg.demand;
+  if (!aspCfg.demandPay) { aspCfg.demandPay = {}; asDayNames().forEach(d => { aspCfg.demandPay[d] = []; }); }
+  return aspCfg.demandPay;
+}
+function aspHasPay(cfg) { return !!(cfg && cfg.demandPay && asDayNames().some(d => (cfg.demandPay[d] || []).length)); }
+function aspSetDemandTab(pay) {
+  aspEditingPay = !!pay; aspSplitDays = new Set(); aspOpenDays = new Set();
+  aspRenderDemandTabs(); aspRenderDemand();
+}
+function aspRenderDemandTabs() {
+  const el = document.getElementById('demandTabs'); if (!el) return;
+  const payEmpty = !aspHasPay(aspCfg);
+  el.innerHTML = `<button class="${aspEditingPay ? '' : 'sel'}" onclick="aspSetDemandTab(false)">一般週</button>
+    <button class="${aspEditingPay ? 'sel' : ''}" onclick="aspSetDemandTab(true)">發薪週${payEmpty ? '<small>未設定</small>' : ''}</button>` +
+    (aspEditingPay ? `<div class="pay-note">產生草稿時可選用這份（例：聯鑫每月 10 號前後的週末比較忙）。${payEmpty ? `<button class="btn-mini" onclick="aspCopyToPay()">從一般週複製</button>` : ''}</div>` : '');
+}
+function aspCopyToPay() {
+  aspCfg.demandPay = {}; asDayNames().forEach(d => { aspCfg.demandPay[d] = (aspCfg.demand[d] || []).map(b => ({ ...b })); });
+  aspSetDirty(true); aspRenderDemandTabs(); aspRenderDemand();
+}
 let aspSplitDays = new Set(); // 店長按了「單獨設定」的星期（就算內容一樣也分開顯示）
 let aspCardDays = {};         // 卡片 key → 這張卡管的星期（render 時建立）
 
@@ -228,11 +251,11 @@ function aspDemandCards() {
   aspCardDays = {};
   ASP_GROUPS.forEach(g => {
     const cnt = {};
-    g.days.forEach(d => { if (!aspSplitDays.has(d)) { const k = aspBandSig(aspCfg.demand[d]); cnt[k] = (cnt[k] || 0) + 1; } });
+    g.days.forEach(d => { if (!aspSplitDays.has(d)) { const k = aspBandSig(aspDem()[d]); cnt[k] = (cnt[k] || 0) + 1; } });
     // 基準＝這組裡最多天一樣的那份（平手取先出現的）
     let base = null, best = 0;
-    g.days.forEach(d => { if (aspSplitDays.has(d)) return; const k = aspBandSig(aspCfg.demand[d]); if (cnt[k] > best) { best = cnt[k]; base = k; } });
-    const members = g.days.filter(d => !aspSplitDays.has(d) && aspBandSig(aspCfg.demand[d]) === base);
+    g.days.forEach(d => { if (aspSplitDays.has(d)) return; const k = aspBandSig(aspDem()[d]); if (cnt[k] > best) { best = cnt[k]; base = k; } });
+    const members = g.days.filter(d => !aspSplitDays.has(d) && aspBandSig(aspDem()[d]) === base);
     const others = g.days.filter(d => members.indexOf(d) < 0);
     if (members.length >= 2) {
       const key = 'G:' + g.key;
@@ -253,17 +276,17 @@ function aspDaysOf(key) { return aspCardDays[key] || []; }
 function aspApplyToCard(key, fn) {
   const days = aspDaysOf(key);
   if (!days.length) return;
-  const first = aspCfg.demand[days[0]] = aspCfg.demand[days[0]] || [];
+  const first = aspDem()[days[0]] = aspDem()[days[0]] || [];
   fn(first);
   first.sort((a, c) => a.s - c.s);
-  days.slice(1).forEach(d => { aspCfg.demand[d] = first.map(b => ({ ...b })); });
+  days.slice(1).forEach(d => { aspDem()[d] = first.map(b => ({ ...b })); });
   aspSetDirty(true); aspRenderDemand();
 }
 
 function aspRenderDemand() {
   const cards = aspDemandCards();
   document.getElementById('demandWrap').innerHTML = cards.map(c => {
-    const bands = aspCfg.demand[c.days[0]] || [];
+    const bands = aspDem()[c.days[0]] || [];
     const k = c.key;
     const rows = bands.map((b, i) => `
       <div class="band">
@@ -328,7 +351,7 @@ function aspJoinGroup(d) {
   const src = aspDaysOf(groupKey)[0];
   if (!src) return;
   if (!confirm(`把${d}改回跟${g.label}一樣？（${d}目前的設定會被取代）`)) return;
-  aspCfg.demand[d] = (aspCfg.demand[src] || []).map(b => ({ ...b }));
+  aspDem()[d] = (aspDem()[src] || []).map(b => ({ ...b }));
   aspSplitDays.delete(d);
   aspOpenDays.delete('D:' + d);
   aspSetDirty(true); aspRenderDemand();
@@ -586,8 +609,10 @@ async function aspSave() {
       return o;
     });
   });
+  const norm = src => { const o = {}; asDayNames().forEach(d => { o[d] = (src[d] || []).map(b => { const x = { s: +b.s, e: +b.e, n: +b.n }; if (aspMinOf(b) < x.n) x.min = aspMinOf(b); return x; }); }); return o; };
   const doc = {
     version: 1, demand, seasons: aspCfg.seasons, staff,
+    ...(aspHasPay(aspCfg) ? { demandPay: norm(aspCfg.demandPay) } : {}),
     updatedAt: new Date().toISOString(),
     updatedBy: aspUser.displayName || aspUser.empName || ''
   };

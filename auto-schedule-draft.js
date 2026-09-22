@@ -53,6 +53,7 @@ function asdRefreshBtn() {
   btn.title = why || '依自動排班設定排出這週空白格的草稿，預覽後再決定要不要套用';
 }
 
+var asdUsePay = false;      // 產生草稿時選用發薪週範本（有設定 demandPay 的店才出現選單）
 var asdIncludeGaps = true; // 「本次自動新增待補格」（預覽勾選；不勾＝不新增也不移除任何待補格）
 
 /**
@@ -85,6 +86,9 @@ async function asdGenerate(mode) {
     ]);
     var cfg = snaps[0].exists ? snaps[0].data() : null;
     if (!asdConfigReady(cfg)) { hideLoading(); asdGoSetup(store); return; }
+    var hasPay = !!(cfg.demandPay && asDayNames().some(function (d) { return (cfg.demandPay[d] || []).length; }));
+    if (!hasPay) asdUsePay = false;
+    if (asdUsePay) cfg = Object.assign({}, cfg, { demand: cfg.demandPay }); // 選發薪週 → 用那份人數需求
     var weeks = {};
     snaps[1].forEach(function (d) { weeks[d.id] = d.data().records || []; });
     // 本週用記憶體裡的（含還沒存的修改），不用資料庫那份
@@ -136,7 +140,7 @@ async function asdGenerate(mode) {
       if (r.draft && !String(r.name).startsWith('🆘') && asIsHomeRecord(r)) { var di = asDayNames().indexOf(r.day); if (di >= 0) keep[r.name + '|' + di] = String(r.shift || '').trim(); }
     });
     var res = asGenerateDraft({ weekStr: week, cfg: cfg, emps: emps, weeks: weeks, leaves: leaves, away: away, catalog: catalog, opt: { keep: keep } });
-    asdLast = { week: week, store: store, res: res, ms: Date.now() - t0, cur: weeks[week], mode: mode, before: curRecs, fixes: fixes };
+    asdLast = { week: week, store: store, res: res, ms: Date.now() - t0, cur: weeks[week], mode: mode, before: curRecs, fixes: fixes, hasPay: hasPay };
     hideLoading();
     asdShowPreview();
   } catch (e) {
@@ -251,6 +255,8 @@ function asdShowPreview() {
       return asdEsc(getDisplayName(f.name)) + ' ' + md(asDayNames().indexOf(f.day)) + ' ' + f.why + '：' + asdEsc(f.from || '空白') + ' → ' + (f.to || '重排');
     }).join('<br>') + '</div>';
   }
+  if (L.hasPay) h += '<div class="asd-tpl">人力範本：<select onchange="asdUsePay=this.value===\'pay\';asdGenerate(asdLast.mode)">' +
+    '<option value="normal"' + (asdUsePay ? '' : ' selected') + '>一般週</option><option value="pay"' + (asdUsePay ? ' selected' : '') + '>發薪週</option></select></div>';
   if (!asdIncludeGaps) h += '<div class="asd-alert amber">這次不新增待補格：缺口只列出來，現有待補格照原樣保留。</div>';
 
   // 提醒區

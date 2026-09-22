@@ -148,3 +148,8 @@ details.emp-ref summary{cursor:pointer;color:var(--text-muted);font-size:11.5px;
 .dirty-hint{font-size:12.5px;font-weight:700;color:var(--warn);flex:1;}
 #toast{position:fixed;bottom:84px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:11px 20px;border-radius:20px;font-size:13px;font-weight:700;z-index:99999;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap;}
 #toast.show{opacity:1;}
+.demand-tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;}
+.demand-tabs>button{flex:1;border:2px solid var(--border);background:#fff;border-radius:11px;padding:8px 4px;font-size:14px;font-weight:900;color:var(--text);cursor:pointer;}
+.demand-tabs>button.sel{background:var(--primary);border-color:var(--primary);color:#fff;}
+.demand-tabs small{font-size:10.5px;font-weight:700;margin-left:4px;opacity:.8;}
+.demand-tabs .pay-note{flex-basis:100%;font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
