@@ -952,14 +952,9 @@ async function dismissLeaveHint(){
   const wk=bar.dataset.week||'';
   localStorage.setItem('leaveHintDismissed_'+wk,'1');
   bar.style.display='none';
-  // 同步寫 Firestore，讓「截止前提醒」的排程知道此人已打X（打X＝不再 LINE 提醒該週）
-  try{
-    if(currentUser?.store && currentUser?.empName && wk){
-      await window.db.collection('stores').doc(currentUser.store)
-        .collection('leaveDismiss').doc(`${wk}__${currentUser.empName}`)
-        .set({ empName: currentUser.empName, week: wk, dismissedAt: new Date().toISOString() });
-    }
-  }catch(e){ console.error('leaveDismiss 寫入失敗', e); }
+  // 2026-09-23：原本這裡會同步寫 stores/{店}/leaveDismiss 給「劃休截止提醒」排程判斷誰打過 X，
+  // 但那支排程已於 2026-09-07 整支移除（劃休提醒改由首頁提醒統一處理），沒有任何人讀這份資料
+  // → 移除這筆寫入。關閉提醒仍靠上面的 localStorage，行為不變。
 }
 
 // ===== LINE 通知綁定（綁定碼版）=====

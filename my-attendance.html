@@ -250,7 +250,7 @@ async function submitReq(){
     _fixShiftDate='';
     hideLoading();
     document.getElementById('reqModal').style.display='none';
-    alert('✅ 已送出申請，等待店長審核（結果會 LINE 通知你）');
+    alert('✅ 已送出申請，等待店長審核（審核結果只走推播通知，沒開推播就要自己回來看）');
   }catch(e){ hideLoading(); alert('送出失敗：'+e.message); }
 }
 async function load(){

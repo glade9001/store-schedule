@@ -335,7 +335,8 @@ function updatePublishBtn(store, weekStr) {
   if(typeof asdRefreshBtn === 'function') asdRefreshBtn(); // 🤖 產生草稿：已發布的週不能用
 }
 
-// 店長按「立即通知」→ 呼叫 flushScheduleNotify，馬上把本週班表異動以 LINE 發送給相關員工
+// 店長按「立即通知」→ 呼叫 flushScheduleNotify，馬上把本週班表異動發給相關員工
+// （管道由後端 notifyEmployees 決定：有開推播的人只收推播，沒開的才發 LINE）
 async function manualNotifySchedule() {
   const store = document.getElementById('storeSelector').value;
   const weekStr = document.getElementById('weekSelector').value;

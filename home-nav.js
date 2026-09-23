@@ -7,6 +7,7 @@
 // ⚠️ 本檔頂層只用 function 與 var：跟 home-page.js 共用全域語彙環境，頂層 const/let 撞名會讓整段 script 失效。
 
 var HN_FAV_MAX = 3;
+var HN_TIER_LABEL = { owner: '加盟主', admin: '管理者' };   // 選單上的權限標籤（樣式見 home-page.css .nd-tier）
 
 // 順序＝抽屜顯示順序。門市工具是全員功能，要排在「管理功能」分隔線之前，否則看起來像管理專用
 var HN_GROUPS = [
@@ -40,12 +41,12 @@ var HOME_FEATURES = [
   { id: 'employees',     group: 'people', icon: '👥', label: '員工資料',   sub: '帳號、職位、調店、離職',     go: 'employee-mgmt.html', show: hnIsLead, kw: '員工 帳號 密碼 離職' },
   { id: 'leaveMgmt',     group: 'people', icon: '📆', label: '員工特補休', sub: '假別管理、紀錄查詢',         go: 'leave.html?mode=mgmt', show: hnIsLead, kw: '特休 補休' },
   { id: 'performance',   group: 'ops',    icon: '📊', label: '經營績效',   sub: '每月門市損益輸入、同期比較', go: 'performance.html', show: hnIsLead, kw: '損益 營業額 盤損' },
-  { id: 'owner',         group: 'ops',    icon: '👑', label: '決策儀表板', sub: '三店總覽、店長管理力',       go: 'owner-dashboard.html', show: hnIsOwner, kw: '加盟主' },
-  { id: 'analytics',     group: 'ops',    icon: '📈', label: '人事分析',   sub: '多月趨勢、支援成本、時薪',   go: 'analytics.html', show: hnIsOwner, kw: '人事成本' },
-  { id: 'export',        group: 'ops',    icon: '📤', label: '薪資匯出',   sub: 'Excel／PDF 薪資報表',        go: 'export.html', show: hnIsOwner },
-  { id: 'cityAdmin',     group: 'tools',  icon: '🧾', label: 'CITY手順管理', sub: '確認每週同步的變動後發佈', go: 'city-admin.html', show: hnIsAdmin },
-  { id: 'audit',         group: 'tools',  icon: '🩺', label: '資料健檢',   sub: '假別／到職日／跨店一致性',   go: 'data-audit.html', show: hnIsAdmin },
-  { id: 'rolePreview',   group: 'tools',  icon: '🎭', label: '角色預覽',   sub: '以不同角色體驗介面',         run: function () { openRolePreviewModal(); }, show: function () { return (realUser || currentUser)?.permission === 'admin'; } },
+  { id: 'owner',         group: 'ops',    tier: 'owner', icon: '👑', label: '決策儀表板', sub: '三店總覽、店長管理力',       go: 'owner-dashboard.html', show: hnIsOwner, kw: '加盟主' },
+  { id: 'analytics',     group: 'ops',    tier: 'owner', icon: '📈', label: '人事分析',   sub: '多月趨勢、支援成本、時薪',   go: 'analytics.html', show: hnIsOwner, kw: '人事成本' },
+  { id: 'export',        group: 'ops',    tier: 'owner', icon: '📤', label: '薪資匯出',   sub: 'Excel／PDF 薪資報表',        go: 'export.html', show: hnIsOwner },
+  { id: 'cityAdmin',     group: 'tools',  tier: 'admin', icon: '🧾', label: 'CITY手順管理', sub: '確認每週同步的變動後發佈', go: 'city-admin.html', show: hnIsAdmin },
+  { id: 'audit',         group: 'tools',  tier: 'admin', icon: '🩺', label: '資料健檢',   sub: '假別／到職日／跨店一致性',   go: 'data-audit.html', show: hnIsAdmin },
+  { id: 'rolePreview',   group: 'tools',  tier: 'admin', icon: '🎭', label: '角色預覽',   sub: '以不同角色體驗介面',         run: function () { openRolePreviewModal(); }, show: function () { return (realUser || currentUser)?.permission === 'admin'; } },
   // ── 門市工具（首頁已固定顯示，這裡只為了搜尋得到）──
   { id: 'city',    group: 'store', icon: '☕', label: 'CITY手順',   sub: '飲品製作手順',   go: 'city.html' },
   { id: 'barcode', group: 'store', icon: '▥',  label: '條碼查詢',   sub: '外部網站',       href: 'https://bk-bc.github.io/Barcode/' },
@@ -204,9 +205,12 @@ function hnItemHtml(f, favs, showGroup) {
     ? '<button class="nd-star' + (on ? ' on' : '') + '" onclick="event.stopPropagation();hnToggleFav(\'' + f.id + '\')" aria-label="' + (on ? '從首頁移除' : '加到首頁') + '" aria-pressed="' + (on ? 'true' : 'false') + '">' + (on ? '★' : '☆') + '</button>'
     : '';
   var g = showGroup ? HN_GROUPS.find(function (x) { return x.key === f.group; }) : null;
-  return '<div class="nd-item' + (f.danger ? ' danger' : '') + '" role="button" tabindex="0" data-fid="' + f.id + '" onclick="hnGo(\'' + f.id + '\')" onkeydown="if(event.key===\'Enter\')hnGo(\'' + f.id + '\')">' +
+  // 加盟主／管理者專用項目上底色＋左側色條＋標籤：清單太長時一眼看出哪些不是店長層級的功能
+  var tierCls = f.tier ? ' tier-' + f.tier : '';
+  var tierTag = f.tier ? '<span class="nd-tier">' + HN_TIER_LABEL[f.tier] + '</span>' : '';
+  return '<div class="nd-item' + (f.danger ? ' danger' : '') + tierCls + '" role="button" tabindex="0" data-fid="' + f.id + '" onclick="hnGo(\'' + f.id + '\')" onkeydown="if(event.key===\'Enter\')hnGo(\'' + f.id + '\')">' +
     '<span class="nd-ic">' + f.icon + '</span>' +
-    '<span class="nd-text"><span class="nd-label">' + f.label + '</span><span class="nd-sub">' + (g ? g.title + '・' : '') + f.sub + '</span></span>' +
+    '<span class="nd-text"><span class="nd-label">' + f.label + tierTag + '</span><span class="nd-sub">' + (g ? g.title + '・' : '') + f.sub + '</span></span>' +
     (f.href ? '<span class="nd-ext" aria-hidden="true">↗</span>' : '') + star + '</div>';
 }
 

@@ -216,7 +216,7 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
         <span class="perm-badge perm-admin">管理者</span><span class="set-chev">▸</span>
       </div>
       <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px; line-height:1.6;">
-        開啟後，<b>管理者以外</b>的使用者登入會看到「系統維護中」畫面（可登記完成後 LINE 通知、也可綁定 LINE）。<b>關閉</b>維護時，會 LINE 通知所有登記者「維護完成」。
+        開啟後，<b>管理者以外</b>的使用者登入會看到「系統維護中」畫面（可登記「完成後通知我」）。<b>關閉</b>維護時，會通知所有登記者「維護完成」——有開推播的發推播，沒開但綁了 LINE 的發 LINE。
       </div>
       <label style="display:flex; align-items:center; gap:10px; background:#fff8ee; border:1.5px solid #ffd8a8; border-radius:12px; padding:12px 14px; cursor:pointer;">
         <input type="checkbox" id="maintenanceToggle" onchange="toggleMaintenance(this.checked)" style="width:20px; height:20px;">

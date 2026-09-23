@@ -393,7 +393,7 @@ async function openShareModal(m){
     <div style="max-height:44vh;overflow:auto;">${items}</div>
     <div style="display:flex;gap:8px;margin-top:14px;">
       <button onclick="closeShareModal()" style="flex:1;padding:11px;background:#eef1f4;border:none;border-radius:10px;font-weight:700;cursor:pointer;">取消</button>
-      <button onclick="doShare()" style="flex:1;padding:11px;background:var(--primary,#e67e22);color:#fff;border:none;border-radius:10px;font-weight:800;cursor:pointer;">透過 LINE 發送</button>
+      <button onclick="doShare()" style="flex:1;padding:11px;background:var(--primary,#e67e22);color:#fff;border:none;border-radius:10px;font-weight:800;cursor:pointer;">發送通知</button>
     </div></div>`;
   ov.onclick=e=>{ if(e.target===ov) closeShareModal(); };
   document.body.appendChild(ov);
@@ -423,7 +423,7 @@ async function shareReview(m, recipients){
     const url=base+'review.html?t='+token;
     try{ await navigator.clipboard.writeText(url); }catch(e){}
     hideLoading();
-    alert(`✅ 已透過 LINE 發送給 ${cnt} 位店長／加盟主。\n\n連結（3 天有效，已複製到剪貼簿）：\n${url}`);
+    alert(`✅ 已通知 ${cnt} 位店長／加盟主（有開推播發推播，否則 LINE）。\n\n連結（3 天有效，已複製到剪貼簿）：\n${url}`);
   }catch(e){ hideLoading(); alert('分享失敗：'+e.message); }
 }
 // ===== 下鑽入口 =====

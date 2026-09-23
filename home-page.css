@@ -545,6 +545,16 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 .nd-label { font-size: 14.5px; font-weight: 700; color: var(--text); }
 .nd-sub { font-size: 11.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nd-item.danger .nd-label { color: var(--danger); }
+/* 權限分層（2026-09-23）：選單項目多，加盟主／管理者專用的用底色＋左側色條＋標籤區分 */
+.nd-item.tier-owner { background: #fffbeb; box-shadow: inset 3px 0 0 #f59e0b; }
+.nd-item.tier-admin { background: #f5f3ff; box-shadow: inset 3px 0 0 #7c3aed; }
+.nd-item.tier-owner:active, .nd-item.tier-owner:focus-visible { background: #fef3c7; }
+.nd-item.tier-admin:active, .nd-item.tier-admin:focus-visible { background: #ede9fe; }
+.nd-item.tier-owner .nd-ic { background: #fef3c7; }
+.nd-item.tier-admin .nd-ic { background: #ede9fe; }
+.nd-tier { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 20px; font-size: 10px; font-weight: 800; vertical-align: 1px; }
+.tier-owner .nd-tier { background: #f59e0b; color: #fff; }
+.tier-admin .nd-tier { background: #7c3aed; color: #fff; }
 .nd-ext { color: var(--text-muted); font-size: 13px; padding-right: 10px; }
 .nd-star { width: 42px; height: 42px; border: none; background: none; color: #c3cbd6; font-size: 22px; line-height: 1; cursor: pointer; flex-shrink: 0; }
 .nd-star.on { color: #f5a623; }
