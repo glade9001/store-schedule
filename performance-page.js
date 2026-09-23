@@ -353,6 +353,84 @@ async function renderStoreTrend(){
     +`<div style="font-size:11px;color:var(--text-muted);margin-top:6px;">點線上的點看該店該月數值。人事類指標 2026/5 起才有（薪資系統上線時間），2026/4 不列入。</div>`;
   pfScrollChartsToEnd(box);
 }
+// ===== 近月實績表（指標當列、月份當欄，左右各一個年度平均當錨點）=====
+// 排法參考連鎖體系的單店月報：中間看近況、兩側看基準，同比差異獨立成列並標紅綠。
+// ⚠️ 人事類指標 2026/5 起才有（薪資系統上線時間），去年同期一律顯示「—」，不可填 0
+//    （0 是合法金額，會被當成「沒有變化」靜靜吃掉，見歷史資料不可變鐵則）。
+function pfRecentTable(months){
+  if(!months || !months.length) return '';
+  const lbl=m=>{const p=m.split('-');return `${p[0].slice(2)}/${parseInt(p[1])}`;};
+  const cols=months.slice(-3);
+  const yr=+cols[cols.length-1].slice(0,4), pyr=yr-1;
+  const pn=m=>pnlCache[m]||null;
+  const pf=m=>(perfCache[m]&&!PERF_EXCLUDE.has(m))?perfCache[m]:null;
+  // ⚠️ 兩個年度平均的涵蓋月份不一樣（例：2025 只有 7~12 月、2026 有 1~8 月），
+  //    直接相減會被季節性汙染 → 顯示用各自的全年平均，但「同比差異」只取兩年共有的月份重算。
+  const monthsOf=y=>Object.keys(pnlCache).filter(m=>+m.slice(0,4)===y).map(m=>m.slice(5));
+  const lastSet=new Set(monthsOf(pyr));
+  const common=new Set(monthsOf(yr).filter(mm=>lastSet.has(mm)));
+  const avgY=(y,pick,only)=>{
+    const vs=Object.keys(pnlCache)
+      .filter(m=>+m.slice(0,4)===y && (!only || only.has(m.slice(5))))
+      .map(pick).filter(v=>v!=null);
+    return vs.length ? vs.reduce((a,b)=>a+b,0)/vs.length : null;
+  };
+  const cover=y=>{const ms=monthsOf(y).sort(); return ms.length?`${parseInt(ms[0])}–${parseInt(ms[ms.length-1])}月`:'';};
+  const ROWS=[
+    {g:'業績',c:'#0f7b3e'},
+    {t:'營業淨額（元）',f:money,p:m=>pn(m)?pn(m).netSales:null,yoy:'pct',up:1},
+    {t:'毛利率（%）',f:v=>v.toFixed(1),p:m=>pn(m)?pn(m).grossMargin:null,yoy:'pp',up:1},
+    {t:'經營報酬（元）',f:money,p:m=>pn(m)?pn(m).operatingReward:null,yoy:'pct',up:1},
+    {g:'損耗',c:'#b3261e'},
+    {t:'壞品額（元）',f:money,p:m=>pn(m)?pn(m).badGoodsCost:null},
+    {t:'壞品率（%）',f:v=>v.toFixed(2),p:m=>(pn(m)&&pn(m).netSales)?pn(m).badGoodsCost/pn(m).netSales*100:null,yoy:'pp',up:0},
+    {t:'現金短少（元）',f:money,p:m=>pn(m)?pn(m).cashDiff:null},
+    {t:'淨損耗（元）',f:money,p:m=>window.PnlLoss?window.PnlLoss.netLoss(pn(m),amortCache[m]):null,yoy:'pct',up:0},
+    {g:'費用',c:'#0b5aa8'},
+    {t:'門市電費（元）',f:money,p:m=>pn(m)?pn(m).elecCost:null},
+    {t:'雜支（元）',f:money,p:m=>pn(m)?pn(m).miscCost:null},
+    {g:'人事（2026/5 起才有資料）',c:'#6d28d9'},
+    {t:'人事費用（元）',f:money,p:m=>pf(m)?pf(m).laborCost:null,noYoy:1},
+    {t:'人事費率（%）',f:v=>v.toFixed(1),p:m=>(pf(m)&&pn(m)&&pn(m).netSales)?pf(m).laborCost/pn(m).netSales*100:null,noYoy:1},
+    {t:'每工時營收（元/h）',f:v=>money(v),p:m=>(pf(m)&&pn(m)&&pf(m).totalHours)?pn(m).netSales/pf(m).totalHours:null,noYoy:1},
+    {t:'門市餘裕（元）',f:money,p:m=>(pf(m)&&pn(m))?pn(m).operatingReward-pf(m).laborCost:null,noYoy:1},
+  ];
+  const em='<td class="rt-v rt-em">—</td>';
+  let body='';
+  ROWS.forEach(r=>{
+    if(r.g){ body+=`<tr class="rt-g" style="background:${r.c};"><td colspan="${cols.length+3}">${r.g}</td></tr>`; return; }
+    const pa=avgY(pyr,r.p), ca=avgY(yr,r.p);
+    const cell=v=>v==null?em:`<td class="rt-v">${r.f(v)}</td>`;
+    body+=`<tr><td class="rt-t">${r.t}</td>${cell(pa)}${cols.map(m=>cell(r.p(m))).join('')}${cell(ca)}</tr>`;
+    if(r.noYoy){
+      body+=`<tr class="rt-d"><td class="rt-t">　↳ 同比差異</td>${em}${cols.map(()=>em).join('')}${em}</tr>`;
+      return;
+    }
+    if(!r.yoy) return;
+    const diff=(cur,base)=>{
+      if(cur==null||base==null) return em;
+      const d = r.yoy==='pp' ? (cur-base) : (base===0?null:(cur-base)/Math.abs(base)*100);
+      if(d==null) return em;
+      const better = r.up ? d>=0 : d<=0;
+      const txt = (d>=0?'+':'') + d.toFixed(1) + (r.yoy==='pp'?'pp':'%');
+      return `<td class="rt-v" style="color:${better?'#0f7b3e':'#b3261e'};font-weight:800;">${txt}</td>`;
+    };
+    body+=`<tr class="rt-d"><td class="rt-t">　↳ 同比差異</td>${em}`
+      + cols.map(m=>diff(r.p(m), r.p(prevYearMonth(m)))).join('')
+      + diff(avgY(yr,r.p,common), avgY(pyr,r.p,common)) + '</tr>';
+  });
+  const head=`<tr><th class="rt-t">指標</th><th class="rt-v">${pyr}年平均<br><span class="rt-cov">${cover(pyr)}</span></th>`
+    + cols.map(m=>`<th class="rt-v">${lbl(m)}</th>`).join('')
+    + `<th class="rt-v">${yr}年平均<br><span class="rt-cov">${cover(yr)}</span></th></tr>`;
+  return `<div class="chart-card"><div class="chart-title">📋 近月實績（${lbl(cols[0])}～${lbl(cols[cols.length-1])}）</div>
+    <div class="chart-scroll" style="overflow-x:auto;"><table class="rt">${head}${body}</table></div>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:8px;line-height:1.7;">
+      兩側是年度平均（當基準），中間是最近三個月。「同比差異」＝跟<b>去年同月</b>比；年度平均欄位比的是<b>兩個年度的平均</b>。<br>
+      綠＝比去年好、紅＝比去年差。人事類 2026/5 起才有資料，去年同期不存在所以顯示「—」。<br>
+      兩個年度涵蓋的月份不同（見欄位下方小字），所以<b>年度平均那欄的同比只取兩年共有的月份</b>重算，避免被季節性影響。
+    </div></div>`;
+}
+
 function renderAnalysis(){
   const wrap=document.getElementById('tabAnalysis');
   const allM=Object.keys(pnlCache).sort();
@@ -399,6 +477,7 @@ function renderAnalysis(){
     return {label:lbl(p.m),value:usable?fn(pf,pn):null,detail:det};
   });if(!dp.some(x=>x.value!=null))return '';return `<div class="chart-card"><div class="chart-title">${title}</div>${lineChart(dp,{fmt:v=>fmt(v)+unit,color})}</div>`;};
   wrap.innerHTML=rangeBar+kpiHtml
+    +pfRecentTable(months)
     +chart('營業淨額（元）','netSales',money,'#1a73e8','')
     +chart('毛利率（%）','grossMargin',v=>v.toFixed(1),'#34a853','')
     +chart('經營報酬（元）','operatingReward',money,'#e67e22','')

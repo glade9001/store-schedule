@@ -74,15 +74,30 @@ function perfOf(s,m){return (DATA[s]&&!PERF_EXCLUDE.has(m))?DATA[s].perf[m]:null
 function amortOf(s,m){return (DATA[s]&&DATA[s].amort)?DATA[s].amort[m]:null;}
 
 // ===== 主渲染 =====
+// 檢視切換：'main'＝儀表板全貌（計分卡只留摘要）、'score'＝只看計分卡
+// 同一頁換內容，不是另開網頁；月域掃描結果快取起來，切來切去不會重打 Firestore。
+var dashView='main', dashMonth='', dashCache={};
+function openScoreView(){ dashView='score'; renderAll(dashMonth); window.scrollTo(0,0); }
+function closeScoreView(){ dashView='main'; renderAll(dashMonth); window.scrollTo(0,0); }
+
 async function renderAll(m){
+  dashMonth=m;
   const el=document.getElementById('content');
   el.innerHTML='<div class="empty">計算中…</div>';
-  // 月域掃描（合規/出勤/流動）
-  const extra={};
-  await Promise.all(STORES.map(async s=>{ extra[s]=await scanMonth(s,m); }));
-  let review=null;
-  try{ const rd=await window.db.collection('monthlyReviews').doc(m).get(); if(rd.exists) review=rd.data(); }catch(e){}
-  el.innerHTML = renderOverview(m) + renderScorecard(m,extra) + renderHealthSection() + renderAlerts(m,extra) + renderReview(m,review) + renderLinks();
+  let c=dashCache[m];
+  if(!c){
+    // 月域掃描（合規/出勤/流動）
+    const extra={};
+    await Promise.all(STORES.map(async s=>{ extra[s]=await scanMonth(s,m); }));
+    let review=null;
+    try{ const rd=await window.db.collection('monthlyReviews').doc(m).get(); if(rd.exists) review=rd.data(); }catch(e){}
+    c=dashCache[m]={extra,review};
+  }
+  if(dashView==='score'){
+    el.innerHTML = `<button class="back-btn" onclick="closeScoreView()">← 回儀表板</button>` + renderScorecard(m,c.extra,'full');
+    return;
+  }
+  el.innerHTML = renderOverview(m) + renderScorecard(m,c.extra,'summary') + renderHealthSection() + renderAlerts(m,c.extra) + renderReview(m,c.review) + renderLinks();
   renderStoreHealth();
 }
 
@@ -174,7 +189,7 @@ function renderOverview(m){
 }
 
 // ===== 店長管理力計分卡（benchmark 對標分數 0-100 × 權重；獲益優先）=====
-function renderScorecard(m,extra){
+function renderScorecard(m,extra,mode){
   const clamp=x=>Math.max(0,Math.min(100,x));
   // 💰 獲利貢獻＝率分×0.7＋額分×0.3。純比率會讓不同規模的店在天花板上同分
   //（2026-08：聯鑫 $96,369 與美德 $49,075 餘裕率同為 2.5% → 都是 100 分），故納入絕對金額。
@@ -226,6 +241,28 @@ function renderScorecard(m,extra){
   const ranked=[...STORES].sort((a,b)=>total[b]-total[a]);
   const scColor=sc=> sc==null?'#cbd5e1' : sc>=75?'#137333' : sc<40?'#c5221f':'#334155';
 
+  // 摘要：主畫面只給名次、總分與最弱一項，細節進獨立檢視看（原本整張表＋每店明細塞在首屏，太滿）
+  if(mode==='summary'){
+    const worstOf=s=>{
+      let w=null;
+      dims.forEach(d=>{ const sc=scMap[s][d.key]; if(sc==null) return; if(!w||sc<w.sc) w={sc,d}; });
+      return w;
+    };
+    let sum=`<div class="sec-title">👔 店長管理力計分卡</div><div class="card">`;
+    ranked.forEach(s=>{
+      const pl=placeOf(s), w=worstOf(s), mgr=(extra[s]&&extra[s].mgr)||'';
+      sum+=`<div class="sc-row">`
+        +`<div class="sc-rank">${pl===1?'🏆':pl}</div>`
+        +`<div class="sc-name">${s}${mgr?`<span class="sc-mgr">${mgr}</span>`:''}`
+        +(w?`<div class="sc-weak">最弱：${w.d.ic} ${w.d.name}（${Math.round(w.sc)} 分）</div>`:'')
+        +`</div>`
+        +`<div class="sc-total" style="color:${scColor(total[s]/dims.reduce((a,d)=>a+d.w,0))}">${Math.round(total[s])}</div>`
+        +`</div>`;
+    });
+    sum+=`<button class="sc-more" onclick="openScoreView()">看完整計分卡（各指標分數與明細）›</button></div>`;
+    return sum;
+  }
+
   let head=`<div class="sec-title">👔 店長管理力計分卡<button onclick="openScoreHelp()" style="background:#4338ca;color:#fff;border:none;border-radius:8px;padding:5px 11px;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;">ℹ️ 指標說明</button><span class="sec-sub">對標分數×權重・獲益優先</span></div>`;
   let tbl=`<div class="card scroll"><table class="tbl"><thead><tr><th>門市（店長）</th>${dims.map(d=>`<th>${d.ic}</th>`).join('')}<th>總分</th><th>名次</th></tr></thead><tbody>`;
   ranked.forEach((s)=>{
@@ -246,7 +283,7 @@ function renderScorecard(m,extra){
     });
     detail+=`</div>`;
   });
-  return head+tbl+`<div class="note"><b>計分＝各指標對「固定標準」打 0–100 分 × 權重加總</b>（不跟另兩家比名次，故不受單一離群值扭曲）。<b>獲益優先權重</b>：💰獲利貢獻 ×1.3、🛡️損耗控制 ×1.0、📈業績成長 ×1.0、📐人事費率 ×0.6、📉費率改善 ×0.6、⚖️合規 ×0.3、⏰出勤 ×0.3、🏭坪效 ×0.3。<b>💰獲利貢獻＝餘裕率分 ×0.7 ＋ 餘裕金額分 ×0.3</b>（率滿分 4%、額滿分 $100,000）——只看比率會讓規模不同的兩家在天花板上同分。<b>餘裕率＝門市貢獻率（經營報酬−人事，未扣稅/水電/租金），非最終淨利</b>——稅/租金非店長可控，排除較公平。缺去年同期或打卡資料顯示「資料累積中」不計分。<b>盤損按盤點區間攤提</b>（盤點 60~90 天一次，盤損整筆記在盤點當月會讓該月店長背整個區間、其餘月份又虛高），未盤點區間沿用上次月均估算。</div>`+detail;
+  return head+tbl+detail+`<div class="note"><b>計分＝各指標對「固定標準」打 0–100 分 × 權重加總</b>（不跟另兩家比名次，故不受單一離群值扭曲）。<b>獲益優先權重</b>：💰獲利貢獻 ×1.3、🛡️損耗控制 ×1.0、📈業績成長 ×1.0、📐人事費率 ×0.6、📉費率改善 ×0.6、⚖️合規 ×0.3、⏰出勤 ×0.3、🏭坪效 ×0.3。<b>💰獲利貢獻＝餘裕率分 ×0.7 ＋ 餘裕金額分 ×0.3</b>（率滿分 4%、額滿分 $100,000）——只看比率會讓規模不同的兩家在天花板上同分。<b>餘裕率＝門市貢獻率（經營報酬−人事，未扣稅/水電/租金），非最終淨利</b>——稅/租金非店長可控，排除較公平。缺去年同期或打卡資料顯示「資料累積中」不計分。<b>盤損按盤點區間攤提</b>（盤點 60~90 天一次，盤損整筆記在盤點當月會讓該月店長背整個區間、其餘月份又虛高），未盤點區間沿用上次月均估算。</div>`+detail;
 }
 // ===== 決策警示 =====
 function renderAlerts(m,extra){

@@ -64,6 +64,16 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
 .link-arr{color:#cbd5e1;font-size:18px;}
 .scroll{overflow-x:auto;overscroll-behavior-x:contain;}
 .empty{text-align:center;padding:24px;color:var(--muted);font-size:13px;}
+/* 計分卡摘要（主畫面）與「只看計分卡」的返回鈕 */
+.sc-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #f1f4f8;}
+.sc-row:last-of-type{border-bottom:none;}
+.sc-rank{width:28px;text-align:center;font-size:15px;font-weight:900;color:#64748b;flex-shrink:0;}
+.sc-name{flex:1;min-width:0;font-size:14px;font-weight:800;color:var(--text);}
+.sc-mgr{font-size:11px;font-weight:600;color:var(--muted);margin-left:6px;}
+.sc-weak{font-size:11px;font-weight:600;color:var(--muted);margin-top:2px;}
+.sc-total{font-size:19px;font-weight:900;flex-shrink:0;font-variant-numeric:tabular-nums;}
+.sc-more{width:100%;margin-top:10px;padding:10px;border:1.5px solid var(--primary,#e67e22);background:none;color:var(--primary,#e67e22);border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;}
+.back-btn{margin:4px 0 12px;padding:8px 14px;border:none;border-radius:10px;background:#eef1f6;color:#475569;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;}
 .note{background:#f5f3ff;border:1px solid #ddd6fe;border-radius:10px;padding:9px 12px;font-size:11.5px;line-height:1.6;color:#5b21b6;margin-top:8px;}
 .review-body h2{font-size:16px;font-weight:900;margin:14px 0 6px;}
 .review-body h3{font-size:14px;font-weight:900;margin:12px 0 5px;}
