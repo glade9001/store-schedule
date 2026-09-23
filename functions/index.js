@@ -1571,16 +1571,9 @@ function haversineM(la1, lo1, la2, lo2) {
   return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
 }
 // 該權限在此開放層級是否已能打卡（對應 clock.html canClock）
-function canClockPerm(stage, perm) {
-  if (stage === "all") return true;
-  if (stage === "manager") return ["manager", "owner", "admin"].includes(perm);
-  if (stage === "admin") return perm === "admin";
-  return false;
-}
-// 單店打卡開關：全面開放(all)時，本店需店長在出勤管理勾選啟用；其餘階段不受此限(依 stage 判定)
-function storeClockOn(clk, store) {
-  return (clk && clk.stage === "all") ? (((clk.enabledByStore) || {})[store] === true) : true;
-}
+// 2026-09-23：打卡一律開啟。原本的 canClockPerm（分階段開放 off/admin/manager/all）與
+// storeClockOn（單店開關 enabledByStore）都已移除——三店早就全開，留著只是多兩層會擋人的判斷。
+// clockIn 底下的 geo（圍欄）、tolByStore（遲到容許）、notifyByStore、attnSince 照舊使用。
 // 單一員工通知：只查該員工的綁定(省讀取，不像 notifyEmployees 讀全表)
 // 通知系統管理員（users.permission === 'admin'），不是門市店長。
 // 定位/技術問題要找的是維運的人，店長處理不了手機設定或門市座標校正。
@@ -1711,8 +1704,6 @@ exports.scheduledMissingClock = onSchedule(
     if (await maintenanceOn(db)) return;
     const cfg = await db.collection("settings").doc("globalConfig").get().catch(() => null);
     const conf = cfg && cfg.exists ? cfg.data() : {};
-    const stage = conf.clockIn && conf.clockIn.stage;
-    if (!stage || stage === "off") return; // 關閉不判；其餘依個別員工「開放層級」判定(見下 canClockPerm)
     const stores = (conf.stores || []).filter((s) => s !== "人力支援");
     // 這支只負責「標記」缺卡，不再推播（推播交給 scheduledMissClockReminder）。
     const nowTp = new Date(Date.now() + 8 * 3600000);
@@ -1743,7 +1734,6 @@ exports.scheduledMissingClock = onSchedule(
     const dayName = WEEK_DAYS[(nowTp.getUTCDay() + 6) % 7];
     const notifyBy = conf.clockIn.notifyByStore || {};
     for (const store of stores) {
-      if (!storeClockOn(conf.clockIn || {}, store)) continue; // 全面開放下本店未開啟打卡 → 不判缺卡
       if (notifyBy[store] === false) continue; // 該店關閉打卡通知 → 不判缺卡
       const wd = await db.collection("stores").doc(store).collection("weeks").doc(wk).get().catch(() => null);
       if (!wd || !wd.exists) continue;
@@ -1803,9 +1793,7 @@ exports.scheduledMissingClock = onSchedule(
         const hasIn = empPunches.some((p) => p.type === "上班");
         const hasOut = empPunches.some((p) => p.type === "下班");
         if (hasIn && hasOut) continue;
-        // 只對「該開放層級已能打卡」的人發缺卡（如 stage=manager 只發店長，不發一般員工）
         const info = await resolveEmpInfo(db, emp);
-        if (!canClockPerm(stage, info.permission)) continue;
         const flagId = ("miss_" + ds + "_" + emp + "_" + sh.shift).replace(/[^\w一-龥]/g, "_");
         const flagRef = db.collection("stores").doc(store).collection("attendance").doc(flagId);
         const exist = await flagRef.get().catch(() => null);
@@ -1858,7 +1846,6 @@ exports.scheduledMissingClock = onSchedule(
           const hasOutT = mine.some((p) => p.type === "下班");
           if (hasInY && hasOutT) continue;
           const info = await resolveEmpInfo(db, emp);
-          if (!canClockPerm(stage, info.permission)) continue;
           const flagId = ("miss_" + dsY + "_" + emp + "_" + sh.shift).replace(/[^\w一-龥]/g, "_");
           const flagRef = db.collection("stores").doc(store).collection("attendance").doc(flagId);
           const exist = await flagRef.get().catch(() => null);
@@ -1894,8 +1881,6 @@ exports.scheduledMissClockReminder = onSchedule(
     if (await maintenanceOn(db)) return;
     const cfg = await db.collection("settings").doc("globalConfig").get().catch(() => null);
     const conf = cfg && cfg.exists ? cfg.data() : {};
-    const stage = conf.clockIn && conf.clockIn.stage;
-    if (!stage || stage === "off") return;
     const stores = (conf.stores || []).filter((s) => s && s !== "人力支援");
     const attnSince = (conf.clockIn && conf.clockIn.attnSince) || "";
     const token = { line: LINE_TOKEN.value(), vapid: VAPID_PRIVATE.value() };
@@ -2162,7 +2147,6 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
   const cfgSnap = await db.collection("settings").doc("globalConfig").get();
   const conf = cfgSnap.exists ? cfgSnap.data() : {};
   const clk = conf.clockIn || {};
-  if (!canClockPerm(clk.stage || "off", perm)) throw new HttpsError("failed-precondition", "打卡功能尚未對您開放");
   const d = request.data || {};
   const lat = Number(d.lat), lng = Number(d.lng), type = d.type;
   if (!isFinite(lat) || !isFinite(lng)) throw new HttpsError("invalid-argument", "缺少定位資訊");
@@ -2177,7 +2161,6 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
     if (dist <= (g.radiusM || 120) && (atStore === "" || dist < distanceM)) { atStore = st; distanceM = Math.round(dist); }
   }
   if (!atStore) throw new HttpsError("failed-precondition", "不在任何門市範圍內，無法打卡");
-  if (!storeClockOn(clk, atStore)) throw new HttpsError("failed-precondition", "此門市打卡功能尚未開啟");
   // 伺服器時間(台北)
   const nowMs = Date.now();
   const nowTp = new Date(nowMs + 8 * 3600000);
@@ -2407,7 +2390,6 @@ exports.clockPunchOffline = onCall({ region: "asia-east1", secrets: [LINE_TOKEN,
   const cfgSnap = await db.collection("settings").doc("globalConfig").get();
   const conf = cfgSnap.exists ? cfgSnap.data() : {};
   const clk = conf.clockIn || {};
-  if (!canClockPerm(clk.stage || "off", perm)) throw new HttpsError("failed-precondition", "打卡功能尚未對您開放");
   const d = request.data || {};
   const lat = Number(d.lat), lng = Number(d.lng), type = d.type;
   if (!isFinite(lat) || !isFinite(lng)) throw new HttpsError("invalid-argument", "缺少定位資訊");
@@ -2424,7 +2406,6 @@ exports.clockPunchOffline = onCall({ region: "asia-east1", secrets: [LINE_TOKEN,
     if (dist <= (g.radiusM || 120) && (atStore === "" || dist < distanceM)) { atStore = st; distanceM = Math.round(dist); }
   }
   if (!atStore) throw new HttpsError("failed-precondition", "打卡座標不在任何門市範圍內");
-  if (!storeClockOn(clk, atStore)) throw new HttpsError("failed-precondition", "此門市打卡功能尚未開啟");
   const nowMs = Date.now(); // 伺服器收到補傳的時間
   const punchTp = new Date(cptMs + 8 * 3600000); // 手機打卡當下(台北)
   const ds = punchTp.toISOString().slice(0, 10);
@@ -2692,8 +2673,6 @@ exports.scheduledClockRemindPush = onSchedule(
     if (await maintenanceOn(db)) return;
     const cfg = await db.collection("settings").doc("globalConfig").get().catch(() => null);
     const conf = cfg && cfg.exists ? cfg.data() : {};
-    const clk = conf.clockIn || {};
-    if (!clk.stage || clk.stage === "off") return;
     const now = Date.now();
     const vapid = VAPID_PRIVATE.value();
     const days = [0, 1].map((back) => {
@@ -2701,7 +2680,6 @@ exports.scheduledClockRemindPush = onSchedule(
       return { ds: tp.toISOString().slice(0, 10), dayName: WEEK_DAYS[(tp.getUTCDay() + 6) % 7], wk: weekStrOfTp(tp), back };
     });
     for (const store of (conf.stores || []).filter((s) => s !== "人力支援")) {
-      if (!storeClockOn(clk, store)) continue;
       const weekCache = {};
       const due = []; // { kind:'in'|'out', emp, shift, shiftDay, homeStore, inBefore }
       for (const dd of days) {
@@ -2716,7 +2694,6 @@ exports.scheduledClockRemindPush = onSchedule(
           const pref = emp && prefs[emp];
           if (!pref || !idx.uidByEmp[emp]) continue;
           const perm = (idx.uidByEmp[emp][0] || {}).permission;
-          if (!canClockPerm(clk.stage, perm)) continue;
           const sp = shiftSpan(r.shift); // 兩頭班：只提醒整天第一次上班與最後一次下班
           const homeStore = isSupport ? r.supportEmp.slice(0, r.supportEmp.indexOf("-")) : store;
           const inBefore = Number(pref.inBefore) || 0;

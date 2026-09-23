@@ -297,10 +297,7 @@ async function toggleMaintenance(on) {
 }
 // ===== 打卡系統設定（功能旗標＋門市座標）=====
 function loadClockConfig() {
-  const c = (appConfig && appConfig.clockIn) || {};
-  const sel = document.getElementById('clockStage');
-  if(sel) sel.value = c.stage || 'admin';
-  renderClockGeo();
+  renderClockGeo();   // 2026-09-23：打卡一律開啟，沒有 stage 下拉要回填了
 }
 function renderClockGeo() {
   const grid = document.getElementById('clockGeoGrid');
@@ -336,7 +333,6 @@ function captureStoreGeo(store){
   }, e=>{ if(acc) acc.textContent='❌ 定位失敗：'+e.message; showToast('定位失敗：'+e.message); }, {enableHighAccuracy:true,timeout:10000,maximumAge:0});
 }
 async function saveClockConfig(){
-  const stage=document.getElementById('clockStage').value;
   const geo={};
   (appConfig.stores||[]).filter(s=>s!=='人力支援').forEach(s=>{
     const lat=parseFloat((document.querySelector(`input[data-geo="${s}"][data-k="lat"]`)||{}).value);
@@ -345,8 +341,8 @@ async function saveClockConfig(){
     if(!isNaN(lat)&&!isNaN(lng)) geo[s]={lat,lng,radiusM};
   });
   try{
-    await window.db.collection('settings').doc('globalConfig').set({ clockIn:{ stage, geo } }, { merge:true });
-    appConfig.clockIn={ stage, geo };
+    await window.db.collection('settings').doc('globalConfig').set({ clockIn:{ geo } }, { merge:true });
+    appConfig.clockIn=Object.assign({}, appConfig.clockIn, { geo });
     showToast('✅ 打卡設定已儲存');
   }catch(e){ showToast('儲存失敗：'+e.message); }
 }

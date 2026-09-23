@@ -34,7 +34,6 @@ function toast(m){const t=document.getElementById('toast');t.textContent=m;t.cla
 function todayStr(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
 function hm(d){return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;}
 function distM(la1,lo1,la2,lo2){const R=6371000,rad=x=>x*Math.PI/180;const dLa=rad(la2-la1),dLo=rad(lo2-lo1);const s=Math.sin(dLa/2)**2+Math.cos(rad(la1))*Math.cos(rad(la2))*Math.sin(dLo/2)**2;return R*2*Math.atan2(Math.sqrt(s),Math.sqrt(1-s));}
-function canClock(stage,perm){ if(stage==='all')return true; if(stage==='manager')return['manager','owner','admin'].includes(perm); if(stage==='admin')return perm==='admin'; return false; }
 
 window.onload=async()=>{
   showLoading('驗證登入…');
@@ -45,15 +44,9 @@ window.onload=async()=>{
   const fb=await new Promise(r=>{const u=firebase.auth().onAuthStateChanged(x=>{u();r(x);});});
   if(!fb){localStorage.removeItem('currentUser');location.replace('home.html');return;}
   try{const s=await window.db.collection('settings').doc('globalConfig').get();if(s.exists)appConfig=s.data();}catch(e){}
+  // 2026-09-23：打卡一律開啟。原本的 clockIn.stage（分階段開放）與 enabledByStore（單店開關）
+  // 都已移除——三店早就全開，留著只是多一層會擋人的判斷。geo 圍欄、遲到容許值等設定照舊。
   const clk=appConfig.clockIn||{}; geoCfg=clk.geo||{};
-  const stage=clk.stage||'off';
-  // 全面開放(all)時，本店打卡是否啟用由店長於出勤管理勾選；未啟用→維護中
-  const storeOn = stage!=='all' || ((clk.enabledByStore||{})[currentUser.store]===true);
-  if(!canClock(stage, currentUser.permission) || !storeOn){
-    hideLoading();
-    document.getElementById('wrap').innerHTML=`<div class="card maint"><div class="maint-icon">🚧</div><div class="maint-title">維護中敬請期待</div><div class="maint-sub">打卡功能尚未對您開放，請稍候。</div></div>`;
-    return;
-  }
   // 2026-09-15 起不再請人綁 LINE（通知改推播）：不再查綁定、不顯示「尚未綁定 LINE」提醒（isBound 維持預設 true）
   // 讀打卡提醒偏好（暫停期間不顯示設定，省一次讀取）
   if(!CLOCK_REMIND_SUSPENDED){

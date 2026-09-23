@@ -53,7 +53,6 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
 let currentUser=null, appConfig={}, curMonth='';
 function showLoading(t){document.getElementById('loadingText').textContent=t||'載入中…';document.getElementById('loadingOverlay').classList.remove('hidden');}
 function hideLoading(){document.getElementById('loadingOverlay').classList.add('hidden');}
-function canClock(stage,perm){ if(stage==='all')return true; if(stage==='manager')return['manager','owner','admin'].includes(perm); if(stage==='admin')return perm==='admin'; return false; }
 function fmtT(iso){ if(!iso)return''; const d=new Date(iso); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
 function curYm(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;}
 
@@ -66,13 +65,7 @@ window.onload=async()=>{
   const fb=await new Promise(r=>{const u=firebase.auth().onAuthStateChanged(x=>{u();r(x);});});
   if(!fb){localStorage.removeItem('currentUser');location.replace('home.html');return;}
   try{const s=await window.db.collection('settings').doc('globalConfig').get();if(s.exists)appConfig=s.data();}catch(e){}
-  const stage=(appConfig.clockIn||{}).stage||'off';
-  // 全面開放(all)時，本店未由店長勾選啟用 → 我的出勤同樣顯示尚未開放
-  const storeOn = stage!=='all' || (((appConfig.clockIn||{}).enabledByStore||{})[currentUser.store]===true);
-  if(!canClock(stage,currentUser.permission) || !storeOn){
-    document.getElementById('wrap').innerHTML='<div class="daycard maint"><div style="font-size:52px;margin-bottom:14px;">🚧</div><div style="font-size:20px;font-weight:900;margin-bottom:8px;">尚未開放</div><div style="color:var(--text-muted);">本店打卡功能尚未開啟。</div></div>';
-    hideLoading(); return;
-  }
+  // 2026-09-23：打卡一律開啟（原本依 clockIn.stage／enabledByStore 顯示「尚未開放」，已移除）
   curMonth=curYm();
   document.getElementById('wrap').innerHTML=`<div class="bar"><span style="font-weight:800;">📅 月份</span><input type="month" id="ymSel" value="${curMonth}" onchange="curMonth=this.value;load();">
     <button onclick="openReqModal()" title="沒排班卻到場、打卡時間打錯、系統問題等" style="margin-left:auto;background:#eef2f7;color:#475569;border:none;border-radius:10px;padding:9px 12px;font-weight:800;font-size:13px;cursor:pointer;">其他情況補登／修改</button>

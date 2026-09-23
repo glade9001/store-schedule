@@ -6,56 +6,61 @@
 //  · skips 滿 2 次 → 第 3 次打開起不再自動跳；☰「重看新版教學」隨時可看，重看不計次
 // ⚠️ 本檔頂層只用 function 與 var（見 home-nav.js 開頭說明）
 
-var HOME_TOUR_VERSION = 'home-2026-09';
+var HOME_TOUR_VERSION = 'onboard-2026-09';
 var HOME_TOUR_MAX_SKIPS = 2;
 var htSteps = [];
 var htIdx = 0;
 var htManual = false;
 var htAutoTried = false;   // 一次開頁只自動跳一次（角色預覽／恢復身份會重跑 initApp）
 
+// 指到某個功能：優先用首頁常用區那顆按鈕，沒放常用就開 ☰ 指抽屜裡那一列
+function htPoint(id) {
+  var fav = function () { return document.querySelector('.fav-btn[data-fid="' + id + '"]'); };
+  return {
+    before: function () { if (fav()) closeNavDrawer(); else openNavDrawer(); },
+    target: function () { return fav() || document.querySelector('#ndBody .nd-item[data-fid="' + id + '"]'); },
+  };
+}
+
 function homeTourSteps() {
-  var lead = hnIsLead();
   var steps = [
     {
+      before: function () { closeNavDrawer(); },
+      target: '#homeClockCard',
+      title: '每天第一件事：打卡',
+      text: '上班、下班各打一次，要人在門市範圍內才打得到。今天的班別就顯示在這張卡上。',
+    },
+    {
+      before: function () { closeNavDrawer(); },
+      target: '#homeClockCard',
+      title: '漏打或遲到怎麼辦',
+      text: '最常漏的是下班卡。漏打不要慌，到「我的出勤」送補登，選一個原因送出，店長審核後就補上了。遲到也請照實打卡，可以在補登時留說明——不要請別人代打，也不要因為遲到就不打。',
+    },
+    Object.assign(htPoint('leaveReq'), {
+      title: '想休假要先劃休',
+      text: '每週一 16:00 開放新的一週，一次可以劃未來 4 週。截止時間是該週前一週的週一 23:59，過了就不能改。',
+    }),
+    Object.assign(htPoint('schedule'), {
+      title: '班表在這裡看',
+      text: '可以看本週、下週和整個月。首頁也會直接列出你這週的班。發布前的班表還會變動，以發布後的為準。',
+    }),
+    Object.assign(htPoint('mySalary'), {
+      title: '薪資要簽收',
+      text: '每月 5 號發薪（遇假日順延）。當月看得到的是上個月以前的薪資。收到通知後進去核對並簽收，沒簽會一直提醒你。',
+    }),
+    {
+      before: function () { closeNavDrawer(); },
       target: '#headerMenuBtn',
-      title: '全部功能都在這裡',
-      text: '原本右上角的 ⚙️ 選單和「更多管理」都搬進左上角 ☰，最上面可以搜尋功能名稱。',
+      title: '收不到通知的話',
+      text: 'iPhone 一定要先「加入主畫面」，用瀏覽器開是收不到推播的。點這個 ☰ →「加入主畫面」照著做，再開「推播通知」。',
     },
     {
       before: function () { openNavDrawer(); },
       target: function () { return document.querySelector('#ndBody .nd-star'); },
-      title: '點 ☆ 加到首頁',
-      text: lead
-        ? '常用的功能點一下星星就會出現在首頁，再點一次移除。一般功能和管理功能各放 3 個。'
-        : '常用的功能點一下星星就會出現在首頁，再點一次移除，最多放 3 個。',
-    },
-    {
-      before: function () { closeNavDrawer(); },
-      target: '#favPersonalCard',
-      title: '首頁的常用功能',
-      text: '預設是班表、劃休申請、薪水。點右上角「編輯」可以調整順序、移除，或恢復預設。',
+      title: '把常用的放到首頁',
+      text: '☰ 裡任何功能點一下 ☆ 就會出現在首頁，最多 3 個。最上面有搜尋，找不到東西就直接搜。',
     },
   ];
-  if (lead) {
-    steps.push({
-      target: '#mgmtSection',
-      title: '常用管理',
-      text: hnIsOwner()
-        ? '店長以上多一排管理功能，你的預設是決策儀表板、經營績效、人事分析。'
-        : '店長以上多一排管理功能，預設是排班、算薪水、出勤管理。',
-    });
-  }
-  steps.push({
-    target: function () {
-      var pills = document.getElementById('homePills');
-      var anyPill = pills && Array.prototype.some.call(pills.children, function (c) { return c.style.display && c.style.display !== 'none'; });
-      if (anyPill) return pills;
-      var clock = document.getElementById('homeClockCard');
-      return clock && clock.style.display !== 'none' ? clock : null;
-    },
-    title: '打卡與提醒',
-    text: '今天的班別顯示在打卡卡片上；薪資待簽收、待處理等提醒縮成一排小標籤，點一下就能前往。',
-  });
   return steps;
 }
 
@@ -110,7 +115,7 @@ function htShow() {
   var el = htResolve(step);
   // 先捲到看得到（首頁本身在 .page-container 內捲動）
   if (!el.closest('#navDrawer')) el.scrollIntoView({ block: 'center', behavior: 'auto' });
-  document.getElementById('htStep').textContent = '新版首頁 ' + (htIdx + 1) + '／' + htSteps.length;
+  document.getElementById('htStep').textContent = 'App 教學 ' + (htIdx + 1) + '／' + htSteps.length;
   document.getElementById('htTitle').textContent = step.title;
   document.getElementById('htText').textContent = step.text;
   document.getElementById('htNext').textContent = htIdx === htSteps.length - 1 ? '開始使用' : '下一步';
@@ -197,6 +202,31 @@ function maybeAutoStartHomeTour(attempt) {
     if (attempt < 10) setTimeout(function () { maybeAutoStartHomeTour(attempt + 1); }, 2000);
     return;
   }
-  hnSaveUserField('homeTour', { v: HOME_TOUR_VERSION, done: false, skips: skips + 1, lastAt: new Date().toISOString() });
-  startHomeTour(false);
+  htIsNewbie().then(function (yes) {
+    if (!yes) { if (typeof maybeShowPushInvite === 'function') maybeShowPushInvite(); return; }
+    hnSaveUserField('homeTour', { v: HOME_TOUR_VERSION, done: false, skips: skips + 1, lastAt: new Date().toISOString() });
+    startHomeTour(false);
+  });
+}
+
+// 只有新進員工（到職 30 天內，含還沒到職）會自動跳出教學；其他人從 ☰「App 使用教學」自己看。
+// ⚠️ 到職日不在 users 文件裡，要多讀一次 employees/{店}/{人}。判定「不是新人」時把結果記在這台手機，
+//    之後就不再讀——否則老員工每次進首頁都會為了這個判斷多一次 Firestore 讀取。
+//    判定「是新人」不快取（人少，而且兩次跳過後本來就不會再進到這裡）。
+var HT_NEWBIE_DAYS = 30;
+function htIsNewbie() {
+  var emp = currentUser && currentUser.empName, st = currentUser && currentUser.store;
+  if (!emp || !st) return Promise.resolve(false);
+  var key = 'htNewbie_' + emp;
+  try { if (localStorage.getItem(key) === '0') return Promise.resolve(false); } catch (e) {}
+  return window.db.collection('stores').doc(st).collection('employees').doc(emp).get()
+    .then(function (d) {
+      var sd = (d && d.exists && d.data().startDate) || '';
+      // 沒有到職日（例如從別店調過來的）就不算新人
+      var days = sd ? (Date.now() - new Date(sd + 'T00:00:00').getTime()) / 86400000 : 9999;
+      var yes = days <= HT_NEWBIE_DAYS;
+      if (!yes) { try { localStorage.setItem(key, '0'); } catch (e) {} }
+      return yes;
+    })
+    .catch(function () { return false; });
 }

@@ -4,7 +4,6 @@ function showLoading(t){document.getElementById('loadingText').textContent=t||'�
 function hideLoading(){document.getElementById('loadingOverlay').classList.add('hidden');}
 function todayStr(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
 function fmtT(iso){ if(!iso)return''; const d=new Date(iso); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
-function canClock(stage,perm){ if(stage==='all')return true; if(stage==='manager')return['manager','owner','admin'].includes(perm); if(stage==='admin')return perm==='admin'; return false; }
 
 window.onload=async()=>{
   showLoading('驗證登入…');
@@ -32,11 +31,7 @@ window.onload=async()=>{
       try{ localStorage.setItem(dispCk, JSON.stringify({at:Date.now(), map:dispMap})); }catch(e){}
     }catch(e){}
   }
-  const stage=(appConfig.clockIn||{}).stage||'off';
-  if(!canClock(stage,currentUser.permission)){
-    document.getElementById('wrap').innerHTML='<div class="card maint"><div style="font-size:52px;margin-bottom:14px;">🚧</div><div style="font-size:20px;font-weight:900;margin-bottom:8px;">維護中敬請期待</div><div style="color:var(--text-muted);">出勤管理尚未對您開放。</div></div>';
-    hideLoading(); return;
-  }
+  // 2026-09-23：打卡一律開啟（原本 clockIn.stage 不到層級就整頁擋掉，已移除）
   curDate=todayStr();
   STORES=(appConfig.stores||[]).filter(s=>s!=='人力支援');
   curStore = isAdminOwner()? (STORES[0]||currentUser.store||'') : (currentUser.store||'');
@@ -58,15 +53,7 @@ function renderBar(){
   const empCtrl = viewMode==='emp' ? `<select id="empSel" onchange="curEmp=this.value;load();">${empOpts}</select>` : '';
   const mbtn=(m,l)=>`<button onclick="setMode('${m}')" style="flex:1;padding:8px 4px;border:1.5px solid ${viewMode===m?'var(--primary)':'var(--border)'};background:${viewMode===m?'var(--primary)':'#fff'};color:${viewMode===m?'#fff':'var(--text)'};border-radius:9px;font-size:12.5px;font-weight:800;cursor:pointer;">${l}</button>`;
   const tolVal = tolOf(curStore);
-  const stage=(appConfig.clockIn||{}).stage||'off';
-  const enOn = ((appConfig.clockIn||{}).enabledByStore||{})[curStore]===true;
-  // 單店打卡開關：僅在全域「全面開放(all)」時才出現，由店長決定本店是否啟用
-  const enableToggle = (viewMode==='day' && stage==='all') ? `
-  <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:13px;cursor:pointer;flex-wrap:wrap;background:#f0f9ff;border:1.5px solid #bae6fd;border-radius:10px;padding:10px 12px;">
-    <input type="checkbox" id="clockEnChk" ${enOn?'checked':''} onchange="saveClockEnabled(this.checked)" style="width:18px;height:18px;">
-    <span style="font-weight:800;">✅ 開啟本店打卡功能</span>
-    <span style="color:var(--muted);">（未開啟時，本店員工的打卡與出勤入口顯示「尚未開放」）</span>
-  </label>` : '';
+  const enableToggle = '';   // 2026-09-23：單店打卡開關已移除（打卡一律開啟）
   const settings = viewMode==='day' ? `
   <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:13px;flex-wrap:wrap;">
     <span style="font-weight:800;">⏱️ 遲到容許值</span>
@@ -107,14 +94,6 @@ async function saveNotify(on){
     await window.db.collection('settings').doc('globalConfig').update({['clockIn.notifyByStore.'+curStore]: !!on});
     appConfig.clockIn=appConfig.clockIn||{}; appConfig.clockIn.notifyByStore=appConfig.clockIn.notifyByStore||{}; appConfig.clockIn.notifyByStore[curStore]=!!on;
     hideLoading(); alert(`✅ 已${on?'開啟':'關閉'}「${curStore}」打卡通知`);
-  }catch(e){ hideLoading(); alert('儲存失敗：'+e.message); }
-}
-async function saveClockEnabled(on){
-  showLoading('儲存中…');
-  try{
-    await window.db.collection('settings').doc('globalConfig').update({['clockIn.enabledByStore.'+curStore]: !!on});
-    appConfig.clockIn=appConfig.clockIn||{}; appConfig.clockIn.enabledByStore=appConfig.clockIn.enabledByStore||{}; appConfig.clockIn.enabledByStore[curStore]=!!on;
-    hideLoading(); alert(`✅ 已${on?'開啟':'關閉'}「${curStore}」打卡功能${on?'':'（本店員工打卡/出勤入口將顯示維護中）'}`);
   }catch(e){ hideLoading(); alert('儲存失敗：'+e.message); }
 }
 async function saveTol(){
@@ -497,7 +476,6 @@ async function load(){
   loadRequests();
   const tolEl=document.getElementById('tolInput'); if(tolEl) tolEl.value=tolOf(curStore);
   const nfEl=document.getElementById('notifyChk'); if(nfEl) nfEl.checked=notifyOf(curStore);
-  const enEl=document.getElementById('clockEnChk'); if(enEl) enEl.checked=(((appConfig.clockIn||{}).enabledByStore||{})[curStore]===true);
   if(viewMode==='month') return loadMonth();
   if(viewMode==='emp') return loadEmp();
   return loadDay();

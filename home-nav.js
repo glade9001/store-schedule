@@ -58,7 +58,7 @@ var HOME_FEATURES = [
   { id: 'a2hs',      group: 'sys', icon: '📲', label: '加入主畫面',   sub: '像 App 一樣從手機桌面打開',   run: function () { openA2hsGuide(); }, show: function () { return !hpStandalone(); }, kw: '安裝 桌面 App' },
   { id: 'settings',  group: 'sys', icon: '🔧', label: '系統設定',     sub: '班別、工時、投保級距、更新日誌', go: 'settings.html', show: hnIsLead, kw: '設定 更新日誌' },
   { id: 'changelog', group: 'sys', icon: '📋', label: '更新日誌',     sub: '系統功能更新紀錄',           go: 'settings.html', show: function () { return !hnIsLead(); } },
-  { id: 'tour',      group: 'sys', icon: '🎓', label: '重看新版教學', sub: '再看一次首頁改版導覽',       run: function () { startHomeTour(true); } },
+  { id: 'tour',      group: 'sys', icon: '🎓', label: 'App 使用教學',  sub: '打卡、劃休、看班表、薪資簽收', run: function () { startHomeTour(true); }, kw: '教學 新人 導覽 怎麼用' },
   { id: 'logout',    group: 'sys', icon: '🚪', label: '登出',         sub: '退出目前帳號',               run: function () { doLogout(); }, danger: true },
 ];
 
@@ -159,7 +159,7 @@ function renderQuickBtns() {
   var favs = hnCurrentFavs();
   var tile = function (id) {
     var f = hnFeature(id);
-    return '<button class="fav-btn" onclick="hnGo(\'' + f.id + '\')"><span class="fav-ic">' + f.icon + '</span><span class="fav-label">' + f.label + '</span></button>';
+    return '<button class="fav-btn" data-fid="' + f.id + '" onclick="hnGo(\'' + f.id + '\')"><span class="fav-ic">' + f.icon + '</span><span class="fav-label">' + f.label + '</span></button>';
   };
   var fill = function (ids) {
     var shown = ids.filter(function (id) { return hnVisible(hnFeature(id)); });
