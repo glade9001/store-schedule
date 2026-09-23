@@ -606,6 +606,7 @@ async function deductLeave(empName, day, weekStr, prevShift, newShift) {
     // --- 3) 從帳本集合重算所有快取 counter ---
     await recomputeLeaveCounters(empName, yearStr);
 
+    invalidateLeaveSum(empName);   // 帳本動過了，統計欄的餘額快取要重抓
     setTimeout(() => {
       const eIdx = appData.employees.findIndex(e => e.name === empName);
       if(eIdx !== -1) updateSummary(eIdx, appData.employees[eIdx]);
@@ -702,6 +703,7 @@ async function grantHolidayComp(empName, fullDate, holidayName) {
   const ld = leaveSnap.exists ? leaveSnap.data() : {};
   await leaveRef.set({ ...ld, earnedComp: (ld.earnedComp||0)+1, updatedAt: new Date().toISOString() }, { merge: true });
 
+  invalidateLeaveSum(empName);   // 帳本動過了，統計欄的餘額快取要重抓
   return true;
 }
 
@@ -726,6 +728,7 @@ async function revokeHolidayComp(empName, fullDate, holidayName) {
   const leaveSnap = await leaveRef.get();
   const ld = leaveSnap.exists ? leaveSnap.data() : {};
   await leaveRef.set({ ...ld, earnedComp: Math.max(0,(ld.earnedComp||0)-1), updatedAt: new Date().toISOString() }, { merge: true });
+  invalidateLeaveSum(empName);   // 同上
 }
 
 // ===== 國定假日偵測：這格儲存時檢查是否需要發/撤銷補休 =====
@@ -2997,6 +3000,44 @@ function isEmpRecord(r, store, empName) {
   return true;
 }
 
+// ===== 特補休餘額（背景讀取＋快取）=====
+// 補休改從帳本算（comp-avail.js 的 caCompAvailability：leaveLog + compUsage），不再讀 comp/{年}.earned/used
+// ——那兩個統計欄位會漂（曾有人 comp/2026.earned=4 但 leaveLog 有 5 筆發放），而且會把負數夾成 0 把超用蓋掉。
+// ⚠️ updateSummary 每改一格就會被呼叫一次，帳本是每人十幾筆文件，所以一定要快取；
+//    寫到補休／特休的路徑（deductLeave、發放/撤銷國定假日補休）記得呼叫 invalidateLeaveSum()。
+const leaveSumCache = {};
+function invalidateLeaveSum(empName) {
+  if(empName) delete leaveSumCache[empName];
+  else Object.keys(leaveSumCache).forEach(k => delete leaveSumCache[k]);
+}
+/** @returns {Promise<{annual:number, noAnnual:boolean, comp:number, pending:Array, pendingDays:number}>} */
+function fetchLeaveSum(empName) {
+  if(typeof caCompAvailability !== 'function') return Promise.reject(new Error('comp-avail.js 未載入'));
+  if(leaveSumCache[empName]) return leaveSumCache[empName];
+  const p = Promise.all([
+    window.db.collection('employees').doc(empName).collection('leaveBatches').get(),
+    caCompAvailability(empName)
+  ]).then(([bSnap, ca]) => {
+    const todayStr2 = new Date().toISOString().split('T')[0];
+    let annual = 0;
+    bSnap.forEach(b => {
+      const bd = b.data();
+      if(bd.settled) return;
+      const rem = (bd.days||0)-(bd.used||0);
+      if(rem<=0) return;
+      let expDate = bd.expireDate;
+      if(bd.carried) { const e=new Date(bd.expireDate); e.setFullYear(e.getFullYear()+1); e.setDate(e.getDate()-1); expDate=e.toISOString().split('T')[0]; }
+      if(todayStr2 <= expDate) annual += rem;
+    });
+    const pending = ca.pending || [];
+    return { annual, noAnnual: bSnap.size === 0, comp: ca.effective,
+             pending, pendingDays: pending.reduce((a,x) => a + x.n, 0) };
+  });
+  leaveSumCache[empName] = p;   // 存 Promise：同一輪多人重畫只會各打一次
+  p.catch(() => { delete leaveSumCache[empName]; });  // 失敗不留快取，下次重試
+  return p;
+}
+
 async function updateSummary(idx, emp) {
   const t = document.getElementById(`sum-${idx}`);
   if(!t || emp.name.startsWith('🆘')) { if(t) t.textContent = '-'; return; }
@@ -3060,38 +3101,18 @@ async function updateSummary(idx, emp) {
   const leaveHtmlId = `leave-sum-${idx}`;
   // 先渲染 placeholder，背景讀取後填入
   const leavePlaceholder = `<div id="${leaveHtmlId}" style="font-size:10px;color:#94a3b8;">--</div>`;
-  // 背景讀取（不阻塞表格渲染）
-  const yearStr = document.getElementById('weekSelector').value.split('-W')[0];
-  // 讀取特休（從 leaveBatches）與補休（從 comp/{year}）
-  Promise.all([
-    window.db.collection('employees').doc(emp.name).collection('leaveBatches').get(),
-    window.db.collection('employees').doc(emp.name).collection('comp').doc(yearStr).get(),
-    window.db.collection('employees').doc(emp.name).collection('comp').doc(String(parseInt(yearStr)-1)).get()
-  ]).then(([bSnap, compSnap, compPrevSnap]) => {
+  // 背景讀取（不阻塞表格渲染）；結果有快取，改格子重畫統計不會再打資料庫
+  fetchLeaveSum(emp.name).then(s => {
     const el = document.getElementById(leaveHtmlId);
     if(!el) return;
-    const todayStr2 = new Date().toISOString().split('T')[0];
-    let remainAnn = 0;
-    if(bSnap) bSnap.forEach(b => {
-      const bd = b.data();
-      if(bd.settled) return;
-      const rem = (bd.days||0)-(bd.used||0);
-      if(rem<=0) return;
-      let expDate = bd.expireDate;
-      if(bd.carried) { const e=new Date(bd.expireDate); e.setFullYear(e.getFullYear()+1); e.setDate(e.getDate()-1); expDate=e.toISOString().split('T')[0]; }
-      if(todayStr2 <= expDate) remainAnn += rem;
-    });
-    const cd = compSnap?.exists ? compSnap.data() : { earned:0, used:0 };
-    const cpd = compPrevSnap?.exists ? compPrevSnap.data() : {};
-    const remainComp = Math.max(0,(cd.earned||0)-(cd.used||0));
-    const carriedComp = cpd.carried&&!cpd.settled ? Math.max(0,(cpd.earned||0)-(cpd.used||0)-(cpd.carriedUsed||0)) : 0;
-    const totalComp = remainComp + carriedComp;
     // 未建特休（完全沒有 batch 資料）與有建但剩 0 天分開顯示
-    const noAnnualSetup = !bSnap || bSnap.size === 0;
-    const annualPart = noAnnualSetup
+    const annualPart = s.noAnnual
       ? '<span style="color:#94a3b8;">未建特休</span>'
-      : `<span style="color:#7c3aed;font-weight:700;">🏖️特${remainAnn}天</span>`;
-    const compPart = `<span style="color:#0891b2;font-weight:700;margin-left:4px;">🗓️補${totalComp}天</span>`;
+      : `<span style="color:#7c3aed;font-weight:700;">🏖️特${s.annual}天</span>`;
+    // 補休顯示「現在可以用的」：還沒過的國定假日補休另外標，避免店長照著排出負數
+    const compTip = s.pending.length ? ` title="另有國定假日補休：${caPendingText(s.pending)}"` : '';
+    const compPart = `<span style="color:${s.comp < 0 ? '#d93025' : '#0891b2'};font-weight:700;margin-left:4px;"${compTip}>🗓️補${s.comp}天</span>`
+      + (s.pending.length ? `<span style="color:#94a3b8;margin-left:2px;"${compTip}>+${s.pendingDays}待生效</span>` : '');
     el.innerHTML = annualPart + compPart;
   }).catch(()=>{});
 
