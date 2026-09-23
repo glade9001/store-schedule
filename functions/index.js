@@ -1113,7 +1113,8 @@ exports.scheduledMonthlySalaryNotify = onSchedule(
   }
 );
 
-// ===== 薪資簽收提醒：每日檢查，對「已發布可查看但未簽收」者每 2 天 LINE 提醒一次（2026-07 起，直到簽收）=====
+// ===== 薪資簽收提醒：每日檢查，對「已發布可查看但未簽收」者每 2 天提醒一次（2026-07 起，直到簽收）
+//      管道由 deliverToPeople 決定：有開推播的只收推播，沒開的才發 LINE =====
 // 發薪提醒日：5 號，遇週末/國定假日順延到下一個工作日(週末→週一)
 async function salaryReminderDay(db, year, month) {
   const hs = await db.collection("settings").doc("holidays").collection("years").doc(String(year)).get().catch(() => null);

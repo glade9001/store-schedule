@@ -49,7 +49,7 @@ window.onload=async()=>{
   const clk=appConfig.clockIn||{}; geoCfg=clk.geo||{};
   // 2026-09-15 起不再請人綁 LINE（通知改推播）：不再查綁定、不顯示「尚未綁定 LINE」提醒（isBound 維持預設 true）
   // 讀打卡提醒偏好（暫停期間不顯示設定，省一次讀取）
-  if(!CLOCK_REMIND_SUSPENDED){
+  {
     try{ const rp=await window.db.collection('clockRemindPrefs').doc(currentUser.empName).get(); if(rp.exists){ const d=rp.data()||{}; remindPref={inBefore:Number(d.inBefore)||0, outRemind:!!d.outRemind}; } }catch(e){} // 沒有文件＝維持預設（都開）
   }
   await syncServerTime();
@@ -280,11 +280,9 @@ function nextAction(){
 // 打卡提醒：2026-08-17 因 LINE 免費額度暫停；2026-09-15 改用 PWA 推播恢復（functions scheduledClockRemindPush）。
 //    員工既有的 clockRemindPrefs 偏好原封不動恢復生效。只發推播：沒開推播的人收不到（畫面上會提示去開）。
 //    要再暫停：改回 true 即可隱藏設定（後端沒有對應常數，偏好沒人開推播時排程也不讀排班）。
-const CLOCK_REMIND_SUSPENDED = false;
 
 // 打卡提醒偏好：寫 clockRemindPrefs/{empName}，排程依排班時間發推播
 async function saveRemindPref(){
-  if(CLOCK_REMIND_SUSPENDED) return;
   const on=document.getElementById('remIn').checked;
   let x=parseInt(document.getElementById('remInMin').value,10); if(!(x>0))x=10; if(x>30)x=30;
   document.getElementById('remInMin').value=x;
@@ -475,14 +473,7 @@ function render(){
     <button onclick="window.location.href='my-attendance.html'" style="flex:1;padding:11px;background:#eef2ff;color:#4338ca;border:none;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;">📋 我的出勤</button>
     <button onclick="openReqModal()" style="flex:1;padding:11px;background:#fff7ed;color:#c2410c;border:1.5px solid #fed7aa;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;">📝 補登／修改</button>
   </div>
-  ${CLOCK_REMIND_SUSPENDED?`
-  <div class="card" style="padding:14px;">
-    <div style="font-size:13px;font-weight:800;color:var(--text-muted);margin-bottom:8px;">🔔 打卡提醒</div>
-    <div style="background:#fff7ed;border:1.5px solid #fed7aa;border-radius:10px;padding:12px;font-size:13px;font-weight:700;color:#c2410c;line-height:1.7;">
-      因使用人數過多，超出免費用量，全面暫停使用
-    </div>
-    <div style="font-size:11px;color:var(--text-muted);margin-top:8px;line-height:1.5;">※ 其他通知（缺卡、班表、薪資）不受影響。</div>
-  </div>`:`
+
   <div class="card" style="padding:14px;">
     <div style="font-size:13px;font-weight:800;color:var(--text-muted);margin-bottom:10px;">🔔 打卡提醒（依你的排班時間推播通知）</div>
     <label style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;margin-bottom:10px;flex-wrap:wrap;">
@@ -495,7 +486,7 @@ function render(){
     </label>
     <div id="remPushHint" style="font-size:12px;margin-top:8px;line-height:1.6;"></div>
     <div style="font-size:11px;color:var(--text-muted);margin-top:4px;line-height:1.5;">※ 兩項<b>預設都開啟</b>，不想收到可以取消勾選。上班前分鐘數上限 30 分；已經打過卡就不提醒，未排班的日子也不提醒。</div>
-  </div>`}
+  </div>
   ${todayPunches.length?`<div class="card"><div style="font-size:13px;font-weight:800;color:var(--text-muted);margin-bottom:8px;">今日打卡</div>${plist}</div>`:''}
   <div style="padding:2px 10px 16px;">
     <div style="font-size:11.5px;font-weight:800;color:var(--text-muted);margin-bottom:5px;">💡 忘記打卡怎麼辦</div>
@@ -507,7 +498,7 @@ function render(){
     </ul>
   </div>`;
   tickClock();
-  if(!CLOCK_REMIND_SUSPENDED) renderRemindPushHint();
+  renderRemindPushHint();
 }
 
 // 依排班表(3日候選、絕對時間、視窗前1h後4h)判斷是否非排班時段，對齊後端

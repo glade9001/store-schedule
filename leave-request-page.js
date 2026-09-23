@@ -115,7 +115,7 @@ async function loadHolidays() {
   if(now.getMonth() === 11 && ['owner','admin'].includes(currentUser?.permission)) {
     const nextYr = now.getFullYear()+1;
     const hasNext = Object.keys(holidayMap).some(d=>d.startsWith(String(nextYr)));
-    if(!hasNext) showToast(`⚠️ 請至系統設定更新 ${nextYr} 年國定假日`);
+    if(!hasNext) showToast(`⚠️ 請至 ☰ →「設定」→「國定假日設定」更新 ${nextYr} 年`);
   }
 }
 

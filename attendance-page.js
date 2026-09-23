@@ -64,7 +64,7 @@ function renderBar(){
   <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:13px;cursor:pointer;flex-wrap:wrap;">
     <input type="checkbox" id="notifyChk" ${notifyOf(curStore)?'checked':''} onchange="saveNotify(this.checked)" style="width:18px;height:18px;">
     <span style="font-weight:800;">🔔 打卡通知</span>
-    <span style="color:var(--muted);">（關閉後本店不判缺卡、不發缺卡通知，打卡功能照常。打卡成功回執已全面取消；出勤異常改每週一彙整）</span>
+    <span style="color:var(--muted);">（關閉後本店不判缺卡、不發缺卡通知，打卡功能照常。打卡成功不另外回執；未補登的缺卡每人最多 7 天提醒一次，補完即停）</span>
   </label>` : '';
   document.getElementById('wrap').innerHTML = `<div class="bar">
     ${storeSel}${dateCtrl}${empCtrl}

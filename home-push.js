@@ -322,7 +322,7 @@ async function maybeShowPushInvite(attempt) {
   hpOpenModal('🔔 開啟推播通知',
     '開啟後，系統通知會直接跳在這台手機上，不用再等 LINE。',
     '<ul class="hp-steps" style="list-style:none;padding-left:0;">' +
-      '<li>📅 班表、薪資、待處理等通知，會陸續改用推播發送</li>' +
+      '<li>📅 班表、薪資、待處理等通知都會用推播發送</li>' +
       '<li>🔴 App 圖示會顯示待處理件數，一眼就知道有沒有事</li>' +
       '<li>🔕 隨時可以從左上角 ☰ →「設定」→「通知設定」關閉</li></ul>' +
     '<button class="hp-btn" id="hpEnableBtn" onclick="hpEnablePush()">開啟推播通知</button>' +
