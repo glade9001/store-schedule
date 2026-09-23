@@ -12,7 +12,7 @@ var HN_TIER_LABEL = { owner: '加盟主', admin: '管理者' };   // 選單上�
 // 順序＝抽屜顯示順序。門市工具是全員功能，要排在「管理功能」分隔線之前，否則看起來像管理專用
 var HN_GROUPS = [
   { key: 'me',     title: '我的',       fav: 'me' },
-  { key: 'store',  title: '門市工具',   fav: '' },
+  { key: 'store',  title: '門市工具',   fav: '', fold: true },   // 首頁已固定顯示這幾個，抽屜裡預設收起來（狀態記在 localStorage）
   { key: 'sched',  title: '排班・出勤', fav: 'mgmt' },
   { key: 'people', title: '人事・薪資', fav: 'mgmt' },
   { key: 'ops',    title: '營運',       fav: 'mgmt' },
@@ -63,6 +63,15 @@ var HOME_FEATURES = [
   { id: 'tour',      group: 'sys', icon: '🎓', label: '重看新版教學', sub: '再看一次首頁改版導覽',       run: function () { startHomeTour(true); } },
   { id: 'logout',    group: 'sys', icon: '🚪', label: '登出',         sub: '退出目前帳號',               run: function () { doLogout(); }, danger: true },
 ];
+
+// ===== 可折疊群組（目前只有門市工具）=====
+// 首頁已固定顯示的功能在抽屜裡是重複資訊，預設收起來；展開與否記在 localStorage，換人登入不影響。
+function hnFoldKey(key) { return 'navFold_' + key; }
+function hnFoldOpen(key) { try { return localStorage.getItem(hnFoldKey(key)) === '1'; } catch (e) { return false; } }
+function hnToggleGroup(key) {
+  try { localStorage.setItem(hnFoldKey(key), hnFoldOpen(key) ? '0' : '1'); } catch (e) { /* 無痕模式：這次展開，下次回到預設 */ }
+  renderNavDrawer();
+}
 
 function hnFeature(id) { return HOME_FEATURES.find(function (f) { return f.id === id; }); }
 function hnVisible(f) { return !!f && (!f.show || !!f.show()); }
@@ -247,6 +256,14 @@ function renderNavDrawer() {
     } else if (g.fav !== 'mgmt' && mgmtHeaderDone && !mgmtEnded) {
       html += '<div class="nd-sep"></div>';   // 管理功能區塊結束，後面是全員項目
       mgmtEnded = true;
+    }
+    if (g.fold) {
+      var open = hnFoldOpen(g.key);
+      html += '<div class="nd-group nd-fold' + (open ? ' open' : '') + '" role="button" tabindex="0" aria-expanded="' + (open ? 'true' : 'false') + '"' +
+        ' onclick="hnToggleGroup(\'' + g.key + '\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();hnToggleGroup(\'' + g.key + '\');}">' +
+        '<span>' + g.title + '<em>' + items.length + ' 項</em></span><span class="nd-chev">▸</span></div>';
+      if (open) html += items.map(function (f) { return hnItemHtml(f, favs, false); }).join('');
+      return;
     }
     html += '<div class="nd-group">' + g.title + (g.fav === 'me' ? countTag('me') : '') + '</div>';
     html += items.map(function (f) { return hnItemHtml(f, favs, false); }).join('');
