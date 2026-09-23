@@ -192,8 +192,7 @@ function maybeAutoStartHomeTour(attempt) {
     return;
   }
   var busy = document.getElementById('sysNoticeOverlay') ||
-    document.querySelector('.modal-overlay.active, .bottom-sheet.active, #resignedScreen') ||
-    document.getElementById('lineBindOverlay')?.style.display === 'flex';
+    document.querySelector('.modal-overlay.active, .bottom-sheet.active, #resignedScreen');
   if (busy) {
     if (attempt < 10) setTimeout(function () { maybeAutoStartHomeTour(attempt + 1); }, 2000);
     return;

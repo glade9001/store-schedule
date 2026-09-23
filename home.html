@@ -451,15 +451,6 @@
   <button onclick="doLogout()" style="margin-top:26px; padding:11px 26px; background:rgba(255,255,255,.18); color:#fff; border:1px solid rgba(255,255,255,.5); border-radius:10px; font-size:14px; font-weight:700; cursor:pointer;">登出</button>
 </div>
 
-<!-- ===== LINE 通知綁定 ===== -->
-<div id="lineBindOverlay" style="display:none; position:fixed; inset:0; background:rgba(30,41,59,0.7); z-index:6000; justify-content:center; align-items:center; padding:20px;" onclick="if(event.target===this)closeLineBind()">
-  <div style="background:#fff; border-radius:18px; width:100%; max-width:400px; padding:22px; max-height:88vh; overflow-y:auto;">
-    <div style="font-size:17px; font-weight:900; margin-bottom:8px;">🔔 LINE 通知綁定</div>
-    <div id="lineBindBody" style="font-size:13px; color:var(--text); line-height:1.8;">載入中…</div>
-    <button onclick="closeLineBind()" style="width:100%; padding:11px; background:#f1f3f4; border:none; border-radius:10px; font-size:14px; font-weight:700; cursor:pointer; margin-top:14px;">關閉</button>
-  </div>
-</div>
-
 <script src="home-page.js"></script>
 <script src="home-nav.js"></script>
 <script src="home-tour.js"></script>

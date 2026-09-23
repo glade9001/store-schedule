@@ -957,69 +957,10 @@ async function dismissLeaveHint(){
   // → 移除這筆寫入。關閉提醒仍靠上面的 localStorage，行為不變。
 }
 
-// ===== LINE 通知綁定（綁定碼版）=====
-// 2026-09-15 起不再請人綁 LINE（通知改推播優先）：首頁綁定小條已拿掉；
-// 這裡只查「是否已綁定」，給 ☰ 決定要不要顯示「LINE 通知綁定」（留給已綁定的人解除綁定用）
-var lineBoundState = false;
-async function checkLineBindHint(){
-  try{
-    if(!currentUser?.uid) return;
-    const bs=await window.db.collection('lineBindings').doc(currentUser.uid).get().catch(()=>null);
-    lineBoundState = !!(bs && bs.exists);
-  }catch(e){ console.error('checkLineBindHint', e); }
-}
-function closeLineBind(){ document.getElementById('lineBindOverlay').style.display='none'; const mt=document.getElementById('maintenanceScreen'); if(mt && mt.style.display!=='none') renderMaintenanceNotifyState(); if(_afterLineBindCb){ const cb=_afterLineBindCb; _afterLineBindCb=null; cb(); } }
-async function openLineBindModal(){
-  document.getElementById('lineBindOverlay').style.display='flex';
-  const body=document.getElementById('lineBindBody');
-  body.innerHTML='載入中…';
-  try{
-    const bs=await window.db.collection('lineBindings').doc(currentUser.uid).get().catch(()=>null);
-    if(bs && bs.exists){
-      const canTest = ['manager','owner','admin'].includes(currentUser.permission);
-      body.innerHTML=`<div style="color:#2e7d32;font-weight:800;">✅ 已綁定 LINE 通知</div>
-        <div style="margin-top:8px;color:var(--text-muted);">綁定時間：${String(bs.data().boundAt||'').slice(0,16).replace('T',' ')}</div>
-        ${canTest ? `<button id="lineTestBtn" onclick="sendTestNotify()" style="width:100%;padding:10px;background:#e7f7ed;color:#06c755;border:none;border-radius:10px;font-weight:800;cursor:pointer;margin-top:14px;">🔔 發送測試通知（僅管理者）</button>` : ''}
-        <button onclick="unbindLine()" style="width:100%;padding:10px;background:#fce8e6;color:var(--danger);border:none;border-radius:10px;font-weight:700;cursor:pointer;margin-top:8px;">解除綁定</button>`;
-      return;
-    }
-    const code=String(Math.floor(100000+Math.random()*900000));
-    await window.db.collection('lineBindCodes').doc(code).set({
-      uid:currentUser.uid, empName:currentUser.empName||'', displayName:currentUser.displayName||currentUser.empName||'', store:currentUser.store||'',
-      createdAt:new Date().toISOString(), expiresAt:Date.now()+10*60*1000
-    });
-    const oa=(appConfig&&appConfig.lineOaUrl)||'';
-    const basicId=(oa.match(/@[\w.\-]+/)||[''])[0];
-    const url=basicId?`https://line.me/R/oaMessage/${basicId}/?${encodeURIComponent(code)}`:oa;
-    const btn = url
-      ? `<a href="${url}" target="_blank" style="display:block;text-align:center;background:#06c755;color:#fff;padding:13px;border-radius:10px;font-weight:800;text-decoration:none;margin:12px 0;">➕ 開啟 LINE 加入並帶入綁定碼</a>`
-      : `<div style="color:var(--danger);margin:12px 0;font-weight:700;">⚠️ 官方帳號連結尚未設定，請聯絡管理員設定 lineOaUrl。</div>`;
-    body.innerHTML=`
-      <div style="color:var(--text-muted);">綁定後，沒開推播通知時，薪資、班表異動等通知會改用 LINE 發給你（開了推播就只收推播）。</div>
-      <div style="margin-top:10px;">點下方按鈕 → 開啟官方帳號 → 若尚未加入請先按「加入」→ 綁定碼已自動帶入，按<strong>送出</strong>即完成。</div>
-      ${btn}
-      <div style="font-size:12px;color:var(--text-muted);text-align:center;">（萬一沒帶入，手動輸入綁定碼：<strong style="color:var(--primary);letter-spacing:2px;">${code}</strong>，10 分鐘內有效）</div>`;
-  }catch(e){ body.innerHTML='載入失敗：'+e.message; }
-}
-async function sendTestNotify(){
-  const btn=document.getElementById('lineTestBtn');
-  if(btn){ btn.disabled=true; btn.textContent='傳送中…'; }
-  try{
-    const fn=firebase.app().functions('asia-east1').httpsCallable('sendTestNotify');
-    await fn({});
-    if(typeof showToast==='function') showToast('✅ 已送出，請到 LINE 查看');
-    if(btn){ btn.textContent='🔔 已送出，請看 LINE'; }
-  }catch(e){
-    if(typeof showToast==='function') showToast('❌ '+(e.message||'發送失敗'));
-    if(btn){ btn.disabled=false; btn.textContent='🔔 發送測試通知（僅管理者）'; }
-  }
-}
-async function unbindLine(){
-  if(!confirm('確定解除 LINE 通知綁定？')) return;
-  await window.db.collection('lineBindings').doc(currentUser.uid).delete().catch(()=>{});
-  closeLineBind();
-  if(typeof showToast==='function') showToast('已解除綁定');
-}
+// ===== LINE 通知綁定 =====
+// 2026-09-23：☰ 的「LINE 通知綁定」入口已移除（帳號管理頁的「🔔 LINE 通知」卡片就有完整的
+// 綁定時間／測試／解除綁定，見 employee-mgmt-page.js renderLineCard），首頁這份綁定 UI 一併刪掉，
+// 也省下每次進首頁為了決定要不要顯示那個選單項而讀一次 lineBindings 的成本。
 
 // ===== 初始化 APP =====
 // ===== 系統維護模式 =====
@@ -1198,7 +1139,6 @@ async function initApp() {
   checkHireDateGate(); // 店長：補齊缺到職日的員工（強制）
   checkPnlAnomaly(); // 店長：經營績效資料異常提醒（如營業淨額多打一位數）
   checkLeaveHint(); // 背景檢查下週劃休提醒
-  checkLineBindHint(); // 只記錄是否已綁 LINE（☰ 的解除綁定入口用）
 
   const permColors = { employee: '#34a853', manager: '#1a73e8', owner: '#9334e6', admin: '#d93025' };
   document.getElementById('headerStore').style.background = (permColors[currentUser.permission] || '#5f6368') + '55';

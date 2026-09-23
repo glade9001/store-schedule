@@ -331,8 +331,7 @@ async function maybeShowPushInvite(attempt) {
 
 function hpBusy() {
   return !!(document.getElementById('sysNoticeOverlay') ||
-    document.querySelector('.modal-overlay.active, .bottom-sheet.active, #resignedScreen, #htLayer.active, #hpModal.active') ||
-    document.getElementById('lineBindOverlay')?.style.display === 'flex');
+    document.querySelector('.modal-overlay.active, .bottom-sheet.active, #resignedScreen, #htLayer.active, #hpModal.active'));
 }
 
 // ===== 加入主畫面邀請（iPhone 用瀏覽器開的人，每週彈一次）=====
