@@ -312,7 +312,7 @@ async function renderRemindPushHint(){
   const on=await remindPushReady();
   el.innerHTML = on
     ? '<span style="color:#137333;font-weight:700;">✅ 這台手機已開啟推播，會收到提醒</span>'
-    : '<span style="color:#c2410c;font-weight:700;">⚠️ 這台手機還沒開啟推播，勾了也收不到。</span> <a href="home.html" style="color:var(--primary);font-weight:800;">回首頁 ☰ →「推播通知」開啟</a>';
+    : '<span style="color:#c2410c;font-weight:700;">⚠️ 這台手機還沒開啟推播，勾了也收不到。</span> <a href="home.html" style="color:var(--primary);font-weight:800;">回首頁 ☰ →「設定」→「通知設定」開啟</a>';
 }
 
 // 補登／修改申請（同 my-attendance：寫 attendanceRequests、店長審核）

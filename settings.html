@@ -7,13 +7,14 @@
 <meta name="apple-mobile-web-app-title" content="莉學商行">
 <meta name="theme-color" content="#1a73e8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>⚙️ 系統設定</title>
+<title>⚙️ 設定</title>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 <script src="firebase-init.js"></script>
 <script src="holidays.js"></script>
 <script>window.db.settings({ experimentalForceLongPolling: true });</script>
+<link rel="stylesheet" href="home-push.css">
 <style>
 *,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
@@ -42,7 +43,7 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
 .card-title { font-size: 14px; font-weight: 900; color: var(--primary); margin-bottom: 14px; display: flex; align-items: center; gap: 6px; }
 .stat-sub { font-size: 12px; font-weight: 900; color: var(--text-muted); margin-bottom: 6px; }
 .menu-item-title .perm-badge { vertical-align: 1px; }
-.set-grp { font-size: 13px; font-weight: 900; color: var(--text); margin: 22px 4px 12px; padding-bottom: 7px; border-bottom: 2px solid var(--border); letter-spacing: .5px; }
+.set-grp { display: flex; align-items: center; font-size: 13px; font-weight: 900; color: var(--text); margin: 22px 4px 12px; padding-bottom: 7px; border-bottom: 2px solid var(--border); letter-spacing: .5px; }
 #grpOps > .set-grp:first-child { margin-top: 6px; }
 /* 折疊式設定項：收合時只顯示標題，點標題展開 */
 .set-item > .set-head { cursor: pointer; }
@@ -100,15 +101,46 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
 
 <div class="header">
   <button class="header-back" onclick="window.location.href='home.html'">← 首頁</button>
-  <div class="header-title">⚙️ 系統設定</div>
+  <div class="header-title">⚙️ 設定</div>
   <div id="headerInfo" style="font-size:11px;opacity:.85;text-align:right;line-height:1.4;"></div>
 </div>
 
 <div class="content">
 
+  <!-- ═══ 👤 我的（所有人；不折疊，員工打開設定就是看這一區）═══ -->
+  <div id="grpMe">
+    <div class="set-grp">👤 我的</div>
+    <div class="menu-list" style="margin-bottom:16px;">
+      <div id="itemAccount" class="menu-item" onclick="window.location.href='employee-mgmt.html?mode=self'">
+        <div class="menu-item-icon" style="background:#e8f0fe;">👤</div>
+        <div class="menu-item-text">
+          <div class="menu-item-title">帳號與密碼</div>
+          <div class="menu-item-sub">修改密碼、個人資料、LINE 通知綁定</div>
+        </div>
+        <div class="menu-item-arrow">›</div>
+      </div>
+      <div id="itemNotify" class="menu-item" onclick="openPushSettings()">
+        <div class="menu-item-icon" style="background:#fef3c7;">🔔</div>
+        <div class="menu-item-text">
+          <div class="menu-item-title">通知設定</div>
+          <div class="menu-item-sub">開啟、測試、關閉這台手機的推播通知</div>
+        </div>
+        <div class="menu-item-arrow">›</div>
+      </div>
+      <div id="itemA2hs" class="menu-item" style="display:none;" onclick="openA2hsGuide()">
+        <div class="menu-item-icon" style="background:#e6f4ea;">📲</div>
+        <div class="menu-item-text">
+          <div class="menu-item-title">加入主畫面</div>
+          <div class="menu-item-sub">像 App 一樣從手機桌面打開（iPhone 要先做才收得到推播）</div>
+        </div>
+        <div class="menu-item-arrow">›</div>
+      </div>
+    </div>
+  </div>
+
   <!-- ═══ 🏪 門市營運 ═══ -->
-  <div id="grpOps" style="display:none;">
-    <div class="set-grp">🏪 門市營運</div>
+  <div id="grpOps" class="set-item" style="display:none;">
+    <div class="set-grp set-head" onclick="toggleSet(this)">🏪 門市營運<span class="perm-badge perm-manager">店長</span><span class="set-chev">▸</span></div>
     <div id="itemClock" class="set-item" style="display:none;">
       <div class="card-title set-head" onclick="toggleSet(this)" style="padding:0 0 8px;">🕐 打卡系統
         <span class="perm-badge perm-admin">管理者</span><span class="set-chev">▸</span>
@@ -148,8 +180,8 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
     </div>
 
   <!-- ═══ 🧾 薪資・法規 ═══ -->
-  <div id="grpPayLaw" style="display:none;">
-    <div class="set-grp">🧾 薪資・法規</div>
+  <div id="grpPayLaw" class="set-item" style="display:none;">
+    <div class="set-grp set-head" onclick="toggleSet(this)">🧾 薪資・法規<span class="perm-badge perm-owner">加盟主</span><span class="set-chev">▸</span></div>
       <div class="menu-list" style="margin-bottom:16px;">
         <div id="itemInsurance" class="menu-item" onclick="openInsuranceModal()">
           <div class="menu-item-icon" style="background:#e6f4ea;">🧾</div>
@@ -171,8 +203,8 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
     </div>
 
   <!-- ═══ ⚙️ 系統 ═══ -->
-  <div id="grpSystem" style="display:none;">
-    <div class="set-grp">⚙️ 系統</div>
+  <div id="grpSystem" class="set-item" style="display:none;">
+    <div class="set-grp set-head" onclick="toggleSet(this)">⚙️ 系統<span class="perm-badge perm-admin">管理者</span><span class="set-chev">▸</span></div>
     <div id="itemMaint" class="set-item" style="display:none;">
       <div class="card-title set-head" onclick="toggleSet(this)" style="padding:0 0 8px;">🔧 系統維護模式
         <span class="perm-badge perm-admin">管理者</span><span class="set-chev">▸</span>
@@ -223,15 +255,17 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
         <div id="tourStats" style="font-size:13px;">載入中...</div>
       </div>
     </div>
-    <div class="menu-list" style="margin-bottom:16px;">
-      <div id="itemChangelog" class="menu-item" onclick="openChangelogModal()">
-        <div class="menu-item-icon" style="background:#f3e8ff;">📋</div>
-        <div class="menu-item-text">
-          <div class="menu-item-title">系統更新紀錄</div>
-          <div class="menu-item-sub">查看歷次功能更新與修正內容</div>
-        </div>
-        <div class="menu-item-arrow">›</div>
+  </div>
+
+  <!-- 更新日誌：所有人都看得到，所以不放進任何權限群組（放「系統」裡群組標籤會誤標管理者）-->
+  <div class="menu-list" style="margin:0 0 16px;">
+    <div id="itemChangelog" class="menu-item" onclick="openChangelogModal()">
+      <div class="menu-item-icon" style="background:#f3e8ff;">📋</div>
+      <div class="menu-item-text">
+        <div class="menu-item-title">系統更新紀錄</div>
+        <div class="menu-item-sub">查看歷次功能更新與修正內容</div>
       </div>
+      <div class="menu-item-arrow">›</div>
     </div>
   </div>
 </div>
@@ -289,6 +323,7 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
       </div>
       <button onclick="recalcInsuranceGrades()" style="margin-top:10px; width:100%; padding:9px; background:var(--accent); color:white; border:none; border-radius:8px; font-weight:700; font-size:13px; cursor:pointer;">🔄 依費率重新計算全部級距</button>
     </div>
+
 
     <!-- 級距表 -->
     <div style="font-size:12px; font-weight:800; color:var(--text-muted); margin-bottom:6px;">投保薪資級距金額表</div>
@@ -394,6 +429,7 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
 
 <div class="toast" id="toast"></div>
 
+<script src="home-push.js"></script>
 <script src="settings-page.js"></script>
 </body>
 </html>

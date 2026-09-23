@@ -57,9 +57,11 @@ window.onload = async () => {
   showEl('itemShift', canManager());
   showEl('itemInsurance', canOwner()); showEl('itemHoliday', canOwner());
   showEl('itemChangelog', true);
+  // 👤 我的：所有人都有；「加入主畫面」只對還沒裝成 App 的人顯示（同 ☰ 的判斷）
+  showEl('itemA2hs', typeof hpStandalone === 'function' ? !hpStandalone() : false);
   if(canAdmin()){ loadLineKeywords(); loadMaintenanceState(); loadClockConfig(); loadCitySummary(); loadNoticeStats(); loadTourStats(); loadAppUsageStats(); }
   // 群組標題：該類任一項可見才顯示整組
-  [['grpOps',['itemClock','itemShift','itemStoreMgmt','itemCity']],['grpPayLaw',['itemInsurance','itemHoliday']],['grpSystem',['itemMaint','itemLineKw','itemStats','itemChangelog']]]
+  [['grpOps',['itemClock','itemShift','itemStoreMgmt','itemCity']],['grpPayLaw',['itemInsurance','itemHoliday']],['grpSystem',['itemMaint','itemLineKw','itemStats']]]
     .forEach(([g,items])=>{ const any=items.some(id=>{const el=document.getElementById(id);return el&&el.style.display!=='none';}); showEl(g,any); });
 
   hideLoading();

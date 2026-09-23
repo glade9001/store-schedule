@@ -52,7 +52,7 @@ function homeTourSteps() {
       before: function () { closeNavDrawer(); },
       target: '#headerMenuBtn',
       title: '收不到通知的話',
-      text: 'iPhone 一定要先「加入主畫面」，用瀏覽器開是收不到推播的。點這個 ☰ →「加入主畫面」照著做，再開「推播通知」。',
+      text: 'iPhone 一定要先「加入主畫面」，用瀏覽器開是收不到推播的。點這個 ☰ →「設定」，裡面有「加入主畫面」和「通知設定」，照著做就可以了。',
     },
     {
       before: function () { openNavDrawer(); },
@@ -164,7 +164,7 @@ function htClose() {
 
 function skipHomeTour() {
   htClose();
-  if (!htManual) showToast('之後想看，可以點左上角 ☰ →「重看新版教學」');
+  if (!htManual) showToast('之後想看，可以點左上角 ☰ →「App 使用教學」');
 }
 
 function finishHomeTour() {

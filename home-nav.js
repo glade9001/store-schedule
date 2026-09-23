@@ -53,11 +53,9 @@ var HOME_FEATURES = [
   { id: 'wds',     group: 'store', icon: '💬', label: '大智通小智', sub: '外部網站',       href: 'https://www.wds.com.tw/webchat/?action=dispatch2&bb=2&openExternalBrowser=1' },
   { id: 'learn',   group: 'store', icon: '📚', label: '學習平台',   sub: '外部網站・線上課程', href: 'https://e-learning.unipcsc.com.tw/eHRD/eHRDOrg', browser: true, kw: '教育訓練 課程 e-learning' },
   // ── 帳號與系統 ──
-  { id: 'account',   group: 'sys', icon: '👤', label: '帳號管理',     sub: '修改密碼、個人資料',         go: 'employee-mgmt.html?mode=self', kw: '密碼' },
-  { id: 'push',      group: 'sys', icon: '📣', label: '推播通知',     sub: '開啟、測試、關閉這台手機的推播', run: function () { openPushSettings(); }, kw: '通知 推播' },
-  { id: 'a2hs',      group: 'sys', icon: '📲', label: '加入主畫面',   sub: '像 App 一樣從手機桌面打開',   run: function () { openA2hsGuide(); }, show: function () { return !hpStandalone(); }, kw: '安裝 桌面 App' },
-  { id: 'settings',  group: 'sys', icon: '🔧', label: '系統設定',     sub: '班別、工時、投保級距、更新日誌', go: 'settings.html', show: hnIsLead, kw: '設定 更新日誌' },
-  { id: 'changelog', group: 'sys', icon: '📋', label: '更新日誌',     sub: '系統功能更新紀錄',           go: 'settings.html', show: function () { return !hnIsLead(); } },
+  // 2026-09-23：帳號、通知、加入主畫面、更新日誌、系統設定原本是 ☰ 的五個項目，
+  // 全部收進「設定」一頁（設定頁最上面是所有人都有的「我的」，其餘依權限折疊）。
+  { id: 'settings',  group: 'sys', icon: '⚙️', label: '設定',         sub: '帳號密碼、通知、更新紀錄',   go: 'settings.html', kw: '密碼 推播 通知 加入主畫面 更新日誌 系統設定 班別 投保級距' },
   { id: 'tour',      group: 'sys', icon: '🎓', label: 'App 使用教學',  sub: '打卡、劃休、看班表、薪資簽收', run: function () { startHomeTour(true); }, kw: '教學 新人 導覽 怎麼用' },
   { id: 'logout',    group: 'sys', icon: '🚪', label: '登出',         sub: '退出目前帳號',               run: function () { doLogout(); }, danger: true },
 ];

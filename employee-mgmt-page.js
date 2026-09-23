@@ -110,7 +110,7 @@ async function renderLineCard() {
     }
     // 2026-09-15 起不再請人綁 LINE：沒綁的人改引導開推播
     body.innerHTML = `<div>系統通知已改用<b>推播通知</b>，不需要綁定 LINE。</div>
-      <div style="margin-top:6px; font-size:13px; color:var(--text-muted);">到首頁左上角 ☰ →「推播通知」開啟（iPhone 要先加入主畫面）。</div>
+      <div style="margin-top:6px; font-size:13px; color:var(--text-muted);">到首頁左上角 ☰ →「設定」→「通知設定」開啟（iPhone 要先加入主畫面）。</div>
       <button onclick="window.location.href='home.html'" style="width:100%; padding:11px; background:var(--primary); color:#fff; border:none; border-radius:10px; font-weight:800; cursor:pointer; margin-top:14px;">回首頁開啟推播</button>`;
   } catch(e) { body.innerHTML = '載入失敗：' + e.message; }
 }

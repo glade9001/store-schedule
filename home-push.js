@@ -7,6 +7,8 @@
 // 3) 推播：標準 Web Push。訂閱經 Cloud Function pushSubscribe 存到 pushSubs（前端不直接寫）。
 //    iPhone 必須先加入主畫面、從主畫面打開才有推播（Safari 分頁沒有 PushManager）。
 // 4) 紅點：App 圖示顯示待處理件數（navigator.setAppBadge；只有裝成 App 的才看得到）。
+// ⚠️ 設定頁（settings.html）也載入本檔來用「通知設定／加入主畫面」彈窗，但那裡沒有 home-nav.js，
+//    所以 hnUserDoc / hnSaveUserField 一律透過 window.* 取用（沒載入就是 undefined，不會炸）。
 
 var HP_VAPID_PUBLIC = 'BGhmoFm3LcXdHVJf0Abc6b5WtJzx25nktsKM01MQ7zUf6otCr6kOaTnGVQ0qUbGtuQf5W15muw55rRcfzZZi3cA'; // 與 functions/index.js 一致
 var HP_HIDE_DAYS = 7;
@@ -88,7 +90,7 @@ function hpUpdateA2hsPill() {
 function hideA2hsPill() {
   hpHide('a2hsHideUntil');
   hpUpdateA2hsPill();
-  showToast('之後想加，可以從左上角 ☰ →「加入主畫面」');
+  showToast('之後想加，可以從左上角 ☰ →「設定」→「加入主畫面」');
 }
 
 function openA2hsGuide() {
@@ -174,7 +176,7 @@ function hpUpdatePushPill(sub) {
 function hidePushPill() {
   hpHide('pushPillHideUntil');
   var pill = document.getElementById('pushPill'); if (pill) pill.style.display = 'none';
-  showToast('之後想開，可以從左上角 ☰ →「推播通知」');
+  showToast('之後想開，可以從左上角 ☰ →「設定」→「通知設定」');
 }
 
 async function openPushSettings() {
@@ -308,7 +310,7 @@ async function maybeShowPushInvite(attempt) {
   if (hpPlatform() === 'ios' && !hpStandalone()) { maybeShowA2hsInvite(attempt); return; }
   if (!hpPushSupported()) return;
   if (Notification.permission === 'denied') return;
-  var inv = (hnUserDoc && hnUserDoc.pushInvite) || {};
+  var inv = (window.hnUserDoc && window.hnUserDoc.pushInvite) || {};
   var last = Date.parse(inv.lastAt || '') || 0;
   if (Date.now() - last < HP_INVITE_EVERY_DAYS * 86400000) return;
   if (await hpGetSubscription()) return;
@@ -316,13 +318,13 @@ async function maybeShowPushInvite(attempt) {
     if (attempt < 10) setTimeout(function () { maybeShowPushInvite(attempt + 1); }, 2000);
     return;
   }
-  hnSaveUserField('pushInvite', { skips: (inv.skips || 0) + 1, lastAt: new Date().toISOString() });
+  if (window.hnSaveUserField) window.hnSaveUserField('pushInvite', { skips: (inv.skips || 0) + 1, lastAt: new Date().toISOString() });
   hpOpenModal('🔔 開啟推播通知',
     '開啟後，系統通知會直接跳在這台手機上，不用再等 LINE。',
     '<ul class="hp-steps" style="list-style:none;padding-left:0;">' +
       '<li>📅 班表、薪資、待處理等通知，會陸續改用推播發送</li>' +
       '<li>🔴 App 圖示會顯示待處理件數，一眼就知道有沒有事</li>' +
-      '<li>🔕 隨時可以從左上角 ☰ →「推播通知」關閉</li></ul>' +
+      '<li>🔕 隨時可以從左上角 ☰ →「設定」→「通知設定」關閉</li></ul>' +
     '<button class="hp-btn" id="hpEnableBtn" onclick="hpEnablePush()">開啟推播通知</button>' +
     '<p class="hp-note">按下後手機會詢問是否允許通知，請選「<b>允許</b>」。沒開的話，每週會再提醒一次。</p>');
   var close = document.querySelector('#hpModal .hp-close');
@@ -339,14 +341,14 @@ function hpBusy() {
 // 紀錄：users/{uid}.a2hsInvite.lastAt，滿 7 天才再彈；從主畫面打開後就改走推播邀請，不會再看到這張。
 async function maybeShowA2hsInvite(attempt) {
   attempt = attempt || 0;
-  var inv = (hnUserDoc && hnUserDoc.a2hsInvite) || {};
+  var inv = (window.hnUserDoc && window.hnUserDoc.a2hsInvite) || {};
   var last = Date.parse(inv.lastAt || '') || 0;
   if (Date.now() - last < HP_INVITE_EVERY_DAYS * 86400000) return;
   if (hpBusy()) {
     if (attempt < 10) setTimeout(function () { maybeShowA2hsInvite(attempt + 1); }, 2000);
     return;
   }
-  hnSaveUserField('a2hsInvite', { skips: (inv.skips || 0) + 1, lastAt: new Date().toISOString() });
+  if (window.hnSaveUserField) window.hnSaveUserField('a2hsInvite', { skips: (inv.skips || 0) + 1, lastAt: new Date().toISOString() });
   openA2hsGuide();
   document.getElementById('hpModalTitle').textContent = '📲 把莉學加到手機桌面';
   document.getElementById('hpModalLead').textContent = '加入後像 App 一樣從桌面打開，還能開啟推播通知、在圖示上看到待處理件數。已經加過的話，之後請改從桌面的圖示打開。';
