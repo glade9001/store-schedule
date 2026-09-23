@@ -276,14 +276,16 @@ function renderScorecard(m,extra,mode){
   let detail='';
   ranked.forEach((s)=>{
     const r=rows.find(x=>x.s===s);
-    detail+=`<div class="card"><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span style="width:10px;height:10px;border-radius:50%;background:${STORE_COLORS[s]||'#888'}"></span><span style="font-size:15px;font-weight:900;">${s}</span><span style="font-size:12px;color:var(--muted);font-weight:700;">${(extra[s]&&extra[s].mgr)||''}</span><span style="margin-left:auto;font-size:12px;font-weight:800;color:var(--primary);">總分 ${Math.round(total[s])}（第 ${placeOf(s)} 名）</span></div>`;
+    // 上面的總表已經把每店每個指標的分數列過一次，明細若也攤開就是同樣數字看兩遍 →
+    // 收進 <details>，要看「為什麼是這個分數」才點開（原生元素，不必寫 JS）。
+    detail+=`<details class="dim-fold"><summary><span style="width:10px;height:10px;border-radius:50%;background:${STORE_COLORS[s]||'#888'};flex-shrink:0;"></span><span style="font-size:15px;font-weight:900;">${s}</span><span style="font-size:12px;color:var(--muted);font-weight:700;">${(extra[s]&&extra[s].mgr)||''}</span><span style="margin-left:auto;font-size:12px;font-weight:800;color:var(--primary);">總分 ${Math.round(total[s])}（第 ${placeOf(s)} 名）</span></summary>`;
     dims.forEach(d=>{
       const v=d.val(r), sc=scMap[s][d.key];
       detail+=`<div class="dim-row"><div class="dim-ic">${d.ic}</div><div class="dim-body"><div class="dim-name">${d.name} <span style="font-size:10px;color:var(--muted);font-weight:800;">×${d.w}</span> ${sc!=null?`<span style="font-weight:900;color:${scColor(sc)}">${Math.round(sc)}分</span>`:''}</div><div class="dim-sub">${v!=null?d.fmt(v):'<span style="color:#cbd5e1;">資料累積中</span>'}${v!=null?' · '+d.sub(r):''}</div></div></div>`;
     });
-    detail+=`</div>`;
+    detail+=`</details>`;
   });
-  return head+tbl+detail+`<div class="note"><b>計分＝各指標對「固定標準」打 0–100 分 × 權重加總</b>（不跟另兩家比名次，故不受單一離群值扭曲）。<b>獲益優先權重</b>：💰獲利貢獻 ×1.3、🛡️損耗控制 ×1.0、📈業績成長 ×1.0、📐人事費率 ×0.6、📉費率改善 ×0.6、⚖️合規 ×0.3、⏰出勤 ×0.3、🏭坪效 ×0.3。<b>💰獲利貢獻＝餘裕率分 ×0.7 ＋ 餘裕金額分 ×0.3</b>（率滿分 4%、額滿分 $100,000）——只看比率會讓規模不同的兩家在天花板上同分。<b>餘裕率＝門市貢獻率（經營報酬−人事，未扣稅/水電/租金），非最終淨利</b>——稅/租金非店長可控，排除較公平。缺去年同期或打卡資料顯示「資料累積中」不計分。<b>盤損按盤點區間攤提</b>（盤點 60~90 天一次，盤損整筆記在盤點當月會讓該月店長背整個區間、其餘月份又虛高），未盤點區間沿用上次月均估算。</div>`+detail;
+  return head+tbl+`<div class="note" style="margin-bottom:10px;">點門市可以展開，看每個指標的分數是怎麼來的。</div>`+detail+`<div class="note"><b>計分＝各指標對「固定標準」打 0–100 分 × 權重加總</b>（不跟另兩家比名次，故不受單一離群值扭曲）。<b>獲益優先權重</b>：💰獲利貢獻 ×1.3、🛡️損耗控制 ×1.0、📈業績成長 ×1.0、📐人事費率 ×0.6、📉費率改善 ×0.6、⚖️合規 ×0.3、⏰出勤 ×0.3、🏭坪效 ×0.3。<b>💰獲利貢獻＝餘裕率分 ×0.7 ＋ 餘裕金額分 ×0.3</b>（率滿分 4%、額滿分 $100,000）——只看比率會讓規模不同的兩家在天花板上同分。<b>餘裕率＝門市貢獻率（經營報酬−人事，未扣稅/水電/租金），非最終淨利</b>——稅/租金非店長可控，排除較公平。缺去年同期或打卡資料顯示「資料累積中」不計分。<b>盤損按盤點區間攤提</b>（盤點 60~90 天一次，盤損整筆記在盤點當月會讓該月店長背整個區間、其餘月份又虛高），未盤點區間沿用上次月均估算。</div>`;
 }
 // ===== 決策警示 =====
 function renderAlerts(m,extra){

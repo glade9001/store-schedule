@@ -422,13 +422,14 @@ function pfRecentTable(months){
   const head=`<tr><th class="rt-t">指標</th><th class="rt-v">${pyr}年平均<br><span class="rt-cov">${cover(pyr)}</span></th>`
     + cols.map(m=>`<th class="rt-v">${lbl(m)}</th>`).join('')
     + `<th class="rt-v">${yr}年平均<br><span class="rt-cov">${cover(yr)}</span></th></tr>`;
-  return `<div class="chart-card"><div class="chart-title">📋 近月實績（${lbl(cols[0])}～${lbl(cols[cols.length-1])}）</div>
+  // 表格資訊密度高，預設收起來；要看再點開（原生 <details>，不必寫 JS）
+  return `<details class="chart-card rt-fold"><summary class="chart-title">📋 近月實績（${lbl(cols[0])}～${lbl(cols[cols.length-1])}）</summary>
     <div class="chart-scroll" style="overflow-x:auto;"><table class="rt">${head}${body}</table></div>
     <div style="font-size:11px;color:var(--text-muted);margin-top:8px;line-height:1.7;">
       兩側是年度平均（當基準），中間是最近三個月。「同比差異」＝跟<b>去年同月</b>比；年度平均欄位比的是<b>兩個年度的平均</b>。<br>
       綠＝比去年好、紅＝比去年差。人事類 2026/5 起才有資料，去年同期不存在所以顯示「—」。<br>
       兩個年度涵蓋的月份不同（見欄位下方小字），所以<b>年度平均那欄的同比只取兩年共有的月份</b>重算，避免被季節性影響。
-    </div></div>`;
+    </div></details>`;
 }
 
 function renderAnalysis(){

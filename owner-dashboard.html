@@ -64,6 +64,14 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
 .link-arr{color:#cbd5e1;font-size:18px;}
 .scroll{overflow-x:auto;overscroll-behavior-x:contain;}
 .empty{text-align:center;padding:24px;color:var(--muted);font-size:13px;}
+/* 計分卡每店明細：收合，點門市才展開（總表已列過同樣的分數） */
+.dim-fold{background:#fff;border-radius:14px;box-shadow:0 1px 4px rgba(0,0,0,.06);padding:0 15px;margin-bottom:10px;}
+.dim-fold>summary{display:flex;align-items:center;gap:8px;padding:13px 0;cursor:pointer;list-style:none;}
+.dim-fold>summary::-webkit-details-marker{display:none;}
+.dim-fold>summary::after{content:'▸';margin-left:8px;color:var(--muted);font-size:13px;font-weight:700;transition:transform .15s;flex-shrink:0;}
+.dim-fold[open]>summary::after{transform:rotate(90deg);}
+.dim-fold[open]>summary{border-bottom:1px solid #f1f4f8;margin-bottom:8px;}
+.dim-fold>*:last-child{margin-bottom:13px;}
 /* 計分卡摘要（主畫面）與「只看計分卡」的返回鈕 */
 .sc-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #f1f4f8;}
 .sc-row:last-of-type{border-bottom:none;}
