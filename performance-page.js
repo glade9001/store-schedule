@@ -262,7 +262,7 @@ function lineChart(points,opt){
   points=points.slice(a,b+1);
   const vals=points.map(p=>p.value).filter(v=>v!=null);
   if(!vals.length)return '<div style="font-size:12px;color:var(--text-muted);">尚無資料</div>';
-  const n=points.length, W=Math.max(600,n*58), H=192, pl=38,pr=42,pt=28,pb=28, iw=W-pl-pr, ih=H-pt-pb;
+  const n=points.length, W=Math.max(340,n*58+80), H=192, pl=38,pr=42,pt=28,pb=28, iw=W-pl-pr, ih=H-pt-pb;
   let min=Math.min(...vals),max=Math.max(...vals);if(min===max){min=min-Math.abs(min||1)*0.1;max=max+Math.abs(max||1)*0.1;}
   const X=i=>pl+(n<=1?iw/2:i/(n-1)*iw);
   const Y=v=>pt+ih-(v-min)/(max-min)*ih;
@@ -282,9 +282,14 @@ function lineChart(points,opt){
     taps+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="14" fill="transparent" style="cursor:pointer" onclick="showPt('${esc(p.label)}','${esc(fmtV(p.value))}','${esc(p.detail||'')}')"/>`;
     vlabels+=`<text x="${x.toFixed(1)}" y="${(y-6).toFixed(1)}" font-size="9" fill="${opt.color}" text-anchor="middle" font-weight="800">${ptFmt(p.value)}</text>`;});
   points.forEach((p,i)=>{labels+=`<text x="${X(i).toFixed(1)}" y="${H-8}" font-size="9" fill="#999" text-anchor="middle">${p.label}</text>`;});
-  const scroll = W>600 ? 'min-width:'+W+'px;' : 'width:100%;';
-  return `<div style="overflow-x:auto;"><svg viewBox="0 0 ${W} ${H}" style="${scroll}height:auto;">
+  return `<div class="chart-scroll" style="overflow-x:auto;"><svg viewBox="0 0 ${W} ${H}" style="min-width:${W}px;height:auto;">
     ${grid}${avgLine}<path d="${path}" fill="none" stroke="${opt.color}" stroke-width="2.2"/>${dots}${taps}${vlabels}${labels}</svg></div>`;
+}
+/** 圖表畫完捲到最右邊：看的永遠是最新月份（不加的話每次都要自己往右滑） */
+function pfScrollChartsToEnd(root){
+  requestAnimationFrame(function(){
+    (root||document).querySelectorAll('.chart-scroll').forEach(function(e){ e.scrollLeft = e.scrollWidth; });
+  });
 }
 function showPt(title,val,detail){
   const el=document.getElementById('ptPop'); if(!el)return;
@@ -306,7 +311,7 @@ function multiLineChart(months, series, opt){
   months=months.slice(a,b+1); series=series.map(s=>({name:s.name,color:s.color,values:s.values.slice(a,b+1)}));
   const allV=[]; series.forEach(s=>s.values.forEach(v=>{if(v!=null)allV.push(v);}));
   if(!allV.length)return '<div style="font-size:12px;color:var(--text-muted);">此期間尚無資料</div>';
-  const n=months.length, W=Math.max(600,n*58), H=214, pl=38,pr=42,pt=42,pb=28, iw=W-pl-pr, ih=H-pt-pb;
+  const n=months.length, W=Math.max(340,n*58+80), H=214, pl=38,pr=42,pt=42,pb=28, iw=W-pl-pr, ih=H-pt-pb;
   let min=Math.min(...allV),max=Math.max(...allV); if(min===max){min=min-Math.abs(min||1)*0.1;max=max+Math.abs(max||1)*0.1;}
   const X=i=>pl+(n<=1?iw/2:i/(n-1)*iw), Y=v=>pt+ih-(v-min)/(max-min)*ih;
   let grid='';
@@ -322,8 +327,7 @@ function multiLineChart(months, series, opt){
     body+=`<path d="${path}" fill="none" stroke="${s.color}" stroke-width="${s.dash?2:2.2}"${s.dash?' stroke-dasharray="6 4"':''}/>${dots}${taps}`;});
   let legend=''; series.forEach((s,i)=>{const lx=pl+i*96;legend+=`<circle cx="${lx}" cy="18" r="4.5" fill="${s.color}"/><text x="${lx+9}" y="22" font-size="11" fill="#333" font-weight="800">${esc(s.name)}</text>`;});
   let labels=''; months.forEach((m,i)=>{labels+=`<text x="${X(i).toFixed(1)}" y="${H-8}" font-size="9" fill="#999" text-anchor="middle">${mlbl(m)}</text>`;});
-  const scroll=W>600?'min-width:'+W+'px;':'width:100%;';
-  return `<div style="overflow-x:auto;"><svg viewBox="0 0 ${W} ${H}" style="${scroll}height:auto;">${grid}${legend}${body}${labels}</svg></div>`;
+  return `<div class="chart-scroll" style="overflow-x:auto;"><svg viewBox="0 0 ${W} ${H}" style="min-width:${W}px;height:auto;">${grid}${legend}${body}${labels}</svg></div>`;
 }
 async function renderStoreTrend(){
   const box=document.getElementById('storeTrendBox'); if(!box)return;
@@ -346,7 +350,8 @@ async function renderStoreTrend(){
     if(!vs.length)return null; const sum=vs.reduce((a,b)=>a+b,0); return isSum?sum:sum/vs.length;});
   series.push({name:isSum?'總計':'平均',color:'#94a3b8',dash:true,values:aggVals});
   box.innerHTML=multiLineChart(months, series, {fmt:M.fmt})
-    +`<div style="font-size:11px;color:var(--text-muted);margin-top:6px;">點線上的點看該店該月數值；人事類指標 2026/4 不列入。錦花無損益資料，僅工時相關可見。</div>`;
+    +`<div style="font-size:11px;color:var(--text-muted);margin-top:6px;">點線上的點看該店該月數值。人事類指標 2026/5 起才有（薪資系統上線時間），2026/4 不列入。</div>`;
+  pfScrollChartsToEnd(box);
 }
 function renderAnalysis(){
   const wrap=document.getElementById('tabAnalysis');
@@ -417,6 +422,7 @@ function renderAnalysis(){
       <div style="font-size:12.5px;font-weight:800;color:var(--text-muted);margin-bottom:6px;">單月對照</div>
       <div id="compareBox"><div style="font-size:12px;color:var(--text-muted);">載入中…</div></div>
     </div>`:'');
+  pfScrollChartsToEnd(wrap);
   if(isAdminOwner()){ renderStoreTrend(); renderCompare(months[months.length-1]); }
 }
 let cmpData=null; // {store:{pnl:{m:..},perf:{m:..}}}
@@ -488,5 +494,5 @@ async function renderCompare(defaultM){
     <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12.5px;white-space:nowrap;">
     <thead><tr style="color:var(--text-muted);font-size:11px;"><th style="text-align:left;padding:4px;">門市</th><th style="text-align:right;padding:4px;">營業淨額</th><th style="text-align:right;">毛利率</th><th style="text-align:right;">經營報酬</th><th style="text-align:right;">壞品</th><th style="text-align:right;">人事費率</th><th style="text-align:right;">每工時營收</th></tr></thead>
     <tbody>${rows}</tbody></table></div>
-    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">人事費率＝人事成本(含支援)÷營業淨額；2026/4 不列入；—代表該月尚無資料</div>`;
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">人事費率＝人事成本(含支援)÷營業淨額；人事類 2026/5 起才有，2026/4 不列入；—代表該月尚無資料</div>`;
 }
