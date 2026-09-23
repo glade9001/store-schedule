@@ -15,8 +15,8 @@ var HN_GROUPS = [
   { key: 'store',  title: '門市工具',   fav: '', fold: true },   // 首頁已固定顯示這幾個，抽屜裡預設收起來（狀態記在 localStorage）
   { key: 'sched',  title: '排班・出勤', fav: 'mgmt' },
   { key: 'people', title: '人事・薪資', fav: 'mgmt' },
-  { key: 'ops',    title: '營運',       fav: 'mgmt' },
-  { key: 'tools',  title: '管理工具',   fav: 'mgmt' },
+  { key: 'ops',    title: '營運',       fav: 'mgmt', fold: true },
+  { key: 'tools',  title: '管理工具',   fav: 'mgmt', fold: true },
   { key: 'sys',    title: '帳號與系統', fav: '' },
 ];
 
@@ -257,7 +257,7 @@ function renderNavDrawer() {
       html += '<div class="nd-sep"></div>';   // 管理功能區塊結束，後面是全員項目
       mgmtEnded = true;
     }
-    if (g.fold) {
+    if (g.fold && items.length > 1) {   // 只剩一項就不用折了（例：店長的「營運」只有經營績效）
       var open = hnFoldOpen(g.key);
       html += '<div class="nd-group nd-fold' + (open ? ' open' : '') + '" role="button" tabindex="0" aria-expanded="' + (open ? 'true' : 'false') + '"' +
         ' onclick="hnToggleGroup(\'' + g.key + '\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();hnToggleGroup(\'' + g.key + '\');}">' +
