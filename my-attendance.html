@@ -216,7 +216,7 @@ async function submitReq(){
   const requestedTime=document.getElementById('rqTime').value;
   if(!atStore||!targetDate||!requestedTime){ alert('請填寫門市、日期、時間'); return; }
   const rr=collectReqReason(); if(!rr) return;
-  // 這個時間對得上哪一班？對不上就先問（2026-09-22：劉金鈴 9/16 07:00 那筆不屬於任何一班，卻被核准）
+  // 這個時間對得上哪一班？對不上就先問（2026-09-22：某跨店支援的正職 9/16 07:00 那筆不屬於任何一班，卻被核准）
   let mt={ shift:'', shiftDate:_fixShiftDate||targetDate };
   try{ mt=await matchSchedShift(atStore, currentUser.empName, currentUser.store||'', targetDate, requestedTime, punchType); }catch(e){}
   if(!mt.shift && !confirm(`⚠️ ${targetDate} ${requestedTime} 的${punchType}卡，對不上你在 ${atStore} 的任何一個班。\n\n跨夜班的下班是「隔天」早上（例：9/17 大夜 23-07 → 9/18 07:00）。\n確定要這樣送出嗎？`)) return;

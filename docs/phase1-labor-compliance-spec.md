@@ -187,7 +187,7 @@ return { errors, warnings, softBlocks };
 
 ```js
 {
-  name: '農芯', day: '三', shift: '23-07', h: 8, /* 現有欄位不動 */
+  name: '某員工', day: '三', shift: '23-07', h: 8, /* 現有欄位不動 */
   lawOverrides: [
     {
       rule: 'rest11h',           // rest11h | weekly1off | daily12h | monthlyOt46

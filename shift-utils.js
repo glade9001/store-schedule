@@ -223,7 +223,7 @@ async function findShiftStoresOn(dateStr, empName, homeStore, stores) {
  * 班的「下班」落在哪天幾點：跨夜班（23-07）的下班是隔天 07:00。
  * @returns {{date:string, time:string, nextDay:boolean}|null}
  * ⚠️ 2026-09-22：待補單預填把 9/17 大夜的下班填成「9/17 07:00」（應為 9/18 07:00）——
- *    劉金鈴 9/16、9/17 兩張缺卡都照預填送出，結果補到的都是前一晚的班、9/17 那晚一直沒補。
+ *    某跨店支援的正職 9/16、9/17 兩張缺卡都照預填送出，結果補到的都是前一晚的班、9/17 那晚一直沒補。
  */
 function shiftOutAt(dateStr, shiftStr) {
   var sp = shiftSpan(shiftStr);

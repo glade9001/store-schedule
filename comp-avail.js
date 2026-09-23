@@ -16,7 +16,7 @@ function caToday() {
  */
 async function caCompAvailability(empName) {
   // ⚠️ 取得／使用都從帳本算（方案C：leaveLog 的 comp_earn/comp_cancel、compUsage 逐日文件），不讀 comp/{年}.earned/used——
-  //    那兩個統計欄位會漂（宇璿 comp/2026.earned=4，但 leaveLog 有 5 筆發放 → 可用被算成 -1，2026-09-22）
+  //    那兩個統計欄位會漂（某正職（大夜） comp/2026.earned=4，但 leaveLog 有 5 筆發放 → 可用被算成 -1，2026-09-22）
   var t = caToday(), yr = +t.slice(0, 4);
   var emp = window.db.collection('employees').doc(empName);
   var FP = firebase.firestore.FieldPath.documentId();

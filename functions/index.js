@@ -979,7 +979,7 @@ function shiftSpan(shiftStr) {
 }
 // 兩個班別字串是不是同一個班：**不可用 === 直接比**。
 // 2026-09-05 實例：缺卡單存 '08-16'、補登卡存 '8-16'，字串不等 → 自動註銷永遠配不上，
-// 那張單子就一直掛在店長與員工的未補清單裡（錦花 8/8 宣妤）。
+// 那張單子就一直掛在店長與員工的未補清單裡（錦花 8/8 某員工）。
 // 前導零、空白、兩頭班的段落一律先解析成數值再比。
 function sameShiftStr(a, b) {
   const A = String(a == null ? "" : a).trim();
@@ -1690,7 +1690,7 @@ exports.onPunchResolveMissFlag = onDocumentWritten(
         // ⚠️ 還要限定「因補登而註銷」的那種：孤兒清理也是 voidedBy=system
         //    （voidReason='排班已變更，此班別不存在'），那種班根本不存在了，
         //    復活它等於叫人去補一個沒排的班。2026-09-05 回放正式資料時抓到 1 張會被誤復活
-        //    （聯鑫 8/22 許亞琪 16-00.5）。
+        //    （聯鑫 8/22 某員工 16-00.5）。
         await f.ref.set({
           voided: false, voidedBy: null, voidedAt: null, voidReason: null,
           editLog: AU({ at: now, by: "system", action: "還原", reason: "補登紀錄已失效，缺卡重新成立" }),
@@ -1754,7 +1754,7 @@ exports.scheduledMissingClock = onSchedule(
       const shifts = recs.filter((r) => r.day === dayName && parseShiftSegs(r.shift).length && !String(r.location || "").startsWith("支援"));
 
       // 孤兒缺卡清理：flagId 帶班別字串（miss_{日期}_{人}_{班別}），排班一改班別就會建一張新的，
-      // 舊班別那張沒人動、永遠留著。實例 2026-08-28：聯鑫 8/22 亞琪同時掛「16-00.5」與「16-01」兩張。
+      // 舊班別那張沒人動、永遠留著。實例 2026-08-28：聯鑫 8/22 某員工同時掛「16-00.5」與「16-01」兩張。
       // 比對當日排班，班別對不上的一律註銷（留 editLog，不刪除）。
       // ⚠️ 只在當日確實有排班時才掃：若 shifts 為空就全掃，等於「讀不到排班＝把當天缺卡全銷掉」。
       if (shifts.length) {
@@ -1978,7 +1978,7 @@ exports.scheduledManagerDigest = onSchedule(
       return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
     })();
     // empName -> [uid]，一次讀完全部，別在門市迴圈裡對每個人各查一次。
-    // ⚠️ 存成陣列而不是單一 uid：users 實際上有同名重複帳號（2026-09-02 盤點發現渲昊有兩份，
+    // ⚠️ 存成陣列而不是單一 uid：users 實際上有同名重複帳號（2026-09-02 盤點發現某員工有兩份，
     //    同店同工號），只取第一個有可能取到那個沒人在用的孤兒 uid → 明明簽收了卻被列成未簽收。
     const uidsByName = {};
     const allUsers = await db.collection("users").get().catch(() => null);
@@ -2226,7 +2226,7 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
       // ⚠️ 一律無條件捨去到「分」，不可用 Math.round（2026-08-28 修）：
       //    打卡時間顯示給員工看的是 hm＝ISO 字串 slice(11,16)＝截斷到分，07:00:30 畫面就是「07:00」。
       //    原本 Math.round 會把 0.5 分進位成 1 → 同一筆資料「顯示準時、系統判遲到 1 分」。
-      //    8 月實測 6 筆（吳亦婷 8/09 07:00:55、賴家宥 8/12 08:00:39、楊文菱 8/19 15:00:57 等）
+      //    8 月實測 6 筆（某正職（早班） 8/09 07:00:55、某正職 8/12 08:00:39、某工讀 8/19 15:00:57 等）
       //    全是未滿一分鐘卻被記遲到，其中 4 筆還因此觸發「你是不是忘記打卡？」而衍生補登申請。
       //    採計到分＝未滿 01:00 就是準時，與畫面一致。
       const late = lateMinutesOf(nowMs, s.startMs);
@@ -2285,7 +2285,7 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
 });
 
 // 定位問題回報：員工打不了卡時按一下，直接把診斷資訊送給店長（LINE）並留存紀錄。
-// 失敗的定位原本什麼都不會留下，事後只能靠猜（阮農芯 2026-08-10 就是這樣查不出來）。
+// 失敗的定位原本什麼都不會留下，事後只能靠猜（某員工 2026-08-10 就是這樣查不出來）。
 exports.reportGeoIssue = onCall({ region: "asia-east1", secrets: [LINE_TOKEN, VAPID_PRIVATE] }, async (request) => {
   const auth = request.auth;
   if (!auth) throw new HttpsError("unauthenticated", "請先登入");

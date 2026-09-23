@@ -15,7 +15,7 @@
  *              營運需要超過時由店長手動排（排班頁「知情放行」留紀錄）。
  *            termDays / vacationDays＝逐日例外：{ 週二:'off', 週三:['15-23'] }
  *              'off'＝那天不能上；陣列＝那天只能上這些班；沒寫的日子照整季的 term / vacation。
- *              （學生每學期課表不同，例：小羊這學期週二、四不能上，週三只能 15-23）
+ *              （學生每學期課表不同，例：某工讀（學生）這學期週二、四不能上，週三只能 15-23）
  *
  * 依賴 shift-utils.js（parseShiftSegs / shiftWeekStr / shiftDateAdd），班別文法只認那一份。
  * 本檔只有 function 宣告、沒有頂層 const/let —— 任何頁面掛上來都不會撞名。
@@ -319,7 +319,7 @@ function asGenerateDraft(inp) {
   (inp.emps || []).forEach(function (e) {
     var st = staffCfg[e.name];
     if (!st || !st.auto) { manualNames[e.name] = true; return; }
-    // 還沒到職／已經離職的日子不排（回測時宇璿、浚、劉孟絃被排進到職前的週；實際上新人到職週也會錯）
+    // 還沒到職／已經離職的日子不排（回測時幾位正職、工讀被排進到職前的週；實際上新人到職週也會錯）
     var from = e.startDate || '', to = e.departDate || '';
     if ((from && from > dates[6]) || (to && to < dates[0])) return;
     var partTime = e.payAsPartTime || e.role === '工讀';
@@ -425,8 +425,8 @@ function asGenerateDraft(inp) {
       avail.forEach(function (s, i) {
         var dur = shiftTotalHours(s);
         if (!p.pt) {
-          // 正職：完整班別。清單寫的是時間範圍（例：浚週末 7-23）→ 取範圍內 8～9 小時的門市班別
-          if (dur <= 9) add(s, i === 0 ? 0 : 20, true); // listed：清單明寫的 9 小時班（如宇璿 23-8）可以多 1 小時
+          // 正職：完整班別。清單寫的是時間範圍（例：某正職週末寫 7-23）→ 取範圍內 8～9 小時的門市班別
+          if (dur <= 9) add(s, i === 0 ? 0 : 20, true); // listed：清單明寫的 9 小時班（如某正職（大夜） 23-8）可以多 1 小時
           else catalog.forEach(function (c) { var h = shiftTotalHours(c); if (h >= 8 && h <= 9 && asShiftWithin(c, s)) add(c, 20); });
         } else {
           add(s, i === 0 ? 0 : 20); // 清單原班別，★ 主力最優先
@@ -434,7 +434,7 @@ function asGenerateDraft(inp) {
         }
       });
       // 半天劃休：早上休→不排 15:00 前開始的班；晚上休→不排 15:00 後
-      //   （劉孟絃早上劃休只能上 16-23 是他個人的情況，使用者定案由店長手動調整，不做成通用規則）
+      //   （某工讀早上劃休只能上 16-23 是他個人的情況，使用者定案由店長手動調整，不做成通用規則）
       opts = opts.filter(function (o) {
         var s = o.span.startH < asAxisStart() ? o.span.startH + 24 : o.span.startH, e = s + o.h;
         if (lv.morning && s < 15) return false;
@@ -568,7 +568,7 @@ function asGenerateDraft(inp) {
           var h = hrs(sh); wkH += h; wkNormal += Math.min(h, 8);
           if (h > 12) cost += tag('1e6', 1e6);                 // 單日 12 小時上限（硬）
           if (h > 8 && !c.fixed) {
-            // 使用者 2026-09-22：7-8 點缺人時，寧可夜班多上 1 小時（宇璿 23-8）也不要開 8-9 這種碎待補。
+            // 使用者 2026-09-22：7-8 點缺人時，寧可夜班多上 1 小時（某正職（大夜） 23-8）也不要開 8-9 這種碎待補。
             // 只有正職清單上明寫的班、多 1 小時以內才算軟加班（照加班費計）；其他仍不自動排加班
             if (!p.pt && o && o.listed && h - 8 <= 1) cost += tag('softOT', (h - 8) * (Math.ceil(p.base / 240) * 1.34 + W.softOT));
             else overDay += h - 8;
@@ -625,7 +625,7 @@ function asGenerateDraft(inp) {
           var lastInMonth = dates.filter(function (d) { return d.slice(0, 7) === m; }).pop();
           var budget = CAP * (+lastInMonth.slice(8)) / daysInMonth(m);
           // 只罰「這週多排造成的超額」：之前幾週已經超過的是既成事實，不能算到這週的某一班頭上
-          // （否則這週只要排他一班，前面的超額就整筆冒出來——阿默 W40 一班被算成 +3.2 萬）
+          // （否則這週只要排他一班，前面的超額就整筆冒出來——某工讀（早晚皆可） W40 一班被算成 +3.2 萬）
           var pastPay = ms(p.name, m).hours * p.wage;
           var over = Math.max(0, soFar * p.wage - budget) - Math.max(0, pastPay - budget);
           if (over > 0) cost += tag('cap', W.capPerDollar * over);
@@ -701,7 +701,7 @@ function asGenerateDraft(inp) {
   }
 
   // 每個起點都做完整收尾（同日兩人交換＋換休重排）再比較：只對最佳起點收尾時，輸入差一點點
-  // （例：班別目錄多一個 7-16）就會停在較差的排法（W41 浚週二休、7 格待補；2026-09-22）
+  // （例：班別目錄多一個 7-16）就會停在較差的排法（W41 某正職週二休、7 格待補；2026-09-22）
   var polishAll = function (st, c) { c = polishPairs(st, c); c = polishSwapRepair(st, c); return polishPairs(st, c); };
   var bestState = initState(false), bestCost = polishAll(bestState, improve(bestState));
   var restarts = opt.restarts == null ? 4 : opt.restarts;
@@ -712,7 +712,7 @@ function asGenerateDraft(inp) {
 
   // ── 收尾：同一天兩個人一起換 ──
   // 一次只動一格會卡在「要兩人同時換才補得到」的情況。
-  // 例：週六浚改早班＋軒暄補 15-23 才能補滿 8-15，單獨任何一步都不划算，區域搜尋走不過去。
+  // 例：週六某正職改早班＋某工讀補 15-23 才能補滿 8-15，單獨任何一步都不划算，區域搜尋走不過去。
   function polishPairs(bestState, bestCost) {
     for (var round = 0; round < 3; round++) {
       var improved = false;
@@ -737,8 +737,8 @@ function asGenerateDraft(inp) {
   }
 
   // ── 收尾 2：換休假日＋重排那兩天其他人 ──
-  // 例（使用者 2026-09-22，W41）：浚週二上 15-23、改休週三；週三由小羊 15-23、軒暄 18-23 補上 → 週二兩格待補都消失。
-  // 光把浚的休假從週二換到週三，缺口只是搬到週三（看起來沒變好），要連同那兩天其他人一起重排才看得出來。
+  // 例（使用者 2026-09-22，W41）：某正職週二上 15-23、改休週三；週三由兩位工讀 15-23、18-23 補上 → 週二兩格待補都消失。
+  // 光把那位正職的休假從週二換到週三，缺口只是搬到週三（看起來沒變好），要連同那兩天其他人一起重排才看得出來。
   function polishSwapRepair(st, bestCost) {
     var bestState = st;
     var snapshot = function () { return bestState.map(function (r) { return r.slice(); }); };

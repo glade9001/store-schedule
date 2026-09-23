@@ -2306,7 +2306,7 @@ async function loadSalaryData() {
 
     // 歷史月份鎖定職稱：過去月份且該員當月已有薪資記錄 → 職稱以記錄為準，
     // 避免員工日後升遷/降職（改主檔職稱）回頭污染舊月薪資結構
-    // （例：楊文菱 7/1 由工讀轉正職，主檔已是正職，但 6 月仍應以工讀計薪）
+    // （例：某工讀 7/1 由工讀轉正職，主檔已是正職，但 6 月仍應以工讀計薪）
     const nowYM = new Date().toISOString().slice(0,7);
     if(currentMonth < nowYM) {
       empList.forEach(e => {

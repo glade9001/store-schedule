@@ -160,7 +160,7 @@ async function loadRequests(){
         <button onclick="approveReq('${r.id}')" style="flex:1;padding:8px;background:#e6f4ea;color:#137333;border:none;border-radius:8px;font-weight:800;cursor:pointer;">✅ 核准</button>
         <button onclick="rejectReq('${r.id}')" style="flex:1;padding:8px;background:#fce8e6;color:#c5221f;border:none;border-radius:8px;font-weight:800;cursor:pointer;">❌ 駁回</button>
       </div></div>`).join('')+`</div>`;
-  // 每筆補登對得上哪一班（跨夜班的下班在隔天）；對不上的標出來，避免核准錯的補登（2026-09-22 劉金鈴 9/16 07:00 那筆）
+  // 每筆補登對得上哪一班（跨夜班的下班在隔天）；對不上的標出來，避免核准錯的補登（2026-09-22 某跨店支援的正職 9/16 07:00 那筆）
   reqs.forEach(async r=>{
     try{
       const m=await matchSchedShift(r.atStore, r.empName, r.homeStore, r.targetDate, r.requestedTime, r.punchType);
@@ -173,7 +173,7 @@ async function loadRequests(){
 }
 function fmtMD(ds){ return (+String(ds).slice(5,7))+'/'+(+String(ds).slice(8,10)); }
 // 補登卡要自己找出它屬於哪一個排班班次。
-// ⚠️ 不補這兩個欄位的後果（邱韋誠 8/5、8/11 就是這樣來的）：
+// ⚠️ 不補這兩個欄位的後果（某員工 8/5、8/11 就是這樣來的）：
 //    補登的上班卡 shift 是空的 → 之後員工打下班卡時，clockPunch 會配對到這張沒有班別的上班卡，
 //    matchedShift 拿到空字串 → 直接判成「到場」，而「到場」不計工時。
 // 視窗與 clockPunch 一致：上班＝排班起點前1h~後4h、下班＝排班終點前4h~後1h，取最接近的一班。

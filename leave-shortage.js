@@ -1,5 +1,5 @@
 // 劃休頁人力提醒（2026-09-22，先在美德試）
-// ⚠️ 不能先假設班表（使用者 2026-09-22）：例如宇璿那週沒劃休，他哪兩天休由店長之後決定，
+// ⚠️ 不能先假設班表（使用者 2026-09-22）：例如某正職（大夜）那週沒劃休，他哪兩天休由店長之後決定，
 //    用草稿預估會把草稿自己挑的休假日標成「缺人」，誤導員工。
 // 所以只看「已經確定的事」：自動排班設定（誰能上哪些班、哪天不能上）＋已送出的劃休＋每時段至少要幾人。
 // 對每一天：假設「還沒劃休、那天能上的人全部都來」，每個時段最多有幾人能上——
@@ -52,7 +52,7 @@ function lshCanCover(name, st, dateStr, reqs) {
   });
   var set = {};
   if (lv.full) return set;
-  // 半天劃休只扣掉休的那一段（工讀可排範圍內較短的班：週二只能上 7-16 的阿默劃晚上休，早上照樣能上）
+  // 半天劃休只扣掉休的那一段（工讀可排範圍內較短的班：週二只能上 7-16 的某工讀（早晚皆可）劃晚上休，早上照樣能上）
   var cut = (15 - asAxisStart()) * 2; // 15:00 在軸上的格子
   asAvailableShifts(st, dateStr, lshBase.cfg.seasons).forEach(function (sh) {
     asShiftSlots(sh).forEach(function (i) {
@@ -87,7 +87,7 @@ function lshDayInfo(dateStr, reqs) {
 function lshLabel(g) { return asHourLabel(g.s).replace('隔天 ', '') + '–' + asHourLabel(g.e); }
 
 /**
- * 結構性的「剛好夠」：同一時段、同一批人，在這週 5 天以上都剛好夠（例：大夜只有宇璿能上）。
+ * 結構性的「剛好夠」：同一時段、同一批人，在這週 5 天以上都剛好夠（例：大夜只有某正職（大夜）能上）。
  * 這種每天都標等於沒標，還會讓那個人覺得哪天都不能休——不標記，只在申請視窗說明。
  */
 function lshStructural(dateStr, g) {
@@ -133,7 +133,7 @@ function lshModalBox(dateStr, readOnly) {
 
 /**
  * 按「確認送出」時呼叫：這筆劃休會不會讓某個時段變成不夠人？會的話回傳確認訊息，不會就回 ''。
- * 只算「因為這筆才缺」的（本來就缺的不算）；結構性的（大夜本來就只有宇璿）也不算——他休哪天都一樣。
+ * 只算「因為這筆才缺」的（本來就缺的不算）；結構性的（大夜本來就只有某正職（大夜））也不算——他休哪天都一樣。
  */
 function lshConfirmMessage(dateStr, shiftKind, who) {
   if (!lshEnabled() || !lshBase || !lshBase.cfg || !currentUser) return '';
