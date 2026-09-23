@@ -40,6 +40,8 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
 /* Cards */
 .card { background: white; border-radius: var(--radius); padding: 16px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
 .card-title { font-size: 14px; font-weight: 900; color: var(--primary); margin-bottom: 14px; display: flex; align-items: center; gap: 6px; }
+.stat-sub { font-size: 12px; font-weight: 900; color: var(--text-muted); margin-bottom: 6px; }
+.menu-item-title .perm-badge { vertical-align: 1px; }
 .set-grp { font-size: 13px; font-weight: 900; color: var(--text); margin: 22px 4px 12px; padding-bottom: 7px; border-bottom: 2px solid var(--border); letter-spacing: .5px; }
 #grpOps > .set-grp:first-child { margin-top: 6px; }
 /* 折疊式設定項：收合時只顯示標題，點標題展開 */
@@ -60,8 +62,8 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
 
 /* Perm badge */
 .perm-badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 6px; margin-left: 6px; }
-.perm-admin { background: #fce8e6; color: var(--danger); }
-.perm-owner { background: #f3e8ff; color: #9334e6; }
+.perm-admin { background: #ede9fe; color: #7c3aed; }   /* 與 ☰ 選單同色：管理者=紫 */
+.perm-owner { background: #fef3c7; color: #b45309; }   /* 加盟主=琥珀 */
 .perm-manager { background: #e8f0fe; color: var(--primary); }
 
 /* Modal */
@@ -117,87 +119,56 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
       <div id="clockGeoGrid"></div>
       <button class="save-btn" style="margin-top:10px;" onclick="saveClockConfig()">💾 儲存打卡設定</button>
     </div>
-    <div id="itemShift" style="display:none;">
-      <div class="card-title" style="padding:16px 0 8px;">🔧 門市班別設定
-        <span class="perm-badge perm-manager">店長</span>
-      </div>
       <div class="menu-list" style="margin-bottom:16px;">
-        <div class="menu-item" onclick="openStoreConfigModal()">
+        <div id="itemShift" class="menu-item" onclick="openStoreConfigModal()">
           <div class="menu-item-icon" style="background:#e8f0fe;">🔧</div>
           <div class="menu-item-text">
-            <div class="menu-item-title">班別快捷設定</div>
+            <div class="menu-item-title">班別快捷設定<span class="perm-badge perm-manager">店長</span></div>
             <div class="menu-item-sub">排班班別、工時、備註快捷按鈕</div>
           </div>
           <div class="menu-item-arrow">›</div>
         </div>
-      </div>
-    </div>
-    <div id="itemStoreMgmt" style="display:none;">
-      <div class="card-title" style="padding:16px 0 8px;">🏪 門市管理
-        <span class="perm-badge perm-admin">管理者</span>
-      </div>
-      <div class="menu-list" style="margin-bottom:16px;">
-        <div class="menu-item" onclick="openSysConfigModal()">
+        <div id="itemCity" class="menu-item" onclick="window.location.href='city-admin.html'">
+          <div class="menu-item-icon" style="background:#fff3e0;">🥤</div>
+          <div class="menu-item-text">
+            <div class="menu-item-title">CITY手順管理<span class="perm-badge perm-admin">管理者</span></div>
+            <div class="menu-item-sub" id='citySub'>確認每週同步的新增、更動、刪除後發佈</div>
+          </div>
+          <div class="menu-item-arrow">›</div>
+        </div>
+        <div id="itemStoreMgmt" class="menu-item" onclick="openSysConfigModal()">
           <div class="menu-item-icon" style="background:#fce8e6;">🏪</div>
           <div class="menu-item-text">
-            <div class="menu-item-title" style="color:var(--danger);">門市管理</div>
+            <div class="menu-item-title" style="color:var(--danger);">門市管理<span class="perm-badge perm-admin">管理者</span></div>
             <div class="menu-item-sub">新增、刪除門市</div>
           </div>
           <div class="menu-item-arrow">›</div>
         </div>
       </div>
     </div>
-    <div id="itemCity" style="display:none;">
-      <div class="card-title" style="padding:16px 0 8px;">🥤 CITY手順
-        <span class="perm-badge perm-admin">管理者</span>
-      </div>
-      <div class="menu-list" style="margin-bottom:16px;">
-        <div class="menu-item" onclick="window.location.href='city-admin.html'">
-          <div class="menu-item-icon" style="background:#fff3e0;">🥤</div>
-          <div class="menu-item-text">
-            <div class="menu-item-title">CITY手順管理</div>
-            <div class="menu-item-sub" id="citySub">確認每週同步的新增、更動、刪除後發佈</div>
-          </div>
-          <div class="menu-item-arrow">›</div>
-        </div>
-      </div>
-    </div>
-  </div>
 
   <!-- ═══ 🧾 薪資・法規 ═══ -->
   <div id="grpPayLaw" style="display:none;">
     <div class="set-grp">🧾 薪資・法規</div>
-    <div id="itemInsurance" style="display:none;">
-      <div class="card-title" style="padding:0 0 8px;">🧾 勞健保級距設定
-        <span class="perm-badge perm-owner">加盟主</span>
-      </div>
       <div class="menu-list" style="margin-bottom:16px;">
-        <div class="menu-item" onclick="openInsuranceModal()">
-          <div class="menu-item-icon" style="background:#e8f5e9;">🧾</div>
+        <div id="itemInsurance" class="menu-item" onclick="openInsuranceModal()">
+          <div class="menu-item-icon" style="background:#e6f4ea;">🧾</div>
           <div class="menu-item-text">
-            <div class="menu-item-title" id="insuranceMenuTitle">115年度投保級距金額表</div>
-            <div class="menu-item-sub">勞保、健保、勞退費率與各級距負擔金額</div>
+            <div class="menu-item-title">勞健保級距設定<span class="perm-badge perm-owner">加盟主</span></div>
+            <div class="menu-item-sub">投保級距表、公司負擔比例</div>
           </div>
           <div class="menu-item-arrow">›</div>
         </div>
-      </div>
-    </div>
-    <div id="itemHoliday" style="display:none;">
-      <div class="card-title" style="padding:16px 0 8px;">📅 國定假日管理
-        <span class="perm-badge perm-owner">加盟主</span>
-      </div>
-      <div class="menu-list" style="margin-bottom:16px;">
-        <div class="menu-item" onclick="openHolidayModal()">
-          <div class="menu-item-icon" style="background:#fff3e0;">📅</div>
+        <div id="itemHoliday" class="menu-item" onclick="openHolidayModal()">
+          <div class="menu-item-icon" style="background:#fef7e0;">📅</div>
           <div class="menu-item-text">
-            <div class="menu-item-title">國定假日設定</div>
+            <div class="menu-item-title">國定假日設定<span class="perm-badge perm-owner">加盟主</span></div>
             <div class="menu-item-sub">每年假日新增、刪除，與排班系統同步</div>
           </div>
           <div class="menu-item-arrow">›</div>
         </div>
       </div>
     </div>
-  </div>
 
   <!-- ═══ ⚙️ 系統 ═══ -->
   <div id="grpSystem" style="display:none;">
@@ -234,54 +205,34 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
       <button onclick="addKwRow()" style="width:100%; margin-top:4px; padding:10px; background:#eef4ff; color:var(--primary); border:1.5px dashed var(--primary); border-radius:10px; font-size:13px; font-weight:700; cursor:pointer;">＋ 新增一列</button>
       <button class="save-btn" style="margin-top:10px;" onclick="saveLineKeywords()">💾 儲存關鍵字</button>
     </div>
-    <div id="itemNotice" class="set-item" style="display:none;">
-      <div class="card-title set-head" onclick="toggleSet(this)" style="padding:0 0 8px;">📢 系統公告已讀統計
+    <!-- 三個統計本來各自一個折疊區，權限都一樣（管理者），合併成一區減少版面 -->
+    <div id="itemStats" class="set-item" style="display:none;">
+      <div class="card-title set-head" onclick="toggleSet(this)" style="padding:0 0 8px;">📊 使用狀況統計
         <span class="perm-badge perm-admin">管理者</span><span class="set-chev">▸</span>
       </div>
-      <div id="noticeStats" style="font-size:13px;">載入中...</div>
-    </div>
-    <div id="itemAppUsage" class="set-item" style="display:none;">
-      <div class="card-title set-head" onclick="toggleSet(this)" style="padding:0 0 8px;">📱 主畫面與推播使用狀況
-        <span class="perm-badge perm-admin">管理者</span><span class="set-chev">▸</span>
+      <div id="itemNotice" style="margin-bottom:14px;">
+        <div class="stat-sub">📢 系統公告已讀</div>
+        <div id="noticeStats" style="font-size:13px;">載入中...</div>
       </div>
-      <div id="appUsageStats" style="font-size:13px;">載入中...</div>
-    </div>
-    <div id="itemTour" class="set-item" style="display:none;">
-      <div class="card-title set-head" onclick="toggleSet(this)" style="padding:0 0 8px;">🎓 新版首頁教學完成率
-        <span class="perm-badge perm-admin">管理者</span><span class="set-chev">▸</span>
+      <div id="itemAppUsage" style="margin-bottom:14px;">
+        <div class="stat-sub">📱 主畫面與推播</div>
+        <div id="appUsageStats" style="font-size:13px;">載入中...</div>
       </div>
-      <div id="tourStats" style="font-size:13px;">載入中...</div>
+      <div id="itemTour">
+        <div class="stat-sub">🎓 App 教學完成率</div>
+        <div id="tourStats" style="font-size:13px;">載入中...</div>
+      </div>
     </div>
-    <div id="itemChangelog">
-      <div class="card-title" style="padding:16px 0 8px;">📋 更新日誌</div>
-      <div class="menu-list" style="margin-bottom:16px;">
-        <div class="menu-item" onclick="openChangelogModal()">
-          <div class="menu-item-icon" style="background:#f3e8ff;">📋</div>
-          <div class="menu-item-text">
-            <div class="menu-item-title">系統更新紀錄</div>
-            <div class="menu-item-sub">查看歷次功能更新與修正內容</div>
-          </div>
-          <div class="menu-item-arrow">›</div>
+    <div class="menu-list" style="margin-bottom:16px;">
+      <div id="itemChangelog" class="menu-item" onclick="openChangelogModal()">
+        <div class="menu-item-icon" style="background:#f3e8ff;">📋</div>
+        <div class="menu-item-text">
+          <div class="menu-item-title">系統更新紀錄</div>
+          <div class="menu-item-sub">查看歷次功能更新與修正內容</div>
         </div>
+        <div class="menu-item-arrow">›</div>
       </div>
     </div>
-  </div>
-
-</div>
-
-<!-- ===== 系統基礎設定 Modal ===== -->
-<div class="modal-overlay" id="sysConfigModal" onclick="if(event.target===this)closeModal('sysConfigModal')">
-  <div class="modal-box">
-    <div class="modal-handle"></div>
-    <div class="modal-title">⚙️ 系統基礎設定</div>
-    <div class="card-title">🏪 門市管理</div>
-    <div id="sysStoreList" style="margin-bottom:10px;"></div>
-    <div style="display:flex; gap:8px; margin-bottom:20px;">
-      <input type="text" id="sysNewStore" placeholder="新增門市名稱" style="flex:1; padding:10px; border:1.5px solid var(--border); border-radius:10px; font-size:14px;">
-      <button onclick="addSysStore()" style="background:var(--accent); color:white; border:none; border-radius:10px; padding:10px 16px; font-weight:700; cursor:pointer;">新增</button>
-    </div>
-    <button class="save-btn" onclick="saveSysConfig()">✅ 儲存設定</button>
-    <button class="cancel-btn" onclick="closeModal('sysConfigModal')">取消</button>
   </div>
 </div>
 
