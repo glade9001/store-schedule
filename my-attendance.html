@@ -186,7 +186,9 @@ function onReqReasonChange(){
   if(hint){ hint.innerHTML=REQ_REASON_HINTS[code]||''; hint.style.display=REQ_REASON_HINTS[code]?'block':'none'; }
   if(ta) ta.placeholder = code==='other' ? '請說明原因（必填，至少 5 個字）' : '補充說明（選填）';
 }
-// 薪資送審後鎖定（2026-09-16 使用者定案）：該月薪資 submitted/published 後員工不能自行補登，改由店長代補（會留記號）
+// 該月薪資是否已送審／已發布。2026-09-24 改為「不擋、只標記」：原本送審後員工不能自行補登，
+// 但薪資常在月底前就送審（9 月 9/24 就送了）→ 當月剩下的日子全補不了。改成照常送出，
+// 申請帶 afterSalaryLock，店長審核時看到警示再決定要不要調薪資。
 async function salaryLockedFor(store, ym){
   try{
     const d=await window.db.collection('stores').doc(store).collection('salary').doc(ym).get();
@@ -227,16 +229,13 @@ async function submitReq(){
       }
     }
   }catch(e){}
-  if(await salaryLockedFor(atStore, targetDate.slice(0,7))){
-    alert(`${targetDate.slice(0,7)} 的薪資已送審，無法自行補登。\n請聯絡店長協助補登（店長端仍可代補）。`);
-    return;
-  }
+  const afterSalaryLock=await salaryLockedFor(atStore, targetDate.slice(0,7));
   showLoading('送出中…');
   try{
     await window.db.collection('stores').doc(atStore).collection('attendanceRequests').add({
       empName:currentUser.empName, displayName:currentUser.displayName||currentUser.empName,
       homeStore:currentUser.store||'', atStore, type:'補登/修改', targetDate, punchType, requestedTime,
-      reason:rr.reason, reasonCode:rr.reasonCode, reasonText:rr.reasonText, claimOnTime,
+      reason:rr.reason, reasonCode:rr.reasonCode, reasonText:rr.reasonText, claimOnTime, afterSalaryLock,
       shiftDate: mt.shift ? mt.shiftDate : (_fixShiftDate||targetDate), matchedShift: mt.shift||'',
       status:'pending', createdAt:new Date().toISOString(), createdBy:currentUser.empName
     });

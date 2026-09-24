@@ -363,7 +363,7 @@ function onReqReasonChange(){
   if(hint){ hint.innerHTML=REQ_REASON_HINTS[code]||''; hint.style.display=REQ_REASON_HINTS[code]?'block':'none'; }
   if(ta) ta.placeholder = code==='other' ? '請說明原因（必填，至少 5 個字）' : '補充說明（選填）';
 }
-// 薪資送審後鎖定（2026-09-16 使用者定案）：該月薪資 submitted/published 後員工不能自行補登，改由店長代補（會留記號）
+// 該月薪資是否已送審／已發布。2026-09-24 改為「不擋、只標記」（見 my-attendance.html 同名函式）
 async function salaryLockedFor(store, ym){
   try{
     const d=await window.db.collection('stores').doc(store).collection('salary').doc(ym).get();
@@ -385,20 +385,18 @@ async function submitReq(){
   const punchType=document.getElementById('rqType').value;
   const requestedTime=document.getElementById('rqTime').value;
   const rr=collectReqReason(); if(!rr) return;
-  if(await salaryLockedFor(atStore, targetDate.slice(0,7))){
-    alert(`${targetDate.slice(0,7)} 的薪資已送審，無法自行補登。\n請聯絡店長協助補登（店長端仍可代補）。`);
-    return;
-  }
   if(!st||!targetDate||!requestedTime){ toast('請填門市、日期、時間'); return; }
   // 這個時間對得上哪一班？對不上就先問（跨夜班的下班是隔天；2026-09-22）
   let mt={ shift:'', shiftDate:targetDate };
   try{ mt=await matchSchedShift(st, currentUser.empName, currentUser.store||'', targetDate, requestedTime, punchType); }catch(e){}
   if(!mt.shift && rr.reasonCode!=='noshift' && !confirm(`⚠️ ${targetDate} ${requestedTime} 的${punchType}卡，對不上你在 ${st} 的任何一個班。\n\n跨夜班的下班是「隔天」早上（例：9/17 大夜 23-07 → 9/18 07:00）。\n確定要這樣送出嗎？`)) return;
+  // 查補登表單選的門市（原本誤查定位到的 atStore）
+  const afterSalaryLock=await salaryLockedFor(st, targetDate.slice(0,7));
   try{
     await window.db.collection('stores').doc(st).collection('attendanceRequests').add({
       empName:currentUser.empName, displayName:currentUser.displayName||currentUser.empName,
       homeStore:currentUser.store||'', atStore:st, type:'補登/修改', targetDate, punchType, requestedTime,
-      reason:rr.reason, reasonCode:rr.reasonCode, reasonText:rr.reasonText,
+      reason:rr.reason, reasonCode:rr.reasonCode, reasonText:rr.reasonText, afterSalaryLock,
       shiftDate: mt.shiftDate, matchedShift: mt.shift||'',
       status:'pending', createdAt:new Date().toISOString(), createdBy:currentUser.empName
     });

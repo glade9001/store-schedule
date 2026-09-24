@@ -127,11 +127,15 @@ async function loadRequests(){
   }catch(e){ return; }
   if(!reqs.length){ box.innerHTML=''; return; }
   const cnt=await monthlyReqCount();
+  // 該月薪資已送審／已發布 → 標警示（員工端不再擋，改由審核時決定；以現在的狀態為準，送出後才送審的也抓得到）
+  const lockedYm={};
+  for(const ym of [...new Set(reqs.map(r=>(r.targetDate||'').slice(0,7)).filter(Boolean))]) lockedYm[ym]=await salaryLocked(curStore, ym);
   box.innerHTML=`<div class="card" style="border:1.5px solid #ffd8a8;background:#fff8ee;"><div style="font-size:14px;font-weight:900;color:#c0620f;margin-bottom:8px;">📝 待審核申請（${reqs.length}）</div>`+
     reqs.map(r=>`<div style="border-top:1px dashed #f0d9b0;padding:8px 0;">
       <div style="font-size:14px;font-weight:800;">${empDisplay(r.empName)}
         <span style="color:var(--text-muted);font-weight:600;font-size:13px;">${r.targetDate} ${r.punchType} ${r.requestedTime}</span>
         ${r.claimOnTime?`<span title="申報時間剛好落在排班開始時間附近，系統無從查證" style="font-size:11px;background:#fff7ed;color:#c0620f;border-radius:20px;padding:1px 7px;font-weight:800;">自述準時</span>`:''}
+        ${(r.afterSalaryLock||lockedYm[(r.targetDate||'').slice(0,7)])?`<span title="核准後請確認該月工時／薪資是否需要調整" style="font-size:11px;background:#fdecea;color:#b3261e;border-radius:20px;padding:1px 7px;font-weight:800;">⚠️ 薪資已送審</span>`:''}
         <span id="rqm-${r.id}" style="font-size:11px;"></span>
         ${(cnt[r.empName]||0)>=3?`<span title="本月補登張數" style="font-size:11px;background:#fdecea;color:#b3261e;border-radius:20px;padding:1px 7px;font-weight:800;">本月第 ${cnt[r.empName]} 張</span>`:(cnt[r.empName]||0)>1?`<span style="font-size:11px;color:var(--text-muted);font-weight:700;">本月第 ${cnt[r.empName]} 張</span>`:''}</div>
       <div class="meta" style="margin:2px 0;">${r.reasonCode?`<span style="font-size:11px;background:#eef3fb;color:#1557b0;border-radius:20px;padding:1px 7px;font-weight:800;">${REQ_REASON_LABELS[r.reasonCode]||r.reasonCode}</span> ${r.reasonText||''}`:`原因：${r.reason||'<span style="color:#b3261e;">未填</span>'}`}${r.homeStore&&r.homeStore!==r.atStore?` · 原店 ${r.homeStore}`:''}</div>
@@ -174,15 +178,17 @@ async function approveReq(id){
     const att=window.db.collection('stores').doc(curStore).collection('attendance');
     const ex=await att.where('date','==',r.targetDate).where('empName','==',r.empName).get();
     let target=null; ex.forEach(d=>{ if(d.data().type===r.punchType) target=d; });
+    const locked=!!r.afterSalaryLock || await salaryLocked(curStore, (r.targetDate||'').slice(0,7));
     const base={ empName:r.empName, displayName:r.displayName||r.empName, date:r.targetDate, type:r.punchType,
       atStore:curStore, homeStore:r.homeStore||curStore, status:'補登', source:'manual', deviceTs, tsMs:punchMs,
       shift:sm.shift, shiftDate:sm.shiftDate, weekday:shiftDayName(r.targetDate),
       lateMin:(r.punchType==='上班' && sm.startMs!=null) ? lateMinutesOf(punchMs, sm.startMs) : 0,
-      editedBy:currentUser.empName, editNote:`申請${r.type||'補登/修改'}：${r.reason||''}`, ts:firebase.firestore.FieldValue.serverTimestamp() };
+      editedBy:currentUser.empName, editNote:`申請${r.type||'補登/修改'}：${r.reason||''}`, afterSalaryLock:locked, ts:firebase.firestore.FieldValue.serverTimestamp() };
     if(target){
       // 既有卡只改時間；shift 原本是空的才補（不覆蓋系統打卡當下判定的結果）
       const cur=target.data()||{};
       const upd={ deviceTs, tsMs:punchMs, status:'補登', source:'manual', editedBy:currentUser.empName, origTs:cur.deviceTs||'' };
+      if(locked) upd.afterSalaryLock=true;
       if(!cur.shift && sm.shift){ upd.shift=sm.shift; upd.shiftDate=sm.shiftDate; }
       // 原判定要留痕：status 被蓋成「補登」等於把「警告/遲到」無痕抹掉，日後查不出這筆本來遲到幾分。
       // 同理 lateMin 也不能放著不管——時間已改成核准的申報時間，舊的分鐘數不再對應那個時間
@@ -195,6 +201,7 @@ async function approveReq(id){
     else { await att.add(base); }
     await ref.set({ status:'approved', reviewedBy:currentUser.empName, reviewedAt:new Date().toISOString() }, {merge:true});
     hideLoading(); await loadRequests(); await load();
+    if(locked) alert(`⚠️ ${r.targetDate.slice(0,7)} 的薪資已送審，這筆補登核准後請確認工時／薪資是否需要調整。`);
   }catch(e){ hideLoading(); alert('核准失敗：'+e.message); }
 }
 async function rejectReq(id){
@@ -219,7 +226,7 @@ async function approveOffline(id){
 // 修改／註銷（勞基法：不可直接刪除竄改；一律保留原始時間＋強制原因＋editLog 留痕備查）
 let _editId=null, _editRec=null;
 // ===== 店長代補（2026-09-16）=====
-// 場景：員工離職/長期不補、或該月薪資已送審（員工端已鎖）時，由店長依班表代為補登。
+// 場景：員工離職/長期不補時，由店長依班表代為補登。
 // 一律留下 proxyBy／proxyReason；若該月薪資已送審或已發布，另標 afterSalaryLock 提醒工時可能要重算。
 let _proxyMiss=null;
 async function openProxyPunch(id){
@@ -271,7 +278,7 @@ async function saveProxyPunch(){
     await load();
   }catch(e){ hideLoading(); alert('代補失敗：'+e.message); }
 }
-// 該月薪資是否已送審／已發布（送審後員工端不能自行補登，店長代補要留記號）
+// 該月薪資是否已送審／已發布（送審後的補登／代補都要留 afterSalaryLock 記號；員工端 2026-09-24 起不再擋）
 async function salaryLocked(store, ym){
   try{
     const d=await window.db.collection('stores').doc(store).collection('salary').doc(ym).get();
@@ -390,6 +397,7 @@ function punchRow(r, showEmp){
   // 員工在打卡當下自己留的說明（遲到才想起來打卡時；只是說明，時間未被修改）
   if(r.empNote) h+=`<div class="meta" style="padding:0 0 6px 4px;color:#c0620f;">🗣️ 員工說明：${r.empNote}</div>`;
   if(r.proxyBy) h+=`<div class="meta" style="padding:0 0 6px 4px;color:#8a5cf6;">🧑‍💼 店長代補（${r.proxyBy}）${r.proxyReason?`：${r.proxyReason}`:''}${r.afterSalaryLock?' · ⚠️ 薪資已送審後補登，工時可能需重算':''}</div>`;
+  else if(r.afterSalaryLock) h+=`<div class="meta" style="padding:0 0 6px 4px;color:#b3261e;">⚠️ 薪資已送審後才核准的補登，工時可能需重算</div>`;
   if(r.origStatus && r.origStatus!==r.status) h+=`<div class="meta" style="padding:0 0 6px 4px;color:#8a5cf6;">🕰️ 原判定：${r.origStatus}${r.origLateMin?` ${r.origLateMin} 分`:''}（補登後改為 ${r.status}）</div>`;
   if(r.editReason||r.voidReason) h+=`<div class="meta" style="padding:0 0 6px 4px;color:#8a5cf6;">✏️ ${voided?'註銷':'修改'}原因：${r.voidReason||r.editReason}${(r.voidedBy||r.editedBy)?`（${r.voidedBy||r.editedBy}）`:''}${(r.origTs&&!voided)?` · 原時間 ${fmtT(r.origTs)}`:''}</div>`;
   if(!voided && r.otStatus){
