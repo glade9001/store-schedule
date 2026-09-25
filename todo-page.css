@@ -165,3 +165,31 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 
 .toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(20px);background:#1e293b;color:white;padding:10px 20px;border-radius:20px;font-size:13px;font-weight:700;z-index:9999;opacity:0;transition:all 0.3s;pointer-events:none;white-space:nowrap;}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+/* ===== 門市備忘（store-memo.js） ===== */
+.stripe.memo{background:#0f9d8a;}
+.memo-card .todo-body{padding-left:14px;}
+.stripe.memo-stale{background:var(--danger);}
+.memo-add{border:none;background:#e0f5f1;color:#0b7a6b;font-size:12px;font-weight:800;padding:4px 10px;border-radius:8px;cursor:pointer;}
+.memo-stores{display:flex;gap:6px;padding:0 12px 8px;flex-wrap:wrap;}
+.memo-st{border:1.5px solid var(--border);background:white;border-radius:16px;padding:4px 12px;font-size:12px;font-weight:700;color:var(--text-muted);cursor:pointer;}
+.memo-st.on{border-color:#0f9d8a;background:#e0f5f1;color:#0b7a6b;}
+.memo-empty{margin:0 12px 8px;padding:12px;text-align:center;font-size:12px;color:var(--text-muted);background:white;border-radius:12px;}
+.memo-steps{display:flex;align-items:center;flex-wrap:wrap;gap:2px;margin:4px 0 6px;}
+.memo-step{font-size:10.5px;font-weight:700;color:#b0b8c4;padding:1px 5px;border-radius:5px;}
+.memo-step.past{color:#0b7a6b;}
+.memo-step.cur{background:#0f9d8a;color:white;}
+.memo-arrow{font-size:10px;color:#cbd2da;}
+.tag.memo-pay.paid{background:#e6f4ea;color:#137333;}
+.tag.memo-pay.unpaid{background:#fce8e6;color:var(--danger);}
+.tag.memo-pay.deposit{background:#fff3e0;color:var(--orange);}
+.memo-next{align-self:center;flex-shrink:0;margin:0 10px 0 4px;border:none;background:#e0f5f1;color:#0b7a6b;font-size:12px;font-weight:800;padding:8px 10px;border-radius:10px;cursor:pointer;white-space:nowrap;}
+.memo-warn{background:#fce8e6;color:var(--danger);font-size:13px;font-weight:700;padding:8px 10px;border-radius:8px;margin:8px 0;}
+.memo-kv{display:flex;gap:10px;font-size:14px;padding:5px 0;border-bottom:1px dashed #eef1f5;}
+.memo-kv span{width:44px;flex-shrink:0;color:var(--text-muted);font-size:12px;font-weight:700;padding-top:1px;}
+.memo-kv a{color:var(--primary);font-weight:700;}
+.memo-kv i{color:var(--text-muted);font-size:12px;}
+.memo-note{background:#f8fafc;border-radius:8px;padding:10px 12px;font-size:13px;line-height:1.6;margin:10px 0;white-space:pre-wrap;}
+.memo-log-hdr{font-size:11px;font-weight:800;color:var(--text-muted);margin:12px 0 4px;}
+.memo-log{font-size:12px;color:var(--text-muted);padding:2px 0;}
+.det-btn.memo-go{width:100%;background:#0f9d8a;color:white;padding:13px;font-size:14px;}

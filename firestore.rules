@@ -128,13 +128,28 @@ service cloud.firestore {
     //    ⚠️ 2026-09-16 補排除 users／account：先前它們被這條架空，員工可用 console 改自己或別人的
     //       permission（已用測試帳號實測成功）。排除後才由上面各自的 match 生效。
     //    其餘集合的行為與原本完全相同。
+    // ── storeMemos：門市備忘（客訂／留貨單，2026-09-25）───────────
+    // 含客人電話 → 只有該門市的人讀得到（加盟主／admin 可看全部）。
+    // 全店員工可建單、推進狀態；門市不可改；刪除限店長以上。
+    // ⚠️ 必須被最下面的 catch-all 排除，否則任何登入者都能讀寫（users 的教訓）。
+    match /storeMemos/{id} {
+      function memoStoreOk(st) { return st != '' && (st == myStore() || isOwnerOrAdmin()); }
+      allow read: if request.auth != null && memoStoreOk(resource.data.get('store', ''));
+      allow create: if request.auth != null && memoStoreOk(request.resource.data.get('store', ''))
+                    && request.resource.data.get('status', -1) in [0, 1, 2, 3];
+      allow update: if request.auth != null && memoStoreOk(resource.data.get('store', ''))
+                    && request.resource.data.get('store', '') == resource.data.get('store', '')
+                    && request.resource.data.get('status', -1) in [0, 1, 2, 3];
+      allow delete: if request.auth != null && isManagerUp() && memoStoreOk(resource.data.get('store', ''));
+    }
+
     match /{coll}/{docPath=**} {
-      allow read: if request.auth != null && coll != 'inspectionSheets' && coll != 'pushSubs' && coll != 'users' && coll != 'account' && !coll.matches('city[A-Z].*');
-      allow update, delete: if request.auth != null && coll != 'inspectionSheets' && coll != 'pushSubs' && coll != 'users' && coll != 'account' && !coll.matches('city[A-Z].*');
+      allow read: if request.auth != null && coll != 'inspectionSheets' && coll != 'pushSubs' && coll != 'users' && coll != 'account' && coll != 'storeMemos' && !coll.matches('city[A-Z].*');
+      allow update, delete: if request.auth != null && coll != 'inspectionSheets' && coll != 'pushSubs' && coll != 'users' && coll != 'account' && coll != 'storeMemos' && !coll.matches('city[A-Z].*');
       // 打卡防偽：source=="app" 的打卡「只能」由 clockPunch callable(Admin SDK 略過規則)建立；
       //          客戶端不可直接寫入假打卡。管理者補登(source=manual)、缺卡(source=system)、其他無 source 的建立照常。
       // ⚠️ 必須用 .get('source','')：直接存取不存在的欄位會讓規則報錯而「拒絕」→ 會擋掉所有沒有 source 欄位的建立(薪資簽收/劃休/綁定…)
-      allow create: if request.auth != null && coll != 'inspectionSheets' && coll != 'pushSubs' && coll != 'users' && coll != 'account' && !coll.matches('city[A-Z].*')
+      allow create: if request.auth != null && coll != 'inspectionSheets' && coll != 'pushSubs' && coll != 'users' && coll != 'account' && coll != 'storeMemos' && !coll.matches('city[A-Z].*')
                     && request.resource.data.get('source', '') != 'app';
     }
   }

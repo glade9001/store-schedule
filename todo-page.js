@@ -155,7 +155,8 @@ async function loadTodos(){
     const[snap,chkSnap,ordSnap]=await Promise.all([
       window.db.collection('todos').where('deleted','==',false).get(),
       window.db.collection('todoChecks').where('empName','==',myName()).get(),
-      window.db.collection('todoOrders').doc(myName()).get().catch(()=>null)
+      window.db.collection('todoOrders').doc(myName()).get().catch(()=>null),
+      memoLoad()   // 門市備忘（store-memo.js）
     ]);
     allTodos=[];
     snap.forEach(d=>allTodos.push({id:d.id,...d.data()}));
@@ -188,6 +189,8 @@ function renderAll(){
   pending.sort((a,b)=>{const ia=todoOrder.indexOf(a.id),ib=todoOrder.indexOf(b.id);if(ia===-1&&ib===-1)return 0;if(ia===-1)return 1;if(ib===-1)return -1;return ia-ib;});
 
   let html='';
+  // 門市備忘（客訂／留貨，store-memo.js）：選了行事曆日期時不顯示（它沒有日期概念）
+  if(!selCalDate) html+=memoSectionHtml();
   if(ann.length){
     html+=`<div class="sec-header"><div class="sec-title">📢 公告事項</div><div class="sec-count">${ann.length}</div></div>`;
     html+=ann.map(t=>card(t)).join('');

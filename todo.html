@@ -61,6 +61,7 @@
         <div class="pill-row">
           <button class="pill on" id="pillTask" onclick="setType('task')">☐ 代辦</button>
           <button class="pill" id="pillAnn"  onclick="setType('announcement')">📢 公告</button>
+          <button class="pill" onclick="memoOpenAdd()">📦 門市備忘</button>
         </div>
       </div>
       <div class="form-field">
@@ -167,8 +168,65 @@
   </div>
 </div>
 
+<!-- 門市備忘：新增／編輯（store-memo.js） -->
+<div class="modal-overlay" id="memoModal" onclick="if(event.target===this)closeModal('memoModal')">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-hdr">
+      <div class="modal-title" id="memoModalTitle">新增門市備忘</div>
+      <button class="modal-close" onclick="closeModal('memoModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-field"><label>客人稱呼 *</label><input id="memoCustomer" placeholder="例：姚小姐" maxlength="30"></div>
+      <div class="form-field"><label>電話（選填，只有本店看得到；取貨結案 14 天後自動清除）</label><input id="memoPhone" type="tel" placeholder="09xx-xxx-xxx" maxlength="20"></div>
+      <div style="display:flex;gap:8px;">
+        <div class="form-field" style="flex:3;"><label>商品 *</label><input id="memoItem" placeholder="例：老協珍" maxlength="60"></div>
+        <div class="form-field" style="flex:1;"><label>數量</label><input id="memoQty" value="1" maxlength="10"></div>
+      </div>
+      <div class="form-field">
+        <label>付款</label>
+        <div class="pill-row">
+          <button class="pill" id="memoPay_paid" onclick="memoSetPay('paid')">已結帳</button>
+          <button class="pill" id="memoPay_unpaid" onclick="memoSetPay('unpaid')">未結帳</button>
+          <button class="pill" id="memoPay_deposit" onclick="memoSetPay('deposit')">付訂金</button>
+        </div>
+      </div>
+      <div class="form-field" id="memoDepositGrp" style="display:none;"><label>訂金金額</label><input id="memoDeposit" type="number" min="0" placeholder="$"></div>
+      <div class="form-field" id="memoStatusGrp">
+        <label>目前狀態</label>
+        <select id="memoStatus">
+          <option value="0">📝 待訂貨</option>
+          <option value="1">🚚 已訂貨</option>
+          <option value="2">📦 已到貨留貨（店裡有貨，先留著）</option>
+        </select>
+      </div>
+      <div class="form-field"><label>備註（選填）</label><textarea id="memoNote" placeholder="例：留在倉庫第二層、客人說週六來拿" maxlength="200"></textarea></div>
+      <button class="modal-action" id="memoSaveBtn" onclick="memoSave()">確認新增</button>
+      <button class="modal-cancel" onclick="closeModal('memoModal')">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- 門市備忘：詳細 -->
+<div class="modal-overlay" id="memoDetModal" onclick="if(event.target===this)closeModal('memoDetModal')">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-hdr">
+      <div class="modal-title" id="memoDetTitle" style="font-size:16px;"></div>
+      <button class="modal-close" onclick="closeModal('memoDetModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="memoDetContent"></div>
+      <div id="memoDetActions" style="margin-top:14px;"></div>
+      <button class="modal-cancel" onclick="closeModal('memoDetModal')">關閉</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
+<script src="store-memo.js"></script>
+<script src="todo-memo.js"></script>
 <script src="todo-page.js"></script>
 </body>
 </html>

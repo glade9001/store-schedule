@@ -2760,5 +2760,28 @@ exports.onAttendanceRequestResult = onDocumentWritten(
   }
 );
 
+// ===== 門市備忘（客訂／留貨單）：結案 14 天後清掉客人電話（2026-09-25）=====
+// 個資最小化：取貨結案後電話已無用途，留著只是風險。只清 phone，其餘紀錄（誰、何時推進）保留。
+const MEMO_PHONE_KEEP_DAYS = 14;
+exports.scheduledMemoPhoneCleanup = onSchedule(
+  { schedule: "30 4 * * *", timeZone: "Asia/Taipei", region: "asia-east1" },
+  async () => {
+    const db = admin.firestore();
+    const cutoff = Date.now() - MEMO_PHONE_KEEP_DAYS * 86400000;
+    const snap = await db.collection("storeMemos").where("status", "==", 3).get();
+    let n = 0;
+    const batch = db.batch();
+    snap.forEach((d) => {
+      const m = d.data();
+      if (m.phone && typeof m.closedAt === "number" && m.closedAt < cutoff) {
+        batch.update(d.ref, { phone: "", phoneClearedAt: Date.now() });
+        n++;
+      }
+    });
+    if (n) await batch.commit();
+    console.log(`memo phone cleanup: ${n} cleared`);
+  }
+);
+
 // 本機測試用（只有設定 LIXUE_TEST_HOOKS=1 時才掛上；雲端不會有這個環境變數）
 if (process.env.LIXUE_TEST_HOOKS === "1") module.exports.__testHooks = { notifyEmployees, loadPushIndex, notifyOneEmp, deliverToPeople };

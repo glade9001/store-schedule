@@ -2168,6 +2168,26 @@ async function loadPendingItems() {
     console.warn('CITY手順待確認讀取失敗:', e);
   }
 
+  // ===== 門市備忘（客訂／留貨，store-memo.js）=====
+  // 使用者 2026-09-25 要求：跟代辦一樣列在待處理清單裡，但「不算件數」——不亮「待處理 N」膠囊、☰ 紅點、App 圖示紅點。
+  // 所以另外放 memoRows，不進 pending。只看本人所屬門市的未結案單。
+  const memoRows = [];
+  try {
+    const st = currentUser.store || '';
+    if(st && typeof memoLoadOpen === 'function') {
+      const ms = await withTimeout(memoLoadOpen(st));
+      (ms || []).filter(m => m.status < 3)
+        .sort((a, b) => (!!memoStale(b) - !!memoStale(a)) || (b.status - a.status))
+        .forEach(m => {
+          const stale = memoStale(m);
+          memoRows.push({ type:'門市備忘', desc:`${memoEsc(memoTitle(m))}・${STORE_MEMO.STATUS[m.status]}${stale ? `・<span style="color:var(--danger);font-weight:800;">⚠️ ${stale.text}</span>` : ''}`,
+            link:'todo.html', color: stale ? 'var(--danger)' : '#0f9d8a' });
+        });
+    }
+  } catch(e) {
+    console.warn('門市備忘讀取失敗:', e);
+  }
+
   // 確保無論如何都能順利渲染到畫面，UI不會卡死
   const pendingCountEl = document.getElementById('pendingCount');
   if(pendingCountEl) pendingCountEl.textContent = pending.length + ' 件';
@@ -2190,10 +2210,10 @@ async function loadPendingItems() {
 
   const el = document.getElementById('pendingList');
   if(pendingCard) pendingCard.style.display = 'block';
-  if(pending.length === 0) {
+  if(pending.length === 0 && memoRows.length === 0) {
     el.innerHTML = `<div style="text-align:center;padding:12px 0 4px;font-size:13px;color:var(--text-muted);font-weight:600;">✅ 目前無待辦事項</div>`;
   } else {
-    el.innerHTML = pending.map(p => `
+    el.innerHTML = [...pending, ...memoRows].map(p => `
       <div class="notice-item" ${p.link ? `style="cursor:pointer;" onclick="window.location.href='${p.link}'"` : ''}>
         <div class="notice-dot" style="background:${p.color};"></div>
         <div style="flex:1;">
