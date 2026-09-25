@@ -351,6 +351,8 @@ async function delTodo(id){
   hideLoading();
 }
 
+// 2026-09-25 使用者決定：暫停「新增公告」。既有公告照常顯示到期、也還能編輯；要恢復改回 false 即可
+const ANNOUNCE_PAUSED=true;
 // 新增/編輯
 function openAddModal(){
   editingId=null;curType='task';curRec=false;
@@ -362,6 +364,7 @@ function openAddModal(){
   document.getElementById('fRecType').value='weekly';document.getElementById('fRecDay').value='1';
   document.getElementById('fRecInt').value='7';document.getElementById('fRecEnd').value='';
   setType('task');setRec(false);renderTgtGrp();onRecTypeChange();
+  document.getElementById('pillAnn').style.display=ANNOUNCE_PAUSED?'none':'';
   // 員工私密提示
   document.getElementById('empPrivateHint').style.display=!isManager()?'flex':'none';
   openModal('addModal');
@@ -382,6 +385,7 @@ function openEdit(id){
   document.getElementById('fRecInt').value=todo.recurringInterval||'7';
   document.getElementById('fRecEnd').value=todo.recurringEnd||'';
   setType(curType);setRec(curRec);renderTgtGrp();onRecTypeChange();
+  document.getElementById('pillAnn').style.display=(ANNOUNCE_PAUSED&&curType!=='announcement')?'none':'';
   document.getElementById('empPrivateHint').style.display='none';
   openModal('addModal');
 }
@@ -484,6 +488,7 @@ async function updateTgtPreview(){
 async function saveTodo(){
   const title=document.getElementById('fTitle').value.trim();
   if(!title){showToast('⚠️ 請輸入標題');return;}
+  if(ANNOUNCE_PAUSED&&!editingId&&curType==='announcement'){showToast('公告功能暫停中，請改用代辦');return;}
   const recDayEl=document.getElementById('fRecDay');
   let tStore='',tStores=[],tEmps=[];
   if(['store','stores_manager'].includes(selTarget)){
