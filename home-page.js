@@ -2030,7 +2030,7 @@ async function loadPendingItems() {
 
   // ===== 代辦事項 + 公告橫幅（所有人）=====
   try {
-    const today = new Date().toISOString().split('T')[0];
+    const _n = new Date(); const today = `${_n.getFullYear()}-${String(_n.getMonth()+1).padStart(2,'0')}-${String(_n.getDate()).padStart(2,'0')}`;  // 本地日期（toISOString 是 UTC，台灣凌晨 0~8 點會算成前一天）
     const empName = currentUser.empName || '';
     const store   = currentUser.store || '';
     const isManagerRole = canSchedule();
@@ -2074,7 +2074,8 @@ async function loadPendingItems() {
       const myChecks = {};
       checkSnap?.forEach(d => {
         const data=d.data();
-        if(data.checked){ myChecks[data.checkKey||data.todoId]=true; myChecks[data.todoId]=true; }
+        // 只認「當期」的 key；原本另外記 myChecks[todoId]，循環任務只要曾經完成過一次就永遠不再出現在首頁
+        if(data.checked){ myChecks[data.checkKey||data.todoId]=true; }
       });
 
       const isTodoVisible = (t) => {
@@ -2102,8 +2103,11 @@ async function loadPendingItems() {
         const t = { id:d.id, ...d.data() };
         if(!isTodoVisible(t)) return;
         if(t.type==='announcement') { announcements.push(t); return; }
-        const ck = t.isRecurring ? `${t.id}__${today}` : t.id;
-        if(myChecks[ck] || myChecks[t.id]) return;
+        // 當期 key 與 todo 頁 recChkKey 一致：每月型＝YYYY-MM，其他循環型＝下次發生日
+        const ck = !t.isRecurring ? t.id
+          : t.recurringType==='monthly' ? `${t.id}__${today.slice(0,7)}`
+          : `${t.id}__${recurNextStr(t)}`;
+        if(myChecks[ck]) return;
         pendingTodos.push(t);
       });
 
