@@ -250,7 +250,7 @@ function asdShowPreview() {
 
   var h = L.mode === 'redraft'
     ? '<div class="asd-note">依最新劃休重排：<b>店長手動改過的格子、他店已認領的待補都不動</b>，只重排草稿排的格子。<b class="chg-legend">紫框</b>＝跟現在班表不一樣的格子。</div>'
-    : '<div class="asd-note">只會填<b>空白格</b>（共 ' + newCount + ' 格），店長已排的格子不動。橘色＝草稿要填的；灰色＝已排好的。套用後照樣可以改。</div>';
+    : '<div class="asd-note">只會填<b>空白格</b>（共 ' + newCount + ' 格），店長已排的格子不動。橘色＝草稿要填的；灰色＝已排好的（含「手動排」的人，他們的班有算進人力）。套用後照樣可以改。</div>';
   if (L.fixes && L.fixes.length) {
     h += '<div class="asd-alert blue"><b>📋 依劃休修正 ' + L.fixes.length + ' 格：</b><br>' + L.fixes.map(function (f) {
       return asdEsc(getDisplayName(f.name)) + ' ' + md(asDayNames().indexOf(f.day)) + ' ' + f.why + '：' + asdEsc(f.from || '空白') + ' → ' + (f.to || '重排');
@@ -294,6 +294,22 @@ function asdShowPreview() {
       h += '<td class="asd-cell new ' + cls + chg + '" title="' + asdEsc(c.why || '') + '">' + asdEsc(c.shift === '指休' ? '休(劃)' : c.shift) + wasTxt + '</td>';
     });
     h += '<td class="asd-sum">' + pe.hours + 'h<small>休' + pe.offs + (pe.pt ? '' : '／應' + pe.offTarget) + '</small></td></tr>';
+  });
+  // 手動排的人（設定頁關掉自動排，例：楷岳）：草稿不排他們，但他們已排的班「有算進人力」。
+  // 原本預覽只列草稿要排的人 → 店長先排好自己的班再產生草稿，看不到自己那列，以為沒被算進去（2026-09-28）。
+  var autoSet = {}; res.people.forEach(function (n) { autoSet[n] = 1; });
+  (appData.employees || []).forEach(function (e) {
+    var n = e.name;
+    if (autoSet[n] || String(n).startsWith('🆘')) return;
+    if (!days.some(function (d) { return curMap[n + '|' + d]; })) return; // 這週沒排任何格就不列
+    var hrs = 0;
+    h += '<tr class="asd-manual"><td class="asd-name">' + asdEsc(getDisplayName(n)) + '<small>手動排</small></td>';
+    days.forEach(function (d) {
+      var sh = curMap[n + '|' + d] || '';
+      if (sh && asIsWorkShift(sh)) hrs += shiftTotalHours(sh);
+      h += '<td class="asd-cell' + (sh ? ' locked' : '') + '">' + asdEsc(sh) + '</td>';
+    });
+    h += '<td class="asd-sum">' + Math.round(hrs * 10) / 10 + 'h</td></tr>';
   });
   // 待補列：現有的（灰＝原本的班、紅＝這次補進去的）＋新開的（紅）
   asdGapRows(asdIncludeGaps ? res.gaps : [], asdExistingGapRows(L.week)).forEach(function (r) {
