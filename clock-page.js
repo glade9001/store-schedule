@@ -314,92 +314,17 @@ async function renderRemindPushHint(){
 }
 
 // 補登／修改申請（同 my-attendance：寫 attendanceRequests、店長審核）
+// 補登表單的判斷與資料組裝在 fix-request.js（跟我的出勤共用）；這裡只管開視窗與送出後的提示
 function openReqModal(){
-  const stores=(appConfig.stores||[]).filter(s=>s!=='人力支援');
-  document.getElementById('rqStore').innerHTML=stores.map(s=>`<option value="${s}"${s===(atStore||currentUser.store)?' selected':''}>${s}</option>`).join('');
-  document.getElementById('rqDate').value=todayStr();
-  document.getElementById('rqTime').value=''; document.getElementById('rqReason').value=''; document.getElementById('rqReasonCode').value=''; onReqReasonChange();
+  resetReqForm((appConfig.stores||[]).filter(s=>s!=='人力支援'), atStore||currentUser.store);
   document.getElementById('reqModal').style.display='flex';
   syncReqStore();
 }
-// 門市預設值跟著「那天的排班」走，不是跟著你現在人在哪。
-// 支援日的班在別家店，照舊的預設送出去就會送錯店 → 缺卡單配不到、工時也配不起來。
-// 仍然是可改的下拉，只是把預設值挑對，並把依據寫在下面讓人看得懂。
-async function syncReqStore(){
-  const hint=document.getElementById('rqStoreHint'); if(!hint) return;
-  const ds=document.getElementById('rqDate').value;
-  const sel=document.getElementById('rqStore');
-  if(!ds){ hint.textContent=''; return; }
-  hint.textContent='查詢當天排班中…';
-  try{
-    const hits=await findShiftStoresOn(ds, currentUser.empName, currentUser.store||'', appConfig.stores||[]);
-    if(!hits.length){
-      hint.innerHTML='當天查無排班，門市請自行選擇。';
-      return;
-    }
-    const uniq=[...new Set(hits.map(h=>h.store))];
-    if(uniq.length===1) sel.value=uniq[0];
-    const txt=hits.map(h=>`${h.store} ${h.shift}${h.fromPrevDay?'（前一日跨夜班）':''}`).join('、');
-    hint.innerHTML=uniq.length===1
-      ? `✅ 當天排班：<b>${txt}</b>　已自動選好門市`
-      : `⚠️ 當天在多家店有班：<b>${txt}</b>　請自行確認要補哪一家`;
-  }catch(e){ hint.textContent='（查不到當天排班，門市請自行確認）'; }
-}
-// ===== 補登原因分類（2026-09-16）=====
-// 原本是選填的自由輸入 → 8/1~9/16 的 321 張申請有 189 張（59%）空白，店長看到「原因：—」、也無從統計根因。
-// 改成必選分類（選「其他」才強制打字），並另存 reasonCode/reasonText 供統計；reason 仍組成文字供既有顯示與通知使用。
-var REQ_REASONS={forgot:'忘記打卡', device:'手機沒帶／沒電／故障', system:'打不進去（定位或系統出錯）', support:'支援他店，不知道在哪打卡', noshift:'沒排班但有到場', wrongtime:'打卡時間錯誤，要修改', other:'其他'};
-var REQ_REASON_HINTS={
-  system:'若你還在店裡，請先回打卡頁按「📨 傳送給系統管理員」附上定位診斷，這樣才查得出原因。',
-  support:'提醒：支援他店時，要在<b>實際上班的那家店</b>打卡，門市請選那一家。',
-  wrongtime:'這是「修改時間」：填正確時間即可，原本的打卡紀錄會保留備查。',
-  noshift:'沒排班卻有到場，請順便提醒店長補排班，否則工時可能算不進去。',
-  other:'請具體說明原因（至少 5 個字），店長才有辦法判斷。'
-};
-function onReqReasonChange(){
-  var code=document.getElementById('rqReasonCode').value;
-  var hint=document.getElementById('rqReasonHint');
-  var ta=document.getElementById('rqReason');
-  if(hint){ hint.innerHTML=REQ_REASON_HINTS[code]||''; hint.style.display=REQ_REASON_HINTS[code]?'block':'none'; }
-  if(ta) ta.placeholder = code==='other' ? '請說明原因（必填，至少 5 個字）' : '補充說明（選填）';
-}
-// 該月薪資是否已送審／已發布。2026-09-24 改為「不擋、只標記」（見 my-attendance.html 同名函式）
-async function salaryLockedFor(store, ym){
-  try{
-    const d=await window.db.collection('stores').doc(store).collection('salary').doc(ym).get();
-    const st=d.exists ? (d.data().status||'draft') : 'draft';
-    return ['submitted','published'].includes(st);
-  }catch(e){ return false; }   // 查不到就不擋，避免連線問題讓人補不了卡
-}
-// 回傳 null＝驗證未過（已提示使用者）
-function collectReqReason(){
-  var code=document.getElementById('rqReasonCode').value;
-  var text=document.getElementById('rqReason').value.trim();
-  if(!code){ alert('請選擇原因'); return null; }
-  if(code==='other' && text.length<5){ alert('選「其他」時請具體說明原因（至少 5 個字）'); return null; }
-  return { reasonCode:code, reasonText:text, reason:REQ_REASONS[code]+(text?'：'+text:'') };
-}
 async function submitReq(){
-  const st=document.getElementById('rqStore').value;
-  const targetDate=document.getElementById('rqDate').value;
-  const punchType=document.getElementById('rqType').value;
-  const requestedTime=document.getElementById('rqTime').value;
-  const rr=collectReqReason(); if(!rr) return;
-  if(!st||!targetDate||!requestedTime){ toast('請填門市、日期、時間'); return; }
-  // 這個時間對得上哪一班？對不上就先問（跨夜班的下班是隔天；2026-09-22）
-  let mt={ shift:'', shiftDate:targetDate };
-  try{ mt=await matchSchedShift(st, currentUser.empName, currentUser.store||'', targetDate, requestedTime, punchType); }catch(e){}
-  if(!mt.shift && rr.reasonCode!=='noshift' && !confirm(`⚠️ ${targetDate} ${requestedTime} 的${punchType}卡，對不上你在 ${st} 的任何一個班。\n\n跨夜班的下班是「隔天」早上（例：9/17 大夜 23-07 → 9/18 07:00）。\n確定要這樣送出嗎？`)) return;
-  // 查補登表單選的門市（原本誤查定位到的 atStore）
-  const afterSalaryLock=await salaryLockedFor(st, targetDate.slice(0,7));
+  const req=await buildFixRequest();
+  if(!req) return;
   try{
-    await window.db.collection('stores').doc(st).collection('attendanceRequests').add({
-      empName:currentUser.empName, displayName:currentUser.displayName||currentUser.empName,
-      homeStore:currentUser.store||'', atStore:st, type:'補登/修改', targetDate, punchType, requestedTime,
-      reason:rr.reason, reasonCode:rr.reasonCode, reasonText:rr.reasonText, afterSalaryLock,
-      shiftDate: mt.shiftDate, matchedShift: mt.shift||'',
-      status:'pending', createdAt:new Date().toISOString(), createdBy:currentUser.empName
-    });
+    await window.db.collection('stores').doc(req.store).collection('attendanceRequests').add(req.data);
     document.getElementById('reqModal').style.display='none';
     toast('✅ 已送出，等店長審核（有開推播會通知你結果）');
   }catch(e){ toast('送出失敗：'+e.message); }
