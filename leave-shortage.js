@@ -34,13 +34,8 @@ function lshInvalidate() {}
 
 /** 這天各時段的至少人數（48 格） */
 function lshMinSlots(dateStr) {
-  var bands = ((lshBase.cfg.demand || {})[shiftDayName(dateStr)]) || [];
-  var mn = new Array(asSlots()).fill(0);
-  bands.forEach(function (b) {
-    var m = b.min == null ? b.n : Math.min(b.min, b.n);
-    for (var h = b.s; h < b.e; h += 0.5) { var i = Math.round((h - asAxisStart()) * 2); if (i >= 0 && i < asSlots()) mn[i] = Math.max(mn[i], m); }
-  });
-  return mn;
+  // 重疊的時段相加（asDemandSlots，跟產生草稿同一套）
+  return asDemandSlots(((lshBase.cfg.demand || {})[shiftDayName(dateStr)]) || []).min;
 }
 
 /** 某人這天能上的時段（48 格集合）；劃休整天→空，只休早上／晚上→去掉 15:00 前／後 */

@@ -124,14 +124,7 @@ function asShiftSpillSlots(shiftStr) {
 
 /** 需求時段 [{s,e,n}] → 48 格人數陣列 */
 function asDemandToSlots(bands) {
-  var arr = new Array(asSlots()).fill(0);
-  (bands || []).forEach(function (b) {
-    for (var h = b.s; h < b.e; h += 0.5) {
-      var i = Math.round((h - asAxisStart()) * 2);
-      if (i >= 0 && i < asSlots()) arr[i] = Math.max(arr[i], +b.n || 0);
-    }
-  });
-  return arr;
+  return asDemandSlots(bands).n; // 重疊相加（見 asDemandSlots）
 }
 /** 48 格人數陣列 → 需求時段（相鄰同人數合併；0 人不存） */
 function asSlotsToDemand(arr) {
@@ -153,6 +146,64 @@ function asIsWorkShift(shift) {
 /** 支援別店的整日外派格（loc=支援X）是衍生顯示，不算本店人力 */
 function asIsHomeRecord(r) {
   return !String((r && r.location) || '').startsWith('支援');
+}
+
+/**
+ * 一天的需求時段 → 每半小時要幾人 { n:[48], min:[48] }。
+ * ⚠️ 時段重疊時「相加」（2026-09-28）：聯鑫把週末班別一行一行填（07-16 一人、08-16 一人、09-17 一人…），
+ *    原本取最大值 → 週末中午只算 1 人（實際排 3～4 人），草稿的工讀時數只有實際的四成。
+ *    時段沒重疊的店（美德、錦花）相加＝取最大值，結果不變。
+ * 產生草稿、設定頁供需檢查、劃休頁人力提醒都用這支，不要各自再算一份。
+ */
+function asDemandSlots(bands) {
+  var n = new Array(asSlots()).fill(0), mn = new Array(asSlots()).fill(0);
+  (bands || []).forEach(function (b) {
+    var bn = +b.n || 0, bm = b.min == null ? bn : Math.min(+b.min || 0, bn);
+    for (var h = b.s; h < b.e; h += 0.5) {
+      var i = Math.round((h - asAxisStart()) * 2);
+      if (i >= 0 && i < asSlots()) { n[i] += bn; mn[i] += bm; }
+    }
+  });
+  return { n: n, min: mn };
+}
+/**
+ * 草稿採用率（2026-09-28）：套用時記下的草稿格 vs 現在的班表
+ * @param cells   { '名字|週X': 草稿填的班 }（stores/{店}/autoScheduleLog/{週}.cells）
+ * @param records 該週現在的班表 records
+ * @returns { total, kept, changed, swapped, cleared, byName:{名字:{total,kept}} }
+ *   kept＝完全相同；changed＝都是上班但班別不同；swapped＝上班↔休假對調；cleared＝格子被清空
+ */
+function asDraftAdoption(cells, records) {
+  var now = {};
+  (records || []).forEach(function (r) { if (asIsHomeRecord(r)) now[r.name + '|' + r.day] = String(r.shift || '').trim(); });
+  var out = { total: 0, kept: 0, changed: 0, swapped: 0, cleared: 0, byName: {} };
+  Object.keys(cells || {}).forEach(function (k) {
+    var d = String(cells[k] || '').trim(), c = now[k] || '';
+    var name = k.split('|')[0];
+    var b = out.byName[name] = out.byName[name] || { total: 0, kept: 0 };
+    out.total++; b.total++;
+    if (c === d) { out.kept++; b.kept++; }
+    else if (!c) out.cleared++;
+    else if (asIsWorkShift(c) && asIsWorkShift(d)) out.changed++;
+    else out.swapped++;
+  });
+  return out;
+}
+/**
+ * 依所有時段的起訖點切成不重疊的段 [{s, e, n, min}]（人數＝重疊的相加）。
+ * 時段沒重疊時＝原本那幾段；人數 0 的段不列。
+ */
+function asDemandSegments(bands) {
+  var cut = {};
+  (bands || []).forEach(function (b) { cut[b.s] = 1; cut[b.e] = 1; });
+  var pts = Object.keys(cut).map(Number).sort(function (a, b) { return a - b; });
+  var ds = asDemandSlots(bands), out = [];
+  for (var k = 0; k < pts.length - 1; k++) {
+    var i = Math.round((pts[k] - asAxisStart()) * 2);
+    if (i < 0 || i >= asSlots() || !ds.n[i]) continue;
+    out.push({ s: pts[k], e: pts[k + 1], n: ds.n[i], min: ds.min[i] });
+  }
+  return out;
 }
 
 /**
@@ -464,18 +515,7 @@ function asGenerateDraft(inp) {
   });
 
   // ── 需求 ──
-  var dem = days.map(function (d) {
-    var bands = (cfg.demand || {})[d] || [];
-    var n = new Array(asSlots()).fill(0), mn = new Array(asSlots()).fill(0);
-    bands.forEach(function (b) {
-      var bm = b.min == null ? b.n : Math.min(b.min, b.n);
-      for (var h = b.s; h < b.e; h += 0.5) {
-        var i = Math.round((h - asAxisStart()) * 2);
-        if (i >= 0 && i < asSlots()) { n[i] = Math.max(n[i], +b.n || 0); mn[i] = Math.max(mn[i], bm); }
-      }
-    });
-    return { n: n, min: mn };
-  });
+  var dem = days.map(function (d) { return asDemandSlots((cfg.demand || {})[d] || []); });
   // 固定人力（鎖住的格子，包含草稿人員自己的鎖格）
   var baseCov = days.map(function () { return new Array(asSlots()).fill(0); });
   var addCov = function (cov, di, shift, sign) {

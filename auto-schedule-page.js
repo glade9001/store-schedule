@@ -132,6 +132,51 @@ async function aspLoadStore() {
   }
   document.getElementById('metaInfo').textContent = aspCfg.updatedAt ? aspSavedLabel(aspCfg) : '尚未儲存過';
   aspRenderAll();
+  aspLoadAdoption(); // 不等它：採用率是參考資訊，慢了不擋設定
+}
+
+// ───────── ④ 草稿採用情況（2026-09-28）─────────
+// 套用時排班頁記下草稿填的格子（autoScheduleLog/{週}.cells），這裡跟該週現在的班表比。
+async function aspLoadAdoption() {
+  const el = document.getElementById('adoptWrap'); if (!el) return;
+  const store = aspStore;
+  el.innerHTML = '<div class="card meta">載入中…</div>';
+  try {
+    const storeRef = window.db.collection('stores').doc(store);
+    const snap = await storeRef.collection('autoScheduleLog').get();
+    if (store !== aspStore) return; // 載入期間切換了門市
+    const logs = []; snap.forEach(d => { const x = d.data(); if (x && x.week) logs.push(x); });
+    logs.sort((a, b) => b.week.localeCompare(a.week));
+    const recent = logs.slice(0, 8);
+    if (!recent.length) { el.innerHTML = '<div class="card meta">還沒有套用過草稿的紀錄（2026-09-28 起才開始記錄；之前套用的週無法回推）。</div>'; return; }
+    const ws = await Promise.all(recent.map(l => storeRef.collection('weeks').doc(l.week).get()));
+    if (store !== aspStore) return;
+    const all = { total: 0, kept: 0 }, byName = {};
+    const rows = recent.map((l, i) => {
+      const d = ws[i].exists ? ws[i].data() : {};
+      const a = asDraftAdoption(l.cells, d.records || []);
+      all.total += a.total; all.kept += a.kept;
+      Object.entries(a.byName).forEach(([n, b]) => { const x = byName[n] = byName[n] || { total: 0, kept: 0 }; x.total += b.total; x.kept += b.kept; });
+      const pct = a.total ? Math.round(100 * a.kept / a.total) : 0;
+      const pub = d.published === true || d.status === 'published';
+      const det = [a.changed && `改班 ${a.changed}`, a.swapped && `上班↔休假 ${a.swapped}`, a.cleared && `清空 ${a.cleared}`].filter(Boolean).join('、');
+      return `<div class="adopt-row"><b>${l.week.slice(-3)}</b><span class="meta">${pub ? '已發布' : '排班中'}</span>
+        <span class="adopt-pct ${pct >= 70 ? 'ok' : pct >= 40 ? 'mid' : 'low'}">保留 ${pct}%</span>
+        <span class="meta">${a.kept}/${a.total} 格${det ? '・' + det : ''}</span></div>`;
+    }).join('');
+    const low = Object.entries(byName).filter(([, b]) => b.total >= 4)
+      .map(([n, b]) => ({ n, p: Math.round(100 * b.kept / b.total), b })).sort((x, y) => x.p - y.p).slice(0, 3)
+      .filter(x => x.p < 70);
+    const allPct = all.total ? Math.round(100 * all.kept / all.total) : 0;
+    el.innerHTML = `<div class="card">
+      <div class="adopt-sum">最近 ${recent.length} 週合計保留 <b>${allPct}%</b>（${all.kept}/${all.total} 格）</div>
+      ${rows}
+      ${low.length ? `<div class="meta" style="margin-top:8px;">最常被改的人：${low.map(x => `${aspEsc(x.n)} 保留 ${x.p}%（${x.b.kept}/${x.b.total}）`).join('、')}——可以檢查這些人的可上班別設定</div>` : ''}
+      <div class="meta" style="margin-top:6px;">排班中的週還會再改，看已發布的週比較準。</div>
+    </div>`;
+  } catch (e) {
+    if (store === aspStore) el.innerHTML = `<div class="card meta">採用情況讀取失敗：${aspEsc(e.message)}</div>`;
+  }
 }
 
 // updatedAt 存 UTC ISO；直接截字串會少 8 小時
@@ -234,10 +279,14 @@ function aspCovBar(bands) {
   const cells = arr.map((n, i) => `<div class="cov-cell cov-${Math.min(n, 4)}" title="${asHourLabel(7 + i / 2)} ${n} 人"></div>`).join('');
   return `<div class="cov">${cells}</div><div class="cov-axis"><span>07</span><span>11</span><span>15</span><span>19</span><span>23</span><span>03</span><span>07</span></div>`;
 }
+// 2026-09-28 起重疊改「相加」（原本取較多的，聯鑫把班別一行一行填、週末被算成只要 1 人）→ 直接列出相加後每段幾人
 function aspBandWarn(bands) {
   const sorted = [...bands].sort((a, b) => a.s - b.s);
-  for (let i = 1; i < sorted.length; i++) if (sorted[i].s < sorted[i - 1].e) return '⚠️ 時段重疊：重疊的部分以人數較多的為準';
-  return '';
+  let overlap = false;
+  for (let i = 1; i < sorted.length && !overlap; i++) if (sorted[i].s < sorted[i - 1].e) overlap = true;
+  if (!overlap) return '';
+  const segs = asDemandSegments(bands).map(g => `<span style="white-space:nowrap">${aspTimeLabel(g.s, g.e)} <b>${g.n}人</b>${g.min < g.n ? `(至少${g.min})` : ''}</span>`).join('・');
+  return `ℹ️ 時段有重疊，重疊的部分<b>人數相加</b>。系統會這樣排：<br>${segs}`;
 }
 // 最少人數：沒存＝跟理想人數一樣（一定要排滿）
 function aspMinOf(b) { return b.min == null ? b.n : Math.min(b.min, b.n); }
@@ -535,8 +584,9 @@ function aspSupply() {
   // 每天每個時段：至少人數、能上的人
   const perBand = {}; // "s-e" → { s, e, days:[{d, min, who}] }
   days.forEach((d, di) => {
-    (aspCfg.demand[d] || []).forEach(b => {
-      const mn = aspMinOf(b);
+    // 重疊的時段先切成不重疊的段、人數相加（asDemandSegments，跟產生草稿同一套）；沒重疊時就是原本的時段
+    asDemandSegments(aspCfg.demand[d] || []).forEach(b => {
+      const mn = b.min;
       if (!mn) return;
       const idxs = []; for (let h = b.s; h < b.e; h += 0.5) idxs.push(Math.round((h - 7) * 2));
       // 能「整段都上」的人不一定有；以每半小時能上的人裡最少的那一刻為準

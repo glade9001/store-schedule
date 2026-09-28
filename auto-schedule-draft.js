@@ -373,6 +373,31 @@ function asdExistingGapRows(week) {
   });
 }
 
+// ───────── 採用率追蹤（2026-09-28）─────────
+// 套用時記下「草稿填了哪些格、填什麼」→ stores/{店}/autoScheduleLog/{週}；設定頁 ④ 拿去跟最終班表比（asDraftAdoption）。
+// 不能只靠格子上的 draft 標記：店長一改標記就消失，事後分不出「草稿排的被改掉」還是「本來就是店長排的」。
+// 指休／補休／特休是劃休帶進來的，不是草稿決定的，算進去會灌水 → 不記；待補列也不記。
+async function asdLogApply(store, week, L) {
+  try {
+    var LEAVE = ['指休', '補休', '特休'];
+    var drafted = {};
+    appData.records.forEach(function (r) {
+      var sh = String(r.shift || '').trim();
+      if (r.week !== week || !r.draft || !sh || LEAVE.indexOf(sh) >= 0 || String(r.name).startsWith('🆘') || !asIsHomeRecord(r)) return;
+      drafted[r.name + '|' + r.day] = sh;
+    });
+    var ref = window.db.collection('stores').doc(store).collection('autoScheduleLog').doc(week);
+    var snap = await ref.get();
+    var old = snap.exists ? snap.data() : {};
+    var cells = Object.assign({}, old.cells || {});
+    // 重排時被草稿自己清掉、沒再填回的格子 → 不算「店長改掉」
+    if (L.mode === 'redraft') (L.before || []).forEach(function (r) { var k = r.name + '|' + r.day; if (r.draft && !drafted[k]) delete cells[k]; });
+    Object.assign(cells, drafted);
+    var runs = (old.runs || []).concat([{ at: Date.now(), by: currentUser.empName || '', mode: L.mode, cells: Object.keys(drafted).length }]);
+    await ref.set({ week: week, store: store, cells: cells, runs: runs, updatedAt: Date.now() });
+  } catch (e) { console.warn('草稿採用紀錄寫入失敗:', e); }
+}
+
 // ───────── 套用 ─────────
 async function asdApply() {
   var L = asdLast;
@@ -446,6 +471,7 @@ async function asdApply() {
   asdClose();
   renderSchedule();
   triggerAutoSave();
+  asdLogApply(store, week, L); // 採用率追蹤（不等它、失敗也不影響套用）
 
   // 特休／補休帳本：劃休修正與清掉的草稿格照實扣還；補休要扣帳本；國定假日上班要問補休——跟手動排班走同一套
   for (var k = 0; k < leaveMoves.length; k++) await deductLeave(leaveMoves[k].name, leaveMoves[k].day, week, leaveMoves[k].from, leaveMoves[k].to);
