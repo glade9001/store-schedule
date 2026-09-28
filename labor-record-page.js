@@ -16,7 +16,9 @@ const lrIsOwner = () => ['owner', 'admin'].includes(lrUser?.permission);
 const lrPad = n => String(n).padStart(2, '0');
 const lrYmd = d => `${d.getFullYear()}-${lrPad(d.getMonth() + 1)}-${lrPad(d.getDate())}`;
 const lrHm = ms => { const d = new Date(ms); return `${lrPad(d.getHours())}:${lrPad(d.getMinutes())}`; };
-const lrHrs = h => { const m = Math.round(h * 60); return `${Math.floor(m / 60)}:${lrPad(m % 60)}`; }; // 時數顯示到分鐘（勞基法：出勤紀錄記載至分鐘）
+// 時數顯示：「8小時」「6小時50分」（原本 8:00 容易被看成 8 點；使用者 2026-09-28）
+const lrHrs = h => { const m = Math.round(h * 60), H = Math.floor(m / 60), M = m % 60; return M ? `${H}小時${M}分` : `${H}小時`; };
+const lrDec = h => Math.round(h * 100) / 100; // Excel 用小數小時（可加總）
 const LR_WD = ['日', '一', '二', '三', '四', '五', '六'];
 
 window.onload = async () => {
@@ -248,7 +250,7 @@ function lrPrint() {
     <div class="sh-title">${lrEsc(D.store)}　出勤紀錄表</div>
     <div class="sh-sub"><span>姓名：<b>${lrEsc(x.name)}</b></span><span>職稱：${lrEsc(x.emp.role || '')}</span><span>期間：${y} 年 ${m} 月 1 日～${m} 月 ${+D.last.slice(8)} 日</span></div>
     <table class="sh-table">
-      <thead><tr><th style="width:6%">日</th><th style="width:6%">星期</th><th style="width:15%">排定班別</th><th style="width:10%">上班</th><th style="width:12%">下班</th><th style="width:8%">時數</th><th>備註</th></tr></thead>
+      <thead><tr><th style="width:5%">日</th><th style="width:5%">星期</th><th style="width:13%">排定班別</th><th style="width:9%">上班</th><th style="width:11%">下班</th><th style="width:12%">時數</th><th>備註</th></tr></thead>
       <tbody>${x.rows.map(r => {
         const n = Math.max(1, r.cells.length);
         const cls = r.noRest ? 'norest' : (r.holName ? 'hol' : (r.off ? 'off' : ''));
@@ -278,18 +280,18 @@ function lrPrint() {
 function lrExcel() {
   if (!lrData || typeof XLSX === 'undefined') { lrToast('Excel 元件還沒載入，請稍候再試'); return; }
   const { D, list } = lrData;
-  const detail = [['門市', '姓名', '職稱', '日期', '星期', '國定假日', '排定班別', '上班', '下班', '下班為次日', '時數(時:分)', '備註']];
+  const detail = [['門市', '姓名', '職稱', '日期', '星期', '國定假日', '排定班別', '上班', '下班', '下班為次日', '時數(小時)', '時數(時分)', '備註']];
   list.forEach(x => x.rows.forEach(r => {
     const cs = r.cells.length ? r.cells : [{ in: '', out: '', outNext: false, h: null }];
     cs.forEach((c, i) => detail.push([D.store, x.name, x.emp.role || '', r.date, r.wd, r.holName, i === 0 ? (r.restLabel ? r.restLabel + (r.star ? '＊' : '') : r.schedTxt) : '', c.in, c.out, c.outNext && c.out ? '是' : '',
-      c.h != null ? lrHrs(c.h) : '', i === 0 ? r.notes.join('；') : '']));
+      c.h != null ? lrDec(c.h) : '', c.h != null ? lrHrs(c.h) : '', i === 0 ? r.notes.join('；') : '']));
   }));
-  const summary = [['門市', '姓名', '職稱', '出勤天數', '總時數(時:分)', '遲到次數', '遲到分鐘', '缺卡未補', '補登筆數', '國定假日出勤天數', '本月休假天數', '週六日天數', '只休一天的週(＊)', '整週無休的週']];
-  list.forEach(x => summary.push([D.store, x.name, x.emp.role || '', x.sum.days, lrHrs(x.sum.hours), x.sum.late, x.sum.lateMin, x.sum.miss, x.sum.fix, x.sum.holDays,
+  const summary = [['門市', '姓名', '職稱', '出勤天數', '總時數(小時)', '總時數(時分)', '遲到次數', '遲到分鐘', '缺卡未補', '補登筆數', '國定假日出勤天數', '本月休假天數', '週六日天數', '只休一天的週(＊)', '整週無休的週']];
+  list.forEach(x => summary.push([D.store, x.name, x.emp.role || '', x.sum.days, lrDec(x.sum.hours), lrHrs(x.sum.hours), x.sum.late, x.sum.lateMin, x.sum.miss, x.sum.fix, x.sum.holDays,
     x.emp.pt ? '' : x.sum.rest, x.emp.pt ? '' : x.sum.satSun, x.sum.star, x.sum.noRest]));
   const wb = XLSX.utils.book_new();
-  const ws1 = XLSX.utils.aoa_to_sheet(detail); ws1['!cols'] = [8, 10, 6, 11, 5, 10, 14, 7, 7, 6, 8, 60].map(w => ({ wch: w }));
-  const ws2 = XLSX.utils.aoa_to_sheet(summary); ws2['!cols'] = [8, 10, 6, 8, 10, 8, 8, 8, 8, 12, 10, 8, 12, 10].map(w => ({ wch: w }));
+  const ws1 = XLSX.utils.aoa_to_sheet(detail); ws1['!cols'] = [8, 10, 6, 11, 5, 10, 14, 7, 7, 6, 9, 11, 60].map(w => ({ wch: w }));
+  const ws2 = XLSX.utils.aoa_to_sheet(summary); ws2['!cols'] = [8, 10, 6, 8, 10, 12, 8, 8, 8, 8, 12, 10, 8, 12, 10].map(w => ({ wch: w }));
   XLSX.utils.book_append_sheet(wb, ws2, '彙總');
   XLSX.utils.book_append_sheet(wb, ws1, '出勤明細');
   XLSX.writeFile(wb, `勞檢出勤表_${D.store}_${D.ym}.xlsx`);
