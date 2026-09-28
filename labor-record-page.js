@@ -195,7 +195,7 @@ function lrBuildEmp(D, emp) {
   // ── 例假／休息日：規則在 rest-days.js（跟盤點資料共用）──
   rdLabelWeeks(all);
   // 工讀只寫「休」、不標例假／休息日與＊（使用者 2026-09-28）；整週無休照樣標（連上 7 天對工讀一樣違法）
-  const partRole = emp.role === '工讀'; // 看職稱（跟盤點資料一致）；按時薪計薪的店長不算
+  const partRole = emp.pt; // 職稱工讀、或按時薪計薪（使用者 2026-09-28：賴楷岳照工讀填）
   if (partRole) all.forEach(x => { x.restLabel = ''; x.star = false; });
   all.forEach(x => { if (x.noRest) x.notes.unshift('⚠️ 本週無休' + (partRole ? '' : '（例假出勤）')); });
 
