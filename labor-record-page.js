@@ -52,12 +52,12 @@ async function lrLoad(store, ym) {
   let rLast = last; while (shiftDayName(rLast) !== '週日') rLast = shiftDateAdd(rLast, 1);
   const stores = (lrConfig.stores || []).filter(s => s && s !== '人力支援');
 
-  // 人員：這個月有在職過的本店員工（月中離職、調走的也要列，他們在職那幾天的紀錄一樣要交）
+  // 人員：這個月有在職過的本店員工。已離職的不列（使用者 2026-09-28）；月中調走的照列（人還在公司）
   const empSnap = await window.db.collection('stores').doc(store).collection('employees').get();
   const emps = [];
   empSnap.forEach(d => {
     const e = d.data();
-    if (d.id.startsWith('🆘')) return;
+    if (d.id.startsWith('🆘') || e.status === '離職') return;
     const eff = e.departDate || e.retireDate || e.transferDate || '';
     if (['離職', '調走'].includes(e.status) && eff && eff < first) return;
     if (e.startDate && e.startDate > last) return;
