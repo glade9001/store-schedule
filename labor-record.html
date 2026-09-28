@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#1a73e8">
+<title>🗃️ 勞檢出勤表</title>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="firebase-init.js"></script>
+<script src="shift-utils.js"></script>
+<script src="holidays.js"></script>
+<link rel="stylesheet" href="labor-record-page.css">
+</head>
+<body>
+<div id="loadingOverlay" class="hidden"><div class="spinner"></div><div id="loadingText">載入中…</div></div>
+
+<div class="header no-print">
+  <button class="header-back" onclick="lrBack()">← 返回</button>
+  <div class="header-title">🗃️ 勞檢出勤表</div>
+</div>
+
+<div class="wrap no-print">
+  <div class="card">
+    <div class="note">資料<b>直接取自打卡系統</b>，匯出時不能修改。補登、店長代補、改過時間的打卡都會在備註標明；排了班卻沒有打卡的日子會寫「無打卡紀錄」。</div>
+    <div class="row">
+      <label>門市<select id="lrStore" onchange="lrReset()"></select></label>
+      <label>月份<select id="lrMonth" onchange="lrReset()"></select></label>
+    </div>
+    <button class="btn-primary" onclick="lrLoadAndShow()">讀取出勤紀錄</button>
+  </div>
+
+  <div id="lrResult"></div>
+</div>
+
+<!-- 列印用（一人一頁） -->
+<div id="lrPrint"></div>
+<div id="toast" class="no-print"></div>
+
+<script src="labor-record-page.js"></script>
+</body>
+</html>

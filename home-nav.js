@@ -37,6 +37,7 @@ var HOME_FEATURES = [
   { id: 'autoSchedule',  group: 'sched',  icon: '🤖', label: '自動排班設定', sub: '時段人數需求、人員可上班別', go: 'auto-schedule.html?ref=home.html', show: hnIsLead, kw: 'AI 自動排班 需求 可上班別 寒暑假' },
   { id: 'attendance',    group: 'sched',  icon: '🗂️', label: '出勤管理',   sub: '打卡紀錄、補登審核、缺卡',   go: 'attendance.html', show: hnIsLead, kw: '打卡 補登 審核 遲到' },
   { id: 'inspection',    group: 'sched',  icon: '📦', label: '盤點資料',   sub: '輪班表、出勤記錄表、薪資單', go: 'inspection.html?ref=home.html', show: hnIsLead },
+  { id: 'laborRecord',   group: 'sched',  icon: '🗃️', label: '勞檢出勤表', sub: '打卡系統實際紀錄・列印簽名／Excel', go: 'labor-record.html?ref=home.html', show: hnIsLead, kw: '勞檢 出勤紀錄 出勤表 匯出 簽名' },
   { id: 'salary',        group: 'people', icon: '💳', label: '算薪水',     sub: '每月薪資計算與發布',         go: 'salary.html', show: hnIsLead, kw: '薪資' },
   { id: 'employees',     group: 'people', icon: '👥', label: '員工資料',   sub: '帳號、職位、調店、離職',     go: 'employee-mgmt.html', show: hnIsLead, kw: '員工 帳號 密碼 離職' },
   { id: 'leaveMgmt',     group: 'people', icon: '📆', label: '員工特補休', sub: '假別管理、紀錄查詢',         go: 'leave.html?mode=mgmt', show: hnIsLead, kw: '特休 補休' },
