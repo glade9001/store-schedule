@@ -48,8 +48,7 @@ async function lrLoad(store, ym) {
   const [y, m] = ym.split('-').map(Number);
   const first = `${ym}-01`, last = `${ym}-${lrPad(new Date(y, m, 0).getDate())}`;
   // 例假／休息日以「週一～週日」為一週判斷 → 月初、月底的週要多讀前後幾天，才看得到整週
-  let rFirst = first; while (shiftDayName(rFirst) !== '週一') rFirst = shiftDateAdd(rFirst, -1);
-  let rLast = last; while (shiftDayName(rLast) !== '週日') rLast = shiftDateAdd(rLast, 1);
+  const { from: rFirst, to: rLast } = rdWeekRange(first, last);
   const stores = (lrConfig.stores || []).filter(s => s && s !== '人力支援');
 
   // 人員：這個月有在職過的本店員工。已離職的不列（使用者 2026-09-28）；月中調走的照列（人還在公司）
@@ -158,9 +157,14 @@ function lrBuildEmp(D, emp) {
       .forEach(r => notes.push(`${r.type}打卡 ${lrHm(t(r))}`));
     const pairs = pairsBy[ds] || [];
     let hours = 0, complete = 0;
+    // 時數（使用者 2026-09-28）：原則上依排定班別整點計算；遲到／早退依實際（取較少者）；
+    // 已核准加班依實際；沒有對應班別（例：排休日出勤）只能依實際。跟出勤管理的「有效工時」同一套算法。
     const cells = pairs.map(pr => {
       const a = pr.in ? t(pr.in) : null, b = pr.out ? t(pr.out) : null;
-      const h = (a != null && b != null && b > a) ? (b - a) / 3600000 : null;
+      const actual = (a != null && b != null && b > a) ? (b - a) / 3600000 : null;
+      const sc = shiftTotalHours((pr.in && pr.in.shift) || (pr.out && pr.out.shift) || '');
+      const otOk = (pr.in && pr.in.otStatus === 'approved') || (pr.out && pr.out.otStatus === 'approved');
+      const h = actual == null ? null : (sc > 0 && !otOk ? Math.min(actual, sc) : actual);
       if (h != null) { hours += h; complete++; }
       return { in: a != null ? lrHm(a) : '', out: b != null ? lrHm(b) : '', outNext: b != null && lrYmd(new Date(b)) !== ds, h };
     });
@@ -185,22 +189,12 @@ function lrBuildEmp(D, emp) {
     const rest = emp_ && !pts.length && !works && !onLeave;
     // 時數只在至少有一段完整上下班時才寫（只有一張卡寫 0:00 會被看成上了 0 小時）
     all.push({ date: ds, wd, holName, schedTxt, off: !works && !pts.length, cells, hours: complete ? hours : null, worked: pts.length > 0, notes, st,
-      employed: emp_, rest, restLabel: '', star: false, noRest: false });
+      employed: emp_, rest });
   }
 
-  // ── 例假／休息日（使用者 2026-09-28 定案）：每週一～週日各標 1 天例假＋1 天休息日 ──
-  // 固定規則（不看結果挑）：週內最後一個休的日子＝例假，倒數第二個＝休息日。
-  // 只休 1 天 → 那天是例假（例假不能上班），另一天是休息日出勤 → 打「＊」，印出後由員工手寫簽名確認。
-  // 整週沒休 → 標紅「本週無休（例假出勤）」，照實呈現。週中有未在職的日子（到職／離職週）不判斷。
-  for (let i = 0; i + 7 <= all.length; i += 7) {
-    const wk = all.slice(i, i + 7);
-    const rests = wk.filter(x => x.rest);
-    if (rests[rests.length - 1]) rests[rests.length - 1].restLabel = '例假';
-    if (rests[rests.length - 2]) rests[rests.length - 2].restLabel = '休息日';
-    if (!wk.every(x => x.employed)) continue;
-    if (rests.length === 1) { rests[0].star = true; }
-    if (rests.length === 0) { const sun = wk[6]; sun.noRest = true; sun.notes.unshift('⚠️ 本週無休（例假出勤）'); }
-  }
+  // ── 例假／休息日：規則在 rest-days.js（跟盤點資料共用）──
+  rdLabelWeeks(all);
+  all.forEach(x => { if (x.noRest) x.notes.unshift('⚠️ 本週無休（例假出勤）'); });
 
   const rows = all.filter(x => x.date >= D.first && x.date <= D.last);
   const sum = { days: 0, hours: 0, late: 0, lateMin: 0, miss: 0, fix: 0, holDays: 0, rest: 0, star: 0, noRest: 0, satSun: 0 };
@@ -251,16 +245,17 @@ function lrPrint() {
     <div class="sh-title">${lrEsc(D.store)}　出勤紀錄表</div>
     <div class="sh-sub"><span>姓名：<b>${lrEsc(x.name)}</b></span><span>職稱：${lrEsc(x.emp.role || '')}</span><span>期間：${y} 年 ${m} 月 1 日～${m} 月 ${+D.last.slice(8)} 日</span></div>
     <table class="sh-table">
-      <thead><tr><th style="width:5%">日</th><th style="width:5%">星期</th><th style="width:14%">排定班別</th><th style="width:8%">休假別</th><th style="width:9%">上班</th><th style="width:11%">下班</th><th style="width:7%">時數</th><th>備註</th></tr></thead>
+      <thead><tr><th style="width:6%">日</th><th style="width:6%">星期</th><th style="width:15%">排定班別</th><th style="width:10%">上班</th><th style="width:12%">下班</th><th style="width:8%">時數</th><th>備註</th></tr></thead>
       <tbody>${x.rows.map(r => {
         const n = Math.max(1, r.cells.length);
         const cls = r.noRest ? 'norest' : (r.holName ? 'hol' : (r.off ? 'off' : ''));
-        const rl = r.restLabel ? r.restLabel + (r.star ? '＊' : '') : '';
+        // 例假／休息日直接寫在排定班別（使用者 2026-09-28：不另開一欄）
+        const schedCell = r.restLabel ? `<b>${r.restLabel}${r.star ? '＊' : ''}</b>` : lrEsc(r.schedTxt);
         return Array.from({ length: n }, (_, i) => {
           const c = r.cells[i] || { in: '', out: '', outNext: false };
           const first = i === 0;
           return `<tr class="${cls}">
-            ${first ? `<td rowspan="${n}">${+r.date.slice(8)}</td><td rowspan="${n}">${r.wd}</td><td rowspan="${n}">${lrEsc(r.schedTxt)}</td><td rowspan="${n}" class="${r.star ? 'star' : ''}">${rl}</td>` : ''}
+            ${first ? `<td rowspan="${n}">${+r.date.slice(8)}</td><td rowspan="${n}">${r.wd}</td><td rowspan="${n}">${schedCell}</td>` : ''}
             <td>${c.in}</td><td>${c.out}${c.outNext && c.out ? '<small>(次日)</small>' : ''}</td>
             ${first ? `<td rowspan="${n}">${r.hours != null ? lrHrs(r.hours) : ''}</td><td rowspan="${n}" class="nt">${lrEsc(r.notes.join('；'))}</td>` : ''}
           </tr>`;
@@ -269,7 +264,7 @@ function lrPrint() {
     </table>
     <div class="sh-sum">出勤天數：${x.sum.days} 天　總時數：${lrHrs(x.sum.hours)}　遲到：${x.sum.late} 次（${x.sum.lateMin} 分）　缺卡未補：${x.sum.miss}　國定假日出勤：${x.sum.holDays} 天${x.emp.pt ? '' : `　本月休假：${x.sum.rest} 天（週六日 ${x.sum.satSun} 天）`}</div>
     ${x.sum.noRest ? `<div class="sh-norest">⚠️ 有 ${x.sum.noRest} 週整週無休（例假出勤）</div>` : ''}
-    <div class="sh-foot">例假／休息日：每週一～週日，最後一個休假日為例假、倒數第二個為休息日（特休、補休不計入）。時數＝打卡上下班時間相減（含休息時間），記載至分鐘；資料取自打卡系統，列印時間 ${lrYmd(new Date())} ${lrHm(Date.now())}。</div>
+    <div class="sh-foot">例假／休息日：每週一～週日，最後一個休假日為例假、倒數第二個為休息日（特休、補休不計入）。時數＝依排定班別計算，遲到／早退依實際打卡扣除，已核准加班及無排班出勤依實際打卡；上下班時間照實記載至分鐘；資料取自打卡系統，列印時間 ${lrYmd(new Date())} ${lrHm(Date.now())}。</div>
     <div class="sh-sign"><div><span></span>員工簽名</div><div><span></span>日期</div><div><span></span>店長</div></div>
   </section>`).join('');
   window.print();
@@ -279,17 +274,17 @@ function lrPrint() {
 function lrExcel() {
   if (!lrData || typeof XLSX === 'undefined') { lrToast('Excel 元件還沒載入，請稍候再試'); return; }
   const { D, list } = lrData;
-  const detail = [['門市', '姓名', '職稱', '日期', '星期', '國定假日', '排定班別', '休假別', '上班', '下班', '下班為次日', '時數(時:分)', '備註']];
+  const detail = [['門市', '姓名', '職稱', '日期', '星期', '國定假日', '排定班別', '上班', '下班', '下班為次日', '時數(時:分)', '備註']];
   list.forEach(x => x.rows.forEach(r => {
     const cs = r.cells.length ? r.cells : [{ in: '', out: '', outNext: false, h: null }];
-    cs.forEach((c, i) => detail.push([D.store, x.name, x.emp.role || '', r.date, r.wd, r.holName, i === 0 ? r.schedTxt : '', i === 0 && r.restLabel ? r.restLabel + (r.star ? '＊' : '') : '', c.in, c.out, c.outNext && c.out ? '是' : '',
+    cs.forEach((c, i) => detail.push([D.store, x.name, x.emp.role || '', r.date, r.wd, r.holName, i === 0 ? (r.restLabel ? r.restLabel + (r.star ? '＊' : '') : r.schedTxt) : '', c.in, c.out, c.outNext && c.out ? '是' : '',
       c.h != null ? lrHrs(c.h) : '', i === 0 ? r.notes.join('；') : '']));
   }));
   const summary = [['門市', '姓名', '職稱', '出勤天數', '總時數(時:分)', '遲到次數', '遲到分鐘', '缺卡未補', '補登筆數', '國定假日出勤天數', '本月休假天數', '週六日天數', '只休一天的週(＊)', '整週無休的週']];
   list.forEach(x => summary.push([D.store, x.name, x.emp.role || '', x.sum.days, lrHrs(x.sum.hours), x.sum.late, x.sum.lateMin, x.sum.miss, x.sum.fix, x.sum.holDays,
     x.emp.pt ? '' : x.sum.rest, x.emp.pt ? '' : x.sum.satSun, x.sum.star, x.sum.noRest]));
   const wb = XLSX.utils.book_new();
-  const ws1 = XLSX.utils.aoa_to_sheet(detail); ws1['!cols'] = [8, 10, 6, 11, 5, 10, 14, 8, 7, 7, 6, 8, 60].map(w => ({ wch: w }));
+  const ws1 = XLSX.utils.aoa_to_sheet(detail); ws1['!cols'] = [8, 10, 6, 11, 5, 10, 14, 7, 7, 6, 8, 60].map(w => ({ wch: w }));
   const ws2 = XLSX.utils.aoa_to_sheet(summary); ws2['!cols'] = [8, 10, 6, 8, 10, 8, 8, 8, 8, 12, 10, 8, 12, 10].map(w => ({ wch: w }));
   XLSX.utils.book_append_sheet(wb, ws2, '彙總');
   XLSX.utils.book_append_sheet(wb, ws1, '出勤明細');
