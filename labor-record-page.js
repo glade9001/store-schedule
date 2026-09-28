@@ -194,7 +194,10 @@ function lrBuildEmp(D, emp) {
 
   // ── 例假／休息日：規則在 rest-days.js（跟盤點資料共用）──
   rdLabelWeeks(all);
-  all.forEach(x => { if (x.noRest) x.notes.unshift('⚠️ 本週無休（例假出勤）'); });
+  // 工讀只寫「休」、不標例假／休息日與＊（使用者 2026-09-28）；整週無休照樣標（連上 7 天對工讀一樣違法）
+  const partRole = emp.role === '工讀'; // 看職稱（跟盤點資料一致）；按時薪計薪的店長不算
+  if (partRole) all.forEach(x => { x.restLabel = ''; x.star = false; });
+  all.forEach(x => { if (x.noRest) x.notes.unshift('⚠️ 本週無休' + (partRole ? '' : '（例假出勤）')); });
 
   const rows = all.filter(x => x.date >= D.first && x.date <= D.last);
   const sum = { days: 0, hours: 0, late: 0, lateMin: 0, miss: 0, fix: 0, holDays: 0, rest: 0, star: 0, noRest: 0, satSun: 0 };
@@ -250,7 +253,7 @@ function lrPrint() {
         const n = Math.max(1, r.cells.length);
         const cls = r.noRest ? 'norest' : (r.holName ? 'hol' : (r.off ? 'off' : ''));
         // 例假／休息日直接寫在排定班別（使用者 2026-09-28：不另開一欄）
-        const schedCell = r.restLabel ? `<b>${r.restLabel}${r.star ? '＊' : ''}</b>` : lrEsc(r.schedTxt);
+        const schedCell = r.restLabel ? `<b>${r.restLabel}${r.star ? '＊' : ''}</b>` : (r.rest && !r.schedTxt ? '休' : lrEsc(r.schedTxt));
         return Array.from({ length: n }, (_, i) => {
           const c = r.cells[i] || { in: '', out: '', outNext: false };
           const first = i === 0;

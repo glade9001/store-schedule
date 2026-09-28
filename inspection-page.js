@@ -1453,6 +1453,7 @@ function buildShiftDoc() {
  * 休＝班表填「休」。回傳 { 'YYYY-MM-DD': '例假'｜'休息日'｜'' }
  */
 function attendRestLabels(emp) {
+  if (emp.role === '工讀') return {}; // 工讀只寫「休」，不標例假／休息日（使用者 2026-09-28）
   const md = monthDays(sheet.salaryMonth);
   const rg = rdWeekRange(md[0], md[md.length - 1]);
   const days = [];
