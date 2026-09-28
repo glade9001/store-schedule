@@ -265,6 +265,7 @@ function lrPrint() {
     <div class="sh-sum">出勤天數：${x.sum.days} 天　總時數：${lrHrs(x.sum.hours)}　遲到：${x.sum.late} 次（${x.sum.lateMin} 分）　缺卡未補：${x.sum.miss}　國定假日出勤：${x.sum.holDays} 天${x.emp.pt ? '' : `　本月休假：${x.sum.rest} 天（週六日 ${x.sum.satSun} 天）`}</div>
     ${x.sum.noRest ? `<div class="sh-norest">⚠️ 有 ${x.sum.noRest} 週整週無休（例假出勤）</div>` : ''}
     <div class="sh-foot">例假／休息日：每週一～週日，最後一個休假日為例假、倒數第二個為休息日（特休、補休不計入）。時數＝依排定班別計算，遲到／早退依實際打卡扣除，已核准加班及無排班出勤依實際打卡；上下班時間照實記載至分鐘；資料取自打卡系統，列印時間 ${lrYmd(new Date())} ${lrHm(Date.now())}。</div>
+    <div class="sh-confirm">本人確認上列出勤紀錄及時數正確無誤。排定班別以外於店內停留而未依規定申請加班者，係本人個人因素之非工作停留（如用餐、休息、等候交通等），非屬延長工作時間。</div>
     <div class="sh-sign"><div><span></span>員工簽名</div><div><span></span>日期</div><div><span></span>店長</div></div>
   </section>`).join('');
   window.print();

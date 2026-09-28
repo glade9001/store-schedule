@@ -1448,11 +1448,26 @@ function buildShiftDoc() {
 // 與輪班表一樣走 canvas 產圖：手機長按圖片就能直接存檔／傳送，HTML 表格做不到這件事。
 // ⚠️ 產圖與列印共用同一張圖，不要為了列印再畫一份 HTML —— 兩份版面遲早長不一樣。
 
+/**
+ * 出勤記錄表的例假／休息日（2026-09-28；規則在 rest-days.js，跟勞檢出勤表同一套）
+ * 休＝班表填「休」。回傳 { 'YYYY-MM-DD': '例假'｜'休息日'｜'' }
+ */
+function attendRestLabels(emp) {
+  const md = monthDays(sheet.salaryMonth);
+  const rg = rdWeekRange(md[0], md[md.length - 1]);
+  const days = [];
+  for (let d = rg.from; d <= rg.to; d = shiftDateAdd(d, 1)) days.push({ date: d, rest: ((sheet.schedule[d] || {})[emp.id] || '') === OFF });
+  rdLabelWeeks(days);
+  const out = {};
+  days.forEach(x => { out[x.date] = x.restLabel; });
+  return out;
+}
 function drawAttendanceCanvas(canvas, emp) {
   const font = '"Microsoft JhengHei", "PingFang TC", sans-serif';
   const [y, m] = sheet.salaryMonth.split('-').map(Number);
   const days = monthDays(sheet.salaryMonth);
   const st = monthStat(emp);
+  const rl = attendRestLabels(emp); // 例假／休息日直接寫在班別欄
 
   const W = 1240, margin = 40, tableW = W - margin * 2;
   const COLS = [
@@ -1522,7 +1537,7 @@ function drawAttendanceCanvas(canvas, emp) {
       ctx.fillText('—', colX[2] + COLS[2].w / 2, cy);
     } else if (!h.eff) {
       ctx.fillStyle = '#555';
-      ctx.fillText(shift === OFF ? OFF : '', colX[2] + COLS[2].w / 2, cy);
+      ctx.fillText(rl[d] || (shift === OFF ? OFF : ''), colX[2] + COLS[2].w / 2, cy);
     } else {
       ctx.fillText(shift, colX[2] + COLS[2].w / 2, cy);
       const tIn = punchTime(p, 'in'), tOut = punchTime(p, 'out');

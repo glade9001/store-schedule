@@ -33,9 +33,9 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto S
 .sh-title{text-align:center;font-size:16pt;font-weight:900;margin-bottom:6px;}
 .sh-sub{display:flex;justify-content:space-between;gap:10px;font-size:10.5pt;margin-bottom:6px;}
 .sh-table{width:100%;border-collapse:collapse;table-layout:fixed;border:1.5pt solid #000;}
-.sh-table th,.sh-table td{border:0.6pt solid #000;padding:1.5pt 3pt;text-align:center;font-size:9.5pt;line-height:1.25;}
+.sh-table th,.sh-table td{border:0.6pt solid #000;padding:1pt 3pt;text-align:center;font-size:9pt;line-height:1.2;}
 .sh-table th{background:#eee;font-weight:800;}
-.sh-table td.nt{text-align:left;font-size:8.5pt;}
+.sh-table td.nt{text-align:left;font-size:7.5pt;line-height:1.15;}
 .sh-table td small{font-size:7pt;margin-left:1pt;}
 .sh-table tr.hol td{background:#fdecea;}
 .sh-table tr.off td{background:#f3f4f6;color:#555;}
@@ -44,11 +44,12 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto S
 .sh-norest{font-size:10pt;margin:4px 0;font-weight:900;color:#b3261e;}
 .sh-sum{font-weight:800;margin:8px 0 4px;font-size:10.5pt;}
 .sh-foot{font-size:8.5pt;color:#333;}
-.sh-sign{display:flex;gap:28pt;margin-top:34pt;}
+.sh-confirm{font-size:9.5pt;line-height:1.6;margin-top:10pt;padding:5pt 7pt;border:0.8pt solid #000;}
+.sh-sign{display:flex;gap:28pt;margin-top:24pt;}
 .sh-sign div{flex:1;text-align:center;font-size:10pt;}
 .sh-sign div span{display:block;border-bottom:1pt solid #000;height:1px;margin-bottom:4pt;}
 @media print{
-  @page{size:A4 portrait;margin:10mm 10mm 10mm 10mm;}
+  @page{size:A4 portrait;margin:8mm 9mm 8mm 9mm;}
   body{background:#fff;}
   .no-print,#loadingOverlay,#toast{display:none!important;}
   #lrPrint{display:block;}
