@@ -23,45 +23,10 @@ function toDay(){const d=new Date();return `${d.getFullYear()}-${String(d.getMon
 function dateLbl(s){if(!s)return '';const[,m,d]=s.split('-');return `${parseInt(m)}/${parseInt(d)}`;}
 function daysUntil(s){if(!s)return null;const t=new Date(s);t.setHours(23,59,59);return Math.ceil((t-new Date())/86400000);}
 
-// 週期下次觸發
-function calcNext(todo,from){
-  const base=from?new Date(from):new Date();base.setHours(0,0,0,0);
-  const start=todo.startDate?new Date(todo.startDate):base;
-  const end=todo.recurringEnd?new Date(todo.recurringEnd):null;
-  if(end&&base>end)return null;
-  if(todo.recurringType==='weekly'){
-    const tgt=parseInt(todo.recurringDay||1);
-    const dow=base.getDay()===0?7:base.getDay();
-    let diff=tgt-dow; if(diff<0)diff+=7;
-    const next=new Date(base);next.setDate(base.getDate()+diff);
-    if(next<start)next.setDate(next.getDate()+7);
-    return(end&&next>end)?null:next;
-  }
-  if(todo.recurringType==='monthly'){
-    const isLast=(todo.recurringDay==='last'||parseInt(todo.recurringDay)===0);
-    const dayOf=(yr,mo)=> isLast ? new Date(yr,mo+1,0).getDate() : Math.min(parseInt(todo.recurringDay||1), new Date(yr,mo+1,0).getDate());
-    let next=new Date(base.getFullYear(),base.getMonth(),dayOf(base.getFullYear(),base.getMonth()));
-    if(next<base){const y=base.getFullYear(),m=base.getMonth()+1;next=new Date(y,m,dayOf(y,m));}
-    if(next<start){const y=next.getFullYear(),m=next.getMonth()+1;next=new Date(y,m,dayOf(y,m));}
-    return(end&&next>end)?null:next;
-  }
-  if(todo.recurringType==='custom'){
-    const iv=parseInt(todo.recurringInterval||7);
-    let cur=new Date(start);while(cur<base)cur.setDate(cur.getDate()+iv);
-    return(end&&cur>end)?null:cur;
-  }
-  return null;
-}
-function nextStr(todo){
-  const d=calcNext(todo);
-  return d?`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`:null;
-}
-function recChkKey(id){
-  const t=allTodos.find(x=>x.id===id)||{};
-  // 每月型：當期＝「當月」(YYYY-MM)，完成後該月消失、下月自動重現
-  if(t.recurringType==='monthly'){const n=new Date();return `${id}__${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`;}
-  const n=nextStr(t);return n?`${id}__${n}`:id;
-}
+// 週期下次觸發／當期 key：共用 todo-recur.js（首頁也用同一份）
+function calcNext(todo,from){return trCalcNext(todo,from);}
+function nextStr(todo){return trNextStr(todo);}
+function recChkKey(id){return trPeriodKey(allTodos.find(x=>x.id===id)||{id});}
 // 循環任務「當期截止日」：每月型＝當月的截止日(取 endDate 的日)；其他型＝下次發生日+offset
 function recDeadline(todo){
   if(!todo.isRecurring||!todo.endDate)return todo.endDate||null;
