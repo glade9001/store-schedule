@@ -3,12 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>📊 資料匯出</title>
+<title>📤 薪資匯出</title>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="firebase-init.js"></script>
+<script src="owner-scope.js"></script>
 <link rel="stylesheet" href="export-page.css">
 </head>
 <body>
@@ -16,10 +17,12 @@
 
 <div class="header">
   <button class="header-back" onclick="window.location.href=(new URLSearchParams(location.search).get('ref')||'home.html')">← 首頁</button>
-  <div class="header-title">📊 資料匯出</div>
+  <div class="header-title">📤 薪資匯出</div>
 </div>
 
 <div class="content">
+  <!-- 三店／單店切換（與加盟主儀表板、人事分析共用，見 owner-scope.js）-->
+  <div id="scopeBar"></div>
   <div class="card">
     <div class="card-title">📅 選擇匯出月份</div>
     <div class="form-row">
@@ -40,6 +43,20 @@
     <div class="hint">特補休紀錄將匯出所選年度 1 月至所選月份的完整紀錄</div>
   </div>
 
+  <!-- 月結進度：送審 → 發布 → 匯出 → 簽收（export-page.js renderMonthClose）-->
+  <div class="card" id="monthCloseCard"><div class="card-title">🗓️ 月結進度</div><div id="monthClose" class="hint">讀取中…</div></div>
+
+  <div style="display:flex;gap:8px;margin-bottom:14px;">
+    <button class="export-btn" id="exportBtn" onclick="startExport()" style="flex:1;">
+      <span>⬇️</span><span id="exportBtnText">Excel 匯出</span>
+    </button>
+    <button class="export-btn" id="pdfBtn" onclick="startPdfPreview()" style="flex:1;background:linear-gradient(135deg,#9334e6,#6a1bb5);box-shadow:0 4px 16px rgba(147,52,230,.35);">
+      <span>🖨️</span><span>預覽 PDF</span>
+    </button>
+  </div>
+
+  <details class="adv">
+    <summary>⚙️ 進階選項<span style="font-size:12px;color:#64748b;font-weight:600;margin-left:auto;margin-right:8px;">工作表・格式・PDF 版本</span></summary>
   <div class="card">
     <div class="card-title">📋 匯出內容（四個工作表）</div>
     <div class="check-list">
@@ -92,14 +109,7 @@
     </div>
   </div>
 
-  <div style="display:flex;gap:8px;margin-bottom:0;">
-    <button class="export-btn" id="exportBtn" onclick="startExport()" style="flex:1;">
-      <span>⬇️</span><span id="exportBtnText">Excel 匯出</span>
-    </button>
-    <button class="export-btn" id="pdfBtn" onclick="startPdfPreview()" style="flex:1;background:linear-gradient(135deg,#9334e6,#6a1bb5);box-shadow:0 4px 16px rgba(147,52,230,.35);">
-      <span>🖨️</span><span>預覽 PDF</span>
-    </button>
-  </div>
+  </details>
 
   <!-- PDF 預覽 Modal -->
   <div id="pdfModal" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,0.7);flex-direction:column;">

@@ -50,12 +50,21 @@ function rerenderPdfSalaryPage() {
 }
 
 // G. 資料筆數查詢
+// 三店／單店（方案 D，與儀表板、人事分析共用 owner-scope.js）：匯出、預覽、筆數都只算選到的門市
+function allStores(){ return (appConfig.stores||[]).filter(s=>s!=='人力支援'); }
+function exportStores(){ const sc=OwnerScope.get(); return sc && allStores().includes(sc) ? [sc] : (appConfig.stores||[]); }
+function refreshScopeLabels(){
+  const sc=OwnerScope.get();
+  const t=document.getElementById('exportBtnText'); if(t && t.textContent!=='匯出中...') t.textContent = sc ? `匯出${sc} Excel` : 'Excel 匯出';
+}
+
 async function updateCounts() {
   const year  = document.getElementById('selYear').value;
   const month = document.getElementById('selMonth').value;
   if(!year||!month) return;
   const ym = `${year}-${month}`;
-  const stores = appConfig.stores || [];
+  renderMonthClose(ym);
+  const stores = exportStores();
   if(!stores.length) return;
   const [_ey,_em] = ym.split('-').map(Number);
   const endDay = new Date(_ey,_em,0).getDate();
@@ -240,12 +249,89 @@ window.onload = async () => {
   const sel=document.getElementById('selYear');
   for(let y=now.getFullYear();y>=now.getFullYear()-2;y--)
     sel.innerHTML+=`<option value="${y}">${y} 年（民國 ${y-1911} 年）</option>`;
-  sel.value=now.getFullYear();
-  document.getElementById('selMonth').value=String(now.getMonth()+1).padStart(2,'0');
+  // 預設選「最近一個有門市已發布薪資的月份」（原本預設本月，薪資都還沒算）
+  let def=new Date(now.getFullYear(), now.getMonth()-1, 1);
+  for(let i=0;i<4;i++){
+    const d=new Date(now.getFullYear(), now.getMonth()-i, 1), ym=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    let pub=false;
+    for(const st of allStores()){ try{ const sn=await window.db.collection('stores').doc(st).collection('salary').doc(ym).get(); if(sn.exists&&sn.data().status==='published'){ pub=true; break; } }catch(e){} }
+    if(pub){ def=d; break; }
+  }
+  sel.value=def.getFullYear();
+  document.getElementById('selMonth').value=String(def.getMonth()+1).padStart(2,'0');
+  OwnerScope.render(document.getElementById('scopeBar'), allStores());
+  OwnerScope.onChange(()=>{ OwnerScope.render(document.getElementById('scopeBar'), allStores()); refreshScopeLabels(); updateCounts(); });
+  refreshScopeLabels();
   hideLoading();
   // G. 初始載入筆數
   updateCounts();
 };
+
+// ═══ 月結進度（2026-10-10，方案 C 的月結）═══
+// 送審（店長）→ 發布（加盟主審核後發布，員工可看）→ 匯出（本頁按過 Excel／PDF）→ 簽收（員工簽收雜湊＝薪資 payHash）
+// 匯出紀錄存 monthClose/{YYYY-MM}.exports[]（只為了顯示這一步，不影響薪資）。
+let _mcSeq=0;
+async function renderMonthClose(ym){
+  const el=document.getElementById('monthClose'); if(!el) return;
+  const seq=++_mcSeq;
+  el.innerHTML='讀取中…';
+  const stores=exportStores().filter(x=>x!=='人力支援');
+  const info={};
+  await Promise.all(stores.map(async st=>{
+    try{ const sn=await window.db.collection('stores').doc(st).collection('salary').doc(ym).get();
+      const d=sn.exists?sn.data():null;
+      info[st]={ status:d?(d.status||'draft'):'none', recs:d?(d.records||[]):[], at:d&&(d.publishedAt||d.submittedAt)||'' };
+    }catch(e){ info[st]={status:'none',recs:[]}; }
+  }));
+  // 簽收
+  let acks=[];
+  try{ const q=await window.db.collection('salaryAck').where('month','==',ym).get(); acks=q.docs.map(d=>d.data()); }catch(e){}
+  let mc=null; try{ const m=await window.db.collection('monthClose').doc(ym).get(); if(m.exists) mc=m.data(); }catch(e){}
+  if(seq!==_mcSeq) return;   // 使用者已切到別的月份／門市
+  const ACK_START='2026-06';
+  let sub=0, pub=0, signed=0, total=0;
+  const rows=stores.map(st=>{
+    const it=info[st], s=it.status;
+    if(s==='submitted'||s==='published') sub++;
+    if(s==='published') pub++;
+    let sg=0, tt=0;
+    if(s==='published' && ym>=ACK_START){
+      it.recs.forEach(r=>{ if(!r||!r.empName) return; tt++; const a=acks.find(x=>x.store===st&&x.empName===r.empName); if(a&&(a.signedPayHash||'')===(r.payHash||'')) sg++; });
+    }
+    signed+=sg; total+=tt;
+    const chip = s==='published'?'<span class="mc-chip mc-ok">已發布</span>' : s==='submitted'?'<span class="mc-chip mc-wait">待加盟主審核</span>' : s==='draft'?'<span class="mc-chip mc-no">店長製作中</span>':'<span class="mc-chip mc-no">未建立</span>';
+    return `<div class="mc-row"><span class="st">${st}</span>${chip}<span style="margin-left:auto;font-size:12px;color:#64748b;font-weight:700;">${s==='published'&&tt?`簽收 ${sg}/${tt}`:''}</span></div>`;
+  }).join('');
+  const exps=(mc&&mc.exports)||[];
+  const exp=exps.filter(e=>stores.every(st=>(e.stores||[]).includes(st))).sort((a,b)=>String(b.at).localeCompare(String(a.at)))[0];
+  const N=stores.length;
+  const steps=[
+    {t:'送審', v:`${sub}/${N}`, done:sub===N},
+    {t:'發布', v:`${pub}/${N}`, done:pub===N},
+    {t:'匯出', v:exp?`${+exp.at.slice(5,7)}/${+exp.at.slice(8,10)}`:'未匯出', done:!!exp},
+    {t:'簽收', v:ym<ACK_START?'—':(total?`${signed}/${total}`:'—'), done:total>0&&signed===total},
+  ];
+  const nowIdx=steps.findIndex(x=>!x.done);
+  const stepHtml=`<div class="mc-steps">${steps.map((x,i)=>`<div class="mc-step ${x.done?'done':i===nowIdx?'now':''}"><b>${i+1} ${x.t}</b><span>${x.v}</span></div>`).join('')}</div>`;
+  let next='';
+  const draft=stores.filter(st=>['draft','none'].includes(info[st].status)), waiting=stores.filter(st=>info[st].status==='submitted');
+  if(draft.length) next=`等 ${draft.join('、')} 店長送審。`;
+  else if(waiting.length) next=`${waiting.join('、')} 已送審，<a href="salary.html?ref=export.html">到薪資頁審核發布 ›</a>`;
+  else if(!exp) next='三店都發布了，可以匯出 Excel／PDF。';
+  else if(total&&signed<total) next=`還有 ${total-signed} 人沒簽收（首頁會提醒他們）。`;
+  else if(total) next='本月月結完成 ✅';
+  el.innerHTML=stepHtml+rows+(next?`<div class="mc-next">${next}</div>`:'');
+  el.classList.remove('hint');
+}
+async function logMonthExport(ym, stores, kind){
+  try{
+    await window.db.collection('monthClose').doc(ym).set({
+      ym, exports: firebase.firestore.FieldValue.arrayUnion({ at:new Date().toISOString(), by:(currentUser.displayName||currentUser.empName||''), stores, kind, ts:Date.now() })
+    },{merge:true});
+  }catch(e){ console.warn('月結匯出紀錄失敗', e); }
+  const y=document.getElementById('selYear').value, m=document.getElementById('selMonth').value;
+  if(`${y}-${m}`===ym) renderMonthClose(ym);
+}
 
 // J. 右滑返回
 (function(){
@@ -265,7 +351,7 @@ async function startExport() {
   const year=document.getElementById('selYear').value;
   const month=document.getElementById('selMonth').value;
   const ym=`${year}-${month}`;
-  const stores=appConfig.stores||[];
+  const stores=exportStores();
   if(!stores.length){showToast('⚠️ 無門市資料');return;}
 
   document.getElementById('exportBtn').disabled=true;
@@ -395,7 +481,7 @@ async function startExport() {
     // 5. 下載
     setProgress(97,'產生檔案...');
     const rocY=parseInt(year)-1911;
-    const fileName=`莉學商行-民國${rocY}年${parseInt(month)}月薪資清冊`;
+    const fileName=`莉學商行${stores.length===1?'-'+stores[0]:''}-民國${rocY}年${parseInt(month)}月薪資清冊`;
     if(exportFormat==='xlsx'){
       XLSX.writeFile(wb,`${fileName}.xlsx`);
     } else {
@@ -419,9 +505,10 @@ async function startExport() {
     document.getElementById('sum-emp').textContent=allEmps.length;
     document.getElementById('sum-leave').textContent=leaveLogAll.length;
     document.getElementById('sum-salary').textContent=Object.keys(salaryRecMap).length;
-    document.getElementById('sum-cost').textContent='$'+Math.round(totalCost/1000)+'K';
+    document.getElementById('sum-cost').textContent=(totalCost/10000).toFixed(1)+' 萬';
     document.getElementById('summaryCard').style.display='block';
     showToast('✅ 匯出成功！');
+    logMonthExport(ym, stores.filter(x=>x!=='人力支援'), 'excel');
 
   }catch(e){
     setProgress(0,'❌ 匯出失敗：'+e.message);
@@ -430,6 +517,7 @@ async function startExport() {
   }
   document.getElementById('exportBtn').disabled=false;
   document.getElementById('exportBtnText').textContent='再次匯出';
+  setTimeout(refreshScopeLabels, 4000);
 }
 
 // ═══ Sheet ① 人事費用摘要 ═══
@@ -824,7 +912,7 @@ async function startPdfPreview() {
   const year  = document.getElementById('selYear').value;
   const month = document.getElementById('selMonth').value;
   const ym    = `${year}-${month}`;
-  const stores = appConfig.stores || [];
+  const stores = exportStores();
   if(!stores.length) { showToast('⚠️ 無門市資料'); return; }
 
   document.getElementById('pdfBtn').disabled = true;
@@ -908,6 +996,7 @@ async function startPdfPreview() {
 
     // ── 產生 PDF HTML ──
     pdfPreviewData = { allEmps, salaryRecMap, leaveStatMap, compStatMap, batchMap, leaveLogAll, stores, year, month, ym };
+    logMonthExport(ym, stores.filter(x=>x!=='人力支援'), 'pdf');
     const visCols = {
       laborAllow: document.getElementById('col-laborAllow').checked,
       perf:       document.getElementById('col-perf').checked,
