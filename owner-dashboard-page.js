@@ -97,7 +97,7 @@ async function renderAll(m){
     el.innerHTML = `<button class="back-btn" onclick="closeScoreView()">← 回儀表板</button>` + renderScorecard(m,c.extra,'full');
     return;
   }
-  el.innerHTML = renderOverview(m) + renderScorecard(m,c.extra,'summary') + renderHealthSection() + renderAlerts(m,c.extra) + renderReview(m,c.review) + renderLinks();
+  el.innerHTML = renderOverview(m) + renderScorecard(m,c.extra,'summary') + renderHealthSection() + renderAlerts(m,c.extra) + renderDiscipline(m,c.extra) + renderReview(m,c.review) + renderLinks();
   renderStoreHealth();
 }
 
@@ -158,10 +158,84 @@ async function scanMonth(store,ym){
   // 合規：該月週次記錄有 lawOverrides(知情放行)
   try{ for(const wk of weeksForMonth(ym)){ const wd=await window.db.collection('stores').doc(store).collection('weeks').doc(wk).get(); if(wd.exists)(wd.data().records||[]).forEach(r=>{if(r.lawOverrides&&r.lawOverrides.length)out.law++;}); } }catch(e){ out.law=null; }
   // 出勤紀律：該月遲到/早退/缺卡筆數
-  try{ const a=await window.db.collection('stores').doc(store).collection('attendance').where('date','>=',ym+'-01').where('date','<=',ym+'-31').get(); let c=0,any=false; a.forEach(d=>{any=true;const st=d.data().status;if(st==='遲到'||st==='早退'||st==='缺卡')c++;}); out.late=any?c:null; }catch(e){ out.late=null; }
+  let att=null;
+  try{ const a=await window.db.collection('stores').doc(store).collection('attendance').where('date','>=',ym+'-01').where('date','<=',ym+'-31').get(); att=a.docs.map(d=>d.data()); let c=0; att.forEach(x=>{const st=x.status;if(st==='遲到'||st==='早退'||st==='缺卡')c++;}); out.late=att.length?c:null; }catch(e){ out.late=null; }
+  // 出勤紀律追蹤：同一批打卡資料再加上當月補登申請
+  out.disc = att ? disciplineOf(att, await monthRequests(store,ym)) : null;
   // 員工流動率：該月離職/調走人數 ÷ 在職
   try{ const es=await window.db.collection('stores').doc(store).collection('employees').get(); let head=0,left=0; es.forEach(d=>{const e=d.data();const st=e.status||'';const retired=st==='離職'||st==='調走';if(!retired)head++;if(!retired&&e.role==='店長'&&!out.mgr)out.mgr=e.displayName||d.id;const eff=e.retireDate||e.transferDate||'';if(retired&&eff&&eff.slice(0,7)===ym)left++;}); out.head=head;out.left=left;out.turnover=(head+left)>0?Math.round(left/(head+left)*1000)/10:0; }catch(e){}
   return out;
+}
+
+// ===== 出勤紀律追蹤（2026-10-10）：缺卡率／補登率／遲到率／未處理缺卡 =====
+// 分母「班數」＝當月有配到班別的上下班卡＋缺卡單，以「人｜班別日｜班別」去重（排班表不用另外讀）。
+// 缺卡單：因「已補登／代為補登」被註銷的照算（缺卡確實發生過）；因排班變更等原因被註銷的不算（那張單本來就不成立）。
+async function monthRequests(store,ym){
+  try{ const q=await window.db.collection('stores').doc(store).collection('attendanceRequests').where('targetDate','>=',ym+'-01').where('targetDate','<=',ym+'-31').get(); return q.docs.map(d=>d.data()); }
+  catch(e){ return []; }
+}
+function disciplineOf(att, reqs){
+  const keys=new Set(); let miss=0, missOpen=0, late=0, ins=0;
+  att.forEach(a=>{
+    const day=a.shiftDate||a.date;
+    if(a.type==='缺卡'){
+      if(a.voided && !/補登/.test(a.voidReason||'')) return;
+      miss++; if(!a.voided) missOpen++;
+      if(a.shift) keys.add(a.empName+'|'+day+'|'+a.shift);
+      return;
+    }
+    if(a.voided || !a.shift || a.status==='到場' || (a.type!=='上班'&&a.type!=='下班')) return;
+    keys.add(a.empName+'|'+day+'|'+a.shift);
+    if(a.type==='上班'){ ins++; if(a.status==='遲到') late++; }
+  });
+  const req=(reqs||[]).length, shifts=keys.size;
+  const pct=(a,b)=>b?Math.round(a/b*1000)/10:null;
+  return {shifts, miss, missOpen, req, late, ins, missRate:pct(miss,shifts), reqRate:pct(req,shifts), lateRate:pct(late,ins)};
+}
+const DISC_COLS=[
+  {k:'missRate', t:'缺卡率', fmt:d=>d.missRate==null?'—':d.missRate+'%', sub:d=>`${d.miss}/${d.shifts}班`},
+  {k:'reqRate',  t:'補登率', fmt:d=>d.reqRate==null?'—':d.reqRate+'%',  sub:d=>`${d.req}件`},
+  {k:'lateRate', t:'遲到率', fmt:d=>d.lateRate==null?'—':d.lateRate+'%', sub:d=>`${d.late}/${d.ins}次`},
+  {k:'missOpen', t:'未處理缺卡', fmt:d=>String(d.missOpen), sub:()=>'張'},
+];
+function renderDiscipline(m,extra){
+  const rows=STORES.filter(s=>extra[s]&&extra[s].disc);
+  if(!rows.length) return '';
+  // 每欄最差的那家標紅（越高越差）；未處理缺卡 >0 一律標紅
+  const worst={}; DISC_COLS.forEach(c=>{ let w=null; rows.forEach(s=>{ const v=extra[s].disc[c.k]; if(v!=null&&v>0&&(w==null||v>extra[w].disc[c.k])) w=s; }); worst[c.k]=w; });
+  const cell=(s,c)=>{ const d=extra[s].disc, bad=(c.k==='missOpen')?d.missOpen>0:worst[c.k]===s;
+    return `<td style="${bad?'color:#c5221f;font-weight:900;':''}">${c.fmt(d)}<div style="font-size:10.5px;color:var(--muted);font-weight:600;">${c.sub(d)}</div></td>`; };
+  const tbl=`<div class="scroll"><table class="tbl"><thead><tr><th>門市</th>${DISC_COLS.map(c=>`<th>${c.t}</th>`).join('')}</tr></thead><tbody>${rows.map(s=>`<tr><td><b>${esc(s)}</b></td>${DISC_COLS.map(c=>cell(s,c)).join('')}</tr>`).join('')}</tbody></table></div>`;
+  return `<div class="sec-title">🕐 出勤紀律追蹤<span class="sec-sub">${m.split('-')[0]}年${+m.split('-')[1]}月</span></div>
+  <div class="card">${tbl}
+    <div style="font-size:11px;color:var(--muted);line-height:1.6;margin-top:8px;">缺卡率＝缺卡單÷班數（已補登的照算）；補登率＝補登申請÷班數；紅字＝三店中最高。</div>
+    <div id="discTrend" style="margin-top:10px;"><button onclick="loadDisciplineTrend()" style="width:100%;padding:9px;background:#f1f5f9;border:none;border-radius:10px;font-size:13px;font-weight:800;color:var(--text);cursor:pointer;">📈 看近 6 個月趨勢</button></div>
+  </div>`;
+}
+var discTrendCache={}, discTrendKey='missRate', discTrendMonths=[];
+async function loadDisciplineTrend(){
+  const box=document.getElementById('discTrend'); if(!box) return;
+  box.innerHTML='<div class="empty">讀取中…</div>';
+  const [y,mo]=dashMonth.split('-').map(Number), months=[];
+  for(let i=5;i>=0;i--){ const d=new Date(y,mo-1-i,1); months.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`); }
+  await Promise.all(months.flatMap(ym=>STORES.map(async s=>{
+    const k=s+'|'+ym; if(discTrendCache[k]!==undefined) return;
+    const c=dashCache[ym]&&dashCache[ym].extra[s];
+    if(c&&c.disc){ discTrendCache[k]=c.disc; return; }
+    try{ const a=await window.db.collection('stores').doc(s).collection('attendance').where('date','>=',ym+'-01').where('date','<=',ym+'-31').get();
+      discTrendCache[k]=a.empty?null:disciplineOf(a.docs.map(d=>d.data()), await monthRequests(s,ym)); }
+    catch(e){ discTrendCache[k]=null; }
+  })));
+  discTrendMonths=months;
+  renderDisciplineTrend();
+}
+function renderDisciplineTrend(){
+  const months=discTrendMonths;
+  const box=document.getElementById('discTrend'); if(!box) return;
+  const col=DISC_COLS.find(c=>c.k===discTrendKey)||DISC_COLS[0];
+  const sel=`<select onchange="discTrendKey=this.value;renderDisciplineTrend()" style="padding:5px 7px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-weight:700;margin-bottom:8px;">${DISC_COLS.map(c=>`<option value="${c.k}"${c.k===col.k?' selected':''}>${c.t}</option>`).join('')}</select>`;
+  const rows=months.map(ym=>`<tr><td>${ym}</td>${STORES.map(s=>{ const d=discTrendCache[s+'|'+ym]; return `<td>${d?col.fmt(d):'—'}</td>`; }).join('')}</tr>`).join('');
+  box.innerHTML=sel+`<div class="scroll"><table class="tbl"><thead><tr><th>月份</th>${STORES.map(s=>`<th>${esc(s)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 // ===== 三店總覽 =====
@@ -299,6 +373,7 @@ function renderAlerts(m,extra){
       if(lr!=null&&lr>2.5) alerts.push({c:'a-warn',t:`${s} 淨損耗率偏高 ${lr.toFixed(2)}%（>2.5%，含攤提盤損${am&&am.est?'估算':''}）`}); }
     if(ex.law>=3) alerts.push({c:'a-warn',t:`${s} 排班知情放行 ${ex.law} 次，留意勞基法合規`});
     if(ex.late>=5) alerts.push({c:'a-warn',t:`${s} 本月遲到/缺卡 ${ex.late} 次，關注團隊出勤`});
+    if(ex.disc&&ex.disc.missOpen>=10) alerts.push({c:'a-warn',t:`${s} 有 ${ex.disc.missOpen} 張缺卡單還沒處理（補登或註銷）`});
   });
   const body = alerts.length? alerts.map(a=>`<div class="alert ${a.c}">⚠️ ${a.t}</div>`).join('')
     : `<div class="alert a-ok">✅ 本月各店無明顯警示指標</div>`;
