@@ -589,12 +589,14 @@ function renderLeaveDetail(scope){
   const el=document.getElementById('lvDetail'); if(!el||!leaveEst) return;
   const list=leaveEst.items.filter(x=>(!scope||x.store===scope)&&x.due===lvPick).sort((a,b)=>b.amt-a.amt);
   if(!list.length){ el.innerHTML=`<div style="font-size:12px;color:var(--muted);">${+lvPick.slice(5)}月沒有到期的特休或補休</div>`; return; }
-  el.innerHTML=`<div style="font-size:12.5px;font-weight:900;margin-bottom:2px;">${lvPick.slice(0,4)}年${+lvPick.slice(5)}月到期・${list.length} 筆・約 $${money(list.reduce((a,i)=>a+i.amt,0))}</div>`+list.map(i=>`<div class="lv-row">
+  const showAll=el.dataset.all===lvPick, shown=showAll?list:list.slice(0,5);
+  el.innerHTML=`<div style="font-size:12.5px;font-weight:900;margin-bottom:2px;">${lvPick.slice(0,4)}年${+lvPick.slice(5)}月到期・${list.length} 筆・約 $${money(list.reduce((a,i)=>a+i.amt,0))}</div>`+shown.map(i=>`<div class="lv-row">
     <span style="font-weight:800;min-width:56px;">${esc(i.disp)}</span><span style="color:var(--muted);font-size:11.5px;">${i.store}</span>
     <span class="lv-tag" style="background:${i.kind==='特休'?'#e8f0fe':'#fff3e0'};color:${i.kind==='特休'?'#1a56c4':'#c0620f'};">${i.kind}${i.label?'・'+esc(i.label):''}</span>
     <span style="margin-left:auto;white-space:nowrap;">${i.days} 天${i.noWage?'':' × $'+money(i.dw)}</span>
     <b style="min-width:62px;text-align:right;">${i.noWage?'缺薪資':'$'+money(i.amt)}</b>
-    <span class="lv-tag" style="background:${i.mustSettle?'#fce8e6':'#f1f5f9'};color:${i.mustSettle?'#c5221f':'#64748b'};">${i.mustSettle?'必須結算':'可遞延'}</span></div>`).join('');
+    <span class="lv-tag" style="background:${i.mustSettle?'#fce8e6':'#f1f5f9'};color:${i.mustSettle?'#c5221f':'#64748b'};">${i.mustSettle?'必須結算':'可遞延'}</span></div>`).join('')
+    +(list.length>5&&!showAll?`<button class="sc-more" style="margin-top:6px;padding:7px;" onclick="document.getElementById('lvDetail').dataset.all=lvPick;renderLeaveDetail(OwnerScope.get())">看全部 ${list.length} 筆</button>`:'');
 }
 
 // ===== 這個月要處理（2026-10-10 取代原本一條條的決策警示，改成依門市分組）=====
