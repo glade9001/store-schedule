@@ -12,11 +12,24 @@ window.onload = async function () {
   gbUser = await gbRequireUser();
   if (!gbUser) return;
   gbMyCode = gbCodeOf(gbUser.store);
-  if (gbIsOwner(gbUser) || (gbIsManager(gbUser) && gbMyCode)) document.getElementById('newBtn').hidden = false;
+  gbCanCreate = gbIsOwner(gbUser) || (gbIsManager(gbUser) && !!gbMyCode);
   gbEnsureStoreSettings(gbUser);
-  await loadCampaigns();
+  // 舊取貨名單網址（groupbuy-pickup.html）轉過來會帶 ?tab=pick；其他一律先開〔團購〕（使用者 2026-10-10）
+  var t = new URLSearchParams(location.search).get('tab');
+  await gbSetTab(t === 'pick' ? 'pick' : 'camp');
   gbLoading(false);
 };
+var gbCanCreate = false, gbCampLoaded = false;
+async function gbSetTab(t) {
+  var pick = t === 'pick';
+  document.getElementById('secCamp').hidden = pick;
+  document.getElementById('secPick').hidden = !pick;
+  document.getElementById('tabCamp').classList.toggle('on', !pick); document.getElementById('tabCamp').setAttribute('aria-selected', String(!pick));
+  document.getElementById('tabPick').classList.toggle('on', pick); document.getElementById('tabPick').setAttribute('aria-selected', String(pick));
+  document.getElementById('newBtn').hidden = pick || !gbCanCreate;
+  if (pick) await pkInit(gbUser);
+  else if (!gbCampLoaded) { gbCampLoaded = true; await loadCampaigns(); }
+}
 
 async function loadCampaigns() {
   try {

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#0e2140">
-<title>🛒 團購管理</title>
+<title>🛒 團購</title>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
@@ -16,12 +16,29 @@
 <div id="loadingOverlay"><div class="spinner"></div><div id="loadingText">載入中…</div></div>
 <div class="header">
   <button class="header-back" onclick="location.href='home.html'">← 首頁</button>
-  <div class="header-title">🛒 團購管理</div>
+  <div class="header-title">🛒 團購</div>
   <button class="header-btn" id="newBtn" hidden onclick="openCampaignForm()">＋ 開團</button>
 </div>
 <div class="wrap">
-  <div class="chips" id="chips" role="tablist" aria-label="依狀態篩選"></div>
-  <div id="list"><div class="empty">載入中…</div></div>
+  <!-- 〔團購〕〔取貨〕（2026-10-10 取貨名單併入；預設先開團購）-->
+  <div class="gb-tabs" id="gbTabs" role="tablist">
+    <button role="tab" id="tabCamp" class="on" aria-selected="true" onclick="gbSetTab('camp')">🛒 團購</button>
+    <button role="tab" id="tabPick" aria-selected="false" onclick="gbSetTab('pick')">📦 取貨</button>
+  </div>
+  <div id="secCamp">
+    <div class="chips" id="chips" role="tablist" aria-label="依狀態篩選"></div>
+    <div id="list"><div class="empty">載入中…</div></div>
+  </div>
+  <div id="secPick" hidden>
+    <div class="toolbar">
+      <select id="pkStore" aria-label="門市" onchange="loadPickup()"></select>
+      <select id="pkCamp" aria-label="團購" onchange="renderPickup()"><option value="">全部團購</option></select>
+      <input id="pkSearch" type="search" placeholder="🔍 搜尋暱稱" aria-label="搜尋暱稱" oninput="renderPickup()">
+    </div>
+    <div class="chips" id="pkChips"></div>
+    <div class="sum" id="pkSum"></div>
+    <div id="pkList"><div class="empty">載入中…</div></div>
+  </div>
 </div>
 
 <!-- 開團／編輯 -->
@@ -102,6 +119,7 @@
 </div>
 
 <div id="toast"></div>
+<script src="groupbuy-pickup-page.js"></script>
 <script src="groupbuy-page.js"></script>
 </body>
 </html>

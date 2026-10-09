@@ -1,4 +1,4 @@
-// 取貨名單（2026-10-10 第 1 階段）
+// 取貨名單（2026-10-10 第 1 階段；同日併入團購頁的〔取貨〕分頁，由 groupbuy-page.js 呼叫 pkInit）
 // 列出「已成團」或「已到貨」團購中、該門市的訂單；員工與店長固定本店，加盟主／admin 可切換門市。
 // 勾「已取貨」→ status: picked_up＋picked_up_at／picked_up_by；「已付款」→ paid: true；
 // 過了取貨期限可標「棄單」→ status: no_show，有 LINE userId 的客人 gb_customers.no_show_count +1。
@@ -6,9 +6,10 @@
 
 var pkUser = null, pkCamps = [], pkOrders = [], pkView = 'todo';
 
-window.onload = async function () {
-  pkUser = await gbRequireUser();
-  if (!pkUser) return;
+var pkInited = false;
+async function pkInit(user) {
+  if (pkInited) return; pkInited = true;
+  pkUser = user;
   var my = gbCodeOf(pkUser.store);
   var sel = document.getElementById('pkStore');
   var opts = gbIsOwner(pkUser) ? GB_STORES : GB_STORES.filter(function (s) { return s.code === my; });
@@ -16,8 +17,7 @@ window.onload = async function () {
   sel.innerHTML = opts.map(function (s) { return '<option value="' + s.code + '"' + (s.code === my ? ' selected' : '') + '>' + s.name + '</option>'; }).join('');
   sel.disabled = opts.length <= 1;
   await loadPickup();
-  gbLoading(false);
-};
+}
 
 async function loadPickup() {
   var store = document.getElementById('pkStore').value;

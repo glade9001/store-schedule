@@ -3,45 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="theme-color" content="#0e2140">
-<title>📦 取貨名單</title>
-<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
-<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
-<script src="firebase-init.js"></script>
-<script src="gb-common.js"></script>
-<link rel="stylesheet" href="groupbuy.css">
+<title>取貨名單</title>
+<script>
+// 2026-10-10：取貨名單已併入團購頁的〔取貨〕分頁；保留網址只為了轉址。
+location.replace('groupbuy.html?tab=pick');
+</script>
 </head>
-<body>
-<div id="loadingOverlay"><div class="spinner"></div><div id="loadingText">載入中…</div></div>
-<div class="header">
-  <button class="header-back" onclick="location.href='home.html'">← 首頁</button>
-  <div class="header-title">📦 取貨名單</div>
-</div>
-<div class="wrap">
-  <div class="toolbar">
-    <select id="pkStore" aria-label="門市" onchange="loadPickup()"></select>
-    <select id="pkCamp" aria-label="團購" onchange="renderPickup()"><option value="">全部團購</option></select>
-    <input id="pkSearch" type="search" placeholder="🔍 搜尋暱稱" aria-label="搜尋暱稱" oninput="renderPickup()">
-  </div>
-  <div class="chips" id="pkChips"></div>
-  <div class="sum" id="pkSum"></div>
-  <div id="pkList"><div class="empty">載入中…</div></div>
-</div>
-
-<!-- 確認 -->
-<div class="modal" id="confirmModal" hidden>
-  <div class="sheet">
-    <h3 id="cmTitle">確認</h3>
-    <p class="lead" id="cmText"></p>
-    <div class="sheet-btns">
-      <button type="button" class="btn btn-g" id="cmNo">取消</button>
-      <button type="button" class="btn btn-p" id="cmYes">確定</button>
-    </div>
-  </div>
-</div>
-
-<div id="toast"></div>
-<script src="groupbuy-pickup-page.js"></script>
-</body>
+<body style="font-family:sans-serif;padding:24px;">取貨名單已併入團購頁，正在轉過去…（沒有自動跳轉請 <a href="groupbuy.html?tab=pick">點這裡</a>）</body>
 </html>
