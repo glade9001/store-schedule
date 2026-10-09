@@ -233,6 +233,15 @@ service cloud.firestore {
     }
 
     // gb_settings：員工可讀（門市代碼）；只有加盟主／admin 可改
+    // 第 4 階段（群組 +1 機器人）：寫入一律經 Cloud Functions（Admin SDK）；前端只讀
+    // gb_bot_groups：機器人所在群組白名單（加盟主／admin 看）；gb_pending_plus：判斷不了的 +1（員工只看本店）；gb_post_map：不給前端
+    match /gb_bot_groups/{gid} {
+      allow read: if isOwnerOrAdmin();
+    }
+    match /gb_pending_plus/{pid} {
+      allow read: if isOwnerOrAdmin() || (gbStaff() && resource.data.store == gbMyCode() && gbMyCode() != '');
+    }
+
     // gb_settings/liff（liff_id、channel_id，都不是密碼）開放未登入讀：LIFF 客人頁要拿 liff_id 初始化
     match /gb_settings/{doc} {
       allow read: if doc == 'liff' || gbStaff();

@@ -31,7 +31,7 @@ async function gbSetTab(t) {
   document.getElementById('newBtn').hidden = t !== 'camp' || !gbCanCreate;
   if (t === 'pick') await pkInit(gbUser);
   else if (t === 'set') await loadLiffSettings();
-  else if (!gbCampLoaded) { gbCampLoaded = true; await loadCampaigns(); }
+  else if (!gbCampLoaded) { gbCampLoaded = true; await loadCampaigns(); loadPending(); }
 }
 
 async function loadCampaigns() {
@@ -455,8 +455,9 @@ async function buildCopy() {
     if (c.description) lines.push(c.description);
     lines.push('⏰ ' + gbFmt(c.end_time) + ' 截單' + (c.arrival_date ? '・預計 ' + gbFmt(c.arrival_date, false) + ' 到貨' : ''));
     if (c.success_rule === 'threshold') lines.push('🎯 三店合計滿 ' + c.min_qty + ' 份成團');
-    if (st && liffId) lines.push('', '👉 點這裡 +1：https://liff.line.me/' + liffId + '?store=' + st);
-    else if (!st && liffId) x.stores.forEach(function (s) { lines.push(gbStoreName(s) + ' +1：https://liff.line.me/' + liffId + '?store=' + s); });
+    // 連結帶 c=團購 ID：機器人看到這則訊息會記下「訊息→團購」，客人引用這則回覆 +1 就知道是哪一檔
+    if (st && liffId) lines.push('', '👉 點這裡 +1（或直接回覆這則留言 +1）：https://liff.line.me/' + liffId + '?store=' + st + '&c=' + c.id);
+    else if (!st && liffId) x.stores.forEach(function (s) { lines.push(gbStoreName(s) + ' +1：https://liff.line.me/' + liffId + '?store=' + s + '&c=' + c.id); });
     else lines.push('', '要的朋友請在群組留言「+1」或私訊小編 🙌');
   } else if (x.kind === 'success') {
     lines.push('🎉【團購成團】' + c.title, '感謝大家支持！' + (st ? where + '共 ' + qty + ' 份' : '三店共 ' + qty + ' 份（' + x.stores.map(function (s) { return gbStoreName(s) + ' ' + (obs[s] || 0); }).join('・') + '）'));
@@ -489,6 +490,7 @@ async function loadLiffSettings() {
   document.getElementById('stLiff').value = d.liff_id || '';
   document.getElementById('stChannel').value = d.channel_id || '';
   renderLiffLinks(d.liff_id || '');
+  loadBotGroups();
 }
 async function saveLiffSettings() {
   var err = document.getElementById('stErr'); err.textContent = '';
@@ -570,4 +572,82 @@ async function toggleGbOpen(el) {
   if (!ok) { el.checked = !on; return; }
   try { await gbTimeout(window.db.collection('gb_settings').doc('stores').set({ open: on, open_changed_by: gbUser.uid, open_changed_at: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true })); setOpenUi(on); gbToast(on ? '✅ 已開放' : '已關閉'); }
   catch (e) { el.checked = !on; gbToast('更新失敗：' + friendly(e)); }
+}
+
+
+// ===== 第 4 階段：機器人群組白名單（〔設定〕）＋待確認區（〔團購〕）=====
+function gbFn(name) { return firebase.app().functions('asia-east1').httpsCallable(name); }
+var gbBotGroups = [];
+async function loadBotGroups() {
+  var el = document.getElementById('stBot'); if (!el) return;
+  var bot = {};
+  try { var b = await window.db.collection('gb_settings').doc('bot').get(); if (b.exists) bot = b.data(); } catch (e) {}
+  try { var sn = await gbTimeout(window.db.collection('gb_bot_groups').get()); gbBotGroups = sn.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); }); }
+  catch (e) { el.innerHTML = '<div class="empty">讀取失敗：' + gbEsc(e.message) + '</div>'; return; }
+  var ST = { pending: ['待核准', 'st-closed'], approved: ['運作中', 'st-open'], rejected: ['已拒絕', 'st-draft'], left: ['已被移出', 'st-draft'], auto_left: ['逾時自動退出', 'st-draft'] };
+  var order = { pending: 0, approved: 1 };
+  gbBotGroups.sort(function (a, b) { return (order[a.status] == null ? 9 : order[a.status]) - (order[b.status] == null ? 9 : order[b.status]); });
+  var rows = gbBotGroups.map(function (g) {
+    var st = ST[g.status] || [g.status, 'st-draft'];
+    var mode = g.status === 'approved' ? (g.mode === 'store_listen' ? '監聽 ' + gbStoreName(g.store) + ' 的 +1' : '已停用') : '';
+    var act = '';
+    if (g.status === 'pending' || (g.status === 'approved' && g.mode !== 'store_listen')) {
+      act = '<select class="inline" id="bs-' + g.id + '">' + GB_STORES.map(function (s) { return '<option value="' + s.code + '"' + (s.code === g.store ? ' selected' : '') + '>' + s.name + '</option>'; }).join('') + '</select>' +
+        '<button class="mini" onclick="botAction(\'' + g.id + '\',\'approve\')">核准監聽</button>';
+    }
+    if (g.status === 'approved' && g.mode === 'store_listen') act += '<button class="mini" onclick="botAction(\'' + g.id + '\',\'disable\')">暫停</button>';
+    if (g.status === 'pending' || g.status === 'approved') act += '<button class="mini d" onclick="botAction(\'' + g.id + '\',\'reject\')">退出群組</button>';
+    return '<div class="orow"><span class="nm">' + gbEsc(g.name || '（沒有名稱）') + '</span><span class="st ' + st[1] + '">' + st[0] + '</span><span class="sub">' + mode + (g.status === 'pending' ? '・加入 ' + gbFmt(g.joined_at) + '，24 小時內沒核准會自動退出' : '') + '</span>' + act + '</div>';
+  }).join('');
+  el.innerHTML = '<div style="font-size:15px;font-weight:900;margin-bottom:4px;">LINE 機器人群組</div>' +
+    '<p style="font-size:12.5px;color:var(--muted);margin:0 0 8px;line-height:1.6;">機器人被拉進群組後會出現在這裡，核准並選門市才會開始抓 +1；不認識的群組按「退出群組」。</p>' +
+    (rows || '<div class="empty" style="padding:14px;">機器人還沒有加入任何群組</div>') +
+    '<label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13.5px;font-weight:700;cursor:pointer;"><input type="checkbox" id="botReply"' + (bot.reply_on_success ? ' checked' : '') + ' onchange="saveBotReply(this.checked)" style="width:20px;height:20px;"> 自動成單時回覆「已登記 ○○ N 份」<span style="font-weight:600;color:var(--muted);font-size:12px;">（預設關閉，避免洗版）</span></label>';
+}
+async function botAction(gid, action) {
+  var g = gbBotGroups.find(function (x) { return x.id === gid; }); if (!g) return;
+  var store = action === 'approve' ? document.getElementById('bs-' + gid).value : '';
+  var txt = { approve: '核准「' + (g.name || gid) + '」，開始監聽 ' + gbStoreName(store) + ' 的 +1？', disable: '暫停「' + (g.name || gid) + '」的 +1 監聽？機器人會留在群組。', reject: '讓機器人退出「' + (g.name || gid) + '」？' }[action];
+  if (!await gbConfirm('機器人群組', txt, { approve: '核准', disable: '暫停', reject: '退出群組' }[action])) return;
+  gbLoading(true, '處理中…');
+  try { await gbTimeout(gbFn('gbBotGroupAction')({ groupId: gid, action: action, store: store })); gbToast('✅ 已更新'); await loadBotGroups(); }
+  catch (e) { gbToast('失敗：' + friendly(e)); }
+  gbLoading(false);
+}
+async function saveBotReply(on) {
+  try { await window.db.collection('gb_settings').doc('bot').set({ reply_on_success: on, updated_at: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true }); gbToast(on ? '已開啟成單回覆' : '已關閉成單回覆'); }
+  catch (e) { gbToast('更新失敗：' + friendly(e)); }
+}
+
+var gbPending = [];
+async function loadPending() {
+  var el = document.getElementById('pendBox'); if (!el) return;
+  try {
+    var q = window.db.collection('gb_pending_plus').where('status', '==', 'pending');
+    if (!gbIsOwner(gbUser)) q = q.where('store', '==', gbMyCode);
+    var sn = await gbTimeout(q.get());
+    gbPending = sn.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); }).sort(function (a, b) { return (gbToDate(a.received_at) || 0) - (gbToDate(b.received_at) || 0); });
+  } catch (e) { gbPending = []; }
+  renderPending();
+}
+function renderPending() {
+  var el = document.getElementById('pendBox'); if (!el) return;
+  if (!gbPending.length) { el.innerHTML = ''; return; }
+  el.innerHTML = '<div class="card" style="border:1.5px solid #fbbf24;"><div style="font-size:15px;font-weight:900;margin-bottom:2px;">🙋 群組 +1 待確認 <span class="st st-closed">' + gbPending.length + '</span></div>' +
+    '<div style="font-size:12px;color:var(--muted);margin-bottom:6px;">機器人判斷不了是哪一檔，選好團購與數量按「成立」；不是要訂的按「忽略」。</div>' +
+    gbPending.map(function (p) {
+      var opts = gbCamps.filter(function (c) { return c.status === 'open' && (c.available_stores || []).indexOf(p.store) >= 0; });
+      return '<div class="orow"><span class="nm">' + gbEsc(p.display_name || 'LINE 用戶') + '</span><span class="sub">' + (gbIsOwner(gbUser) ? gbStoreName(p.store) + '・' : '') + '「' + gbEsc(p.text) + '」・' + gbEsc(p.reason || '') + '・' + gbFmt(p.received_at) + '</span>' +
+        '<select class="inline" id="pc-' + p.id + '">' + (opts.length ? opts.map(function (c) { return '<option value="' + c.id + '"' + (c.id === p.campaign_id ? ' selected' : '') + '>' + gbEsc(c.title) + '</option>'; }).join('') : '<option value="">沒有開放中的團購</option>') + '</select>' +
+        '<input id="pq-' + p.id + '" type="number" min="1" step="1" value="' + (p.parsed_qty || 1) + '" style="width:58px;padding:7px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-weight:800;">' +
+        '<button class="mini" onclick="resolvePending(\'' + p.id + '\',\'make\')"' + (opts.length ? '' : ' disabled') + '>成立</button><button class="mini d" onclick="resolvePending(\'' + p.id + '\',\'ignore\')">忽略</button></div>';
+    }).join('') + '</div>';
+}
+async function resolvePending(id, action) {
+  var data = { pendingId: id, action: action };
+  if (action === 'make') { data.campaignId = document.getElementById('pc-' + id).value; data.qty = parseInt(document.getElementById('pq-' + id).value, 10); if (!data.campaignId || !(data.qty >= 1)) return gbToast('請選團購與數量'); }
+  gbLoading(true, '處理中…');
+  try { await gbTimeout(gbFn('gbResolvePending')(data)); gbToast(action === 'make' ? '✅ 已成立訂單' : '已忽略'); await loadPending(); if (action === 'make') await loadCampaigns(); }
+  catch (e) { gbToast(friendly(e)); }
+  gbLoading(false);
 }

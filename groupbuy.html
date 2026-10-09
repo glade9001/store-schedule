@@ -9,6 +9,7 @@
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-storage.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-functions.js"></script>
 <script src="firebase-init.js"></script>
 <script src="gb-common.js"></script>
 <link rel="stylesheet" href="groupbuy.css">
@@ -42,9 +43,12 @@
       <p style="font-size:12.5px;color:var(--muted);margin:0 0 10px;line-height:1.6;">還沒開放時，只有系統管理者能用團購，其他人點進來會看到「開發中」；截單提醒也只發給系統管理者。</p>
       <label style="display:flex;align-items:center;gap:10px;font-size:15px;font-weight:800;cursor:pointer;"><input type="checkbox" id="stOpen" onchange="toggleGbOpen(this)" style="width:22px;height:22px;"> <span id="stOpenTxt">目前：未開放</span></label>
     </div>
+    <div class="card" id="stBot"><div class="empty">讀取機器人群組中…</div></div>
     <div class="card" id="stLinks"><div class="empty">儲存 LIFF ID 後，這裡會出現三家店的下單連結與 QR Code</div></div>
   </div>
   <div id="secCamp">
+    <!-- 第 4 階段：機器人判斷不了的群組 +1 -->
+    <div id="pendBox"></div>
     <div class="chips" id="chips" role="tablist" aria-label="依狀態篩選"></div>
     <div id="list"><div class="empty">載入中…</div></div>
   </div>

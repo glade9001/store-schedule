@@ -53,6 +53,50 @@ function cleanQty(q) {
 function endMs(c) { const t = c.end_time; return t && typeof t.toMillis === "function" ? t.toMillis() : NaN; }
 function isOpen(c) { const e = endMs(c); return c.status === "open" && isFinite(e) && Date.now() < e; }
 
+
+/**
+ * 下單／加量（LIFF 與群組 +1 共用）。錯誤一律丟 HttpsError，details.kind 標原因給群組 +1 分流：
+ *   closed／store／other_store／limit／stock／not_found
+ */
+async function placeOrderTx({ cid, store, userId, name, picture, add, source, sourceMessageId }) {
+  const db = admin.firestore();
+  const cRef = db.collection("gb_campaigns").doc(cid);
+  const oRef = db.collection("gb_orders").doc(`${cid}_${userId}`);
+  const E = (code, msg, kind) => new HttpsError(code, msg, { kind });
+  return db.runTransaction(async (t) => {
+    const cs = await t.get(cRef);
+    if (!cs.exists) throw E("not-found", "團購不存在", "not_found");
+    const c = cs.data();
+    if (!isOpen(c)) throw E("failed-precondition", "這檔團購已截單", "closed");
+    if (!(c.available_stores || []).includes(store)) throw E("failed-precondition", `這檔團購沒有開放給${STORES[store]}`, "store");
+    const os = await t.get(oRef);
+    const o = os.exists ? os.data() : null;
+    if (o && o.status === "active" && o.store !== store) {
+      throw E("failed-precondition", `你已經在${STORES[o.store] || o.store}訂了這檔，要改到${STORES[store]}請先取消原訂單`, "other_store");
+    }
+    const before = o && o.status === "active" ? (o.qty || 0) : 0;
+    const after = before + add;
+    const limit = c.per_user_limit || 0;
+    if (after > limit) throw E("failed-precondition", before ? `每人上限 ${limit} 份，你已訂 ${before} 份` : `每人上限 ${limit} 份`, "limit");
+    const now = c.ordered_qty || 0;
+    if (c.stock != null && now + add > c.stock) throw E("failed-precondition", `剩餘數量不足，只剩 ${Math.max(0, c.stock - now)} 份`, "stock");
+    const obs = Object.assign({}, c.ordered_by_store || {}); obs[store] = (obs[store] || 0) + add;
+    const ts = FieldValue.serverTimestamp();
+    if (o) {
+      t.update(oRef, { qty: after, status: "active", store, display_name: name || o.display_name || "", picture_url: picture || o.picture_url || null, updated_at: ts });
+    } else {
+      t.set(oRef, {
+        campaign_id: cid, store, source, source_message_id: sourceMessageId || null, line_user_id: userId,
+        display_name: name || "", picture_url: picture || null, note: "", qty: after, status: "active", paid: false,
+        created_by: null, created_by_name: source === "group_text" ? "群組 +1" : "LINE 下單", created_at: ts, updated_at: ts, picked_up_at: null, picked_up_by: null,
+      });
+    }
+    t.update(cRef, { ordered_qty: now + add, ordered_by_store: obs, updated_at: ts });
+    t.set(db.collection("gb_customers").doc(userId), { display_name: name || "", picture_url: picture || null, last_order_at: ts }, { merge: true });
+    return { qty: after, title: c.title || "" };
+  });
+}
+
 /**
  * 下單／加量：{ idToken, campaignId, store, qty }
  * 已有訂單（訂購中）→ 數量「加上」qty；已取消 → 重新以 qty 成立
@@ -65,41 +109,7 @@ exports.gbPlaceOrder = onCall({ region: REGION }, async (request) => {
   if (add < 1) throw new HttpsError("invalid-argument", "數量至少 1");
   const cid = String(d.campaignId || "");
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(cid)) throw new HttpsError("invalid-argument", "團購不存在");
-  const db = admin.firestore();
-  const cRef = db.collection("gb_campaigns").doc(cid);
-  const oRef = db.collection("gb_orders").doc(`${cid}_${who.sub}`);
-  const result = await db.runTransaction(async (t) => {
-    const cs = await t.get(cRef);
-    if (!cs.exists) throw new HttpsError("not-found", "團購不存在");
-    const c = cs.data();
-    if (!isOpen(c)) throw new HttpsError("failed-precondition", "這檔團購已截單");
-    if (!(c.available_stores || []).includes(store)) throw new HttpsError("failed-precondition", `這檔團購沒有開放給${STORES[store]}`);
-    const os = await t.get(oRef);
-    const o = os.exists ? os.data() : null;
-    if (o && o.status === "active" && o.store !== store) {
-      throw new HttpsError("failed-precondition", `你已經在${STORES[o.store] || o.store}訂了這檔，要改到${STORES[store]}請先取消原訂單`);
-    }
-    const before = o && o.status === "active" ? (o.qty || 0) : 0;
-    const after = before + add;
-    const limit = c.per_user_limit || 0;
-    if (after > limit) throw new HttpsError("failed-precondition", before ? `每人上限 ${limit} 份，你已訂 ${before} 份` : `每人上限 ${limit} 份`);
-    const now = c.ordered_qty || 0;
-    if (c.stock != null && now + add > c.stock) throw new HttpsError("failed-precondition", `剩餘數量不足，只剩 ${Math.max(0, c.stock - now)} 份`);
-    const obs = Object.assign({}, c.ordered_by_store || {}); obs[store] = (obs[store] || 0) + add;
-    const ts = FieldValue.serverTimestamp();
-    if (o) {
-      t.update(oRef, { qty: after, status: "active", store, display_name: who.name || o.display_name || "", picture_url: who.picture || o.picture_url || null, updated_at: ts });
-    } else {
-      t.set(oRef, {
-        campaign_id: cid, store, source: "liff", source_message_id: null, line_user_id: who.sub,
-        display_name: who.name || "", picture_url: who.picture, note: "", qty: after, status: "active", paid: false,
-        created_by: null, created_by_name: "LINE 下單", created_at: ts, updated_at: ts, picked_up_at: null, picked_up_by: null,
-      });
-    }
-    t.update(cRef, { ordered_qty: now + add, ordered_by_store: obs, updated_at: ts });
-    t.set(db.collection("gb_customers").doc(who.sub), { display_name: who.name || "", picture_url: who.picture, last_order_at: ts }, { merge: true });
-    return { qty: after, title: c.title || "" };
-  });
+  const result = await placeOrderTx({ cid, store, userId: who.sub, name: who.name, picture: who.picture, add, source: "liff" });
   return { ok: true, ...result };
 });
 
@@ -152,4 +162,197 @@ exports.gbMyOrders = onCall({ region: REGION }, async (request) => {
     };
   }).sort((a, b) => (b.endTime || 0) - (a.endTime || 0));
   return { ok: true, name: who.name, orders: out };
+});
+
+// =====================================================================
+// 第 4 階段：門市群組 +1 監聽（2026-10-10，分支 feature/gb-bot，未部署）
+// =====================================================================
+// 機器人「711團購小幫手」加入三個門市客人群組，把直接留言的 +1 轉成訂單或待確認項目。
+// 安全：
+//  ・Webhook 驗 LINE 官方簽章（X-Line-Signature＝HMAC-SHA256(Channel Secret, 原始內容)）。規格書因 Apps Script 讀不到標頭
+//    才改用「網址秘密參數」，Cloud Functions 讀得到標頭，所以用官方做法。
+//  ・白名單：只處理 gb_bot_groups 裡「已核准＋門市監聽」的群組；新加入的群組先「待核准」，24 小時沒核准自動退出。
+//  ・機器人只用免費的「回覆」訊息，不主動推播；只在三種情況回覆：無法判斷商品、已截單、超過每人上限。
+// 金鑰（使用者建好 Messaging API Channel 後用 firebase functions:secrets:set 設定，不進程式碼）：
+//   LINE_GB_CHANNEL_SECRET、LINE_GB_ACCESS_TOKEN
+const crypto = require("crypto");
+const { onRequest } = require("firebase-functions/v2/https");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { defineSecret } = require("firebase-functions/params");
+const { parsePlus } = require("./gb-parse");
+const GB_SECRET = defineSecret("LINE_GB_CHANNEL_SECRET");
+const GB_TOKEN = defineSecret("LINE_GB_ACCESS_TOKEN");
+const NAME_CODE = { "美德": "meide", "聯鑫": "lianxin", "錦花": "jinhua" };
+const LINE_API = process.env.GB_LINE_API || "https://api.line.me";   // 模擬器測試時指向假的 LINE 伺服器
+
+async function lineApi(path, method, body) {
+  const r = await fetch(LINE_API + path, {
+    method: method || "GET",
+    headers: Object.assign({ Authorization: "Bearer " + GB_TOKEN.value() }, body ? { "Content-Type": "application/json" } : {}),
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!r.ok) throw new Error(`LINE API ${path} ${r.status}`);
+  const txt = await r.text();
+  return txt ? JSON.parse(txt) : {};
+}
+async function reply(replyToken, text) {
+  if (!replyToken) return;
+  await lineApi("/v2/bot/message/reply", "POST", { replyToken, messages: [{ type: "text", text: text.slice(0, 1000) }] }).catch((e) => console.warn("[gbBot reply]", e.message));
+}
+function sigOk(raw, sig) {
+  if (!raw || !sig) return false;
+  const mac = crypto.createHmac("sha256", GB_SECRET.value()).update(raw).digest();
+  let got; try { got = Buffer.from(sig, "base64"); } catch (e) { return false; }
+  return got.length === mac.length && crypto.timingSafeEqual(got, mac);
+}
+async function liffLink(store) {
+  const s = await admin.firestore().collection("gb_settings").doc("liff").get().catch(() => null);
+  const id = s && s.exists ? s.data().liff_id : "";
+  return id ? `https://liff.line.me/${id}?store=${store}` : "";
+}
+
+exports.gbLineWebhook = onRequest({ region: REGION, secrets: [GB_SECRET, GB_TOKEN] }, async (req, res) => {
+  if (req.method !== "POST") { res.status(405).send("method"); return; }
+  if (!sigOk(req.rawBody, req.get("x-line-signature"))) { res.status(401).send("signature"); return; }
+  const events = (req.body && req.body.events) || [];
+  for (const ev of events) {
+    try { await handleEvent(ev); } catch (e) { console.error("[gbBot]", e && e.message); }
+  }
+  res.status(200).send("ok");
+});
+
+async function handleEvent(ev) {
+  const src = ev.source || {};
+  if (src.type !== "group" || !src.groupId) return;          // 只處理群組（私訊、多人聊天不處理）
+  const db = admin.firestore();
+  const gRef = db.collection("gb_bot_groups").doc(src.groupId);
+  if (ev.type === "join") {
+    const g = await gRef.get();
+    if (g.exists && g.data().status === "approved") { await gRef.update({ rejoined_at: FieldValue.serverTimestamp() }); return; }
+    let name = "";
+    try { name = (await lineApi(`/v2/bot/group/${src.groupId}/summary`)).groupName || ""; } catch (e) {}
+    await gRef.set({ status: "pending", mode: "pending", store: "", name, joined_at: FieldValue.serverTimestamp() }, { merge: true });
+    return;
+  }
+  if (ev.type === "leave") { await gRef.set({ status: "left", left_at: FieldValue.serverTimestamp() }, { merge: true }); return; }
+  if (ev.type !== "message" || !ev.message || ev.message.type !== "text") return;
+  const gs = await gRef.get();
+  const g = gs.exists ? gs.data() : null;
+  if (!g || g.status !== "approved" || g.mode !== "store_listen" || !STORES[g.store]) return;   // 白名單外一律丟棄
+  const store = g.store, text = String(ev.message.text || ""), msgId = ev.message.id;
+
+  // 小編貼了含團購連結的訊息 → 記下「訊息 ID → 團購」，客人引用這則回覆 +1 就知道是哪一檔
+  const lm = text.match(/liff\.line\.me\/[^\s?]+\?[^\s]*\bc=([A-Za-z0-9_-]{1,64})/);
+  if (lm) { await db.collection("gb_post_map").doc(msgId).set({ campaign_id: lm[1], store, posted_at: FieldValue.serverTimestamp() }); return; }
+
+  const p = parsePlus(text);
+  if (!p) return;                                              // 不是 +1：不存檔、不回應
+  const userId = src.userId || "";
+  let prof = {};
+  if (userId) { try { prof = await lineApi(`/v2/bot/group/${src.groupId}/member/${userId}`); } catch (e) {} }
+  const base = { group_id: src.groupId, store, line_user_id: userId || null, display_name: prof.displayName || "", picture_url: prof.pictureUrl || null,
+    text: text.slice(0, 200), parsed_qty: p.qty, message_id: msgId, received_at: FieldValue.serverTimestamp(), status: "pending" };
+  const pend = (reason, extra) => db.collection("gb_pending_plus").doc(msgId).set(Object.assign({}, base, { reason }, extra || {}));
+
+  if (!userId) { await pend("拿不到客人的 LINE 身分"); return; }
+  if (p.otherStore && NAME_CODE[p.otherStore] !== store) { await pend(`提到${p.otherStore}取貨`); return; }
+
+  // 判斷是哪一檔：①引用了團購貼文 ②這家店只有一檔開放中 ③其他 → 待確認
+  let cid = "";
+  const qid = ev.message.quotedMessageId;
+  if (qid) { const m = await db.collection("gb_post_map").doc(qid).get(); if (m.exists) cid = m.data().campaign_id; }
+  if (!cid) {
+    const sn = await db.collection("gb_campaigns").where("status", "==", "open").get();
+    const open = sn.docs.filter((d) => isOpen(d.data()) && (d.data().available_stores || []).includes(store));
+    if (open.length === 1) cid = open[0].id;
+    else if (open.length > 1) {
+      await pend(`同時有 ${open.length} 檔開放中，無法判斷是哪一檔`, { candidates: open.map((d) => d.id) });
+      const link = await liffLink(store);
+      await reply(ev.replyToken, `收到 ${prof.displayName || ""} 的 +${p.qty}！目前有好幾檔團購，請點連結選商品下單 🙏${link ? "\n" + link : ""}`);
+      return;
+    } else {
+      // 沒有開放中的：最近 2 天內有截單的 → 回「已截單」，否則不理
+      const recent = (await db.collection("gb_campaigns").where("status", "in", ["open", "closed", "success", "failed", "arrived"]).get()).docs
+        .some((d) => (d.data().available_stores || []).includes(store) && d.data().end_time && Date.now() - d.data().end_time.toMillis() < 2 * 86400000);
+      if (recent) await reply(ev.replyToken, "本團已截單，下次早點喊喔 🙏");
+      return;
+    }
+  }
+  try {
+    const r = await placeOrderTx({ cid, store, userId, name: prof.displayName || "", picture: prof.pictureUrl || null, add: p.qty, source: "group_text", sourceMessageId: msgId });
+    const cfg = await db.collection("gb_settings").doc("bot").get().catch(() => null);
+    if (cfg && cfg.exists && cfg.data().reply_on_success === true) await reply(ev.replyToken, `已登記 ${prof.displayName || ""}：${r.title} 共 ${r.qty} 份`);
+  } catch (e) {
+    const kind = (e && e.details && e.details.kind) || "";
+    if (kind === "closed") { await reply(ev.replyToken, "本團已截單，下次早點喊喔 🙏"); return; }
+    if (kind === "limit") { await pend(e.message, { campaign_id: cid }); await reply(ev.replyToken, `${prof.displayName || ""} ${e.message}，超過的部分沒有登記喔`); return; }
+    await pend(e.message || "建單失敗", { campaign_id: cid });
+  }
+}
+
+// ---- 後台：核准／拒絕群組（加盟主／admin）----
+async function requireOwner(request) {
+  if (!request.auth) throw new HttpsError("unauthenticated", "請先登入");
+  const u = (await admin.firestore().collection("users").doc(request.auth.uid).get()).data() || {};
+  if (!["owner", "admin"].includes(u.permission) || u.disabled === true) throw new HttpsError("permission-denied", "只有加盟主／管理者可以設定機器人");
+  return u;
+}
+async function requireStaff(request) {
+  if (!request.auth) throw new HttpsError("unauthenticated", "請先登入");
+  const u = (await admin.firestore().collection("users").doc(request.auth.uid).get()).data() || {};
+  if (!["employee", "manager", "owner", "admin"].includes(u.permission) || u.disabled === true) throw new HttpsError("permission-denied", "沒有權限");
+  return u;
+}
+exports.gbBotGroupAction = onCall({ region: REGION, secrets: [GB_TOKEN] }, async (request) => {
+  await requireOwner(request);
+  const d = request.data || {}, gid = String(d.groupId || "");
+  if (!/^C[0-9a-f]{32}$/.test(gid)) throw new HttpsError("invalid-argument", "群組 ID 不正確");
+  const ref = admin.firestore().collection("gb_bot_groups").doc(gid);
+  if (!(await ref.get()).exists) throw new HttpsError("not-found", "找不到這個群組");
+  const by = request.auth.uid, ts = FieldValue.serverTimestamp();
+  if (d.action === "approve") {
+    const store = String(d.store || "");
+    if (!STORES[store]) throw new HttpsError("invalid-argument", "請選門市");
+    await ref.update({ status: "approved", mode: "store_listen", store, approved_by: by, approved_at: ts });
+  } else if (d.action === "disable") {
+    await ref.update({ status: "approved", mode: "disabled", updated_by: by, updated_at: ts });
+  } else if (d.action === "reject") {
+    await lineApi(`/v2/bot/group/${gid}/leave`, "POST").catch((e) => console.warn("[gbBot leave]", e.message));
+    await ref.update({ status: "rejected", mode: "disabled", rejected_by: by, rejected_at: ts });
+  } else throw new HttpsError("invalid-argument", "動作不正確");
+  return { ok: true };
+});
+
+// 待核准超過 24 小時自動退出（防止被陌生人拉進群組）
+exports.scheduledGbBotAutoLeave = onSchedule({ schedule: "every 60 minutes", timeZone: "Asia/Taipei", region: REGION, secrets: [GB_TOKEN] }, async () => {
+  const db = admin.firestore();
+  const sn = await db.collection("gb_bot_groups").where("status", "==", "pending").get();
+  for (const d of sn.docs) {
+    const j = d.data().joined_at;
+    if (!j || Date.now() - j.toMillis() < 24 * 3600000) continue;
+    await lineApi(`/v2/bot/group/${d.id}/leave`, "POST").catch((e) => console.warn("[gbBot autoleave]", e.message));
+    await d.ref.update({ status: "auto_left", left_at: FieldValue.serverTimestamp() });
+  }
+});
+
+// ---- 後台：待確認區（員工限本店，加盟主不限）----
+// 成立：選團購與數量 → 用同一套下單邏輯（source=group_text），同一位客人跟他之後的 LIFF 訂單合併成同一筆
+exports.gbResolvePending = onCall({ region: REGION }, async (request) => {
+  const u = await requireStaff(request);
+  const d = request.data || {}, id = String(d.pendingId || "");
+  if (!/^[0-9A-Za-z]{1,40}$/.test(id)) throw new HttpsError("invalid-argument", "資料不正確");
+  const db = admin.firestore(), ref = db.collection("gb_pending_plus").doc(id);
+  const sn = await ref.get();
+  if (!sn.exists) throw new HttpsError("not-found", "找不到這筆");
+  const pnd = sn.data();
+  const owner = ["owner", "admin"].includes(u.permission);
+  if (!owner && NAME_CODE[u.store] !== pnd.store) throw new HttpsError("permission-denied", "只能處理本店的待確認");
+  if (pnd.status !== "pending") throw new HttpsError("failed-precondition", "這筆已經處理過了");
+  if (d.action === "ignore") { await ref.update({ status: "ignored", resolved_by: request.auth.uid, resolved_at: FieldValue.serverTimestamp() }); return { ok: true }; }
+  const cid = String(d.campaignId || ""), qty = cleanQty(d.qty);
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(cid) || qty < 1) throw new HttpsError("invalid-argument", "請選團購與數量");
+  if (!pnd.line_user_id) throw new HttpsError("failed-precondition", "這筆沒有客人的 LINE 身分，請改用手動補單");
+  const r = await placeOrderTx({ cid, store: pnd.store, userId: pnd.line_user_id, name: pnd.display_name, picture: pnd.picture_url, add: qty, source: "group_text", sourceMessageId: pnd.message_id });
+  await ref.update({ status: "resolved", resolved_by: request.auth.uid, resolved_at: FieldValue.serverTimestamp(), campaign_id: cid, resolved_qty: qty });
+  return { ok: true, qty: r.qty };
 });
