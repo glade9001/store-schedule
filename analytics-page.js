@@ -35,7 +35,15 @@ window.onload = async () => {
   }catch{}
 
   buildYearMonthSelects();
+  // 方案 D（2026-10-10）：三店／單店切換與儀表板共用；切換後直接重畫，不必重新分析
+  const _st=(appConfig.stores||[]).filter(s=>s!=='人力支援');
+  OwnerScope.render(document.getElementById('scopeBar'), _st);
+  OwnerScope.onChange(()=>{ OwnerScope.render(document.getElementById('scopeBar'), _st); applyScope(); });
   hideLoading();
+  // 原本要自己按「分析」，而且頁面還沒準備好就按會沒反應 → 準備好才開放按鈕，並直接跑一次預設區間
+  const rb=document.getElementById('runBtn'); rb.textContent='🔍 分析';
+  validateRange();
+  runAnalysis();
 };
 
 function buildYearMonthSelects(){
@@ -53,13 +61,12 @@ function buildYearMonthSelects(){
     document.getElementById('selEndMonth').innerHTML += `<option value="${m}">${parseInt(m)}月</option>`;
   });
 
-  // 預設：近 3 個月
-  const startM = curM - 2 <= 0 ? curM + 10 : curM - 2;
-  const startY = curM - 2 <= 0 ? curY - 1 : curY;
-  document.getElementById('selStartYear').value = startY;
-  document.getElementById('selStartMonth').value = String(startM).padStart(2,'0');
-  document.getElementById('selEndYear').value = curY;
-  document.getElementById('selEndMonth').value = String(curM).padStart(2,'0');
+  // 預設：上個月往前 3 個月（本月薪資還沒結算，放進來數字會偏低）
+  const endD = new Date(curY, curM-2, 1), startD = new Date(curY, curM-4, 1);
+  document.getElementById('selStartYear').value = startD.getFullYear();
+  document.getElementById('selStartMonth').value = String(startD.getMonth()+1).padStart(2,'0');
+  document.getElementById('selEndYear').value = endD.getFullYear();
+  document.getElementById('selEndMonth').value = String(endD.getMonth()+1).padStart(2,'0');
 
   // 區間驗證
   ['selStartYear','selStartMonth','selEndYear','selEndMonth'].forEach(id =>
@@ -163,12 +170,14 @@ async function runAnalysis(){
     setProgress(15,'讀取薪資記錄...');
     // salaryMap[ym][empName] = rec
     const salaryMap = {};
+    const unsettled = new Set();   // 有門市還沒發布薪資的月份（數字可能再變）
     let loaded = 0;
     for(const ym of ymList){
       salaryMap[ym] = {};
       for(const store of stores){
         try{
           const snap = await window.db.collection('stores').doc(store).collection('salary').doc(ym).get();
+          if(!snap.exists || (snap.data().status||'draft')!=='published') unsettled.add(ym);
           if(snap.exists)
             (snap.data().records||[]).forEach(r=>{ salaryMap[ym][r.empName]={ ...r, _store:store, _tabConfirmed: snap.data().tabConfirmed?.[r.empName] }; });
         }catch{}
@@ -315,7 +324,8 @@ async function runAnalysis(){
     complianceUniq.sort((a,b)=> b.date.localeCompare(a.date) || String(a.empName).localeCompare(String(b.empName)));
     analysisData = { ymList, stores, allEmps, salaryMap, supportMap, complianceRows:complianceUniq, weeklyRows, weeklyTrend, monthlyHoursMap };
     renderAll();
-    setProgress(100,'✅ 完成');
+    const _un=[...unsettled].sort();
+    setProgress(100, _un.length ? `✅ 完成　⚠️ ${_un.map(x=>+x.slice(5)+'月').join('、')}薪資還沒全部發布，數字可能再變` : '✅ 完成');
     document.getElementById('mainAnalysis').style.display = 'block';
 
   }catch(e){
@@ -431,6 +441,8 @@ function switchTab(tab){
     document.getElementById('tab-'+t).classList.toggle('active', t===tab);
     document.getElementById('panel-'+t).classList.toggle('active', t===tab);
   });
+  // 圖表若是在隱藏的分頁裡畫的，尺寸會算錯（點位擠在左邊、對不上月份），切過來時重算一次
+  setTimeout(()=>{ try{ if(tab==='cost'&&chartCostTrend) chartCostTrend.resize(); if(tab==='ot'&&chartOtHoliday) chartOtHoliday.resize(); }catch(e){} },0);
   if(tab==='ot') renderAnomalyTab(); // 加班與異常同頁
   if(tab==='compliance') renderComplianceTab();
   if(tab==='weekly') renderWeeklyTab();
@@ -516,16 +528,21 @@ function renderWeeklyTab(){
   const yellow = parseFloat(document.getElementById('weeklyYellow').value)||48;
   const red = parseFloat(document.getElementById('weeklyRed').value)||60;
   const onlyFlag = document.getElementById('weeklyOnlyFlag').checked;
-  const weeklyRows = analysisData.weeklyRows||[], weeklyTrend = analysisData.weeklyTrend||{}, stores = analysisData.stores||[];
+  // 只列已開始的週（原本會列出還沒到的週，工時是 0 或只有部分排班）；跟著三店／單店篩選
+  const _now = Date.now();
+  const stores = (analysisData.stores||[]).filter(s=>filterState.stores.has(s));
+  const weeklyRows = (analysisData.weeklyRows||[]).filter(r=>filterState.stores.has(r.store) && weekStringToDate(r.wk).getTime()<=_now);
+  const weeklyTrend = analysisData.weeklyTrend||{};
   // 週趨勢表
-  const weeks = Object.values(weeklyTrend).sort((a,b)=>a.sortKey-b.sortKey);
+  const weeks = Object.values(weeklyTrend).filter(w=>w.sortKey<=_now).sort((a,b)=>a.sortKey-b.sortKey);
   let trendHtml = '';
   if(weeks.length){
     const head = stores.map(s=>`<th class="num">${s}</th>`).join('');
     const body = weeks.map(w=>{
       const cells = stores.map(s=>`<td class="num">${w.byStore[s]!=null?w.byStore[s]:'—'}</td>`).join('');
       const tot = stores.reduce((a,s)=>a+(w.byStore[s]||0),0);
-      return `<tr><td><b>${w.label}</b></td>${cells}<td class="num"><b>${Math.round(tot*10)/10}</b></td></tr>`;
+      const ongoing = _now - w.sortKey < 7*86400000;
+      return `<tr><td><b>${w.label}</b>${ongoing?' <span style="font-size:10.5px;color:var(--text-muted);">進行中</span>':''}</td>${cells}<td class="num"><b>${Math.round(tot*10)/10}</b></td></tr>`;
     }).join('');
     trendHtml = `<div class="section-title">📈 各店每週實體工時 (h)（含受支援、扣外派）</div><div style="overflow-x:auto;"><table class="data-table"><thead><tr><th>週</th>${head}<th class="num">合計</th></tr></thead><tbody>${body}</tbody></table></div>`;
   }
@@ -565,7 +582,7 @@ function renderComplianceTab(){
   const el = document.getElementById('complianceContent');
   if(!el) return;
   if(!analysisData){ el.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px 0;">請先執行分析</div>'; return; }
-  const rows = analysisData.complianceRows || [];
+  const rows = (analysisData.complianceRows || []).filter(r=>filterState.stores.has(r.store));
   if(!rows.length){
     el.innerHTML = '<div style="text-align:center;color:var(--accent);padding:40px 0;font-weight:700;">✅ 本期無勞基法軟擋放行紀錄</div>';
     return;
@@ -627,9 +644,9 @@ function renderAll(){
   if(compTab) compTab.textContent = compCount>0 ? `🛡️ 合規稽核 (${compCount})` : '🛡️ 合規稽核';
   const alertBar = document.getElementById('anomalyAlertBar');
   if(anomalyCount > 0){
-    document.getElementById('anomalyAlertText').textContent = `本期有 ${anomalyCount} 筆薪資異常，已自動切換至「加班與異常」頁`;
+    // 原本會自動跳到「加班與異常」，容易以為按錯；改成只提示＋分頁紅點
+    document.getElementById('anomalyAlertText').textContent = `本期有 ${anomalyCount} 筆薪資異常，在「加班與異常」分頁`;
     if(alertBar) alertBar.style.display = 'flex';
-    setTimeout(() => switchTab('ot'), 50);
   } else {
     if(alertBar) alertBar.style.display = 'none';
   }
@@ -641,7 +658,8 @@ function renderKPIs(){
   let totalCost=0, totalOt=0, totalHol=0;
   let fullCnt=0, partCnt=0;
 
-  allEmps.forEach(emp=>{
+  const fEmps = getFE();   // 跟著三店／單店與身份篩選
+  fEmps.forEach(emp=>{
     ymList.forEach(ym=>{
       if(!isEmpActiveInMonth(emp,ym)) return;
       const rec = salaryMap[ym]?.[emp.name];
@@ -656,9 +674,9 @@ function renderKPIs(){
 
   // 在職人數：計算在分析末月仍在職的人數
   const lastYm = ymList[ymList.length-1];
-  allEmps.forEach(e=>{ if(!isEmpActiveInMonth(e,lastYm)) return; if(e.role==='工讀') partCnt++; else fullCnt++; });
+  fEmps.forEach(e=>{ if(!isEmpActiveInMonth(e,lastYm)) return; if(e.role==='工讀') partCnt++; else fullCnt++; });
 
-  document.getElementById('kpiTotalCost').textContent = '$'+Math.round(totalCost/1000)+'K';
+  document.getElementById('kpiTotalCost').textContent = (totalCost/10000).toFixed(1)+' 萬';
   document.getElementById('kpiTotalSub').textContent = `含勞退提撥 · 共 ${ymList.length} 個月`;
   document.getElementById('kpiEmpCount').textContent = fullCnt+partCnt;
   document.getElementById('kpiEmpSub').textContent = `正職 ${fullCnt} 人 / 工讀 ${partCnt} 人`;
@@ -672,7 +690,7 @@ function renderKPIs(){
     const prevYm = ymList[ymList.length-2];
     const ymVal = (ym, type) => {
       let v = 0;
-      allEmps.forEach(emp=>{
+      fEmps.forEach(emp=>{
         const rec = salaryMap[ym]?.[emp.name];
         if(!rec) return;
         if(type==='cost'){ const {adj}=calcSupportAdj(emp.name,ym,salaryMap,supportMap,allEmps); v+=calcRealCost(rec,emp.role)+((supportMap[ym]?.[emp.name]||[]).length?adj:0); }
@@ -682,8 +700,10 @@ function renderKPIs(){
       return v;
     };
     const renderTrend = (id, last, prev) => {
-      const el = document.getElementById(id); if(!el||prev===0) return;
-      const pct = Math.round((last-prev)/prev*100);
+      const el = document.getElementById(id); if(!el) return;
+      if(prev===0){ el.innerHTML=''; return; }
+      let pct = Math.round((last-prev)/prev*100);
+      if(Object.is(pct,-0)) pct = 0;   // 原本會顯示「▼ -0%」
       el.innerHTML = pct>0?`<span style="color:var(--danger);">▲ +${pct}%</span>`:pct<0?`<span style="color:var(--accent);">▼ ${pct}%</span>`:`<span style="color:var(--text-muted);">— 持平</span>`;
     };
     renderTrend('kpiCostTrend',    ymVal(lastYm,'cost'),    ymVal(prevYm,'cost'));
@@ -1101,7 +1121,7 @@ function renderHourlyTab(){
 
   // 每人取最後一個有記錄的月份算時薪
   const hourlyRows = [];
-  allEmps.filter(e=>e.role!=='工讀').forEach(emp=>{
+  allEmps.filter(e=>e.role!=='工讀' && filterState.stores.has(e.store)).forEach(emp=>{
     let rec = null;
     for(let i=ymList.length-1;i>=0;i--){
       rec = salaryMap[ymList[i]]?.[emp.name];
@@ -1201,13 +1221,25 @@ function getFS(){
   return analysisData.stores.filter(s=>filterState.stores.has(s));
 }
 function initFilterState(){
-  filterState.stores = new Set(analysisData.stores);
+  const _sc = OwnerScope.get();
+  filterState.stores = new Set(_sc && analysisData.stores.includes(_sc) ? [_sc] : analysisData.stores);
   filterState.roles  = new Set(['正職','工讀']);
   const sc = document.getElementById('storeChips');
   sc.innerHTML = analysisData.stores.map(s=>`<div class="chip active" onclick="toggleStoreChip(this,'${s.replace(/'/g,"\\'")}')">${s}</div>`).join('');
   const rc = document.getElementById('roleChips');
   rc.innerHTML = ['正職','工讀'].map(r=>`<div class="chip active" onclick="toggleRoleChip(this,'${r}')">${r}</div>`).join('');
   document.getElementById('filterCard').style.display = 'block';
+}
+// 三店／單店切換：換門市篩選後全部分頁重畫（資料已在記憶體，不重新讀）
+function applyScope(){
+  if(!analysisData) return;
+  const sc = OwnerScope.get();
+  filterState.stores = new Set(sc && analysisData.stores.includes(sc) ? [sc] : analysisData.stores);
+  renderKPIs(); renderCostTab(); renderOtTab(); updateAnomalyBadge(renderAnomalyTab());
+  renderHourlyTab(); renderComplianceTab(); renderWeeklyTab();
+  const compCount = (analysisData.complianceRows||[]).filter(r=>filterState.stores.has(r.store)).length;
+  const compTab = document.getElementById('tab-compliance');
+  if(compTab) compTab.textContent = compCount>0 ? `🛡️ 合規稽核 (${compCount})` : '🛡️ 合規稽核';
 }
 function toggleStoreChip(el, store){
   if(filterState.stores.has(store)){
