@@ -15,6 +15,7 @@
 <body>
 <div id="loadingOverlay"><div class="spinner"></div><div id="loadingText">載入中...</div></div>
 
+<script>if(new URLSearchParams(location.search).get('embed')==='1')document.body.classList.add('embed');</script>
 <div class="header">
   <button class="header-back" onclick="window.location.href=(new URLSearchParams(location.search).get('ref')||'home.html')">← 首頁</button>
   <div class="header-title">📤 薪資匯出</div>

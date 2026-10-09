@@ -815,5 +815,5 @@ function renderLinks(){
   return `<div class="sec-title">🔎 深入分析</div>`
     + L('performance.html'+R,'📊','#fff3e0','經營績效專區','三店趨勢比較、月度明細、去年同期')
     + `<div class="link-row" onclick="setMainTab('hr')"><div class="link-ic" style="background:#f3e8ff">📈</div><div class="link-t"><div class="link-lbl">人事分析</div><div class="link-sub">成本組成、要注意的人、跨店支援、員工</div></div><div class="link-arr">›</div></div>`
-    + L('export.html'+R,'📤','#e8f5e9','薪資匯出','Excel / PDF 薪資報表');
+    + L('salary.html?panel=export','📤','#e8f5e9','月結與匯出','薪資管理裡的送審／發布／簽收進度、Excel／PDF');
 }

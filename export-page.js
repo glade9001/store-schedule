@@ -1,3 +1,7 @@
+// 2026-10-10 薪資匯出併入薪資管理：本頁只在薪資管理的「📤 月結與匯出」面板裡（?embed=1）使用；
+// 直接打開舊網址就轉到薪資管理並自動打開面板。
+var EXPORT_EMBED = new URLSearchParams(location.search).get('embed') === '1';
+if (!EXPORT_EMBED) location.replace('salary.html?panel=export');
 let currentUser = null;
 let appConfig   = { stores: [] };
 let exportFormat = 'xlsx';
@@ -249,8 +253,11 @@ window.onload = async () => {
   const sel=document.getElementById('selYear');
   for(let y=now.getFullYear();y>=now.getFullYear()-2;y--)
     sel.innerHTML+=`<option value="${y}">${y} 年（民國 ${y-1911} 年）</option>`;
-  // 預設選「最近一個有門市已發布薪資的月份」（原本預設本月，薪資都還沒算）
+  // 預設選「最近一個有門市已發布薪資的月份」（原本預設本月，薪資都還沒算）；從薪資管理打開時跟著它目前的月份
   let def=new Date(now.getFullYear(), now.getMonth()-1, 1);
+  const _ym=new URLSearchParams(location.search).get('ym');
+  if(_ym && /^\d{4}-\d{2}$/.test(_ym)) def=new Date(+_ym.slice(0,4), +_ym.slice(5)-1, 1);
+  else
   for(let i=0;i<4;i++){
     const d=new Date(now.getFullYear(), now.getMonth()-i, 1), ym=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
     let pub=false;
@@ -320,7 +327,7 @@ async function renderMonthClose(ym){
   const draft=stores.filter(st=>['draft','none'].includes(info[st].status)), waiting=stores.filter(st=>info[st].status==='submitted');
   const unc=stores.filter(st=>info[st].status!=='published'&&(info[st].unconf||[]).length);
   if(draft.length) next=`等 ${draft.join('、')} 店長送審。`+(unc.length?`（${unc.map(st=>st+' '+info[st].unconf.length+' 人').join('、')}的考勤／薪資／代扣還沒確認完）`:'');
-  else if(waiting.length) next=`${waiting.join('、')} 已送審，<a href="salary.html?ref=export.html">到薪資頁審核發布 ›</a>`;
+  else if(waiting.length) next=`${waiting.join('、')} 已送審，<a href="salary.html" onclick="if(window.parent!==window&&parent.sxpClose){parent.sxpClose();return false;}">回薪資管理審核發布 ›</a>`;
   else if(total&&signed<total) next=`還有 ${total-signed} 人沒簽收（首頁會提醒他們）。`;
   else if(total) next='本月月結完成 ✅';
   const expLine=`<div style="font-size:11.5px;color:#64748b;margin-top:8px;">📤 匯出（選用）：${exp?`${+exp.at.slice(5,7)}/${+exp.at.slice(8,10)} ${exp.by||''} 匯出過 ${exp.kind==='pdf'?'PDF':'Excel'}`:'尚未匯出'}</div>`;
@@ -341,7 +348,7 @@ async function logMonthExport(ym, stores, kind){
 (function(){
   let sx=0;
   document.addEventListener('touchstart', e=>{ sx=e.touches[0].clientX; }, {passive:true});
-  document.addEventListener('touchend',   e=>{ if(e.changedTouches[0].clientX-sx>60) window.location.href=(new URLSearchParams(location.search).get('ref')||'home.html'); }, {passive:true});
+  document.addEventListener('touchend',   e=>{ if(e.changedTouches[0].clientX-sx>60){ if(EXPORT_EMBED&&window.parent!==window&&parent.sxpClose) parent.sxpClose(); else window.location.href=(new URLSearchParams(location.search).get('ref')||'home.html'); } }, {passive:true});
 })();
 
 // ═══ 主匯出 ═══

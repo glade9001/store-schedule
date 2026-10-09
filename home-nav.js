@@ -38,12 +38,11 @@ var HOME_FEATURES = [
   { id: 'attendance',    group: 'sched',  icon: '🗂️', label: '出勤管理',   sub: '打卡紀錄、補登審核、缺卡',   go: 'attendance.html', show: hnIsLead, kw: '打卡 補登 審核 遲到' },
   { id: 'inspection',    group: 'sched',  icon: '📦', label: '盤點資料',   sub: '輪班表、出勤記錄表、薪資單', go: 'inspection.html?ref=home.html', show: hnIsLead },
   { id: 'laborRecord',   group: 'sched',  icon: '🗃️', label: '勞檢出勤表', sub: '打卡系統實際紀錄・列印簽名／Excel', go: 'labor-record.html?ref=home.html', show: hnIsLead, kw: '勞檢 出勤紀錄 出勤表 匯出 簽名' },
-  { id: 'salary',        group: 'people', icon: '💳', label: '算薪水',     sub: '每月薪資計算與發布',         go: 'salary.html', show: hnIsLead, kw: '薪資' },
+  { id: 'salary',        group: 'people', icon: '💳', label: '算薪水',     sub: '每月薪資計算與發布',         go: 'salary.html', show: hnIsLead, kw: '薪資 匯出 月結 Excel PDF 簽收' },  // 薪資匯出 2026-10-10 併入（加盟主看得到「📤 月結與匯出」）
   { id: 'employees',     group: 'people', icon: '👥', label: '員工資料',   sub: '帳號、職位、調店、離職',     go: 'employee-mgmt.html', show: hnIsLead, kw: '員工 帳號 密碼 離職' },
   { id: 'leaveMgmt',     group: 'people', icon: '📆', label: '員工特補休', sub: '假別管理、紀錄查詢',         go: 'leave.html?mode=mgmt', show: hnIsLead, kw: '特休 補休' },
   { id: 'performance',   group: 'ops',    icon: '📊', label: '經營績效',   sub: '每月門市損益輸入、同期比較', go: 'performance.html', show: hnIsLead, kw: '損益 營業額 盤損' },
   { id: 'owner',         group: 'ops',    tier: 'owner', icon: '👑', label: '決策儀表板', sub: '三店總覽、人事分析、店長管理力',       go: 'owner-dashboard.html', show: hnIsOwner, kw: '加盟主 人事分析 人事成本 加班 跨店支援' },  // 人事分析 2026-10-10 併入儀表板〔人事〕分頁
-  { id: 'export',        group: 'ops',    tier: 'owner', icon: '📤', label: '薪資匯出',   sub: 'Excel／PDF 薪資報表',        go: 'export.html', show: hnIsOwner },
   { id: 'cityAdmin',     group: 'tools',  tier: 'admin', icon: '🧾', label: 'CITY手順管理', sub: '確認每週同步的變動後發佈', go: 'city-admin.html', show: hnIsAdmin },
   { id: 'audit',         group: 'tools',  tier: 'admin', icon: '🩺', label: '資料健檢',   sub: '假別／到職日／跨店一致性',   go: 'data-audit.html', show: hnIsAdmin },
   { id: 'rolePreview',   group: 'tools',  tier: 'admin', icon: '🎭', label: '角色預覽',   sub: '以不同角色體驗介面',         run: function () { openRolePreviewModal(); }, show: function () { return (realUser || currentUser)?.permission === 'admin'; } },
