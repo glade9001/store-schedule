@@ -64,7 +64,7 @@ window.onload=async()=>{
   sel.innerHTML=months.map(m=>`<option value="${m}">${m.split('-')[0]}年${+m.split('-')[1]}月</option>`).join('');
   sel.value=months[months.length-1];
   OwnerScope.render(document.getElementById('scopeBar'), STORES);
-  OwnerScope.onChange(()=>{ renderAll(dashMonth); window.scrollTo(0,0); });
+  OwnerScope.onChange(()=>{ OwnerScope.render(document.getElementById('scopeBar'), STORES); renderAll(dashMonth); window.scrollTo(0,0); });
   renderAll(sel.value);
 };
 
@@ -251,13 +251,13 @@ function renderDiscipline(m,extra,only,bare){
   const rows=(only||STORES).filter(s=>extra[s]&&extra[s].disc);
   if(!rows.length) return '<div class="empty">本月尚無打卡資料</div>';
   // 每欄最差的那家標紅（越高越差）；未處理缺卡 >0 一律標紅
-  const worst={}; DISC_COLS.forEach(c=>{ let w=null; rows.forEach(s=>{ const v=extra[s].disc[c.k]; if(v!=null&&v>0&&(w==null||v>extra[w].disc[c.k])) w=s; }); worst[c.k]=w; });
+  const worst={}; if(rows.length>1) DISC_COLS.forEach(c=>{ let w=null; rows.forEach(s=>{ const v=extra[s].disc[c.k]; if(v!=null&&v>0&&(w==null||v>extra[w].disc[c.k])) w=s; }); worst[c.k]=w; });
   const cell=(s,c)=>{ const d=extra[s].disc, bad=(c.k==='missOpen')?d.missOpen>0:worst[c.k]===s;
     return `<td style="${bad?'color:#c5221f;font-weight:900;':''}">${c.fmt(d)}<div style="font-size:10.5px;color:var(--muted);font-weight:600;">${c.sub(d)}</div></td>`; };
   const tbl=`<div class="scroll"><table class="tbl"><thead><tr><th>門市</th>${DISC_COLS.map(c=>`<th>${c.t}</th>`).join('')}</tr></thead><tbody>${rows.map(s=>`<tr><td><b>${esc(s)}</b></td>${DISC_COLS.map(c=>cell(s,c)).join('')}</tr>`).join('')}</tbody></table></div>`;
   return `${bare?'':`<div class="sec-title">🕐 出勤紀律追蹤<span class="sec-sub">${m.split('-')[0]}年${+m.split('-')[1]}月</span></div>`}
   <div class="card">${tbl}
-    <div style="font-size:11px;color:var(--muted);line-height:1.6;margin-top:8px;">缺卡率＝缺卡單÷班數（已補登的照算）；補登率＝補登申請÷班數；紅字＝三店中最高。</div>
+    <div style="font-size:11px;color:var(--muted);line-height:1.6;margin-top:8px;">缺卡率＝缺卡單÷班數（已補登的照算）；補登率＝補登申請÷班數${rows.length>1?'；紅字＝三店中最高':''}。</div>
     <div id="discTrend" style="margin-top:10px;"><button onclick="loadDisciplineTrend()" style="width:100%;padding:9px;background:#f1f5f9;border:none;border-radius:10px;font-size:13px;font-weight:800;color:var(--text);cursor:pointer;">📈 看近 6 個月趨勢</button></div>
   </div>`;
 }
