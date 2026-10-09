@@ -424,6 +424,10 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 .ring-wds .tool-face     { color:#d9510f; }
 .ring-learn   { background:conic-gradient(#0f766e,#5ec7b8,#0f766e); }
 .ring-learn .tool-face   { color:#0f766e; }
+.ring-gb      { background:conic-gradient(#1a73e8,#7fb2ff,#1a73e8); }
+.ring-gb .tool-face      { color:#1a56c4; }
+.ring-pickup  { background:conic-gradient(#7c3aed,#c4a8ff,#7c3aed); }
+.ring-pickup .tool-face  { color:#6d28d9; }
 .tool-label { font-size:11px; font-weight:700; color:var(--text); white-space:nowrap; }
 .tool-item:focus-visible { outline:2px solid var(--primary); outline-offset:3px; border-radius:10px; }
 
