@@ -317,7 +317,7 @@ async function renderMonthClose(ym){
   const draft=stores.filter(st=>['draft','none'].includes(info[st].status)), waiting=stores.filter(st=>info[st].status==='submitted');
   if(draft.length) next=`等 ${draft.join('、')} 店長送審。`;
   else if(waiting.length) next=`${waiting.join('、')} 已送審，<a href="salary.html?ref=export.html">到薪資頁審核發布 ›</a>`;
-  else if(!exp) next='三店都發布了，可以匯出 Excel／PDF。';
+  else if(!exp) next=`${N>1?'各店都':stores[0]}已發布，可以匯出 Excel／PDF。`;
   else if(total&&signed<total) next=`還有 ${total-signed} 人沒簽收（首頁會提醒他們）。`;
   else if(total) next='本月月結完成 ✅';
   el.innerHTML=stepHtml+rows+(next?`<div class="mc-next">${next}</div>`:'');
