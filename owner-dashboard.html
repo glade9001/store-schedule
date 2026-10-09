@@ -103,6 +103,9 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
 .hbar .trk{flex:1;height:12px;background:#f1f5f9;border-radius:6px;position:relative;overflow:hidden;}
 .hbar .fil{position:absolute;top:0;bottom:0;border-radius:6px;}
 .hbar .v{min-width:64px;text-align:right;font-variant-numeric:tabular-nums;}
+.lv-row{display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid #f1f4f8;font-size:12.5px;}
+.lv-row:first-child{border-top:none;}
+.lv-tag{font-size:10.5px;font-weight:800;border-radius:6px;padding:1px 6px;white-space:nowrap;}
 /* 方案 D：要處理清單、摺疊區塊、營運檢討表格 */
 .todo-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid #f1f4f8;cursor:pointer;}
 .todo-row:first-of-type{border-top:none;}
@@ -138,6 +141,7 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
 </div>
 <div class="content"><div id="scopeBar"></div><div id="content"><div class="empty">載入中…</div></div></div>
 <script src="pnl-loss.js"></script>
+<script src="comp-avail.js"></script>
 <script src="owner-scope.js"></script>
 <script src="owner-dashboard-page.js"></script>
 </body>

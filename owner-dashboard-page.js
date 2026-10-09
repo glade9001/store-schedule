@@ -66,6 +66,8 @@ window.onload=async()=>{
   OwnerScope.render(document.getElementById('scopeBar'), STORES);
   OwnerScope.onChange(()=>{ OwnerScope.render(document.getElementById('scopeBar'), STORES); renderAll(dashMonth); window.scrollTo(0,0); });
   renderAll(sel.value);
+  // 未休假獎金估算：每人要讀特休批次與補休帳本，放背景載入，好了再重畫（不擋第一屏）
+  loadLeaveEstimate().then(()=>{ if(dashView==='main') renderAll(dashMonth); }).catch(e=>console.warn('未休假獎金估算失敗',e));
 };
 
 async function loadAll(){
@@ -121,6 +123,7 @@ async function renderAll(m){
   // 圖表版（2026-10-10）：數字卡帶趨勢線＋三張圖；三店比較表拿掉（改長條圖）、成本體檢不再有輸入框與明細表
   let html=renderTodo(m,al,scope)+renderOverview(m,only);
   html+= scope ? renderStoreCharts(m,scope,c.extra) : renderGroupCharts(m);
+  html+=renderLeaveEstimate(scope);
   html+=fold('score','👔','店長計分卡',scoreSummary(m,c.extra,scope),scope?renderScorecard(m,c.extra,'store',scope):renderScorecard(m,c.extra,'body'));
   html+=fold('health','🩺','成本體檢',hs,renderHealthSection(!!scope));
   html+=fold('disc','🕐','出勤紀律',discSum,renderDiscipline(m,c.extra,only,true));
@@ -510,6 +513,90 @@ function renderScorecard(m,extra,mode){
   });
   return head+tbl+`<div class="note" style="margin-bottom:10px;">點門市可以展開，看每個指標的分數是怎麼來的。</div>`+detail;
 }
+// ===== 未休假獎金估算（2026-10-10）=====
+// 使用者定案：特休＋補休一起算；顯示「到期月份結算」的金額，可遞延的標註；過期沒處理的列進「要處理」；排除加盟主本人。
+// 規則（同 leave-page.js）：
+//  ・特休批次 expireDate 到期 → 店長選「結算薪資」或「遞延一年」；遞延過的（carried）到期＋12 個月必須結算
+//  ・補休年底（12/31）結算或遞延到隔年底一次；餘額從帳本算（comp-avail.js，comp/{年} 統計欄位會漂）
+//  ・日薪＝最近一次薪資記錄的（底薪＋全勤）÷30（同 leave-settle.js／calcCarrySettlement）；工讀以時薪×8 估
+// 這是「到期前都沒休」的上限，員工休掉的部分會減少。
+let leaveEst=null;
+function lvAddMonths(ymd,k){ const [y,m]=ymd.split('-').map(Number); const d=new Date(y,m-1+k,1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
+async function loadLeaveEstimate(){
+  const today=new Date(), curYm=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`, yr=today.getFullYear();
+  const emps=[];
+  for(const s of STORES){
+    try{ const es=await window.db.collection('stores').doc(s).collection('employees').get();
+      es.forEach(d=>{ const e=d.data()||{};
+        if(e.role==='加盟主') return;                                   // 使用者 2026-10-10：排除加盟主本人
+        if(['離職','調走'].includes(e.status||'')) return;              // 離職／調走走結清流程，不在這裡估
+        emps.push({name:d.id, store:s, role:e.role||'', disp:e.displayName||d.id, payAsPartTime:!!e.payAsPartTime}); });
+    }catch(e){}
+  }
+  // 日薪：該店最近兩個月的薪資記錄
+  const recOf={};
+  for(const s of STORES){ for(const ym of [prevYm(curYm), prevYm(prevYm(curYm))]){
+    try{ const sn=await window.db.collection('stores').doc(s).collection('salary').doc(ym).get();
+      if(sn.exists)(sn.data().records||[]).forEach(r=>{ if(r&&r.empName&&!recOf[r.empName]) recOf[r.empName]=r; }); }catch(e){} } }
+  const items=[];
+  await Promise.all(emps.map(async e=>{
+    const r=recOf[e.name]||{};
+    const part=e.role==='工讀'||e.payAsPartTime||r.role==='工讀'||r.payAsPartTime;
+    const dw=part ? n(r.wage)*8 : (n(r.baseSalary)+n(r.fullAttendBonus))/30;
+    const base={store:e.store, emp:e.name, disp:e.disp, dw:Math.round(dw), noWage:!(dw>0)};
+    try{
+      const bs=await window.db.collection('employees').doc(e.name).collection('leaveBatches').get();
+      bs.forEach(d=>{ const b=d.data()||{};
+        if(b.settled||!b.expireDate) return;
+        const rem=Math.max(0,n(b.days)-n(b.used)); if(!rem) return;
+        const due=b.carried?lvAddMonths(b.expireDate,12):b.expireDate.slice(0,7);
+        items.push(Object.assign({kind:'特休', label:b.label||b.note||'', days:rem, due, canCarry:!b.carried, mustSettle:!!b.carried, overdue:due<curYm, amt:Math.round(rem*dw)},base));
+      });
+    }catch(err){}
+    try{
+      if(window.caCompAvailability){
+        const ca=await caCompAvailability(e.name);
+        const rem=Math.max(0,ca.balance||0);
+        if(rem>0) items.push(Object.assign({kind:'補休', label:`${yr} 年度`, days:rem, due:`${yr}-12`, canCarry:true, mustSettle:false, overdue:false, amt:Math.round(rem*dw)},base));
+      }
+    }catch(err){}
+  }));
+  leaveEst={items, curYm, at:Date.now()};
+}
+var lvPick='';
+function renderLeaveEstimate(scope){
+  const title=`<div class="chart-t">🏖️ 未休假獎金估算</div><div class="chart-s">未來 12 個月・假設到期前都沒休、到期就結算（上限）・不含加盟主</div>`;
+  if(!leaveEst) return `<div class="chart-card">${title}<div class="empty">計算中…（要讀每個人的特休與補休）</div></div>`;
+  const items=leaveEst.items.filter(x=>!scope||x.store===scope);
+  const months=[]; let x=leaveEst.curYm; for(let i=0;i<12;i++){ months.push(x); x=lvAddMonths(x+'-01',1); }
+  const inWin=items.filter(i=>months.includes(i.due)), od=items.filter(i=>i.overdue);
+  const sum=(arr,k)=>arr.filter(i=>i.kind===k).reduce((a,i)=>a+i.amt,0);
+  const total=inWin.reduce((a,i)=>a+i.amt,0);
+  const chart=queueChart('chLeave',{ type:'bar', data:{ labels:months.map(m=>(m.slice(5)==='01'?m.slice(2,4)+'/':'')+(+m.slice(5))+'月'), datasets:[
+    { label:'特休', data:months.map(m=>Math.round(sum(inWin.filter(i=>i.due===m),'特休'))), backgroundColor:'#1a73e8', borderRadius:3, stack:'a' },
+    { label:'補休', data:months.map(m=>Math.round(sum(inWin.filter(i=>i.due===m),'補休'))), backgroundColor:'#e67e22', borderRadius:3, stack:'a' } ] },
+    options:chartOpts(v=>'$'+money(v),{ scales:{ x:{stacked:true,ticks:{font:{size:10}},grid:{display:false}}, y:{stacked:true,ticks:{callback:v=>v>=10000?(v/10000)+'萬':v,font:{size:10}},grid:{color:'#f1f5f9'}} },
+      onClick:(ev,els)=>{ if(!els.length) return; lvPick=months[els[0].index]; renderLeaveDetail(scope); } }) });
+  const odHtml=od.length?`<div style="background:#fff3e0;border-radius:10px;padding:8px 11px;margin:8px 0 2px;font-size:12px;font-weight:700;color:#c0620f;">⚠️ 已過期但沒結算也沒遞延 ${od.length} 筆（${od.reduce((a,i)=>a+i.days,0)} 天、約 $${money(od.reduce((a,i)=>a+i.amt,0))}），請到特休頁處理</div>`:'';
+  if(!lvPick||!months.includes(lvPick)){ const firstDue=months.find(m=>inWin.some(i=>i.due===m)); lvPick=firstDue||months[0]; }
+  setTimeout(()=>renderLeaveDetail(scope),0);
+  return `<div class="chart-card">${title}
+    <div style="font-size:13px;font-weight:800;margin-bottom:6px;">合計約 <span style="font-size:17px;">$${money(total)}</span><span style="font-size:11.5px;color:var(--muted);font-weight:600;">（特休 $${money(sum(inWin,'特休'))}・補休 $${money(sum(inWin,'補休'))}）</span></div>
+    ${chart}${odHtml}<div id="lvDetail" style="margin-top:8px;"></div>
+    <div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.6;">點長條看該月明細。日薪＝最近一次薪資的（底薪＋全勤）÷30；工讀以時薪×8 估。「可遞延」＝到期時可選遞延一年，金額會移到隔年。</div></div>`;
+}
+function renderLeaveDetail(scope){
+  const el=document.getElementById('lvDetail'); if(!el||!leaveEst) return;
+  const list=leaveEst.items.filter(x=>(!scope||x.store===scope)&&x.due===lvPick).sort((a,b)=>b.amt-a.amt);
+  if(!list.length){ el.innerHTML=`<div style="font-size:12px;color:var(--muted);">${+lvPick.slice(5)}月沒有到期的特休或補休</div>`; return; }
+  el.innerHTML=`<div style="font-size:12.5px;font-weight:900;margin-bottom:2px;">${lvPick.slice(0,4)}年${+lvPick.slice(5)}月到期・${list.length} 筆・約 $${money(list.reduce((a,i)=>a+i.amt,0))}</div>`+list.map(i=>`<div class="lv-row">
+    <span style="font-weight:800;min-width:56px;">${esc(i.disp)}</span><span style="color:var(--muted);font-size:11.5px;">${i.store}</span>
+    <span class="lv-tag" style="background:${i.kind==='特休'?'#e8f0fe':'#fff3e0'};color:${i.kind==='特休'?'#1a56c4':'#c0620f'};">${i.kind}${i.label?'・'+esc(i.label):''}</span>
+    <span style="margin-left:auto;white-space:nowrap;">${i.days} 天${i.noWage?'':' × $'+money(i.dw)}</span>
+    <b style="min-width:62px;text-align:right;">${i.noWage?'缺薪資':'$'+money(i.amt)}</b>
+    <span class="lv-tag" style="background:${i.mustSettle?'#fce8e6':'#f1f5f9'};color:${i.mustSettle?'#c5221f':'#64748b'};">${i.mustSettle?'必須結算':'可遞延'}</span></div>`).join('');
+}
+
 // ===== 這個月要處理（2026-10-10 取代原本一條條的決策警示，改成依門市分組）=====
 // 去掉「本月遲到/缺卡 N 次 ≥5」：三店每月都觸發（46／108／86），而且把已補登的也算進去，等於沒有參考價值。
 // 改看遲到率與「還沒處理的缺卡單」。
@@ -524,6 +611,8 @@ function collectAlerts(m,extra){
     if(ex.disc&&ex.disc.missOpen>=10) L.push({sev:'warn',t:'缺卡單還沒處理',v:ex.disc.missOpen+' 張'});
     if(ex.disc&&ex.disc.lateRate!=null&&ex.disc.lateRate>10) L.push({sev:'warn',t:'遲到率偏高',v:ex.disc.lateRate+'%'});
     if(ex.law>=3) L.push({sev:'warn',t:'排班知情放行',v:ex.law+' 次'});
+    const od=leaveEst?leaveEst.items.filter(x=>x.store===s&&x.overdue):[];
+    if(od.length) L.push({sev:'warn',t:'特休／補休過期未處理',v:od.length+' 筆'});
     L.sort((a,b)=>(a.sev==='red'?0:1)-(b.sev==='red'?0:1));
   });
   return out;
