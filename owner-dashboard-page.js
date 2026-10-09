@@ -4,14 +4,23 @@ const PERF_EXCLUDE=new Set(['2026-04']); // 系統剛上線該月人事成本不
 const isOwner=()=>['owner','admin'].includes(currentUser?.permission);
 const money=n=>Math.round(n||0).toLocaleString('en-US');
 const n=v=>{const x=parseFloat(v);return isFinite(x)?x:0;};
-// 輕量 Markdown → HTML（先跳脫 HTML 再套用，安全）：# ## ### 標題、- 項目、--- 分隔線、**粗體**
+// 輕量 Markdown → HTML（先跳脫 HTML 再套用，安全）：# ## ### 標題、- 項目、--- 分隔線、**粗體**、| 表格 |、> 引用
+// 2026-10-10 補表格與引用：營運檢討裡的表格原本顯示成一行行的「| 門市 | 2025/9 |」。
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function mdToHtml(md){
   const inl=t=>t.replace(/\*\*(.+?)\*\*/g,'<b>$1</b>');
-  let html='',inList=false; const closeList=()=>{if(inList){html+='</ul>';inList=false;}};
+  let html='',inList=false,tbl=null; const closeList=()=>{if(inList){html+='</ul>';inList=false;}};
+  const cells=l=>l.replace(/^\|/,'').replace(/\|$/,'').split('|').map(c=>inl(c.trim()));
+  const closeTbl=()=>{ if(!tbl) return;
+    const [h,...rows]=tbl;   // 第一列當表頭；|---| 分隔列已略過
+    html+=`<div class="scroll"><table><thead><tr>${h.map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    tbl=null; };
   esc(md).split(/\r?\n/).forEach(raw=>{
     const line=raw.replace(/\s+$/,'');
-    if(/^###\s+/.test(line)){closeList();html+=`<h4>${inl(line.replace(/^###\s+/,''))}</h4>`;}
+    if(/^\|.*\|$/.test(line)){ closeList(); if(/^\|[\s:|-]+\|$/.test(line)) return; (tbl=tbl||[]).push(cells(line)); return; }
+    closeTbl();
+    if(/^&gt;\s?/.test(line)){closeList();html+=`<blockquote>${inl(line.replace(/^&gt;\s?/,''))}</blockquote>`;}
+    else if(/^###\s+/.test(line)){closeList();html+=`<h4>${inl(line.replace(/^###\s+/,''))}</h4>`;}
     else if(/^##\s+/.test(line)){closeList();html+=`<h3>${inl(line.replace(/^##\s+/,''))}</h3>`;}
     else if(/^#\s+/.test(line)){closeList();html+=`<h2>${inl(line.replace(/^#\s+/,''))}</h2>`;}
     else if(/^[-*]\s+/.test(line)){if(!inList){html+='<ul>';inList=true;}html+=`<li>${inl(line.replace(/^[-*]\s+/,''))}</li>`;}
@@ -19,7 +28,7 @@ function mdToHtml(md){
     else if(line===''){closeList();}
     else{closeList();html+=`<p>${inl(line)}</p>`;}
   });
-  closeList(); return html;
+  closeList(); closeTbl(); return html;
 }
 function showLoading(){document.getElementById('loadingOverlay').classList.remove('hidden');}
 function hideLoading(){document.getElementById('loadingOverlay').classList.add('hidden');}
@@ -54,6 +63,8 @@ window.onload=async()=>{
   const sel=document.getElementById('monthSel');
   sel.innerHTML=months.map(m=>`<option value="${m}">${m.split('-')[0]}年${+m.split('-')[1]}月</option>`).join('');
   sel.value=months[months.length-1];
+  OwnerScope.render(document.getElementById('scopeBar'), STORES);
+  OwnerScope.onChange(()=>{ renderAll(dashMonth); window.scrollTo(0,0); });
   renderAll(sel.value);
 };
 
@@ -97,18 +108,41 @@ async function renderAll(m){
     el.innerHTML = `<button class="back-btn" onclick="closeScoreView()">← 回儀表板</button>` + renderScorecard(m,c.extra,'full');
     return;
   }
-  el.innerHTML = renderOverview(m) + renderScorecard(m,c.extra,'summary') + renderHealthSection() + renderAlerts(m,c.extra) + renderDiscipline(m,c.extra) + renderReview(m,c.review) + renderLinks();
+  // 方案 D（2026-10-10）：最上面先看「這個月要處理」，其餘收成一行摘要的摺疊區塊；
+  // 頂端切換三店／單店，單店時同樣版面只顯示那一家。
+  const scope=OwnerScope.get(), only=scope?[scope]:STORES;
+  if(scope) curHealthStore=scope;
+  const al=collectAlerts(m,c.extra);
+  const hs=healthSummary(curHealthStore||STORES[0]);
+  const dsc=only.filter(s=>c.extra[s]&&c.extra[s].disc);
+  const worstMiss=dsc.slice().sort((a,b)=>(c.extra[b].disc.missRate||0)-(c.extra[a].disc.missRate||0))[0];
+  const discSum=!dsc.length?'無資料':scope?`缺卡 ${fmtPct(c.extra[scope].disc.missRate)}・未處理 ${c.extra[scope].disc.missOpen} 張`:`${worstMiss} 缺卡率最高 ${fmtPct(c.extra[worstMiss].disc.missRate)}`;
+  const reviewSum=(c.review&&c.review.text)?'已填寫':'尚未填寫';
+  let html=renderTodo(m,al,scope)+renderOverview(m,only);
+  if(!scope) html+=fold('compare','🏪','三店比較',compareSummary(m,c.extra),renderCompare(m,c.extra));
+  html+=fold('score','👔','店長計分卡',scoreSummary(m,c.extra,scope),scope?renderScorecard(m,c.extra,'store',scope):renderScorecard(m,c.extra,'body'));
+  html+=fold('health','🩺','成本體檢',hs,renderHealthSection(!!scope));
+  html+=fold('disc','🕐','出勤紀律',discSum,renderDiscipline(m,c.extra,only,true));
+  html+=fold('review','📋','營運檢討',reviewSum,renderReview(m,c.review,true));
+  html+=renderLinks();
+  el.innerHTML=html;
   renderStoreHealth();
+}
+const fmtPct=v=>v==null?'—':v+'%';
+// 摺疊區塊：記住每個區塊開或關（每台裝置）
+function foldOpen(id){ try{ return localStorage.getItem('odFold:'+id)==='1'; }catch(e){ return false; } }
+function foldToggle(id,el){ try{ localStorage.setItem('odFold:'+id, el.open?'1':'0'); }catch(e){} }
+function fold(id,ic,title,summary,body){
+  return `<details class="fold" ${foldOpen(id)?'open':''} ontoggle="foldToggle('${id}',this)"><summary><span class="fold-t">${ic} ${title}</span><span class="fold-s">${summary||''}</span></summary><div class="fold-b">${body}</div></details>`;
 }
 
 // ===== 單店成本體檢（每工時人事成本／加班佔比／合理帶／決策提示；讀 monthly 聚合，缺則 perfSnapshot）=====
-function renderHealthSection(){
+function renderHealthSection(fixed){
   if(!curHealthStore) curHealthStore=STORES[0]||'';
   const inp='padding:5px 7px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-weight:700;';
-  return `<div class="sec-title">🩺 單店成本體檢<span class="sec-sub">每工時人事成本・加班佔比</span></div>
-  <div class="card">
+  return `<div class="card">
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
-      <select id="healthStore" onchange="curHealthStore=this.value;renderStoreHealth();" style="${inp}">${STORES.map(s=>`<option value="${s}"${s===curHealthStore?' selected':''}>${s}</option>`).join('')}</select>
+      ${fixed?'':`<select id="healthStore" onchange="curHealthStore=this.value;renderStoreHealth();" style="${inp}">${STORES.map(s=>`<option value="${s}"${s===curHealthStore?' selected':''}>${s}</option>`).join('')}</select>`}
       <span style="font-size:12px;color:var(--muted);">加班目標</span><input type="number" id="otTarget" value="8" min="1" max="50" onchange="renderStoreHealth()" style="${inp}width:52px;text-align:center;">
       <span style="font-size:12px;color:var(--muted);">% 合理帶±</span><input type="number" id="bandPct" value="10" min="1" max="50" onchange="renderStoreHealth()" style="${inp}width:52px;text-align:center;">
       <span style="font-size:12px;color:var(--muted);">%</span>
@@ -118,23 +152,38 @@ function renderHealthSection(){
 }
 function renderStoreHealth(){
   const el=document.getElementById('storeHealth'); if(!el)return;
-  const s=curHealthStore, M=DATA[s]||{};
+  const s=curHealthStore;
   const otTarget=parseFloat((document.getElementById('otTarget')||{}).value)||8;
   const bandPct=(parseFloat((document.getElementById('bandPct')||{}).value)||10)/100;
-  const mset=new Set([...Object.keys(M.monthly||{}),...Object.keys(M.perf||{})].filter(k=>/^\d{4}-\d{2}$/.test(k)&&!PERF_EXCLUDE.has(k)));
-  const series=[...mset].sort().map(ym=>{
-    const mo=M.monthly&&M.monthly[ym];
-    if(mo) return {ym,cph:n(mo.costPerHour)||(n(mo.totalHours)?Math.round(n(mo.totalCost)/n(mo.totalHours)):0),otRatio:mo.otRatio!=null?n(mo.otRatio):null,cost:n(mo.totalCost),hours:n(mo.totalHours),ot:mo.otHours!=null?n(mo.otHours):null,head:mo.headcount||null};
-    const pf=M.perf&&M.perf[ym];
-    if(pf&&n(pf.totalHours)) return {ym,cph:Math.round(n(pf.laborCost)/n(pf.totalHours)),otRatio:null,cost:n(pf.laborCost),hours:n(pf.totalHours),ot:null,head:null};
-    return null;
-  }).filter(x=>x&&(x.cph>0||x.cost>0));
+  const series=healthSeries(s);
   if(!series.length){ el.innerHTML='<div class="empty">此店尚無成本資料（發布薪資後產生聚合）</div>'; return; }
   const last=series[series.length-1], prev=series[series.length-2];
   const hist=series.slice(0,-1).map(x=>x.cph).filter(v=>v>0);
   const avg=hist.length?Math.round(hist.reduce((a,b)=>a+b,0)/hist.length):last.cph;
   const lo=Math.round(avg*(1-bandPct)), hi=Math.round(avg*(1+bandPct));
   const cphSt=last.cph>hi?{c:'#c5221f',t:'偏高'}:last.cph<lo?{c:'#137333',t:'偏低(佳)'}:{c:'#137333',t:'合理'};
+  return renderStoreHealthBody(el,series,last,prev,avg,lo,hi,cphSt,otTarget);
+}
+// 單店成本序列（monthly 聚合優先，缺則 perfSnapshot）
+function healthSeries(s){
+  const M=DATA[s]||{};
+  const mset=new Set([...Object.keys(M.monthly||{}),...Object.keys(M.perf||{})].filter(k=>/^\d{4}-\d{2}$/.test(k)&&!PERF_EXCLUDE.has(k)));
+  return [...mset].sort().map(ym=>{
+    const mo=M.monthly&&M.monthly[ym];
+    if(mo) return {ym,cph:n(mo.costPerHour)||(n(mo.totalHours)?Math.round(n(mo.totalCost)/n(mo.totalHours)):0),otRatio:mo.otRatio!=null?n(mo.otRatio):null,cost:n(mo.totalCost),hours:n(mo.totalHours),ot:mo.otHours!=null?n(mo.otHours):null,head:mo.headcount||null};
+    const pf=M.perf&&M.perf[ym];
+    if(pf&&n(pf.totalHours)) return {ym,cph:Math.round(n(pf.laborCost)/n(pf.totalHours)),otRatio:null,cost:n(pf.laborCost),hours:n(pf.totalHours),ot:null,head:null};
+    return null;
+  }).filter(x=>x&&(x.cph>0||x.cost>0));
+}
+function healthSummary(s){
+  const se=healthSeries(s); if(!se.length) return '尚無資料';
+  const last=se[se.length-1], hist=se.slice(0,-1).map(x=>x.cph).filter(v=>v>0);
+  const avg=hist.length?hist.reduce((a,b)=>a+b,0)/hist.length:last.cph;
+  const t=last.cph>avg*1.1?'偏高':last.cph<avg*0.9?'偏低':'合理';
+  return `${s} 每工時 $${money(last.cph)}・${t}`;
+}
+function renderStoreHealthBody(el,series,last,prev,avg,lo,hi,cphSt,otTarget){
   const otSt=last.otRatio==null?{c:'#64748b',t:'—'}:last.otRatio>otTarget?{c:'#c5221f',t:'超標'}:{c:'#137333',t:'達標'};
   const mom=(cur,pv)=>pv?`<span style="font-size:11px;font-weight:800;color:${cur>pv?'#c5221f':'#137333'};">${cur>pv?'▲':'▼'}${Math.abs(Math.round((cur-pv)/pv*1000)/10)}%</span>`:'';
   const kpi=`<div class="kpi-grid" style="margin-bottom:4px;">
@@ -198,15 +247,15 @@ const DISC_COLS=[
   {k:'lateRate', t:'遲到率', fmt:d=>d.lateRate==null?'—':d.lateRate+'%', sub:d=>`${d.late}/${d.ins}次`},
   {k:'missOpen', t:'未處理缺卡', fmt:d=>String(d.missOpen), sub:()=>'張'},
 ];
-function renderDiscipline(m,extra){
-  const rows=STORES.filter(s=>extra[s]&&extra[s].disc);
-  if(!rows.length) return '';
+function renderDiscipline(m,extra,only,bare){
+  const rows=(only||STORES).filter(s=>extra[s]&&extra[s].disc);
+  if(!rows.length) return '<div class="empty">本月尚無打卡資料</div>';
   // 每欄最差的那家標紅（越高越差）；未處理缺卡 >0 一律標紅
   const worst={}; DISC_COLS.forEach(c=>{ let w=null; rows.forEach(s=>{ const v=extra[s].disc[c.k]; if(v!=null&&v>0&&(w==null||v>extra[w].disc[c.k])) w=s; }); worst[c.k]=w; });
   const cell=(s,c)=>{ const d=extra[s].disc, bad=(c.k==='missOpen')?d.missOpen>0:worst[c.k]===s;
     return `<td style="${bad?'color:#c5221f;font-weight:900;':''}">${c.fmt(d)}<div style="font-size:10.5px;color:var(--muted);font-weight:600;">${c.sub(d)}</div></td>`; };
   const tbl=`<div class="scroll"><table class="tbl"><thead><tr><th>門市</th>${DISC_COLS.map(c=>`<th>${c.t}</th>`).join('')}</tr></thead><tbody>${rows.map(s=>`<tr><td><b>${esc(s)}</b></td>${DISC_COLS.map(c=>cell(s,c)).join('')}</tr>`).join('')}</tbody></table></div>`;
-  return `<div class="sec-title">🕐 出勤紀律追蹤<span class="sec-sub">${m.split('-')[0]}年${+m.split('-')[1]}月</span></div>
+  return `${bare?'':`<div class="sec-title">🕐 出勤紀律追蹤<span class="sec-sub">${m.split('-')[0]}年${+m.split('-')[1]}月</span></div>`}
   <div class="card">${tbl}
     <div style="font-size:11px;color:var(--muted);line-height:1.6;margin-top:8px;">缺卡率＝缺卡單÷班數（已補登的照算）；補登率＝補登申請÷班數；紅字＝三店中最高。</div>
     <div id="discTrend" style="margin-top:10px;"><button onclick="loadDisciplineTrend()" style="width:100%;padding:9px;background:#f1f5f9;border:none;border-radius:10px;font-size:13px;font-weight:800;color:var(--text);cursor:pointer;">📈 看近 6 個月趨勢</button></div>
@@ -219,7 +268,7 @@ async function loadDisciplineTrend(){
   const [y,mo]=dashMonth.split('-').map(Number), months=[];
   for(let i=5;i>=0;i--){ const d=new Date(y,mo-1-i,1); months.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`); }
   await Promise.all(months.flatMap(ym=>STORES.map(async s=>{
-    const k=s+'|'+ym; if(discTrendCache[k]!==undefined) return;
+    const k=s+'|'+ym; if(discTrendCache[k]!==undefined) return;   // 單店時也一併抓三店（切回三店不用重讀）
     const c=dashCache[ym]&&dashCache[ym].extra[s];
     if(c&&c.disc){ discTrendCache[k]=c.disc; return; }
     try{ const a=await window.db.collection('stores').doc(s).collection('attendance').where('date','>=',ym+'-01').where('date','<=',ym+'-31').get();
@@ -239,11 +288,12 @@ function renderDisciplineTrend(){
 }
 
 // ===== 三店總覽 =====
-function renderOverview(m){
+function renderOverview(m,only){
+  only=only||STORES;
   const my=ymMinus12(m);
   let net=0,rew=0,sur=0, netY=0,rewY=0,surY=0, rateNum=0,rateDen=0;
   let hasPrev=false;
-  STORES.forEach(s=>{
+  only.forEach(s=>{
     const pn=pnlOf(s,m), pf=perfOf(s,m);
     if(pn){ net+=n(pn.netSales); rew+=n(pn.operatingReward); }
     if(pn&&pf){ sur+=n(pn.operatingReward)-n(pf.laborCost); rateNum+=n(pf.laborCost); rateDen+=n(pn.netSales); }
@@ -253,12 +303,13 @@ function renderOverview(m){
   });
   const rate=rateDen>0?(rateNum/rateDen*100):null;
   const yoy=(cur,prev)=>{ if(!hasPrev||!prev) return '<div class="kpi-yoy flat">—</div>'; const d=cur-prev; const p=prev?Math.round(d/Math.abs(prev)*1000)/10:0; const cls=d>0?'up':d<0?'down':'flat'; const ar=d>0?'▲':d<0?'▼':'—'; return `<div class="kpi-yoy ${cls}">${ar} ${p>0?'+':''}${p}% vs 去年同期</div>`; };
-  return `<div class="sec-title">🏪 三店總覽<span class="sec-sub">${m.split('-')[0]}年${+m.split('-')[1]}月 · 全體合計</span></div>
-  <div class="kpi-grid">
-    <div class="kpi"><div class="kpi-label">全體營業淨額</div><div class="kpi-val">${money(net)}</div>${yoy(net,netY)}</div>
-    <div class="kpi"><div class="kpi-label">全體經營報酬</div><div class="kpi-val">${money(rew)}</div>${yoy(rew,rewY)}</div>
-    <div class="kpi"><div class="kpi-label">全體門市餘裕<span style="font-weight:600;color:var(--muted);">(含支援)</span></div><div class="kpi-val" style="color:${sur>=0?'#137333':'#c5221f'}">${money(sur)}</div>${yoy(sur,surY)}</div>
-    <div class="kpi"><div class="kpi-label">平均人事費率</div><div class="kpi-val">${rate!=null?rate.toFixed(1)+'%':'—'}</div><div class="kpi-yoy flat">人事成本÷營業淨額</div></div>
+  const one=only.length===1, P=one?'':'全體';
+  return `<div class="sec-title">${one?'🏪 '+only[0]:'🏪 三店總覽'}<span class="sec-sub">${m.split('-')[0]}年${+m.split('-')[1]}月${one?'':' · 全體合計'}</span></div>
+  <div class="kpi-grid" style="margin-bottom:10px;">
+    <div class="kpi"><div class="kpi-label">${P}營業淨額</div><div class="kpi-val">${money(net)}</div>${yoy(net,netY)}</div>
+    <div class="kpi"><div class="kpi-label">${P}經營報酬</div><div class="kpi-val">${money(rew)}</div>${yoy(rew,rewY)}</div>
+    <div class="kpi"><div class="kpi-label">${P}門市餘裕<span style="font-weight:600;color:var(--muted);">(含支援)</span></div><div class="kpi-val" style="color:${sur>=0?'#137333':'#c5221f'}">${money(sur)}</div>${yoy(sur,surY)}</div>
+    <div class="kpi"><div class="kpi-label">${one?'人事費率':'平均人事費率'}</div><div class="kpi-val">${rate!=null?rate.toFixed(1)+'%':'—'}</div><div class="kpi-yoy flat">人事成本÷營業淨額</div></div>
   </div>`;
 }
 
@@ -316,13 +367,21 @@ function renderScorecard(m,extra,mode){
   const scColor=sc=> sc==null?'#cbd5e1' : sc>=75?'#137333' : sc<40?'#c5221f':'#334155';
 
   // 摘要：主畫面只給名次、總分與最弱一項，細節進獨立檢視看（原本整張表＋每店明細塞在首屏，太滿）
-  if(mode==='summary'){
+  if(mode==='store'){
+    const s=arguments[3], r=rows.find(x=>x.s===s); if(!r) return '<div class="empty">無資料</div>';
+    let h=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span style="font-size:13px;font-weight:800;">第 ${placeOf(s)} 名・總分 ${Math.round(total[s])}</span><button class="mini-btn" style="margin-left:auto;" onclick="openScoreHelp()">ℹ️ 指標說明</button></div>`;
+    dims.forEach(d=>{ const v=d.val(r), sc=scMap[s][d.key];
+      h+=`<div class="dim-row"><div class="dim-ic">${d.ic}</div><div class="dim-body"><div class="dim-name">${d.name} <span style="font-size:10px;color:var(--muted);font-weight:800;">×${d.w}</span> ${sc!=null?`<span style="font-weight:900;color:${scColor(sc)}">${Math.round(sc)}分</span>`:''}</div><div class="dim-sub">${v!=null?d.fmt(v):'<span style="color:#cbd5e1;">資料累積中</span>'}${v!=null?' · '+d.sub(r):''}</div></div></div>`; });
+    return h+`<button class="sc-more" onclick="openScoreView()">看三店完整計分卡 ›</button>`;
+  }
+  if(mode==='rank'){ return {ranked, total, placeOf}; }
+  if(mode==='summary'||mode==='body'){
     const worstOf=s=>{
       let w=null;
       dims.forEach(d=>{ const sc=scMap[s][d.key]; if(sc==null) return; if(!w||sc<w.sc) w={sc,d}; });
       return w;
     };
-    let sum=`<div class="sec-title">👔 店長管理力計分卡</div><div class="card">`;
+    let sum=mode==='body'?'<div>':`<div class="sec-title">👔 店長管理力計分卡</div><div class="card">`;
     ranked.forEach(s=>{
       const pl=placeOf(s), w=worstOf(s), mgr=(extra[s]&&extra[s].mgr)||'';
       sum+=`<div class="sc-row">`
@@ -361,23 +420,56 @@ function renderScorecard(m,extra,mode){
   });
   return head+tbl+`<div class="note" style="margin-bottom:10px;">點門市可以展開，看每個指標的分數是怎麼來的。</div>`+detail;
 }
-// ===== 決策警示 =====
-function renderAlerts(m,extra){
-  const alerts=[];
+// ===== 這個月要處理（2026-10-10 取代原本一條條的決策警示，改成依門市分組）=====
+// 去掉「本月遲到/缺卡 N 次 ≥5」：三店每月都觸發（46／108／86），而且把已補登的也算進去，等於沒有參考價值。
+// 改看遲到率與「還沒處理的缺卡單」。
+function collectAlerts(m,extra){
+  const out={};
   STORES.forEach(s=>{
-    const pn=pnlOf(s,m), pf=perfOf(s,m), ex=extra[s]||{};
-    if(pn&&pf&&n(pn.netSales)){ const rate=n(pf.laborCost)/n(pn.netSales)*100; if(rate>35) alerts.push({c:'a-red',t:`${s} 人事費率偏高 ${rate.toFixed(1)}%（>35%）`}); }
-    if(pn&&pf){ const sur=n(pn.operatingReward)-n(pf.laborCost); if(sur<0) alerts.push({c:'a-red',t:`${s} 門市餘裕為負 ${money(sur)}（報酬不足以支應人事）`}); }
-    if(pn&&n(pn.netSales)&&n(pn.badGoodsCost)){ const br=n(pn.badGoodsCost)/n(pn.netSales)*100; if(br>3) alerts.push({c:'a-warn',t:`${s} 壞品率偏高 ${br.toFixed(1)}%（>3%）`}); }
-    if(window.PnlLoss){ const lr=window.PnlLoss.lossRate(pn,amortOf(s,m)); const am=amortOf(s,m);
-      if(lr!=null&&lr>2.5) alerts.push({c:'a-warn',t:`${s} 淨損耗率偏高 ${lr.toFixed(2)}%（>2.5%，含攤提盤損${am&&am.est?'估算':''}）`}); }
-    if(ex.law>=3) alerts.push({c:'a-warn',t:`${s} 排班知情放行 ${ex.law} 次，留意勞基法合規`});
-    if(ex.late>=5) alerts.push({c:'a-warn',t:`${s} 本月遲到/缺卡 ${ex.late} 次，關注團隊出勤`});
-    if(ex.disc&&ex.disc.missOpen>=10) alerts.push({c:'a-warn',t:`${s} 有 ${ex.disc.missOpen} 張缺卡單還沒處理（補登或註銷）`});
+    const pn=pnlOf(s,m), pf=perfOf(s,m), ex=extra[s]||{}, L=out[s]=[];
+    if(pn&&pf){ const sur=n(pn.operatingReward)-n(pf.laborCost); if(sur<0) L.push({sev:'red',t:'門市餘裕為負',v:money(sur)}); }
+    if(pn&&pf&&n(pn.netSales)){ const rate=n(pf.laborCost)/n(pn.netSales)*100; if(rate>35) L.push({sev:'red',t:'人事費率偏高',v:rate.toFixed(1)+'%'}); }
+    if(pn&&n(pn.netSales)&&n(pn.badGoodsCost)){ const br=n(pn.badGoodsCost)/n(pn.netSales)*100; if(br>3) L.push({sev:'warn',t:'壞品率偏高',v:br.toFixed(1)+'%'}); }
+    if(window.PnlLoss){ const am=amortOf(s,m), lr=window.PnlLoss.lossRate(pn,am); if(lr!=null&&lr>2.5) L.push({sev:'warn',t:'淨損耗率偏高',v:lr.toFixed(2)+'%'}); }
+    if(ex.disc&&ex.disc.missOpen>=10) L.push({sev:'warn',t:'缺卡單還沒處理',v:ex.disc.missOpen+' 張'});
+    if(ex.disc&&ex.disc.lateRate!=null&&ex.disc.lateRate>10) L.push({sev:'warn',t:'遲到率偏高',v:ex.disc.lateRate+'%'});
+    if(ex.law>=3) L.push({sev:'warn',t:'排班知情放行',v:ex.law+' 次'});
+    L.sort((a,b)=>(a.sev==='red'?0:1)-(b.sev==='red'?0:1));
   });
-  const body = alerts.length? alerts.map(a=>`<div class="alert ${a.c}">⚠️ ${a.t}</div>`).join('')
-    : `<div class="alert a-ok">✅ 本月各店無明顯警示指標</div>`;
-  return `<div class="sec-title">🚦 決策警示</div>${body}`;
+  return out;
+}
+function renderTodo(m,al,scope){
+  const ttl=`<div class="sec-title">🚦 ${scope?scope+' ':''}這個月要處理<span class="sec-sub">${m.split('-')[0]}年${+m.split('-')[1]}月</span></div>`;
+  if(scope){
+    const L=al[scope]||[];
+    if(!L.length) return ttl+`<div class="card"><div class="todo-line"><span>✅ 本月沒有需要處理的警示</span></div></div>`;
+    return ttl+`<div class="card" style="border-left:4px solid ${L.some(x=>x.sev==='red')?'#c5221f':'#e67e22'};">${L.map(x=>`<div class="todo-line"><span>${x.t}</span><span class="todo-cnt ${x.sev==='red'?'sev-red':'sev-warn'}">${x.v}</span></div>`).join('')}</div>`;
+  }
+  const order=STORES.slice().sort((a,b)=>{ const sc=s=>(al[s]||[]).reduce((t,x)=>t+(x.sev==='red'?10:1),0); return sc(b)-sc(a); });
+  const rows=order.map(s=>{ const L=al[s]||[], red=L.some(x=>x.sev==='red');
+    return `<div class="todo-row" onclick="OwnerScope.set('${s}')"><span class="todo-name">${s}</span><span class="todo-items">${L.length?L.map(x=>x.t).join('・'):'沒有警示'}</span><span class="todo-cnt ${!L.length?'sev-ok':red?'sev-red':'sev-warn'}">${L.length?L.length+' 項':'✓'}</span><span style="color:#94a3b8;font-size:18px;">›</span></div>`; }).join('');
+  return ttl+`<div class="card">${rows}<div style="font-size:11px;color:var(--muted);margin-top:6px;">點門市看那一家的細節</div></div>`;
+}
+// 三店比較（只在三店模式）：一張表看誰好誰差
+function compareRow(m,extra,s){
+  const pn=pnlOf(s,m), pf=perfOf(s,m), d=(extra[s]||{}).disc;
+  return { s, sur:(pn&&pf)?n(pn.operatingReward)-n(pf.laborCost):null, rate:(pn&&pf&&n(pn.netSales))?n(pf.laborCost)/n(pn.netSales)*100:null,
+    miss:d?d.missRate:null, law:(extra[s]||{}).law };
+}
+function compareSummary(m,extra){
+  const r=STORES.map(s=>compareRow(m,extra,s)).filter(x=>x.sur!=null).sort((a,b)=>b.sur-a.sur);
+  return r.length?`餘裕最高 ${r[0].s}`:'尚無損益資料';
+}
+function renderCompare(m,extra){
+  const rows=STORES.map(s=>compareRow(m,extra,s));
+  const td=(v,txt,bad)=>`<td style="${bad?'color:#c5221f;':''}">${v==null?'—':txt}</td>`;
+  return `<div class="scroll"><table class="tbl"><thead><tr><th>門市</th><th>門市餘裕</th><th>人事費率</th><th>缺卡率</th><th>知情放行</th></tr></thead><tbody>${rows.map(r=>`<tr style="cursor:pointer;" onclick="OwnerScope.set('${r.s}')"><td>${r.s} ›</td>${td(r.sur,money(r.sur),r.sur<0)}${td(r.rate,r.rate!=null?r.rate.toFixed(1)+'%':'',r.rate>35)}${td(r.miss,r.miss+'%',false)}${td(r.law,r.law+' 次',r.law>=3)}</tr>`).join('')}</tbody></table></div>
+  <div style="font-size:11px;color:var(--muted);margin-top:6px;">門市餘裕＝經營報酬－人事成本（含支援）。點門市看那一家。</div>`;
+}
+function scoreSummary(m,extra,scope){
+  const r=renderScorecard(m,extra,'rank');
+  if(!r||!r.ranked||!r.ranked.length) return '';
+  return scope?`第 ${r.placeOf(scope)} 名・${Math.round(r.total[scope])} 分`:`${r.ranked[0]} 第一・${Math.round(r.total[r.ranked[0]])} 分`;
 }
 
 // ===== 指標與計分說明（給加盟主） =====
@@ -420,7 +512,7 @@ function openScoreHelp(){
 }
 // ===== 本月營運檢討（管理者手寫 Markdown；可產生 3 天有效的分享連結）=====
 let _reviewEditM=null;
-function renderReview(m, review){
+function renderReview(m, review, bare){
   const text=(review&&review.text)?review.text:'';
   const canEdit=isOwner();
   const btns=canEdit?`<span style="margin-left:auto;display:flex;gap:6px;">
@@ -429,6 +521,7 @@ function renderReview(m, review){
   </span>`:'';
   const body=text?`<div class="review-body">${mdToHtml(text)}</div><div style="font-size:10.5px;color:var(--muted);margin-top:10px;">最後更新：${review.updatedByName||review.updatedBy||''} ${String(review.updatedAt||'').slice(0,16).replace('T',' ')}</div>`
     :`<div class="empty">本月檢討尚未填寫${canEdit?'（點右上「撰寫」）':''}</div>`;
+  if(bare) return `${canEdit?`<div style="display:flex;margin-bottom:8px;">${btns}</div>`:''}<div class="card">${body}</div>`;
   return `<div class="sec-title">📋 本月營運檢討<span class="sec-sub">${m.split('-')[0]}年${+m.split('-')[1]}月</span>${btns}</div><div class="card">${body}</div>`;
 }
 async function openReviewEdit(m){
@@ -543,7 +636,7 @@ async function shareReview(m, recipients){
 // ===== 下鑽入口 =====
 function renderLinks(){
   const L=(href,ic,bg,lbl,sub)=>`<div class="link-row" onclick="window.location.href='${href}'"><div class="link-ic" style="background:${bg}">${ic}</div><div class="link-t"><div class="link-lbl">${lbl}</div><div class="link-sub">${sub}</div></div><div class="link-arr">›</div></div>`;
-  const R='?ref=owner-dashboard.html';
+  const R='?ref=owner-dashboard.html'+(OwnerScope.get()?'&store='+encodeURIComponent(OwnerScope.get()):'');
   return `<div class="sec-title">🔎 深入分析</div>`
     + L('performance.html'+R,'📊','#fff3e0','經營績效專區','三店趨勢比較、月度明細、去年同期')
     + L('analytics.html'+R,'📈','#f3e8ff','人事分析','多月人事成本、支援成本、員工時薪')

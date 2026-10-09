@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="莉學商行">
 <link rel="apple-touch-icon" href="icon-180.png">
-<meta name="theme-color" content="#7c3aed">
+<meta name="theme-color" content="#0e2140">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>👑 加盟主決策儀表板</title>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
@@ -16,14 +16,14 @@
 <script src="firebase-init.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-:root{--primary:#7c3aed;--primary-dark:#5b21b6;--accent:#34a853;--danger:#d93025;--warn:#e67e22;
+:root{--primary:#1a73e8;--primary-dark:#0e2140;--accent:#34a853;--danger:#d93025;--warn:#e67e22;
   --bg:#f4f6fb;--text:#1e293b;--muted:#64748b;--border:#e2e8f0;--header-h:56px;}
 html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;color:var(--text);overscroll-behavior-x:none;}
-#loadingOverlay{display:flex;position:fixed;inset:0;background:linear-gradient(135deg,#7c3aed,#5b21b6);z-index:99999;flex-direction:column;justify-content:center;align-items:center;color:#fff;transition:opacity .4s;}
+#loadingOverlay{display:flex;position:fixed;inset:0;background:#0e2140;z-index:99999;flex-direction:column;justify-content:center;align-items:center;color:#fff;transition:opacity .4s;}
 #loadingOverlay.hidden{opacity:0;pointer-events:none;}
 .spinner{width:40px;height:40px;border:4px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite;margin-bottom:16px;}
 @keyframes spin{to{transform:rotate(360deg);}}
-.header{background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#fff;padding:0 14px;height:var(--header-h);display:flex;align-items:center;gap:10px;box-shadow:0 2px 12px rgba(124,58,237,.3);position:sticky;top:0;z-index:100;}
+.header{background:#0e2140;color:#fff;padding:0 14px;height:var(--header-h);display:flex;align-items:center;gap:10px;box-shadow:0 2px 12px rgba(14,33,64,.3);position:sticky;top:0;z-index:100;}
 .header-back{background:rgba(255,255,255,.18);border:none;color:#fff;height:34px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;padding:0 12px;white-space:nowrap;}
 .header-title{font-size:17px;font-weight:800;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .msel{background:rgba(255,255,255,.2);border:1.5px solid rgba(255,255,255,.5);color:#fff;border-radius:8px;padding:5px 8px;font-size:13px;font-weight:700;}
@@ -82,7 +82,7 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
 .sc-total{font-size:19px;font-weight:900;flex-shrink:0;font-variant-numeric:tabular-nums;}
 .sc-more{width:100%;margin-top:10px;padding:10px;border:1.5px solid var(--primary,#e67e22);background:none;color:var(--primary,#e67e22);border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;}
 .back-btn{margin:4px 0 12px;padding:8px 14px;border:none;border-radius:10px;background:#eef1f6;color:#475569;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;}
-.note{background:#f5f3ff;border:1px solid #ddd6fe;border-radius:10px;padding:9px 12px;font-size:11.5px;line-height:1.6;color:#5b21b6;margin-top:8px;}
+.note{background:#eef4ff;border:1px solid #c7dafc;border-radius:10px;padding:9px 12px;font-size:11.5px;line-height:1.6;color:#1e40af;margin-top:8px;}
 .review-body h2{font-size:16px;font-weight:900;margin:14px 0 6px;}
 .review-body h3{font-size:14px;font-weight:900;margin:12px 0 5px;}
 .review-body h4{font-size:13px;font-weight:800;margin:9px 0 4px;}
@@ -91,6 +91,29 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
 .review-body li{font-size:13px;line-height:1.7;color:#334155;}
 .review-body hr{border:none;border-top:1px dashed #e2e8f0;margin:12px 0;}
 .review-body b{color:#0f172a;}
+/* 方案 D：要處理清單、摺疊區塊、營運檢討表格 */
+.todo-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid #f1f4f8;cursor:pointer;}
+.todo-row:first-of-type{border-top:none;}
+.todo-name{font-size:14.5px;font-weight:900;min-width:44px;}
+.todo-items{flex:1;min-width:0;font-size:12px;color:var(--muted);font-weight:600;line-height:1.5;}
+.todo-cnt{font-size:12px;font-weight:900;border-radius:8px;padding:3px 9px;white-space:nowrap;}
+.sev-red{background:#fce8e6;color:#c5221f;}.sev-warn{background:#fff3e0;color:#c0620f;}.sev-ok{background:#e6f4ea;color:#137333;}
+.todo-line{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid #f1f4f8;font-size:13.5px;font-weight:700;}
+.todo-line:first-of-type{border-top:none;}
+.fold{background:#fff;border-radius:14px;box-shadow:0 1px 4px rgba(0,0,0,.06);margin-bottom:10px;}
+.fold>summary{display:flex;align-items:center;gap:10px;padding:14px 15px;cursor:pointer;list-style:none;}
+.fold>summary::-webkit-details-marker{display:none;}
+.fold>summary::after{content:'›';color:#94a3b8;font-size:20px;font-weight:700;transition:transform .15s;flex-shrink:0;line-height:1;}
+.fold[open]>summary::after{transform:rotate(90deg);}
+.fold-t{font-size:14px;font-weight:900;white-space:nowrap;}
+.fold-s{flex:1;min-width:0;text-align:right;font-size:12px;color:var(--muted);font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.fold-b{padding:0 15px 15px;}
+.fold-b>.card{box-shadow:none;padding:0;margin:0;}
+.review-body table{border-collapse:collapse;font-size:12.5px;margin:6px 0 10px;white-space:nowrap;}
+.review-body th,.review-body td{border-bottom:1px solid #eef1f4;padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums;}
+.review-body th{color:var(--muted);font-weight:800;font-size:11.5px;}
+.review-body th:first-child,.review-body td:first-child{text-align:left;font-weight:800;}
+.review-body blockquote{border-left:3px solid #c7dafc;background:#f5f8ff;padding:7px 10px;margin:6px 0;font-size:12.5px;color:#334155;line-height:1.7;border-radius:0 8px 8px 0;}
 .mini-btn{background:#eef2ff;color:#4338ca;border:none;border-radius:8px;padding:5px 10px;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;}
 </style>
 </head>
@@ -101,8 +124,9 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
   <div class="header-title">👑 加盟主決策儀表板</div>
   <select class="msel" id="monthSel" onchange="renderAll(this.value)"></select>
 </div>
-<div class="content" id="content"><div class="empty">載入中…</div></div>
+<div class="content"><div id="scopeBar"></div><div id="content"><div class="empty">載入中…</div></div></div>
 <script src="pnl-loss.js"></script>
+<script src="owner-scope.js"></script>
 <script src="owner-dashboard-page.js"></script>
 </body>
 </html>
