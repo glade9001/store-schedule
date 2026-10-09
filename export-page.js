@@ -281,7 +281,9 @@ async function renderMonthClose(ym){
   await Promise.all(stores.map(async st=>{
     try{ const sn=await window.db.collection('stores').doc(st).collection('salary').doc(ym).get();
       const d=sn.exists?sn.data():null;
-      info[st]={ status:d?(d.status||'draft'):'none', recs:d?(d.records||[]):[], at:d&&(d.publishedAt||d.submittedAt)||'' };
+      // 未完成確認（原人事分析「加班與異常」的一項，2026-10-10 搬來這裡）：薪資頁每人「考勤／薪資／代扣」三格沒勾完
+      const tc=(d&&d.tabConfirmed)||{}, unconf=Object.keys(tc).filter(nm=>[0,1,2].some(i=>!(tc[nm]||{})[i]));
+      info[st]={ status:d?(d.status||'draft'):'none', recs:d?(d.records||[]):[], at:d&&(d.publishedAt||d.submittedAt)||'', unconf };
     }catch(e){ info[st]={status:'none',recs:[]}; }
   }));
   // 簽收
@@ -301,7 +303,8 @@ async function renderMonthClose(ym){
     }
     signed+=sg; total+=tt;
     const chip = s==='published'?'<span class="mc-chip mc-ok">已發布</span>' : s==='submitted'?'<span class="mc-chip mc-wait">待加盟主審核</span>' : s==='draft'?'<span class="mc-chip mc-no">店長製作中</span>':'<span class="mc-chip mc-no">未建立</span>';
-    return `<div class="mc-row"><span class="st">${st}</span>${chip}<span style="margin-left:auto;font-size:12px;color:#64748b;font-weight:700;">${s==='published'&&tt?`簽收 ${sg}/${tt}`:''}</span></div>`;
+    const uc=(it.unconf||[]).length&&s!=='published'?`<span class="mc-chip mc-wait" title="${it.unconf.join('、')}">${it.unconf.length} 人未確認</span>`:'';
+    return `<div class="mc-row"><span class="st">${st}</span>${chip}${uc}<span style="margin-left:auto;font-size:12px;color:#64748b;font-weight:700;">${s==='published'&&tt?`簽收 ${sg}/${tt}`:''}</span></div>`;
   }).join('');
   const exps=(mc&&mc.exports)||[];
   const exp=exps.filter(e=>stores.every(st=>(e.stores||[]).includes(st))).sort((a,b)=>String(b.at).localeCompare(String(a.at)))[0];
@@ -315,7 +318,8 @@ async function renderMonthClose(ym){
   const stepHtml=`<div class="mc-steps">${steps.map((x,i)=>`<div class="mc-step ${x.done?'done':i===nowIdx?'now':''}"><b>${i+1} ${x.t}</b><span>${x.v}</span></div>`).join('')}</div>`;
   let next='';
   const draft=stores.filter(st=>['draft','none'].includes(info[st].status)), waiting=stores.filter(st=>info[st].status==='submitted');
-  if(draft.length) next=`等 ${draft.join('、')} 店長送審。`;
+  const unc=stores.filter(st=>info[st].status!=='published'&&(info[st].unconf||[]).length);
+  if(draft.length) next=`等 ${draft.join('、')} 店長送審。`+(unc.length?`（${unc.map(st=>st+' '+info[st].unconf.length+' 人').join('、')}的考勤／薪資／代扣還沒確認完）`:'');
   else if(waiting.length) next=`${waiting.join('、')} 已送審，<a href="salary.html?ref=export.html">到薪資頁審核發布 ›</a>`;
   else if(total&&signed<total) next=`還有 ${total-signed} 人沒簽收（首頁會提醒他們）。`;
   else if(total) next='本月月結完成 ✅';

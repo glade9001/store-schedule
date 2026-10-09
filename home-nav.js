@@ -42,8 +42,7 @@ var HOME_FEATURES = [
   { id: 'employees',     group: 'people', icon: '👥', label: '員工資料',   sub: '帳號、職位、調店、離職',     go: 'employee-mgmt.html', show: hnIsLead, kw: '員工 帳號 密碼 離職' },
   { id: 'leaveMgmt',     group: 'people', icon: '📆', label: '員工特補休', sub: '假別管理、紀錄查詢',         go: 'leave.html?mode=mgmt', show: hnIsLead, kw: '特休 補休' },
   { id: 'performance',   group: 'ops',    icon: '📊', label: '經營績效',   sub: '每月門市損益輸入、同期比較', go: 'performance.html', show: hnIsLead, kw: '損益 營業額 盤損' },
-  { id: 'owner',         group: 'ops',    tier: 'owner', icon: '👑', label: '決策儀表板', sub: '三店總覽、店長管理力',       go: 'owner-dashboard.html', show: hnIsOwner, kw: '加盟主' },
-  { id: 'analytics',     group: 'ops',    tier: 'owner', icon: '📈', label: '人事分析',   sub: '多月趨勢、支援成本、時薪',   go: 'analytics.html', show: hnIsOwner, kw: '人事成本' },
+  { id: 'owner',         group: 'ops',    tier: 'owner', icon: '👑', label: '決策儀表板', sub: '三店總覽、人事分析、店長管理力',       go: 'owner-dashboard.html', show: hnIsOwner, kw: '加盟主 人事分析 人事成本 加班 跨店支援' },  // 人事分析 2026-10-10 併入儀表板〔人事〕分頁
   { id: 'export',        group: 'ops',    tier: 'owner', icon: '📤', label: '薪資匯出',   sub: 'Excel／PDF 薪資報表',        go: 'export.html', show: hnIsOwner },
   { id: 'cityAdmin',     group: 'tools',  tier: 'admin', icon: '🧾', label: 'CITY手順管理', sub: '確認每週同步的變動後發佈', go: 'city-admin.html', show: hnIsAdmin },
   { id: 'audit',         group: 'tools',  tier: 'admin', icon: '🩺', label: '資料健檢',   sub: '假別／到職日／跨店一致性',   go: 'data-audit.html', show: hnIsAdmin },
@@ -95,7 +94,7 @@ var hnUserDocPromise = null;
 function hnDefaultFavs() {
   return {
     me: ['schedule', 'leaveReq', 'mySalary'],
-    mgmt: hnIsOwner() ? ['owner', 'performance', 'analytics'] : ['adminSchedule', 'salary', 'attendance'],
+    mgmt: hnIsOwner() ? ['owner', 'performance', 'salary'] : ['adminSchedule', 'salary', 'attendance'],
   };
 }
 // 兩區各自回退預設：員工只改過「常用功能」時，mgmt 仍是 null，之後升店長／加盟主會拿到對應角色的預設
@@ -103,7 +102,9 @@ function hnCurrentFavs() {
   var d = hnDefaultFavs();
   var me = (hnFavs && Array.isArray(hnFavs.me)) ? hnFavs.me : d.me;
   var mgmt = (hnFavs && Array.isArray(hnFavs.mgmt)) ? hnFavs.mgmt : d.mgmt;
-  return { me: me.slice(), mgmt: mgmt.slice() };
+  // 已經拿掉的入口（例：2026-10-10 人事分析併入儀表板）存在別人的常用裡 → 略過，不讓整排捷徑出錯
+  var ok = function (id) { return !!hnFeature(id); };
+  return { me: me.filter(ok), mgmt: mgmt.filter(ok) };
 }
 function hnLocalKey() { return 'homeUserDoc:' + (currentUser?.uid || ''); }
 
