@@ -50,6 +50,9 @@ var HOME_FEATURES = [
   { id: 'rolePreview',   group: 'tools',  tier: 'admin', icon: '🎭', label: '角色預覽',   sub: '以不同角色體驗介面',         run: function () { openRolePreviewModal(); }, show: function () { return (realUser || currentUser)?.permission === 'admin'; } },
   // ── 門市工具（首頁已固定顯示，這裡只為了搜尋得到）──
   { id: 'city',    group: 'store', icon: '☕', label: 'CITY手順',   sub: '飲品製作手順',   go: 'city.html' },
+  // 團購（2026-10-10 第 1 階段）：全員可用——員工補本店單、看取貨名單；開團／編輯在頁面內依角色開放
+  { id: 'groupbuy',  group: 'store', icon: '🛒', label: '團購管理', sub: '開團、補單、訂單明細',     go: 'groupbuy.html', show: function () { return !!currentUser?.empName; }, kw: '團購 補單 開團 +1' },
+  { id: 'gbPickup',  group: 'store', icon: '📦', label: '取貨名單', sub: '團購取貨、付款、棄單',     go: 'groupbuy-pickup.html', show: function () { return !!currentUser?.empName; }, kw: '團購 取貨 付款 棄單' },
   { id: 'barcode', group: 'store', icon: '▥',  label: '條碼查詢',   sub: '外部網站',       href: 'https://bk-bc.github.io/Barcode/' },
   { id: 'wds',     group: 'store', icon: '💬', label: '大智通小智', sub: '外部網站',       href: 'https://www.wds.com.tw/webchat/?action=dispatch2&bb=2&openExternalBrowser=1' },
   { id: 'learn',   group: 'store', icon: '📚', label: '學習平台',   sub: '外部網站・線上課程', href: 'https://e-learning.unipcsc.com.tw/eHRD/eHRDOrg', browser: true, kw: '教育訓練 課程 e-learning' },

@@ -165,13 +165,86 @@ service cloud.firestore {
       allow write: if isOwnerOrAdmin() || (myPerm() == 'manager' && st == myStore());
     }
 
+    // ── 團購系統 gb_*（2026-10-10 第 1 階段：後台基礎）──────────────
+    // 規格書只留本機（docs/groupbuy-spec.md，不進公開 repo）。門市在 gb_ 一律用代碼 meide/lianxin/jinhua，
+    // 使用者資料存的是中文店名，規則用下面的對照表換算。
+    // ⚠️ 必須被最下面的 catch-all 排除（!coll.matches('gb_.*')），否則任何登入者都能讀寫訂單。
+    function gbCodeOf(name) { return {'美德': 'meide', '聯鑫': 'lianxin', '錦花': 'jinhua'}.get(name, ''); }
+    function gbMyCode() { return gbCodeOf(myStore()); }
+    function gbStaff() {
+      return request.auth != null
+        && myPerm() in ['employee', 'manager', 'owner', 'admin']
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('disabled', false) != true;
+    }
+    // 店長只能開／改「只開放自己店」的團購；跨店共用庫存的團只有加盟主／admin（使用者 2026-10-10 定案）
+    function gbMgrOwnOnly(stores) { return myPerm() == 'manager' && gbMyCode() != '' && stores == [gbMyCode()]; }
+    function gbCampaign(cid) { return get(/databases/$(database)/documents/gb_campaigns/$(cid)).data; }
+
+    // gb_campaigns：開放中的團購任何人可讀（LIFF 前台查詢必須帶 status == "open"，直接比對欄位才會強制）；
+    // 員工可讀全部；建立／編輯：加盟主／admin 不限、店長限本店專屬團；
+    // 補單時員工／店長可在 transaction 裡只更新 ordered_qty／ordered_by_store（各店已訂數量，列表用），
+    // 且不得超過庫存、只限有開放給本店的團。
+    match /gb_campaigns/{cid} {
+      allow read: if resource.data.status == 'open' || gbStaff();
+      allow create: if isOwnerOrAdmin() || gbMgrOwnOnly(request.resource.data.get('available_stores', []));
+      allow update: if isOwnerOrAdmin()
+                    || (gbMgrOwnOnly(resource.data.get('available_stores', [])) && gbMgrOwnOnly(request.resource.data.get('available_stores', [])))
+                    || (gbStaff() && changedKeys().hasOnly(['ordered_qty', 'ordered_by_store', 'updated_at'])
+                        && gbMyCode() in resource.data.get('available_stores', [])
+                        && request.resource.data.ordered_qty is int && request.resource.data.ordered_qty >= 0
+                        && (resource.data.get('stock', null) == null || request.resource.data.ordered_qty <= resource.data.stock));
+      allow delete: if isOwnerOrAdmin()
+                    || (gbMgrOwnOnly(resource.data.get('available_stores', [])) && resource.data.get('status', '') == 'draft');
+    }
+
+    // gb_orders：員工／店長只能讀寫本店訂單，加盟主／admin 不限；客人（未登入）完全不可存取。
+    // 補單限開放中的團（截單後只有加盟主／admin 可補）；改數量、取消同樣限開放中，
+    // 截單後員工只能做取貨相關的更新（已取貨／已付款／棄單）。
+    function gbOrderStoreOk(st) { return isOwnerOrAdmin() || (gbStaff() && st != '' && st == gbMyCode()); }
+    function gbPickupOnly() {
+      return changedKeys().hasOnly(['status', 'paid', 'picked_up_at', 'picked_up_by', 'no_show_at', 'no_show_by', 'updated_at'])
+        && request.resource.data.get('status', '') in ['active', 'picked_up', 'no_show'];
+    }
+    match /gb_orders/{oid} {
+      allow read: if gbOrderStoreOk(resource.data.store);
+      allow create: if gbOrderStoreOk(request.resource.data.get('store', ''))
+                    && request.resource.data.get('source', '') == 'manual'
+                    && request.resource.data.get('created_by', '') == request.auth.uid
+                    && request.resource.data.qty is int && request.resource.data.qty > 0
+                    && request.resource.data.qty <= gbCampaign(request.resource.data.campaign_id).get('per_user_limit', 999)
+                    && request.resource.data.store in gbCampaign(request.resource.data.campaign_id).get('available_stores', [])
+                    && (isOwnerOrAdmin() || gbCampaign(request.resource.data.campaign_id).get('status', '') == 'open');
+      allow update: if gbOrderStoreOk(resource.data.store)
+                    && request.resource.data.get('store', '') == resource.data.store
+                    && request.resource.data.get('campaign_id', '') == resource.data.get('campaign_id', '')
+                    && (!changedKeys().hasAny(['qty']) || (request.resource.data.qty is int && request.resource.data.qty > 0
+                        && request.resource.data.qty <= gbCampaign(resource.data.campaign_id).get('per_user_limit', 999)))
+                    && (isOwnerOrAdmin() || gbCampaign(resource.data.campaign_id).get('status', '') == 'open' || gbPickupOnly());
+      allow delete: if isOwnerOrAdmin();
+    }
+
+    // gb_customers：員工可讀；棄單時員工只能動棄單相關欄位（客人資料由第 2 階段的下單 API 寫入）
+    match /gb_customers/{uid} {
+      allow read: if gbStaff();
+      allow create, update: if isOwnerOrAdmin()
+                    || (gbStaff() && request.resource.data.keys().hasOnly(['no_show_count', 'last_no_show_at', 'display_name', 'picture_url', 'last_order_at'])
+                        && (resource == null || changedKeys().hasOnly(['no_show_count', 'last_no_show_at'])));
+      allow delete: if isOwnerOrAdmin();
+    }
+
+    // gb_settings：員工可讀（門市代碼、LIFF 連結）；只有加盟主／admin 可改
+    match /gb_settings/{doc} {
+      allow read: if gbStaff();
+      allow write: if isOwnerOrAdmin();
+    }
+
     match /{coll}/{docPath=**} {
-      allow read: if request.auth != null && coll != 'inspectionSheets' && coll != 'pushSubs' && coll != 'stores' && coll != 'users' && coll != 'account' && coll != 'storeMemos' && !coll.matches('city[A-Z].*');
-      allow update, delete: if request.auth != null && coll != 'inspectionSheets' && coll != 'pushSubs' && coll != 'stores' && coll != 'users' && coll != 'account' && coll != 'storeMemos' && !coll.matches('city[A-Z].*');
+      allow read: if request.auth != null && coll != 'inspectionSheets' && coll != 'pushSubs' && coll != 'stores' && !coll.matches('gb_.*') && coll != 'users' && coll != 'account' && coll != 'storeMemos' && !coll.matches('city[A-Z].*');
+      allow update, delete: if request.auth != null && coll != 'inspectionSheets' && coll != 'pushSubs' && coll != 'stores' && !coll.matches('gb_.*') && coll != 'users' && coll != 'account' && coll != 'storeMemos' && !coll.matches('city[A-Z].*');
       // 打卡防偽：source=="app" 的打卡「只能」由 clockPunch callable(Admin SDK 略過規則)建立；
       //          客戶端不可直接寫入假打卡。管理者補登(source=manual)、缺卡(source=system)、其他無 source 的建立照常。
       // ⚠️ 必須用 .get('source','')：直接存取不存在的欄位會讓規則報錯而「拒絕」→ 會擋掉所有沒有 source 欄位的建立(薪資簽收/劃休/綁定…)
-      allow create: if request.auth != null && coll != 'inspectionSheets' && coll != 'pushSubs' && coll != 'stores' && coll != 'users' && coll != 'account' && coll != 'storeMemos' && !coll.matches('city[A-Z].*')
+      allow create: if request.auth != null && coll != 'inspectionSheets' && coll != 'pushSubs' && coll != 'stores' && !coll.matches('gb_.*') && coll != 'users' && coll != 'account' && coll != 'storeMemos' && !coll.matches('city[A-Z].*')
                     && request.resource.data.get('source', '') != 'app';
     }
   }

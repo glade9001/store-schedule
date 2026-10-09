@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0e2140">
+<title>🛒 團購管理</title>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+<script src="firebase-init.js"></script>
+<script src="gb-common.js"></script>
+<link rel="stylesheet" href="groupbuy.css">
+</head>
+<body>
+<div id="loadingOverlay"><div class="spinner"></div><div id="loadingText">載入中…</div></div>
+<div class="header">
+  <button class="header-back" onclick="location.href='home.html'">← 首頁</button>
+  <div class="header-title">🛒 團購管理</div>
+  <button class="header-btn" id="newBtn" hidden onclick="openCampaignForm()">＋ 開團</button>
+</div>
+<div class="wrap">
+  <div class="chips" id="chips" role="tablist" aria-label="依狀態篩選"></div>
+  <div id="list"><div class="empty">載入中…</div></div>
+</div>
+
+<!-- 開團／編輯 -->
+<div class="modal" id="campModal" hidden>
+  <form class="sheet" id="campForm" onsubmit="event.preventDefault();saveCampaign();">
+    <h3 id="campFormTitle">開團</h3>
+    <p class="lead" id="campFormLead"></p>
+    <div class="f"><span>商品名稱</span><input id="cfTitle" maxlength="60" required></div>
+    <div class="f"><span>說明</span><textarea id="cfDesc" maxlength="600"></textarea></div>
+    <div class="f2">
+      <div class="f"><span>價格（元）</span><input id="cfPrice" type="number" inputmode="numeric" min="1" step="1" required></div>
+      <div class="f"><span>每人上限</span><input id="cfLimit" type="number" inputmode="numeric" min="1" step="1" value="5" required></div>
+    </div>
+    <div class="f"><span>圖片網址 <small>先貼網址，上傳功能之後再做</small></span><input id="cfImage" type="url" placeholder="https://…"></div>
+    <div class="f"><span>開放門市</span><div class="checks" id="cfStores"></div></div>
+    <div class="f"><span>總庫存 <small>留空＝不限量；三店共用</small></span><input id="cfStock" type="number" inputmode="numeric" min="1" step="1"></div>
+    <div class="f"><span>截單時間</span><input id="cfEnd" type="datetime-local" required></div>
+    <div class="f"><span>成團規則</span>
+      <div class="seg">
+        <label><input type="radio" name="cfRule" value="guaranteed" checked onchange="syncRule()"> 保證成團</label>
+        <label><input type="radio" name="cfRule" value="threshold" onchange="syncRule()"> 達標成團</label>
+      </div>
+    </div>
+    <div class="f" id="cfMinWrap" hidden><span>最低成團數 <small>三店加總</small></span><input id="cfMin" type="number" inputmode="numeric" min="1" step="1"></div>
+    <div class="f2">
+      <div class="f"><span>預計到貨日</span><input id="cfArrival" type="date"></div>
+      <div class="f"><span>取貨期限</span><input id="cfPickup" type="date"></div>
+    </div>
+    <div class="err" id="cfErr"></div>
+    <div class="sheet-btns">
+      <button type="button" class="btn btn-g" onclick="closeModal('campModal')">取消</button>
+      <button type="submit" class="btn btn-p" id="cfSave">儲存</button>
+    </div>
+  </form>
+</div>
+
+<!-- 手動補單 -->
+<div class="modal" id="orderModal" hidden>
+  <form class="sheet" onsubmit="event.preventDefault();saveManualOrder();">
+    <h3>手動補單</h3>
+    <p class="lead" id="ofLead"></p>
+    <div class="f"><span>門市</span><select id="ofStore"></select></div>
+    <div class="f"><span>客人暱稱 <small>例如：群組陳阿姨</small></span><input id="ofName" maxlength="30" required></div>
+    <div class="f"><span>數量</span><input id="ofQty" type="number" inputmode="numeric" min="1" step="1" value="1" required></div>
+    <div class="f"><span>備註</span><input id="ofNote" maxlength="100"></div>
+    <div class="err" id="ofErr"></div>
+    <div class="sheet-btns">
+      <button type="button" class="btn btn-g" onclick="closeModal('orderModal')">取消</button>
+      <button type="submit" class="btn btn-p" id="ofSave">補單</button>
+    </div>
+  </form>
+</div>
+
+<!-- 改數量 -->
+<div class="modal" id="qtyModal" hidden>
+  <form class="sheet" onsubmit="event.preventDefault();saveQty();">
+    <h3>修改數量</h3>
+    <p class="lead" id="qfLead"></p>
+    <div class="f"><span>數量</span><input id="qfQty" type="number" inputmode="numeric" min="1" step="1" required></div>
+    <div class="err" id="qfErr"></div>
+    <div class="sheet-btns">
+      <button type="button" class="btn btn-g" onclick="closeModal('qtyModal')">取消</button>
+      <button type="submit" class="btn btn-p" id="qfSave">儲存</button>
+    </div>
+  </form>
+</div>
+
+<!-- 確認 -->
+<div class="modal" id="confirmModal" hidden>
+  <div class="sheet">
+    <h3 id="cmTitle">確認</h3>
+    <p class="lead" id="cmText"></p>
+    <div class="sheet-btns">
+      <button type="button" class="btn btn-g" id="cmNo">取消</button>
+      <button type="button" class="btn btn-p" id="cmYes">確定</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="groupbuy-page.js"></script>
+</body>
+</html>
