@@ -69,7 +69,7 @@ function renderBar(){
   document.getElementById('wrap').innerHTML = `<div class="bar">
     ${storeSel}${dateCtrl}${empCtrl}
   </div>
-  <div style="display:flex;gap:6px;margin-bottom:12px;">${mbtn('day','📅 單日')}${mbtn('month','⚠️ 本月異常')}${mbtn('emp','👤 員工月表')}</div>
+  <div style="display:flex;gap:6px;margin-bottom:12px;">${mbtn('day','📅 單日')}${mbtn('month','⚠️ 本月異常')}${mbtn('emp','👤 員工月表')}${mbtn('gap','⚖️ 工時差異')}</div>
   ${enableToggle}${settings}
   <div id="reqs"></div><div id="sum"></div><div id="list"><div class="empty">載入中…</div></div>`;
 }
@@ -486,6 +486,7 @@ async function load(){
   const nfEl=document.getElementById('notifyChk'); if(nfEl) nfEl.checked=notifyOf(curStore);
   if(viewMode==='month') return loadMonth();
   if(viewMode==='emp') return loadEmp();
+  if(viewMode==='gap') return loadGap();
   return loadDay();
 }
 async function loadDay(){
@@ -560,4 +561,79 @@ async function loadEmp(){
     html+=`</div>`;
   });
   list.innerHTML=html;
+}
+
+// ===== ⚖️ 工時差異（2026-10-10）：排定時數 vs 有效工時，逐人列出差距大的日子 =====
+// 有效工時沿用 calcHours（超時封頂、核准加班才加、到場不計），所以差異多半是「少」：
+// 整班沒打卡、缺卡沒補、遲到早退。只算到昨天（今天的班還沒結束）。
+// 排班的取法與缺卡排程 scheduledMissingClock 相同：派出店的「支援X」顯示列不算、接收店的 supportEmp 才算。
+const GAP_DAYS=["週一","週二","週三","週四","週五","週六","週日"];
+async function loadGap(){
+  const list=document.getElementById('list'); list.innerHTML='<div class="empty">載入中…</div>';
+  const ym=curDate.slice(0,7), [y,m]=ym.split('-').map(Number), nd=new Date(y,m,0).getDate(), today=todayStr();
+  const dates=[]; for(let d=1;d<=nd;d++){ const ds=`${ym}-${String(d).padStart(2,'0')}`; if(ds<today) dates.push(ds); }
+  if(!dates.length){ document.getElementById('sum').innerHTML=''; list.innerHTML='<div class="empty">這個月還沒有已結束的日子</div>'; return; }
+  let recs=[], weeks={};
+  try{
+    recs=(await fetchMonth()).filter(r=>String(gd(r)).startsWith(ym));
+    await Promise.all([...new Set(dates.map(shiftWeekStr))].map(async wk=>{
+      const w=await window.db.collection('stores').doc(curStore).collection('weeks').doc(wk).get();
+      weeks[wk]=w.exists?(w.data().records||[]):[];
+    }));
+  }catch(e){ list.innerHTML=`<div class="empty">讀取失敗：${e.message}</div>`; return; }
+  // 排定：emp|date → {h, shift}
+  const sched={};
+  dates.forEach(ds=>{
+    const p=ds.split('-'), dn=GAP_DAYS[(new Date(+p[0],+p[1]-1,+p[2]).getDay()+6)%7];
+    (weeks[shiftWeekStr(ds)]||[]).forEach(r=>{
+      if(r.day!==dn || String(r.location||'').startsWith('支援')) return;
+      const isSup=r.supportEmp && r.approvalStatus==='approved';
+      const emp=(r.name && !String(r.name).startsWith('🆘')) ? r.name : (isSup ? r.supportEmp.slice(r.supportEmp.indexOf('-')+1) : '');
+      const h=shiftTotalHours(r.shift||'');
+      if(!emp || !(h>0)) return;
+      const k=emp+'|'+ds, o=sched[k]||(sched[k]={h:0,shift:[]}); o.h+=h; o.shift.push(r.shift);
+    });
+  });
+  // 實際：emp|date → 該日打卡
+  const act={}; recs.forEach(r=>{ const ds=gd(r); if(!dates.includes(ds)) return; (act[r.empName+'|'+ds]=act[r.empName+'|'+ds]||[]).push(r); });
+  const byEmp={};
+  new Set([...Object.keys(sched),...Object.keys(act)]).forEach(k=>{
+    const [emp,ds]=k.split('|'), sc=sched[k], rs=act[k]||[];
+    const ah=calcHours(rs), sh=sc?sc.h:0;
+    if(!sh && !(ah>0)) return;   // 沒排班、也沒算到工時（純到場）→ 不列
+    const e=byEmp[emp]||(byEmp[emp]={emp,sh:0,ah:0,days:[]});
+    e.sh+=sh; e.ah+=ah;
+    const diff=ah-sh;
+    if(Math.abs(diff)>=0.5){
+      const openMiss=rs.some(r=>r.type==='缺卡'&&!r.voided);
+      const punched=rs.some(r=>(r.type==='上班'||r.type==='下班')&&!r.voided);
+      const why=!sh?'未排班出勤（核准加班）':openMiss?'缺卡未補':!punched?'整班沒打卡':diff<0?'遲到／早退／漏卡':'核准加班';
+      e.days.push({ds,shift:sc?sc.shift.join('、'):'—',sh,ah,diff,why});
+    }
+  });
+  const emps=Object.values(byEmp).sort((a,b)=>(a.ah-a.sh)-(b.ah-b.sh));
+  const tS=emps.reduce((a,e)=>a+e.sh,0), tA=emps.reduce((a,e)=>a+e.ah,0), f=x=>(Math.round(x*10)/10).toFixed(1);
+  document.getElementById('sum').innerHTML=`<div class="sumbar">
+    <div class="chip"><div class="chip-n">${f(tS)}</div><div class="chip-l">排定時數(h)</div></div>
+    <div class="chip"><div class="chip-n" style="color:#137333">${f(tA)}</div><div class="chip-l">有效工時(h)</div></div>
+    <div class="chip"><div class="chip-n" style="color:${tA-tS<0?'var(--danger)':'var(--text)'}">${tA-tS>0?'+':''}${f(tA-tS)}</div><div class="chip-l">差異(h)</div></div>
+  </div>
+  <div style="font-size:11px;color:var(--muted);margin:-4px 2px 10px;line-height:1.6;">算到昨天為止。有效工時＝排班時數封頂、核准加班才加；差異大多是整班沒打卡或缺卡沒補，補登核准後會跟著更新。</div>`;
+  if(!emps.length){ list.innerHTML='<div class="empty">本月尚無排班與打卡資料</div>'; return; }
+  list.innerHTML=emps.map(e=>{
+    const d=e.ah-e.sh, col=d<=-0.5?'var(--danger)':d>=0.5?'#137333':'var(--text)';
+    const rows=e.days.sort((a,b)=>a.ds.localeCompare(b.ds)).map(x=>`<div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--border);font-size:12.5px;">
+      <span style="width:86px;font-weight:700;">${dayHdr(x.ds)}</span><span style="flex:1;color:var(--muted);">${x.shift}</span>
+      <span style="white-space:nowrap;">${f(x.sh)}→${f(x.ah)}h</span>
+      <span style="white-space:nowrap;font-weight:800;color:${x.diff<0?'var(--danger)':'#137333'};">${x.diff>0?'+':''}${f(x.diff)}</span></div>
+      <div style="font-size:11px;color:var(--muted);margin:-3px 0 4px 94px;">${x.why}</div>`).join('');
+    return `<div class="card"><details${e.days.length?'':' style="pointer-events:none;"'}>
+      <summary style="display:flex;align-items:center;gap:8px;cursor:pointer;list-style:none;">
+        <span class="emp-name" style="flex:1;margin:0;">${empDisplay(e.emp)}</span>
+        <span style="font-size:12.5px;color:var(--muted);white-space:nowrap;">排 ${f(e.sh)}／實 ${f(e.ah)}</span>
+        <span style="font-weight:900;color:${col};white-space:nowrap;min-width:48px;text-align:right;">${d>0?'+':''}${f(d)}h</span>
+      </summary>
+      ${e.days.length?`<div style="margin-top:8px;">${rows}</div>`:''}
+    </details>${e.days.length?`<div style="font-size:11px;color:var(--muted);margin-top:4px;">${e.days.length} 天有差異，點名字展開</div>`:''}</div>`;
+  }).join('');
 }
