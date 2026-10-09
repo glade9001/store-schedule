@@ -1827,6 +1827,26 @@ async function loadStats() {
 }
 
 // ===== 待處理事項（店長以上 + 員工自身代辦）=====
+// ===== 回到首頁時重新整理待處理（2026-10-10，使用者回報「要關掉再打開才會更新」）=====
+// 原本只在 window.onload 讀一次。從主畫面 App 切回來、或從其他頁按返回（bfcache）都不會重新載入頁面，
+// 待處理清單、紅點、各種提醒就停在舊的。回到前景時重讀；30 秒內不重複（省讀取）。
+// ⚠️ Firestore SDK 沒有逾時（見記憶 reference_firestore_no_timeout）：一定要 race 逾時並清旗標，
+//    否則一次卡住就永遠不會再更新。
+let _homeRefreshAt = Date.now(), _homeRefreshing = false;
+async function refreshHomeLive(force) {
+  if(!currentUser || _homeRefreshing) return;
+  if(!force && Date.now() - _homeRefreshAt < 30000) return;
+  _homeRefreshing = true; _homeRefreshAt = Date.now();
+  try {
+    await Promise.race([loadPendingItems(), new Promise(res => setTimeout(res, 15000))]);
+  } catch(e) { console.warn('首頁重新整理失敗', e); }
+  finally { _homeRefreshing = false; }
+  checkSalaryAck(); checkPnlPending(); checkPnlAnomaly(); checkLeaveHint();
+  loadStats().catch(() => {});
+}
+document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') refreshHomeLive(false); });
+window.addEventListener('pageshow', e => { if(e.persisted) refreshHomeLive(true); });   // 從其他頁按返回
+
 async function loadPendingItems() {
   const weekStr = getCurrentWeekString();
   const nextWeek = getNextWeekString();
