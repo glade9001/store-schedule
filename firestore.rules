@@ -143,13 +143,35 @@ service cloud.firestore {
       allow delete: if request.auth != null && isManagerUp() && memoStoreOk(resource.data.get('store', ''));
     }
 
+    // ── stores：門市與其子集合（2026-10-10 為了收緊 salary 從 catch-all 拆出來）──
+    // stores/{店} 本身與 salary 以外的子集合（weeks/attendance/employees/pnl…）規則與 catch-all 完全相同。
+    // ⚠️ 不能只在 catch-all 加條件：Firestore 規則是「或」，catch-all 配得到 stores/*/salary 就會放行，
+    //    所以 catch-all 必須排除 'stores'，再由下面三條接手。
+    match /stores/{st} {
+      allow read, update, delete: if request.auth != null;
+      allow create: if request.auth != null && request.resource.data.get('source', '') != 'app';
+    }
+    match /stores/{st}/{sub}/{rest=**} {
+      allow read, update, delete: if request.auth != null && sub != 'salary';
+      allow create: if request.auth != null && sub != 'salary' && request.resource.data.get('source', '') != 'app';
+    }
+    // ── salary：一個月一份、records[] 含全店員工薪資 ──
+    // 原本走 catch-all＝任何登入者都能讀（員工開 console 就看得到全店同事薪資）、甚至能改。
+    // ・讀：店長以上（含別店——薪資頁算「跨店支援費率」要讀支援人員原店的記錄，見 salary-page.js fetchSupportInRates）
+    //   員工看自己的薪資一律走 Cloud Function getMySalary（只回本人那筆）。
+    // ・寫：店長只能寫本店；加盟主／admin 不限。發薪排程等走 Admin SDK 不受影響。
+    match /stores/{st}/salary/{ym} {
+      allow read: if isManagerUp();
+      allow write: if isOwnerOrAdmin() || (myPerm() == 'manager' && st == myStore());
+    }
+
     match /{coll}/{docPath=**} {
-      allow read: if request.auth != null && coll != 'inspectionSheets' && coll != 'pushSubs' && coll != 'users' && coll != 'account' && coll != 'storeMemos' && !coll.matches('city[A-Z].*');
-      allow update, delete: if request.auth != null && coll != 'inspectionSheets' && coll != 'pushSubs' && coll != 'users' && coll != 'account' && coll != 'storeMemos' && !coll.matches('city[A-Z].*');
+      allow read: if request.auth != null && coll != 'inspectionSheets' && coll != 'pushSubs' && coll != 'stores' && coll != 'users' && coll != 'account' && coll != 'storeMemos' && !coll.matches('city[A-Z].*');
+      allow update, delete: if request.auth != null && coll != 'inspectionSheets' && coll != 'pushSubs' && coll != 'stores' && coll != 'users' && coll != 'account' && coll != 'storeMemos' && !coll.matches('city[A-Z].*');
       // 打卡防偽：source=="app" 的打卡「只能」由 clockPunch callable(Admin SDK 略過規則)建立；
       //          客戶端不可直接寫入假打卡。管理者補登(source=manual)、缺卡(source=system)、其他無 source 的建立照常。
       // ⚠️ 必須用 .get('source','')：直接存取不存在的欄位會讓規則報錯而「拒絕」→ 會擋掉所有沒有 source 欄位的建立(薪資簽收/劃休/綁定…)
-      allow create: if request.auth != null && coll != 'inspectionSheets' && coll != 'pushSubs' && coll != 'users' && coll != 'account' && coll != 'storeMemos' && !coll.matches('city[A-Z].*')
+      allow create: if request.auth != null && coll != 'inspectionSheets' && coll != 'pushSubs' && coll != 'stores' && coll != 'users' && coll != 'account' && coll != 'storeMemos' && !coll.matches('city[A-Z].*')
                     && request.resource.data.get('source', '') != 'app';
     }
   }
