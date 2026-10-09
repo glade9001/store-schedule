@@ -2537,6 +2537,54 @@ exports.scheduledUpdateNoticeLine = onSchedule(
 );
 
 // ============ PWA 推播（標準 Web Push，2026-09-15）============
+// ===== 本人薪資（2026-10-10 薪資規則收緊，方案 A）=====
+// 薪資一個月一份文件、records[] 含全店員工，原本員工端整份下載再前端過濾 → 開 console 就看得到全店同事薪資。
+// firestore.rules 已改成 salary 只有店長（本店）／加盟主／admin 能直接讀；員工一律走這支，只拿得到自己那筆。
+// 參數：months＝要查的月份（最多 36 個）；store＝只查這家門市；不給 store 時先查 prefer（預設本店）、再依序掃其他門市，
+//       取第一家有本人記錄的。publishedOnly＝只認「已發布」的那份（首頁待簽收提醒用）。
+// 回傳每個月份：{ ym, store, exists, status, rec }。rec＝本人那筆（沒有就 null）；
+// status 一律回傳（補登表單要知道該店該月是否已送審，狀態本身不含個資）。
+exports.getMySalary = onCall({ region: "asia-east1" }, async (request) => {
+  const auth = request.auth;
+  if (!auth) throw new HttpsError("unauthenticated", "請先登入");
+  const db = admin.firestore();
+  const u = (await db.collection("users").doc(auth.uid).get()).data() || {};
+  const empName = u.empName || "";
+  if (!empName) throw new HttpsError("permission-denied", "查無使用者");
+  const d = request.data || {};
+  const months = Array.isArray(d.months) ? [...new Set(d.months.map(String))] : [];
+  if (!months.length || months.length > 36 || months.some((m) => !/^\d{4}-\d{2}$/.test(m))) {
+    throw new HttpsError("invalid-argument", "月份格式不正確");
+  }
+  const all = (await getAllStores(db)).filter((s) => s !== "人力支援");
+  let order;
+  if (d.store) {
+    if (!all.includes(String(d.store))) throw new HttpsError("invalid-argument", "門市不存在");
+    order = [String(d.store)];
+  } else {
+    const first = all.includes(String(d.prefer || "")) ? String(d.prefer) : (u.store || "");
+    order = [first, ...all.filter((s) => s !== first)].filter(Boolean);
+  }
+  const items = [];
+  for (const ym of months) {
+    let first = null, hit = null;
+    for (const st of order) {
+      const snap = await db.collection("stores").doc(st).collection("salary").doc(ym).get().catch(() => null);
+      const data = snap && snap.exists ? snap.data() : null;
+      const one = {
+        ym, store: st, exists: !!data,
+        status: data ? (data.status || "draft") : "draft",
+        rec: data ? ((data.records || []).find((r) => r && r.empName === empName) || null) : null,
+      };
+      if (d.publishedOnly && one.status !== "published") one.rec = null;
+      if (!first) first = one;
+      if (one.rec) { hit = one; break; }
+    }
+    items.push(hit || first);
+  }
+  return { empName, items };
+});
+
 // 為什麼不用 FCM：FCM 的 Web 推播金鑰要到 Firebase 主控台手動產生；標準 Web Push 用自己的 VAPID 金鑰，
 // iOS 16.4+（需加入主畫面）與 Android Chrome 都支援，全程不必碰主控台。
 // 私鑰在 Secret Manager（WEB_PUSH_VAPID_PRIVATE），公鑰寫死在這裡與前端 home-push.js（兩處必須一致）。

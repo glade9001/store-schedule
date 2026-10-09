@@ -860,7 +860,6 @@ async function checkSalaryAck(){
   try{
     if(!currentUser?.uid || !currentUser?.empName) return;
     const myStore=currentUser.store;
-    const stores=[myStore, ...((appConfig.stores||[]).filter(s=>s&&s!==myStore))].filter(Boolean);
     const pending=[];
     const _now=new Date();
     const _nowYM=`${_now.getFullYear()}-${String(_now.getMonth()+1).padStart(2,'0')}`;
@@ -869,22 +868,19 @@ async function checkSalaryAck(){
     let _shol={};
     try{ const hs=await window.db.collection('settings').doc('holidays').collection('years').doc(String(_now.getFullYear())).get(); if(hs.exists && hs.data().dates) _shol=hs.data().dates; }catch(e){}
     let _remDay=5; for(let day=5;day<=20;day++){ const ds=`${_now.getFullYear()}-${String(_now.getMonth()+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`; const dow=new Date(_now.getFullYear(),_now.getMonth(),day).getDay(); if(dow!==0&&dow!==6&&!_shol[ds]){_remDay=day;break;} }
-    for(const ym of _ackMonthsFromStart()){
+    const _months=_ackMonthsFromStart().filter(ym=>{
       const [_yy,_mm]=ym.split('-').map(Number);
       const _payYM=_mm===12?`${_yy+1}-01`:`${_yy}-${String(_mm+1).padStart(2,'0')}`;
-      if(_payYM===_nowYM && (_nowDay<_remDay || (_nowDay===_remDay && _nowHour<15))) continue;
-      // 找本人在該月「已發布」的薪資記錄（先本店，找到就停）
-      let rec=null;
-      for(const st of stores){
-        const snap=await window.db.collection('stores').doc(st).collection('salary').doc(ym).get().catch(()=>null);
-        if(snap && snap.exists){
-          const d=snap.data();
-          if((d.status||'draft')==='published'){
-            const r=(d.records||[]).find(x=>x.empName===currentUser.empName);
-            if(r){ rec=r; break; }
-          }
-        }
-      }
+      return !(_payYM===_nowYM && (_nowDay<_remDay || (_nowDay===_remDay && _nowHour<15)));
+    });
+    if(!_months.length){ renderSalaryAckBanner([]); return; }
+    // 找本人在各月「已發布」的薪資記錄（先本店，找到就停）。
+    // 2026-10-10 薪資規則收緊：員工不能直接讀 salary 文件，改由 getMySalary 只回本人那筆。
+    const _fn=firebase.app().functions('asia-east1').httpsCallable('getMySalary');
+    const _res=await _fn({ months:_months, prefer:myStore, publishedOnly:true });
+    const _byYM={}; ((_res.data||{}).items||[]).forEach(it=>{ if(it && it.rec) _byYM[it.ym]=it.rec; });
+    for(const ym of _months){
+      const rec=_byYM[ym];
       if(!rec) continue; // 該月無已發布記錄 → 不提醒
       const ackSnap=await window.db.collection('salaryAck').doc(`${currentUser.uid}_${ym}`).get().catch(()=>null);
       const ack=ackSnap && ackSnap.exists ? ackSnap.data() : null;

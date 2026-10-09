@@ -284,35 +284,25 @@ async function loadSalaryData() {
   showLoading('載入薪資明細...');
 
   try {
-    let [empSnap, salSnap, prevSalSnap, accSnap] = await Promise.all([
+    // 2026-10-10 薪資規則收緊：salary 文件含全店同事薪資，員工不能再直接讀；
+    // 改由 getMySalary 只回本人那筆（先查目前門市，找不到再掃其他門市＝調店後回看歷史薪資）。
+    // 回傳包成跟原本 snapshot 一樣的形狀，下面的程式不用改。
+    const salFn = firebase.app().functions('asia-east1').httpsCallable('getMySalary');
+    const asSnap = it => ({ exists: !!(it && it.exists),
+      data: () => ({ status: (it && it.status) || 'draft', records: (it && it.rec) ? [it.rec] : [] }) });
+    const curIt = (((await salFn({ months:[currentMonth], prefer:currentStore })).data || {}).items || [])[0] || null;
+    if(curIt && curIt.rec && curIt.store && curIt.store !== currentStore) {
+      currentStore = curIt.store;
+      document.getElementById('storeSelector').value = currentStore;
+      document.getElementById('headerStore').textContent = currentStore;
+    }
+    const prevIt = (((await salFn({ months:[getPrevMonth(currentMonth)], store:currentStore })).data || {}).items || [])[0] || null;
+    const salSnap = asSnap(curIt && curIt.store === currentStore ? curIt : null);
+    const prevSalSnap = asSnap(prevIt);
+    const [empSnap, accSnap] = await Promise.all([
       window.db.collection('stores').doc(currentStore).collection('employees').get(),
-      window.db.collection('stores').doc(currentStore).collection('salary').doc(currentMonth).get(),
-      window.db.collection('stores').doc(currentStore).collection('salary').doc(getPrevMonth(currentMonth)).get(),
       window.db.collection('users').where('store','==',currentStore).get().catch(()=>null)
     ]);
-
-    // 調店後回看歷史薪資：若當月記錄裡找不到本人，掃描其他門市
-    const myEmpName = currentUser?.empName;
-    const hasMyRecord = salSnap.exists &&
-      (salSnap.data().records || []).some(r => r.empName === myEmpName);
-    if(!hasMyRecord && myEmpName) {
-      const otherStores = (appConfig.stores || []).filter(s => s !== currentStore);
-      for(const s of otherStores) {
-        const snap = await window.db.collection('stores').doc(s).collection('salary').doc(currentMonth).get().catch(()=>null);
-        if(snap?.exists && (snap.data().records || []).some(r => r.empName === myEmpName)) {
-          currentStore = s;
-          document.getElementById('storeSelector').value = s;
-          document.getElementById('headerStore').textContent = s;
-          [empSnap, salSnap, prevSalSnap, accSnap] = await Promise.all([
-            window.db.collection('stores').doc(s).collection('employees').get(),
-            snap,
-            window.db.collection('stores').doc(s).collection('salary').doc(getPrevMonth(currentMonth)).get().catch(()=>({ exists:false })),
-            window.db.collection('users').where('store','==',s).get().catch(()=>null)
-          ]);
-          break;
-        }
-      }
-    }
 
     displayNameMap = {};
     if(accSnap) accSnap.forEach(d => {

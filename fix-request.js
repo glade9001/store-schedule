@@ -63,11 +63,13 @@ async function syncReqStore() {
 // 該月薪資是否已送審／已發布。2026-09-24 改為「不擋、只標記」：原本送審後員工不能自行補登，
 // 但薪資常在月底前就送審（9 月 9/24 就送了）→ 當月剩下的日子全補不了。改成照常送出，
 // 申請帶 afterSalaryLock，店長審核時看到警示再決定要不要調薪資。
+// 2026-10-10 薪資規則收緊：員工不能直接讀 salary 文件，改問 getMySalary（只回狀態與本人那筆）。
 async function salaryLockedFor(store, ym) {
   try {
-    var d = await window.db.collection('stores').doc(store).collection('salary').doc(ym).get();
-    var st = d.exists ? (d.data().status || 'draft') : 'draft';
-    return ['submitted', 'published'].indexOf(st) >= 0;
+    var fn = firebase.app().functions('asia-east1').httpsCallable('getMySalary');
+    var r = await fn({ months: [ym], store: store });
+    var it = ((r.data || {}).items || [])[0];
+    return !!it && ['submitted', 'published'].indexOf(it.status) >= 0;
   } catch (e) { return false; }   // 查不到就不擋，避免連線問題讓人補不了卡
 }
 // 回傳 null＝驗證未過（已提示使用者）
