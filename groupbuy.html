@@ -8,6 +8,7 @@
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-storage.js"></script>
 <script src="firebase-init.js"></script>
 <script src="gb-common.js"></script>
 <link rel="stylesheet" href="groupbuy.css">
@@ -24,6 +25,19 @@
   <div class="gb-tabs" id="gbTabs" role="tablist">
     <button role="tab" id="tabCamp" class="on" aria-selected="true" onclick="gbSetTab('camp')">🛒 團購</button>
     <button role="tab" id="tabPick" aria-selected="false" onclick="gbSetTab('pick')">📦 取貨</button>
+    <button role="tab" id="tabSet" aria-selected="false" onclick="gbSetTab('set')" hidden>⚙️ 設定</button>
+  </div>
+  <!-- 團購設定（加盟主／admin）：LIFF 與門市下單連結 -->
+  <div id="secSet" hidden>
+    <div class="card">
+      <div style="font-size:15px;font-weight:900;margin-bottom:4px;">LINE 設定</div>
+      <p style="font-size:12.5px;color:var(--muted);margin:0 0 10px;line-height:1.6;">到 LINE Developers 建好 LINE Login Channel 與 LIFF App 後，把下面兩個值貼上來。這兩個都不是密碼；<b>Channel Secret 不要貼</b>。</p>
+      <div class="f"><span>LIFF ID <small>例：1234567890-AbCdEfGh</small></span><input id="stLiff" maxlength="60" autocomplete="off"></div>
+      <div class="f"><span>Channel ID <small>LINE Login Channel 的數字 ID，伺服器驗證客人身分用</small></span><input id="stChannel" maxlength="20" inputmode="numeric" autocomplete="off"></div>
+      <div class="err" id="stErr"></div>
+      <button class="btn btn-p" style="width:100%;padding:12px;" onclick="saveLiffSettings()">儲存</button>
+    </div>
+    <div class="card" id="stLinks"><div class="empty">儲存 LIFF ID 後，這裡會出現三家店的下單連結與 QR Code</div></div>
   </div>
   <div id="secCamp">
     <div class="chips" id="chips" role="tablist" aria-label="依狀態篩選"></div>
@@ -52,7 +66,14 @@
       <div class="f"><span>價格（元）</span><input id="cfPrice" type="number" inputmode="numeric" min="1" step="1" required></div>
       <div class="f"><span>每人上限</span><input id="cfLimit" type="number" inputmode="numeric" min="1" step="1" value="5" required></div>
     </div>
-    <div class="f"><span>圖片網址 <small>先貼網址，上傳功能之後再做</small></span><input id="cfImage" type="url" placeholder="https://…"></div>
+    <div class="f"><span>商品圖片</span>
+      <div style="display:flex;gap:10px;align-items:center;">
+        <div id="cfPreview" class="camp-img" style="width:64px;height:64px;"></div>
+        <label class="btn btn-o" style="cursor:pointer;">📷 選照片上傳<input id="cfFile" type="file" accept="image/*" hidden onchange="uploadCampImage(this.files[0])"></label>
+        <span id="cfUpMsg" style="font-size:12px;color:var(--muted);font-weight:600;"></span>
+      </div>
+      <input id="cfImage" type="url" placeholder="或貼圖片網址 https://…" oninput="syncPreview()" style="margin-top:6px;">
+    </div>
     <div class="f"><span>開放門市</span><div class="checks" id="cfStores"></div></div>
     <div class="f"><span>總庫存 <small>留空＝不限量；三店共用</small></span><input id="cfStock" type="number" inputmode="numeric" min="1" step="1"></div>
     <div class="f"><span>截單時間</span><input id="cfEnd" type="datetime-local" required></div>
@@ -106,11 +127,26 @@
   </form>
 </div>
 
+<!-- 文案（第 3 階段）-->
+<div class="modal" id="copyModal" hidden>
+  <div class="sheet">
+    <h3 id="cpTitle">文案</h3>
+    <p class="lead">可以先改文字再複製，貼回門市群組。</p>
+    <div class="f"><span>門市</span><select id="cpStore" onchange="buildCopy()"></select></div>
+    <label class="f" id="cpNamesWrap" style="flex-direction:row;align-items:center;gap:8px;" hidden><input type="checkbox" id="cpNames" onchange="buildCopy()" style="width:20px;height:20px;"> 附上取貨名單（暱稱 × 數量）</label>
+    <div class="f"><textarea id="cpText" style="min-height:220px;font-size:15px;line-height:1.6;"></textarea></div>
+    <div class="sheet-btns">
+      <button type="button" class="btn btn-g" onclick="closeModal('copyModal')">關閉</button>
+      <button type="button" class="btn btn-p" onclick="copyText()">📋 複製</button>
+    </div>
+  </div>
+</div>
+
 <!-- 確認 -->
 <div class="modal" id="confirmModal" hidden>
   <div class="sheet">
     <h3 id="cmTitle">確認</h3>
-    <p class="lead" id="cmText"></p>
+    <p class="lead" id="cmText" style="white-space:pre-line;"></p>
     <div class="sheet-btns">
       <button type="button" class="btn btn-g" id="cmNo">取消</button>
       <button type="button" class="btn btn-p" id="cmYes">確定</button>

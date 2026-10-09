@@ -13,6 +13,7 @@ window.onload = async function () {
   if (!gbUser) return;
   gbMyCode = gbCodeOf(gbUser.store);
   gbCanCreate = gbIsOwner(gbUser) || (gbIsManager(gbUser) && !!gbMyCode);
+  if (gbIsOwner(gbUser)) document.getElementById('tabSet').hidden = false;
   gbEnsureStoreSettings(gbUser);
   // 舊取貨名單網址（groupbuy-pickup.html）轉過來會帶 ?tab=pick；其他一律先開〔團購〕（使用者 2026-10-10）
   var t = new URLSearchParams(location.search).get('tab');
@@ -21,13 +22,15 @@ window.onload = async function () {
 };
 var gbCanCreate = false, gbCampLoaded = false;
 async function gbSetTab(t) {
-  var pick = t === 'pick';
-  document.getElementById('secCamp').hidden = pick;
-  document.getElementById('secPick').hidden = !pick;
-  document.getElementById('tabCamp').classList.toggle('on', !pick); document.getElementById('tabCamp').setAttribute('aria-selected', String(!pick));
-  document.getElementById('tabPick').classList.toggle('on', pick); document.getElementById('tabPick').setAttribute('aria-selected', String(pick));
-  document.getElementById('newBtn').hidden = pick || !gbCanCreate;
-  if (pick) await pkInit(gbUser);
+  if (t === 'set' && !gbIsOwner(gbUser)) t = 'camp';
+  [['camp', 'secCamp', 'tabCamp'], ['pick', 'secPick', 'tabPick'], ['set', 'secSet', 'tabSet']].forEach(function (x) {
+    var on = x[0] === t;
+    document.getElementById(x[1]).hidden = !on;
+    document.getElementById(x[2]).classList.toggle('on', on); document.getElementById(x[2]).setAttribute('aria-selected', String(on));
+  });
+  document.getElementById('newBtn').hidden = t !== 'camp' || !gbCanCreate;
+  if (t === 'pick') await pkInit(gbUser);
+  else if (t === 'set') await loadLiffSettings();
   else if (!gbCampLoaded) { gbCampLoaded = true; await loadCampaigns(); }
 }
 
@@ -90,6 +93,14 @@ function campCard(c) {
   var prog = c.success_rule === 'threshold' && c.min_qty ? '<div class="bar" title="成團進度"><i style="width:' + Math.min(100, Math.round((c.ordered_qty || 0) / c.min_qty * 100)) + '%"></i></div>' : '';
   var btns = '<button class="btn btn-g" onclick="toggleOrders(\'' + c.id + '\')">' + (gbOpen[c.id] ? '收起訂單' : '訂單明細') + '</button>';
   if (canAddOrder(c)) btns += '<button class="btn btn-p" onclick="openOrderForm(\'' + c.id + '\')">＋ 補單</button>';
+  // 第 3 階段（2026-10-10）：結算、標記到貨、文案
+  if (canEdit(c)) {
+    if (isDue(c) || c.status === 'closed') btns += '<button class="btn btn-p" style="background:#d93025;" onclick="settleCampaign(\'' + c.id + '\')">⚖️ 結算</button>';
+    if (c.status === 'success') btns += '<button class="btn btn-p" style="background:#6d28d9;" onclick="markArrived(\'' + c.id + '\')">📦 標記到貨</button>';
+  }
+  if (['open', 'success', 'arrived'].indexOf(c.status) >= 0 && (canEdit(c) || gbIsManager(gbUser))) {
+    btns += '<button class="btn btn-g" onclick="openCopy(\'' + c.id + '\',\'' + (c.status === 'open' ? 'open' : c.status === 'success' ? 'success' : 'arrived') + '\')">📝 ' + (c.status === 'open' ? '開團文案' : c.status === 'success' ? '成團文案' : '取貨通知') + '</button>';
+  }
   if (canEdit(c)) {
     btns += '<button class="btn btn-o" onclick="openCampaignForm(\'' + c.id + '\')">編輯</button>';
     btns += '<select class="inline" aria-label="切換狀態" onchange="changeStatus(\'' + c.id + '\',this.value);this.value=\'\'"><option value="">切換狀態…</option>' +
@@ -178,6 +189,7 @@ function openCampaignForm(cid) {
   document.getElementById('cfPrice').value = c ? c.price || '' : '';
   document.getElementById('cfLimit').value = c ? c.per_user_limit || 5 : 5;
   document.getElementById('cfImage').value = c ? (c.images || [])[0] || '' : '';
+  document.getElementById('cfFile').value = ''; document.getElementById('cfUpMsg').textContent = ''; syncPreview();
   document.getElementById('cfStock').value = c && c.stock != null ? c.stock : '';
   document.getElementById('cfEnd').value = c ? gbInputDateTime(c.end_time) : '';
   document.getElementById('cfArrival').value = c ? gbInputDate(c.arrival_date) : '';
@@ -375,4 +387,176 @@ async function adjustOrder(cid, oid, patchOf, deltaOf) {
   }));
   await loadOrders(cid);
   await loadCampaigns();
+}
+
+
+// ===== 第 3 階段：結算與文案（2026-10-10）=====
+// 結算：保證成團 → 直接成團；達標成團 → 三店合計（ordered_qty，已扣掉取消）≥ 最低成團數才成團，否則流局（流局不產生文案、不通知）。
+// 文案一律「可編輯＋複製」，由小編自己貼回門市群組（規格書：機器人不主動推播）。
+async function settleCampaign(cid) {
+  var c = gbCamps.find(function (x) { return x.id === cid; }); if (!c || !canEdit(c)) return;
+  var total = c.ordered_qty || 0;
+  var success = c.success_rule !== 'threshold' || total >= (c.min_qty || 0);
+  var why = c.success_rule === 'threshold' ? '達標成團：三店合計 ' + total + ' 份，最低 ' + c.min_qty + ' 份 → ' + (success ? '達標' : '未達標') : '保證成團：三店合計 ' + total + ' 份';
+  var ok = await gbConfirm('結算「' + c.title + '」', why + '\n\n結算後狀態會改為「' + (success ? '已成團' : '已流局') + '」' + (success ? '，接著可以複製成團文案貼到群組。' : '，不會產生文案。'), success ? '確定成團' : '確定流局');
+  if (!ok) return;
+  gbLoading(true, '結算中…');
+  try {
+    await gbTimeout(window.db.collection('gb_campaigns').doc(cid).update({ status: success ? 'success' : 'failed', settled_by: gbUser.uid, settled_at: firebase.firestore.FieldValue.serverTimestamp(), updated_at: firebase.firestore.FieldValue.serverTimestamp() }));
+    await loadCampaigns();
+    gbLoading(false);
+    if (success) openCopy(cid, 'success'); else gbToast('已流局（未達最低成團數），不產生文案');
+  } catch (e) { gbLoading(false); gbToast('結算失敗：' + friendly(e)); }
+}
+async function markArrived(cid) {
+  var c = gbCamps.find(function (x) { return x.id === cid; }); if (!c || !canEdit(c)) return;
+  if (!await gbConfirm('標記到貨', '「' + c.title + '」已經到貨？標記後可以複製取貨通知貼到群組。', '已到貨')) return;
+  gbLoading(true, '更新中…');
+  try {
+    var upd = { status: 'arrived', arrived_at: firebase.firestore.FieldValue.serverTimestamp(), updated_at: firebase.firestore.FieldValue.serverTimestamp() };
+    // 沒設取貨期限 → 預設到貨後 3 天（使用者 2026-10-10 照建議）
+    if (!c.pickup_deadline) upd.pickup_deadline = firebase.firestore.Timestamp.fromDate(new Date(Date.now() + 3 * 86400000));
+    await gbTimeout(window.db.collection('gb_campaigns').doc(cid).update(upd));
+    await loadCampaigns();
+    gbLoading(false);
+    openCopy(cid, 'arrived');
+  } catch (e) { gbLoading(false); gbToast('更新失敗：' + friendly(e)); }
+}
+
+// ---- 文案 ----
+var gbCopyCtx = null;
+async function openCopy(cid, kind) {
+  var c = gbCamps.find(function (x) { return x.id === cid; }); if (!c) return;
+  var owner = gbIsOwner(gbUser);
+  var stores = owner ? (c.available_stores || []) : [gbMyCode];
+  gbCopyCtx = { c: c, kind: kind, stores: stores };
+  var sel = document.getElementById('cpStore');
+  // 加盟主可選「三店合併」或單店；店長只有本店
+  sel.innerHTML = (owner && stores.length > 1 ? '<option value="">三店合併</option>' : '') + stores.map(function (s) { return '<option value="' + s + '">' + gbStoreName(s) + '</option>'; }).join('');
+  document.getElementById('cpTitle').textContent = { open: '📝 開團文案', success: '🎉 成團文案', arrived: '📦 取貨通知' }[kind];
+  document.getElementById('cpNamesWrap').hidden = kind !== 'arrived';
+  document.getElementById('cpNames').checked = false;
+  openModal('copyModal');
+  await buildCopy();
+}
+async function gbLiffLinks() {
+  try { var s = await window.db.collection('gb_settings').doc('liff').get(); var id = s.exists ? (s.data().liff_id || '') : ''; return id; } catch (e) { return ''; }
+}
+async function buildCopy() {
+  var x = gbCopyCtx; if (!x) return;
+  var c = x.c, st = document.getElementById('cpStore').value, obs = c.ordered_by_store || {};
+  var qty = st ? (obs[st] || 0) : (c.ordered_qty || 0);
+  var where = st ? gbStoreName(st) : x.stores.map(gbStoreName).join('・');
+  var lines = [];
+  if (x.kind === 'open') {
+    var liffId = await gbLiffLinks();
+    lines.push('🛒【團購開跑】' + c.title, '💰 $' + c.price + '／份' + (c.per_user_limit ? '・每人限 ' + c.per_user_limit + ' 份' : ''));
+    if (c.description) lines.push(c.description);
+    lines.push('⏰ ' + gbFmt(c.end_time) + ' 截單' + (c.arrival_date ? '・預計 ' + gbFmt(c.arrival_date, false) + ' 到貨' : ''));
+    if (c.success_rule === 'threshold') lines.push('🎯 三店合計滿 ' + c.min_qty + ' 份成團');
+    if (st && liffId) lines.push('', '👉 點這裡 +1：https://liff.line.me/' + liffId + '?store=' + st);
+    else if (!st && liffId) x.stores.forEach(function (s) { lines.push(gbStoreName(s) + ' +1：https://liff.line.me/' + liffId + '?store=' + s); });
+    else lines.push('', '要的朋友請在群組留言「+1」或私訊小編 🙌');
+  } else if (x.kind === 'success') {
+    lines.push('🎉【團購成團】' + c.title, '感謝大家支持！' + (st ? where + '共 ' + qty + ' 份' : '三店共 ' + qty + ' 份（' + x.stores.map(function (s) { return gbStoreName(s) + ' ' + (obs[s] || 0); }).join('・') + '）'));
+    lines.push('📦 預計到貨：' + (c.arrival_date ? gbFmt(c.arrival_date, false) : '到貨日確定後通知'), '到貨後會再通知取貨，到店付款 $' + c.price + '／份');
+  } else {
+    lines.push('📦【到貨通知】' + c.title + ' 到貨囉！', '請在 ' + (c.pickup_deadline ? gbFmt(c.pickup_deadline, false) : '3 天內') + ' 前到' + where + '門市取貨，到店付款 $' + c.price + '／份');
+    if (document.getElementById('cpNames').checked && st) {
+      try {
+        var sn = await gbTimeout(window.db.collection('gb_orders').where('campaign_id', '==', c.id).where('store', '==', st).get());
+        var os = sn.docs.map(function (d) { return d.data(); }).filter(function (o) { return o.status === 'active'; });
+        if (os.length) { lines.push('', '取貨名單：'); os.forEach(function (o) { lines.push('・' + o.display_name + ' ×' + o.qty); }); }
+      } catch (e) { lines.push('', '（取貨名單讀取失敗）'); }
+    } else if (document.getElementById('cpNames').checked) { lines.push('', '（取貨名單請選單一門市）'); }
+  }
+  document.getElementById('cpText').value = lines.join('\n');
+}
+async function copyText() {
+  var t = document.getElementById('cpText');
+  try { await navigator.clipboard.writeText(t.value); gbToast('✅ 已複製，貼到門市群組就好'); }
+  catch (e) { t.focus(); t.select(); try { document.execCommand('copy'); gbToast('✅ 已複製'); } catch (e2) { gbToast('請長按文字框自行複製'); } }
+}
+
+
+// ===== 團購設定（2026-10-10）：LIFF ID／Channel ID 存 gb_settings/liff，三店下單連結＋QR Code =====
+// gb_settings/liff 開放未登入讀取（LIFF 客人頁要拿 liff_id 初始化；兩個值都不是密碼），只有加盟主／admin 能寫。
+async function loadLiffSettings() {
+  var d = {};
+  try { var s = await gbTimeout(window.db.collection('gb_settings').doc('liff').get()); if (s.exists) d = s.data(); } catch (e) {}
+  document.getElementById('stLiff').value = d.liff_id || '';
+  document.getElementById('stChannel').value = d.channel_id || '';
+  renderLiffLinks(d.liff_id || '');
+}
+async function saveLiffSettings() {
+  var err = document.getElementById('stErr'); err.textContent = '';
+  var liff = document.getElementById('stLiff').value.trim(), ch = document.getElementById('stChannel').value.trim();
+  if (liff && !/^\d{6,}-[A-Za-z0-9]{4,}$/.test(liff)) return err.textContent = 'LIFF ID 格式應該像 1234567890-AbCdEfGh';
+  if (ch && !/^\d{6,15}$/.test(ch)) return err.textContent = 'Channel ID 應該是一串數字';
+  if (/secret/i.test(liff + ch)) return err.textContent = '不要貼 Channel Secret';
+  try {
+    await gbTimeout(window.db.collection('gb_settings').doc('liff').set({ liff_id: liff, channel_id: ch, updated_by: gbUser.uid, updated_at: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true }));
+    gbToast('✅ 已儲存');
+    renderLiffLinks(liff);
+  } catch (e) { err.textContent = '儲存失敗：' + friendly(e); }
+}
+function loadQrLib() {
+  if (window.qrcode) return Promise.resolve();
+  return new Promise(function (res, rej) { var s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js'; s.onload = res; s.onerror = function () { rej(new Error('QR Code 元件載入失敗')); }; document.head.appendChild(s); });
+}
+async function renderLiffLinks(liffId) {
+  var el = document.getElementById('stLinks');
+  if (!liffId) { el.innerHTML = '<div class="empty">儲存 LIFF ID 後，這裡會出現三家店的下單連結與 QR Code</div>'; return; }
+  try { await loadQrLib(); } catch (e) {}
+  el.innerHTML = '<div style="font-size:15px;font-weight:900;margin-bottom:8px;">門市下單連結</div><div style="font-size:12.5px;color:var(--muted);margin-bottom:8px;">貼到各門市客人群組；客人點開就能 +1，不用另外登入。</div>' +
+    GB_STORES.map(function (s) {
+      var url = 'https://liff.line.me/' + liffId + '?store=' + s.code, qr = '';
+      if (window.qrcode) { try { var q = qrcode(0, 'M'); q.addData(url); q.make(); qr = q.createSvgTag({ cellSize: 3, margin: 2, scalable: true }); } catch (e) {} }
+      return '<div class="orow" style="align-items:center;"><div style="width:84px;height:84px;flex:none;">' + qr + '</div><div style="flex:1;min-width:0;"><b style="font-size:15px;">' + s.name + '</b><div style="font-size:12px;color:var(--muted);word-break:break-all;">' + gbEsc(url) + '</div></div><button class="mini" onclick="copyLink(\'' + url + '\')">複製</button></div>';
+    }).join('');
+}
+async function copyLink(url) {
+  try { await navigator.clipboard.writeText(url); gbToast('✅ 已複製連結'); } catch (e) { gbToast(url); }
+}
+
+// ===== 商品圖片上傳（2026-10-10）=====
+// 存在 store-schedule-3b056-city 這個 bucket 的 gb/ 資料夾（storage.rules：登入者可上傳 5MB 以內的圖片，其他一律不可讀寫），
+// 顯示用下載權杖網址（不經規則；LIFF 客人頁也看得到）。上傳前先在手機上縮到長邊 1280px、JPEG 0.85，省流量也省空間。
+var GB_BUCKET = 'gs://store-schedule-3b056-city';
+function syncPreview() {
+  var v = document.getElementById('cfImage').value.trim(), p = document.getElementById('cfPreview');
+  p.style.backgroundImage = /^https:\/\//.test(v) ? "url('" + v.replace(/'/g, '%27') + "')" : '';
+}
+function shrinkImage(file) {
+  return new Promise(function (res, rej) {
+    var img = new Image(), url = URL.createObjectURL(file);
+    img.onload = function () {
+      var max = 1280, w = img.naturalWidth, h = img.naturalHeight, k = Math.min(1, max / Math.max(w, h));
+      var cv = document.createElement('canvas'); cv.width = Math.round(w * k); cv.height = Math.round(h * k);
+      cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+      URL.revokeObjectURL(url);
+      cv.toBlob(function (b) { b ? res(b) : rej(new Error('圖片轉檔失敗')); }, 'image/jpeg', 0.85);
+    };
+    img.onerror = function () { URL.revokeObjectURL(url); rej(new Error('讀不到這張圖片，請換一張')); };
+    img.src = url;
+  });
+}
+async function uploadCampImage(file) {
+  var msg = document.getElementById('cfUpMsg'), save = document.getElementById('cfSave');
+  if (!file) return;
+  if (!/^image\//.test(file.type)) { msg.textContent = '請選圖片檔'; return; }
+  save.disabled = true; msg.textContent = '處理中…';
+  try {
+    var blob = await shrinkImage(file);
+    if (blob.size > 5 * 1024 * 1024) throw new Error('圖片太大（超過 5MB）');
+    var d = new Date(), ym = d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0');
+    var ref = firebase.app().storage(GB_BUCKET).ref('gb/' + ym + '/' + Date.now() + '_' + gbRand(6) + '.jpg');
+    var task = ref.put(blob, { contentType: 'image/jpeg' });
+    task.on('state_changed', function (sn) { msg.textContent = '上傳中 ' + Math.round(sn.bytesTransferred / sn.totalBytes * 100) + '%'; });
+    await gbTimeout(task, 60000, '上傳逾時，請確認網路後再試');
+    var url = await ref.getDownloadURL();
+    document.getElementById('cfImage').value = url; syncPreview();
+    msg.textContent = '✅ 已上傳';
+  } catch (e) { msg.textContent = '上傳失敗：' + (e.message || e); }
+  save.disabled = false;
 }

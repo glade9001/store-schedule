@@ -1,10 +1,19 @@
 rules_version = '2';
-// 目前只有 CITY手順圖片（city/…），由同步函式用 Admin SDK 寫入，
+// CITY手順圖片（city/…）由同步函式用 Admin SDK 寫入；團購商品圖（gb/…）由員工上傳，見下方。
 // 員工端用「下載權杖網址」顯示（權杖網址不經規則）。客戶端一律不可直接讀寫。
 service firebase.storage {
   match /b/{bucket}/o {
     match /{allPaths=**} {
       allow read, write: if false;
+    }
+    // 團購商品圖（2026-10-10）：登入的員工可上傳 5MB 以內的圖片到 gb/{年月}/；
+    // 只開放登入者讀單一檔案（上傳後取下載網址用），不開放列出與刪改；顯示一律用下載權杖網址（不經規則）。Storage 規則讀不到 Firestore（記憶：正式環境不生效），
+    // 所以這裡只能擋「有登入」，開團權限仍由 Firestore 規則管。
+    match /gb/{ym}/{file} {
+      allow get: if request.auth != null;      // getDownloadURL() 要讀中繼資料；不開放 list
+      allow create: if request.auth != null
+                    && request.resource.size < 5 * 1024 * 1024
+                    && request.resource.contentType.matches('image/.*');
     }
   }
 }
