@@ -13,6 +13,12 @@ var GB_STATUS = {
   failed: '已流局', arrived: '已到貨', done: '已結案',
 };
 var GB_STATUS_ORDER = ['draft', 'open', 'closed', 'success', 'failed', 'arrived', 'done'];
+var GB_OPEN = false;   // 團購是否開放給全員（false＝只有 admin 能用，其他人看到「開發中」）
+function gbShowDevNotice() {
+  gbLoading(false);
+  var w = document.querySelector('.wrap'); if (w) w.innerHTML = '<div class="card" style="text-align:center;padding:40px 16px;"><div style="font-size:44px;">🚧</div><div style="font-size:18px;font-weight:900;margin:10px 0 6px;">團購功能開發中</div><div style="font-size:13.5px;color:#64748b;line-height:1.7;">目前還在測試，開放後會再通知大家。</div><button class="btn btn-p" style="margin-top:16px;" onclick="location.href=\'home.html\'">回首頁</button></div>';
+  var nb = document.getElementById('newBtn'); if (nb) nb.hidden = true;
+}
 var GB_ORDER_STATUS = { active: '訂購中', cancelled: '已取消', picked_up: '已取貨', no_show: '棄單' };
 var GB_SOURCE = { manual: '手動補單', liff: 'LINE 下單', group_text: '群組 +1' };
 
@@ -108,6 +114,8 @@ async function gbRequireUser() {
   var fb = await new Promise(function (r) { var un = firebase.auth().onAuthStateChanged(function (x) { un(); r(x); }); });
   if (!fb) { location.replace('home.html'); return null; }
   if (['employee', 'manager', 'owner', 'admin'].indexOf(u.permission) < 0) { alert('沒有使用權限'); location.replace('home.html'); return null; }
+  // 2026-10-10 使用者指示：團購先不開放，點進來顯示「開發中」；只有 admin 能進來驗收。正式開放時把 GB_OPEN 改成 true。
+  if (!GB_OPEN && u.permission !== 'admin') { gbShowDevNotice(); return null; }
   u.uid = u.uid || fb.uid;
   return u;
 }
