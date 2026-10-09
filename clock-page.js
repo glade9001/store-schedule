@@ -1,6 +1,6 @@
 // 打卡提醒預設值（2026-09-16 起預設開啟，與 functions/index.js CLOCK_REMIND_DEFAULT 同值；員工可自行關閉）
 const CLOCK_REMIND_DEFAULT={inBefore:10, outRemind:true};
-let currentUser=null, appConfig={}, geoCfg={}, myGeo=null, atStore='', distanceM=null, todayShifts=[], todayPunches=[], locating=false, isBound=true, carriedOpenIn=null, candShifts=[], openPunch=null, staleOpenIn=null, remindPref={...CLOCK_REMIND_DEFAULT};
+let currentUser=null, appConfig={}, geoCfg={}, myGeo=null, atStore='', distanceM=null, todayShifts=[], todayPunches=[], locating=false, isBound=true, carriedOpenIn=null, candShifts=[], openPunch=null, staleOpenIn=null, recentPunches=[], remindPref={...CLOCK_REMIND_DEFAULT};
 // 週文件 id 必須是排班表 getWeekDates() 的精準反函式（每週以「週一」起算）。
 // 舊公式把「當下日期(含時間)」直接套年度週次 → 每個週六/週日都算成下一週，打卡因此讀到下週班表。
 function week1Monday(yr){ const d=new Date(yr,0,1), day=d.getDay(); d.setDate(d.getDate()+(day<=4?1-day:8-day)); return d; }
@@ -212,6 +212,7 @@ async function loadToday(){
       .where('date','==',dsY).where('empName','==',currentUser.empName).get();
     const yp=[]; ys.forEach(d=>yp.push(d.data()));
     const ts=p=>(p.tsMs||Date.parse(p.deviceTs||'')||0);
+    recentPunches=[...yp, ...todayPunches];
     const seq=[...yp, ...todayPunches].filter(p=>p.type==='上班'||p.type==='下班').sort((a,b)=>ts(a)-ts(b));
     const stack=[]; // 依序配對：上班入堆、下班出堆；剩下的堆頂即尚未打下班的上班
     seq.forEach(p=>{ if(p.type==='上班') stack.push(p); else stack.pop(); });
@@ -274,7 +275,24 @@ function openInDeadline(p){
 // 沒排班的打卡由後端自動歸類為「到場」，不做成按鈕。
 function nextAction(){
   // 依「昨日+今日時間序列配對」結果：尚有未打下班的上班(含跨日夜班) → 下班；否則 上班
-  return openPunch ? '下班' : '上班';
+  if(openPunch) return '下班';
+  return forgotInShift() ? '下班' : '上班';
+}
+// 忘了打上班卡（2026-10-10 使用者決定）：不必先補登上班卡才能打下班。
+// 條件＝已過上班配對視窗（開始後 4 小時內仍維持「上班（遲到）」）、落在某班的下班視窗、
+// 而且那一段班還沒有任何打卡 → 按鈕直接變「下班」。後端本來就接受沒有上班卡的下班卡
+// （配到該班），下班 +2h 由 scheduledMissingClock 開「缺上班卡」待補單並推播本人。
+function forgotInShift(){
+  if(openPunch || !candShifts.length) return null;
+  const nm=serverNowMs();
+  if(matchPunchShift(candShifts, nm, '上班')) return null;
+  const s=matchPunchShift(candShifts, nm, '下班');
+  if(!s) return null;
+  // 兩頭班兩段共用同一個班別字串 → 只看這一段開始前 1 小時之後的卡，前一段的卡不算
+  const from=s.startMs-punchWindowMs().inBefore;
+  const ts=p=>(p.tsMs||Date.parse(p.deviceTs||'')||0);
+  const used=recentPunches.some(p=>!p.voided && (p.type==='上班'||p.type==='下班') && p.shift===s.shift && ts(p)>=from);
+  return used ? null : s;
 }
 
 // 打卡提醒：2026-08-17 因 LINE 免費額度暫停；2026-09-15 改用 PWA 推播恢復（functions scheduledClockRemindPush）。
@@ -357,6 +375,8 @@ function render(){
   else{
     const cls=act==='上班'?'punch-in':'punch-out';
     btn=`<button class="punch-btn ${cls}" onclick="doPunch('${act}')">${act}打卡</button>`;
+    const fg=(act==='下班') ? forgotInShift() : null;
+    if(fg) btn+=`<div style="margin-top:8px;font-size:12px;font-weight:700;color:#c2410c;line-height:1.6;text-align:center;">你今天 ${fg.shift} 的班沒有上班卡，可以直接打下班；<br>上班時間之後再按「📝 補登／修改」補上</div>`;
   }
 
   const plist = todayPunches.length? `<div class="plist">${todayPunches.map(p=>{
@@ -377,10 +397,10 @@ function render(){
   let a2Warn='';
   { const hasInToday=todayPunches.some(p=>p.type==='上班');
     const todayCand=candShifts.filter(c=>c.shiftDate===todayStr()).sort((a,b)=>a.startMs-b.startMs);
-    if(!openPunch && !carriedOpenIn && !hasInToday && todayCand.length){
+    if(!openPunch && !carriedOpenIn && !hasInToday && todayCand.length && !forgotInShift()){
       const up=todayCand.find(c=>Date.now()<=c.startMs+punchWindowMs().inAfter)||todayCand[0];
       a2Warn = (Date.now()>=up.startMs)
-        ? `<div style="background:#fce8e6;border:1.5px solid #f5a3a3;border-radius:12px;padding:11px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;"><span style="font-size:22px;">⚠️</span><div style="flex:1;font-size:13.5px;font-weight:900;color:#c5221f;line-height:1.5;">你今天 ${up.shift} 的班已開始，還沒打上班卡！<br><span style="font-size:11.5px;font-weight:700;">請盡快打卡；若準時上班只是忘了打，打卡時可填實際時間</span></div></div>`
+        ? `<div style="background:#fce8e6;border:1.5px solid #f5a3a3;border-radius:12px;padding:11px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;"><span style="font-size:22px;">⚠️</span><div style="flex:1;font-size:13.5px;font-weight:900;color:#c5221f;line-height:1.5;">你今天 ${up.shift} 的班已開始，還沒打上班卡！<br><span style="font-size:11.5px;font-weight:700;">請盡快打卡；若準時上班只是忘了打，打卡後再按「📝 補登／修改」申請更正</span></div></div>`
         : `<div style="background:#e8f0fe;border:1.5px solid #a8c7fa;border-radius:12px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;"><span style="font-size:20px;">🕐</span><div style="flex:1;font-size:13px;font-weight:800;color:#1a56c4;line-height:1.5;">今天 ${up.shift} 上班，記得準時打卡</div></div>`;
     }
   }
@@ -417,6 +437,7 @@ function render(){
       <li><b>還在店裡</b>：先照常打卡（留下定位），時間要改再送修改申請</li>
       <li><b>已離店／要補別天</b>：按上方「📝 補登／修改」</li>
       <li><b>昨天忘打下班</b>：今天照常打上班卡，再補登昨天那筆</li>
+      <li><b>忘了打上班卡</b>：上班 4 小時後按鈕會自動變成「下班」，照常打下班，上班卡再補登</li>
       <li>一律由<b>店長審核</b>，有開推播的話結果會推播通知你</li>
     </ul>
   </div>`;
@@ -508,6 +529,7 @@ function _lnDone(v){ document.getElementById('lateNoteModal').style.display='non
 
 async function doPunch(type){
   if(!atStore){ toast('不在門市範圍內'); return; }
+  const forgotIn = (type==='下班' && !openPunch) ? forgotInShift() : null;
   // 防抖：同類型 10 分鐘內只成功一次
   const now=new Date();
   const dup=todayPunches.find(p=>p.type===type && p.deviceTs && (now-new Date(p.deviceTs))<10*60*1000);
@@ -567,7 +589,8 @@ async function doPunch(type){
       : r.status==='警告'?`${type}打卡成功（遲到 ${r.lateMin} 分，容許內）`
       : `✅ ${type}打卡成功`;
     const otTail = otIntent==='apply'?'\n📝 已送出加班申請，待店長審核（同意才計工時）':otIntent==='private'?'\n🅿️ 已記為不計工時（非加班）':'';
-    toast(`${msg}　${r.hm||''} @${r.atStore||atStore}${otTail}`);
+    const fgTail = forgotIn ? '\n📝 這班沒有上班卡，請記得補登上班時間' : '';
+    toast(`${msg}　${r.hm||''} @${r.atStore||atStore}${otTail}${fgTail}`);
     await loadToday(); render();
   }catch(e){
     hideLoading();
