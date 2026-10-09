@@ -1,6 +1,7 @@
 /* 團購管理／取貨名單共用樣式（2026-10-10） */
 :root{--primary:#1a73e8;--navy:#0e2140;--text:#1e293b;--muted:#64748b;--border:#e2e8f0;--danger:#d93025;--warn:#c0620f;--ok:#137333;--bg:#f4f6fb;}
 *{box-sizing:border-box;}
+[hidden]{display:none!important;}   /* .f 等元件有 display:flex，會蓋掉 hidden 屬性 */
 body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC",sans-serif;background:var(--bg);color:var(--text);-webkit-text-size-adjust:100%;}
 .header{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:10px;padding:0 14px;height:56px;background:var(--navy);color:#fff;}
 .header-back{background:rgba(255,255,255,.18);border:none;color:#fff;border-radius:10px;padding:7px 12px;font-weight:700;font-size:14px;cursor:pointer;}
