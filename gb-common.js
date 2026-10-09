@@ -13,7 +13,8 @@ var GB_STATUS = {
   failed: '已流局', arrived: '已到貨', done: '已結案',
 };
 var GB_STATUS_ORDER = ['draft', 'open', 'closed', 'success', 'failed', 'arrived', 'done'];
-var GB_OPEN = false;   // 團購是否開放給全員（false＝只有 admin 能用，其他人看到「開發中」）
+// 團購是否開放給全員：存在 gb_settings/stores.open（團購頁〔設定〕的開關；2026-10-10 由程式常數改成資料庫設定）。
+// 沒開放時只有 admin 能用、其他人看到「開發中」，截單提醒也只發給 admin（functions scheduledGbDueReminder 讀同一個欄位）。
 function gbShowDevNotice() {
   gbLoading(false);
   var w = document.querySelector('.wrap'); if (w) w.innerHTML = '<div class="card" style="text-align:center;padding:40px 16px;"><div style="font-size:44px;">🚧</div><div style="font-size:18px;font-weight:900;margin:10px 0 6px;">團購功能開發中</div><div style="font-size:13.5px;color:#64748b;line-height:1.7;">目前還在測試，開放後會再通知大家。</div><button class="btn btn-p" style="margin-top:16px;" onclick="location.href=\'home.html\'">回首頁</button></div>';
@@ -29,6 +30,23 @@ function gbStoreName(code) {
 function gbCodeOf(name) {
   for (var i = 0; i < GB_STORES.length; i++) if (GB_STORES[i].name === name) return GB_STORES[i].code;
   return '';
+}
+// 棄單紀錄（2026-10-10）：LINE 下單的客人才有 userId 可累計；讀 gb_customers 的 no_show_count
+var gbNoShow = {};   // LINE userId → 棄單次數
+async function gbLoadNoShow(orders) {
+  var ids = [];
+  (orders || []).forEach(function (o) { if (o.line_user_id && gbNoShow[o.line_user_id] === undefined && ids.indexOf(o.line_user_id) < 0) ids.push(o.line_user_id); });
+  await Promise.all(ids.map(function (id) {
+    return window.db.collection('gb_customers').doc(id).get()
+      .then(function (s) { gbNoShow[id] = s.exists ? (s.data().no_show_count || 0) : 0; })
+      .catch(function () { gbNoShow[id] = 0; });
+  }));
+}
+/** 棄單次數標籤：1 次橘、2 次以上紅；沒有就空字串 */
+function gbNoShowTag(o) {
+  var n = o && o.line_user_id ? (gbNoShow[o.line_user_id] || 0) : 0;
+  if (!n) return '';
+  return '<span class="st" style="background:' + (n >= 2 ? '#d93025;color:#fff' : '#fff3e0;color:#c0620f') + '" title="這位客人過去沒來取貨的次數">棄單 ' + n + ' 次</span>';
 }
 function gbEsc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -114,8 +132,12 @@ async function gbRequireUser() {
   var fb = await new Promise(function (r) { var un = firebase.auth().onAuthStateChanged(function (x) { un(); r(x); }); });
   if (!fb) { location.replace('home.html'); return null; }
   if (['employee', 'manager', 'owner', 'admin'].indexOf(u.permission) < 0) { alert('沒有使用權限'); location.replace('home.html'); return null; }
-  // 2026-10-10 使用者指示：團購先不開放，點進來顯示「開發中」；只有 admin 能進來驗收。正式開放時把 GB_OPEN 改成 true。
-  if (!GB_OPEN && u.permission !== 'admin') { gbShowDevNotice(); return null; }
+  // 2026-10-10 使用者指示：團購先不開放，點進來顯示「開發中」；只有 admin 能進來驗收。開放＝〔設定〕的開關
+  if (u.permission !== 'admin') {
+    var open = false;
+    try { var st = await gbTimeout(window.db.collection('gb_settings').doc('stores').get(), 10000); open = st.exists && st.data().open === true; } catch (e) {}
+    if (!open) { gbShowDevNotice(); return null; }
+  }
   u.uid = u.uid || fb.uid;
   return u;
 }

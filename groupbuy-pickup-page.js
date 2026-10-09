@@ -32,6 +32,7 @@ async function loadPickup() {
         .then(function (sn) { return sn.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); }); });
     }));
     pkOrders = [].concat.apply([], all).filter(function (o) { return o.status !== 'cancelled'; });
+    await gbLoadNoShow(pkOrders);
   } catch (e) {
     document.getElementById('pkList').innerHTML = '<div class="empty">讀取失敗：' + gbEsc(e.message) + '</div>';
     return;
@@ -76,7 +77,7 @@ function pkCard(o) {
   var canNs = !picked && (ns || pastDeadline(c));
   return '<div class="pk' + (picked || ns ? ' done' : '') + '">' +
     '<div class="pk-top"><span class="pk-name">' + gbEsc(o.display_name) + '</span>' +
-      (o.source === 'manual' ? '<span class="st st-draft">手動</span>' : '') +
+      (o.source === 'manual' ? '<span class="st st-draft">手動</span>' : '') + gbNoShowTag(o) +
       '<span class="pk-amt">$' + ((o.qty || 0) * (c.price || 0)).toLocaleString() + '</span></div>' +
     '<div class="pk-sub">' + gbEsc(c.title || '') + ' ×<b>' + (o.qty || 0) + '</b>' +
       (c.pickup_deadline ? '・取貨到 ' + gbFmt(c.pickup_deadline, false) + (pastDeadline(c) && !picked ? ' <b style="color:var(--danger)">已過期</b>' : '') : '') +
@@ -132,6 +133,7 @@ async function toggleNoShow(id) {
   if (!await pkConfirm('標記棄單', o.display_name + ' 超過取貨期限沒來取，標記為棄單？' + (o.line_user_id ? '\n這位客人的棄單次數會 +1。' : ''), '標記棄單')) return;
   await patchOrder(o, { status: 'no_show', no_show_at: firebase.firestore.FieldValue.serverTimestamp(), no_show_by: pkUser.uid }, '已標記棄單');
   if (o.line_user_id) {
+    gbNoShow[o.line_user_id] = (gbNoShow[o.line_user_id] || 0) + 1;
     try {
       await gbTimeout(window.db.collection('gb_customers').doc(o.line_user_id).set({
         no_show_count: firebase.firestore.FieldValue.increment(1), last_no_show_at: firebase.firestore.FieldValue.serverTimestamp(),

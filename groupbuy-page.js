@@ -133,6 +133,7 @@ async function loadOrders(cid) {
     if (!gbIsOwner(gbUser)) q = q.where('store', '==', gbMyCode);   // 規則只放行本店（查詢必須帶門市條件）
     var sn = await gbTimeout(q.get());
     gbOrders[cid] = sn.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
+    await gbLoadNoShow(gbOrders[cid]);
   } catch (e) { gbOrders[cid] = { error: e.message }; }
 }
 function ordersHtml(c) {
@@ -151,7 +152,7 @@ function orderRow(c, o) {
   var off = o.status === 'cancelled';
   var can = o.status === 'active' && canChangeOrders(c);
   return '<div class="orow' + (off ? ' off' : '') + '">' +
-    '<span class="nm">' + gbEsc(o.display_name) + '</span><span class="q">×' + (o.qty || 0) + '</span>' +
+    '<span class="nm">' + gbEsc(o.display_name) + '</span>' + gbNoShowTag(o) + '<span class="q">×' + (o.qty || 0) + '</span>' +
     '<span class="st st-' + (o.status === 'active' ? 'open' : o.status === 'picked_up' ? 'success' : o.status === 'no_show' ? 'failed' : 'draft') + '">' + (GB_ORDER_STATUS[o.status] || o.status) + '</span>' +
     (o.paid ? '<span class="st st-success">已付款</span>' : '') +
     '<span class="sub">' + (GB_SOURCE[o.source] || o.source || '') + (o.created_by_name ? '・' + gbEsc(o.created_by_name) : '') + '・' + gbFmt(o.created_at) + (o.note ? '・' + gbEsc(o.note) : '') + '</span>' +
@@ -482,6 +483,7 @@ async function copyText() {
 // ===== 團購設定（2026-10-10）：LIFF ID／Channel ID 存 gb_settings/liff，三店下單連結＋QR Code =====
 // gb_settings/liff 開放未登入讀取（LIFF 客人頁要拿 liff_id 初始化；兩個值都不是密碼），只有加盟主／admin 能寫。
 async function loadLiffSettings() {
+  try { var so = await gbTimeout(window.db.collection('gb_settings').doc('stores').get()); setOpenUi(so.exists && so.data().open === true); } catch (e) {}
   var d = {};
   try { var s = await gbTimeout(window.db.collection('gb_settings').doc('liff').get()); if (s.exists) d = s.data(); } catch (e) {}
   document.getElementById('stLiff').value = d.liff_id || '';
@@ -559,4 +561,13 @@ async function uploadCampImage(file) {
     msg.textContent = '✅ 已上傳';
   } catch (e) { msg.textContent = '上傳失敗：' + (e.message || e); }
   save.disabled = false;
+}
+
+function setOpenUi(on) { document.getElementById('stOpen').checked = on; document.getElementById('stOpenTxt').textContent = on ? '目前：已開放給全員' : '目前：未開放（只有系統管理者能用）'; }
+async function toggleGbOpen(el) {
+  var on = el.checked;
+  var ok = await gbConfirm(on ? '開放團購給全員' : '關閉團購', on ? '開放後所有員工都能使用團購頁，截單提醒會發給加盟主與店長。確定開放？' : '關閉後只有系統管理者能用，其他人會看到「開發中」。確定關閉？', on ? '開放' : '關閉');
+  if (!ok) { el.checked = !on; return; }
+  try { await gbTimeout(window.db.collection('gb_settings').doc('stores').set({ open: on, open_changed_by: gbUser.uid, open_changed_at: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true })); setOpenUi(on); gbToast(on ? '✅ 已開放' : '已關閉'); }
+  catch (e) { el.checked = !on; gbToast('更新失敗：' + friendly(e)); }
 }
