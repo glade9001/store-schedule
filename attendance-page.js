@@ -607,7 +607,7 @@ async function loadGap(){
     if(Math.abs(diff)>=0.5){
       const openMiss=rs.some(r=>r.type==='缺卡'&&!r.voided);
       const punched=rs.some(r=>(r.type==='上班'||r.type==='下班')&&!r.voided);
-      const why=!sh?'未排班出勤（核准加班）':openMiss?'缺卡未補':!punched?'整班沒打卡':diff<0?'遲到／早退／漏卡':'核准加班';
+      const why=!sh?'未排班出勤（核准加班）':openMiss?'缺卡未補':!punched?'整班沒打卡':!(ah>0)?'只有一張卡（缺上班或下班卡）':diff<0?'遲到／早退':'核准加班';
       e.days.push({ds,shift:sc?sc.shift.join('、'):'—',sh,ah,diff,why});
     }
   });
