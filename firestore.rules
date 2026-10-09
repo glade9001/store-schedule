@@ -232,9 +232,10 @@ service cloud.firestore {
       allow delete: if isOwnerOrAdmin();
     }
 
-    // gb_settings：員工可讀（門市代碼、LIFF 連結）；只有加盟主／admin 可改
+    // gb_settings：員工可讀（門市代碼）；只有加盟主／admin 可改
+    // gb_settings/liff（liff_id、channel_id，都不是密碼）開放未登入讀：LIFF 客人頁要拿 liff_id 初始化
     match /gb_settings/{doc} {
-      allow read: if gbStaff();
+      allow read: if doc == 'liff' || gbStaff();
       allow write: if isOwnerOrAdmin();
     }
 
