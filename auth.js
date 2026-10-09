@@ -81,7 +81,10 @@ async function _loadProfile(fbUser) {
         if (e.status === '離職' && e.retireDate && today >= e.retireDate) {
           const until = _resignAccessUntil(e.retireDate);
           if (until && today > until) {
-            const err = new Error('此帳號已離職，存取期限已到（僅開放至最後薪資發放月月底）');
+            // 寫出「綁在哪一店的哪筆資料」：同一人離職後到別店重新入職、卻沒接回原工號時，
+            // 店長看這句就知道要去員工管理處理，不用找系統管理者（2026-10-09 實例）
+            const err = new Error(`此工號目前對應「${data.store}／${data.empName}」，已於 ${e.retireDate} 離職，`
+              + `存取期限到 ${until} 為止。若已在其他門市重新任職，請店長到「員工管理」處理。`);
             err.code = 'resigned-expired';
             throw err;
           }

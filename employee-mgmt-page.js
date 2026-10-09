@@ -344,7 +344,13 @@ async function openAccountModal(empName, store) {
     accSnap.forEach(d => existingDoc = { id:d.id, ...d.data() });
     if(!existingDoc && accPendingSnap) accPendingSnap.forEach(d => existingDoc = { id:d.id, ...d.data() });
 
-    document.getElementById('accountUsername').value = existingDoc?.ID || existingDoc?.username || '';
+    const _unEl = document.getElementById('accountUsername');
+    _unEl.value = existingDoc?.ID || existingDoc?.username || '';
+    // 已有工號 → 改工號＝把登入身分換綁到另一組帳號，只開放加盟主／admin（店長改不動 users 的 ID/empName，
+    // 以前會「account 改了、users 沒改」只改一半 → 本人登入讀到舊店資料被擋。2026-10-09 實例）
+    _unEl.dataset.orig = _unEl.value;
+    _unEl.readOnly = !!_unEl.value && !canOwner();
+    _unEl.title = _unEl.readOnly ? '已建立的工號只有加盟主／系統管理者能修改' : '';
     document.getElementById('accountDisplayName').value = existingDoc?.displayName || empName;
     document.getElementById('accountPassword').value = '';
     document.getElementById('accountPasswordConfirm').value = '';
@@ -493,16 +499,49 @@ async function saveAccountSetting() {
     // 查找現有帳號
     const existing = await window.db.collection('account')
       .where('empName','==',empName).where('store','==',store).limit(1).get();
-    let docRef;
-    if(!existing.empty) {
-      docRef = existing.docs[0].ref;
-    } else {
-      // 確認帳號未被使用（原系統用 ID 欄位）
-      const dup = await window.db.collection('account').where('ID','==',username).get();
-      if(!dup.empty && dup.docs[0].data().empName !== empName) {
-        hideLoading(); showToast('⚠️ 此帳號已被其他員工使用'); return;
+    const docRef = !existing.empty ? existing.docs[0].ref : window.db.collection('account').doc();
+    const origId = (document.getElementById('accountUsername').dataset.orig || '').toUpperCase();
+    const idChanged = !!origId && origId !== username;
+    if(idChanged && !canOwner()) {
+      hideLoading(); showToast('⚠️ 已建立的工號只有加盟主／系統管理者能修改'); return;
+    }
+
+    // ── 先讀完、檢查完才寫：避免「account 改了、users 沒改」只改一半（2026-10-09 實例）──
+    // 工號不可被「其他在職的人」占用。同一個工號的舊記錄（已離職／調走那段）不算衝突。
+    const dup = await window.db.collection('account').where('ID','==',username).get();
+    for (const d of dup.docs) {
+      if (d.id === docRef.id) continue;
+      const o = d.data();
+      if (existing.empty && o.empName === empName) continue; // 原系統行為：同名補建帳號資料
+      const oe = (o.store && o.empName)
+        ? await window.db.collection('stores').doc(o.store).collection('employees').doc(o.empName).get().catch(()=>null)
+        : null;
+      const ost = oe && oe.exists ? (oe.data().status || '在職') : '';
+      if (ost === '離職' || ost === '調走') continue;
+      hideLoading();
+      showToast(`⚠️ 工號 ${username} 已被「${o.store||'?'}／${o.displayName||o.empName||'?'}」使用，不能重複`);
+      return;
+    }
+
+    // 找這個工號的登入資料（users）：以工號為準。舊資料沒存工號的，才退回用姓名找，
+    // 且姓名找到的若是「別的工號」的登入資料就不能用（那是另一組帳號，改它＝改錯人）
+    let usersDoc = null;
+    const byId = await window.db.collection('users').where('ID','==',username).limit(1).get().catch(()=>null);
+    if (byId && !byId.empty) usersDoc = byId.docs[0];
+    if (!usersDoc && !idChanged) {
+      let byName = await window.db.collection('users')
+        .where('empName','==',empName).where('store','==',store).limit(1).get().catch(()=>null);
+      if (!byName || byName.empty) {
+        byName = await window.db.collection('users').where('empName','==',empName).limit(1).get().catch(()=>null);
       }
-      docRef = window.db.collection('account').doc();
+      if (byName && !byName.empty && [username, ''].includes(String(byName.docs[0].data().ID || '').toUpperCase())) {
+        usersDoc = byName.docs[0];
+      }
+    }
+    if (!usersDoc && !pwd) {
+      hideLoading();
+      showToast(`⚠️ 工號 ${username} 還沒有登入帳號，請一併設定密碼`);
+      return;
     }
 
     // 判斷職稱是否延後生效
@@ -552,36 +591,35 @@ async function saveAccountSetting() {
     await docRef.set(data, { merge: true });
 
     // 同步更新 users 集合（新系統，不含密碼）
-    let usersSnap = await window.db.collection('users')
-      .where('empName','==',empName).where('store','==',store).limit(1).get().catch(()=>null);
-    if(!usersSnap || usersSnap.empty) {
-      // fallback：store 不同步時改用 empName 單獨查
-      usersSnap = await window.db.collection('users')
-        .where('empName','==',empName).limit(1).get().catch(()=>null);
-    }
-    const usersDocFound = usersSnap && !usersSnap.empty;
     const { password: _pw, changeHistory: _ch, ...userFields } = data;
-
-    // 已有 users 文件 → 直接更新
-    if(usersDocFound) {
-      // 有重設密碼 → 視為臨時密碼，強制員工下次登入自訂
-      if(pwd) userFields.pwdChanged = false;
-      await usersSnap.docs[0].ref.set(userFields, { merge: true });
-    }
-
-    // ✅ 有輸入密碼 → 一律用 Cloud Function（Admin SDK）建立/更新 Auth 密碼並取得 uid，
-    //    不需舊密碼、不影響管理者登入狀態；同時確保 users/{uid} 存在，
-    //    可修復「只有 Auth、account/users 遺失或對不上」的帳號（避免本人登入時 _loadProfile 回 null → 白畫面）
-    if(pwd) {
-      try {
+    // 有重設密碼 → 視為臨時密碼，強制員工下次登入自訂
+    if(pwd) userFields.pwdChanged = false;
+    try {
+      // ✅ 有輸入密碼 → 一律用 Cloud Function（Admin SDK）建立/更新 Auth 密碼並取得 uid，
+      //    不需舊密碼、不影響管理者登入狀態；同時確保 users/{uid} 存在，
+      //    可修復「只有 Auth、account/users 遺失或對不上」的帳號（避免本人登入時 _loadProfile 回 null → 白畫面）
+      let targetRef = usersDoc ? usersDoc.ref : null;
+      if(pwd) {
         const resetFn = firebase.app().functions('asia-east1').httpsCallable('adminResetPassword');
-        // Cloud Function 會更新/建立 Auth 密碼，並在 users 文件遺失時用 Admin SDK 自動補建（繞過前端規則、uid 一定正確）
-        await resetFn({ empId: username, newPassword: pwd });
-      } catch(authErr) {
-        hideLoading();
-        showToast('❌ 帳號資料已存，但登入密碼更新失敗：' + (authErr.message || authErr.code || '請稍後再試'));
-        return;
+        const res = await resetFn({ empId: username, newPassword: pwd });
+        if (!targetRef && res?.data?.uid) targetRef = window.db.collection('users').doc(res.data.uid);
       }
+      // 函式補建的 users 是照「第一筆同工號 account」抄的，可能抄到舊店那筆 → 一律再用這次的資料蓋一次
+      if (targetRef) await targetRef.set(userFields, { merge: true });
+
+      // 改工號：舊工號的登入帳號已經沒有帳號資料指向它 → 停用，並把姓名加註，免得之後用姓名比對又抓到它
+      if (idChanged) {
+        const oldU = await window.db.collection('users').where('ID','==',origId).get();
+        for (const d of oldU.docs) {
+          if (targetRef && d.id === targetRef.id) continue;
+          await d.ref.set({ disabled: true, empName: `${empName}(已停用${origId})`,
+            disabledNote: `${today} 工號改為 ${username}` }, { merge: true });
+        }
+      }
+    } catch(syncErr) {
+      hideLoading();
+      showToast('❌ 帳號資料已存，但登入資料同步失敗，本人可能無法登入，請聯絡系統管理者：' + (syncErr.message || syncErr.code || ''));
+      return;
     }
 
     // ✅ 同步員工記錄：全新員工自動建立，已存在則更新 role
@@ -755,6 +793,23 @@ async function saveNewEmployee() {
       await handleRehire(dup.docs[0], { store, role, wage, username, password, perm, dispName: sysName });
       return;
     }
+    // 工號沒重複，但可能是「工號打錯的同一個人」→ 用姓名再比一次（2026-10-09 實例：
+    // 美德離職的人到錦花重新入職，工號打錯一碼、名字錯一字 → 開出第二組帳號，原工號登入讀到離職資料被擋）
+    showLoading('比對既有員工...');
+    const similar = await findSimilarEmployee(sysName);
+    hideLoading();
+    if (similar) {
+      const { accDoc, acc, status } = similar;
+      const who = `「${acc.store}／${acc.displayName || acc.empName}」（工號 ${acc.ID}，${status}）`;
+      if (status === '離職') {
+        if (confirm(`⚠️ 找到姓名相近的離職員工：\n${who}\n\n是同一個人嗎？\n・按「確定」→ 改走「重新入職」，沿用原工號 ${acc.ID}\n・按「取消」→ 不是同一人，繼續用 ${username} 新增`)) {
+          await handleRehire(accDoc, { store, role, wage, username: acc.ID, password, perm, dispName: sysName });
+          return;
+        }
+      } else if (!confirm(`⚠️ 找到姓名相近的員工：\n${who}\n\n若是同一個人，請改用「調店」，不要新增。\n確定是不同的人、要繼續新增嗎？`)) {
+        return;
+      }
+    }
     showLoading('新增員工中...');
     const empCount = await window.db.collection('stores').doc(store).collection('employees').get();
     const sortKey = empCount.size;
@@ -788,6 +843,40 @@ async function saveNewEmployee() {
     showToast(`✅ 已新增員工「${sysName}」（到職日 ${startDate}）${role.includes('工讀')?'':'，請至特補休系統建立特休批次'}`);
   } catch(e) { showToast('❌ 新增失敗：' + e.message); }
   hideLoading();
+}
+
+// 姓名相近：完全相同、一方包含另一方（鎧丞／江鎧丞）、或三字以上只差一個字（江鍇丞／江鎧丞）
+function _nameLike(a, b) {
+  a = String(a || '').trim(); b = String(b || '').trim();
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const [s, l] = a.length <= b.length ? [a, b] : [b, a];
+  if (s.length >= 2 && l.includes(s)) return true;
+  if (a.length === b.length && a.length >= 3) {
+    let diff = 0;
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) diff++;
+    return diff <= 1;
+  }
+  return false;
+}
+
+/** 找姓名相近的既有員工（離職者優先回傳，好接重新入職）；找不到回 null */
+async function findSimilarEmployee(name) {
+  const snap = await window.db.collection('account').get().catch(() => null);
+  if (!snap) return null;
+  let found = null;
+  for (const d of snap.docs) {
+    const a = d.data();
+    if (!a.ID || !a.store || !a.empName) continue;
+    if (!_nameLike(name, a.displayName) && !_nameLike(name, a.empName)) continue;
+    const es = await window.db.collection('stores').doc(a.store).collection('employees').doc(a.empName).get().catch(() => null);
+    const status = es && es.exists ? (es.data().status || '在職') : '';
+    if (!status || status === '調走') continue; // 沒有員工記錄、或已調走（新店另有一筆）→ 不算
+    const hit = { accDoc: d, acc: a, status };
+    if (status === '離職') return hit;
+    found = found || hit;
+  }
+  return found;
 }
 
 // ===== 重新入職（rehire）：工號=身分證，同一人不可開新號 =====
@@ -836,7 +925,9 @@ async function handleRehire(accDoc, form) {
       .set({ role: form.role, wage: form.wage, sortKey: empCount.size, status: '在職', startDate: newHire });
     // 4) users 更新門市
     const us = await window.db.collection('users').where('ID','==',form.username).limit(1).get().catch(()=>null);
-    if(us && !us.empty) await us.docs[0].ref.update({ store: form.store, role: form.role, permission: form.perm, disabled:false });
+    // 店長改不動 users 的 permission/disabled（firestore.rules managerTargetOk）→ 只有加盟主／admin 才帶，免得整筆被拒、只改一半
+    if(us && !us.empty) await us.docs[0].ref.update({ store: form.store, role: form.role,
+      ...(canOwner() ? { permission: form.perm, disabled: false } : {}) });
     // 5) 重設到職日（年資重算）
     await window.db.collection('employees').doc(existName).collection('leaves').doc(curYear)
       .set({ hireDate: newHire }, { merge:true });
