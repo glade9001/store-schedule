@@ -14,6 +14,7 @@
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-functions.js"></script>
 <script src="firebase-init.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 :root{--primary:#1a73e8;--primary-dark:#0e2140;--accent:#34a853;--danger:#d93025;--warn:#e67e22;
@@ -91,6 +92,17 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
 .review-body li{font-size:13px;line-height:1.7;color:#334155;}
 .review-body hr{border:none;border-top:1px dashed #e2e8f0;margin:12px 0;}
 .review-body b{color:#0f172a;}
+/* 圖表版（2026-10-10）：數字卡帶趨勢線、圖表卡 */
+.kpi-spark{display:block;width:100%;height:28px;margin-top:6px;}
+.chart-card{background:#fff;border-radius:14px;box-shadow:0 1px 4px rgba(0,0,0,.06);padding:13px 14px 10px;margin-bottom:10px;}
+.chart-t{font-size:13px;font-weight:900;margin-bottom:2px;}
+.chart-s{font-size:11px;color:var(--muted);font-weight:600;margin-bottom:8px;}
+.chart-box{position:relative;height:180px;}
+.hbar{display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;font-weight:800;}
+.hbar .nm{min-width:40px;}
+.hbar .trk{flex:1;height:12px;background:#f1f5f9;border-radius:6px;position:relative;overflow:hidden;}
+.hbar .fil{position:absolute;top:0;bottom:0;border-radius:6px;}
+.hbar .v{min-width:64px;text-align:right;font-variant-numeric:tabular-nums;}
 /* 方案 D：要處理清單、摺疊區塊、營運檢討表格 */
 .todo-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid #f1f4f8;cursor:pointer;}
 .todo-row:first-of-type{border-top:none;}

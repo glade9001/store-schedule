@@ -118,17 +118,89 @@ async function renderAll(m){
   const worstMiss=dsc.slice().sort((a,b)=>(c.extra[b].disc.missRate||0)-(c.extra[a].disc.missRate||0))[0];
   const discSum=!dsc.length?'無資料':scope?`缺卡 ${fmtPct(c.extra[scope].disc.missRate)}・未處理 ${c.extra[scope].disc.missOpen} 張`:`${worstMiss} 缺卡率最高 ${fmtPct(c.extra[worstMiss].disc.missRate)}`;
   const reviewSum=(c.review&&c.review.text)?'已填寫':'尚未填寫';
+  // 圖表版（2026-10-10）：數字卡帶趨勢線＋三張圖；三店比較表拿掉（改長條圖）、成本體檢不再有輸入框與明細表
   let html=renderTodo(m,al,scope)+renderOverview(m,only);
-  if(!scope) html+=fold('compare','🏪','三店比較',compareSummary(m,c.extra),renderCompare(m,c.extra));
+  html+= scope ? renderStoreCharts(m,scope,c.extra) : renderGroupCharts(m);
   html+=fold('score','👔','店長計分卡',scoreSummary(m,c.extra,scope),scope?renderScorecard(m,c.extra,'store',scope):renderScorecard(m,c.extra,'body'));
   html+=fold('health','🩺','成本體檢',hs,renderHealthSection(!!scope));
   html+=fold('disc','🕐','出勤紀律',discSum,renderDiscipline(m,c.extra,only,true));
   html+=fold('review','📋','營運檢討',reviewSum,renderReview(m,c.review,true));
   html+=renderLinks();
+  destroyCharts();
   el.innerHTML=html;
+  drawPendingCharts();
   renderStoreHealth();
 }
 const fmtPct=v=>v==null?'—':v+'%';
+// ===== 圖表版工具（2026-10-10）=====
+const wan=v=>v==null?'—':(Math.abs(v)>=10000?(Math.round(v/1000)/10)+' 萬':money(v));
+function prevYm(ym){ const [y,mo]=ym.split('-').map(Number); const d=new Date(y,mo-2,1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
+function monthsUpTo(m,k){ const out=[]; let x=m; for(let i=0;i<k;i++){ out.unshift(x); x=prevYm(x); } return out; }
+// 合計 only 門市在 ym 的值；fn(pn,pf) 回傳 falsy(非 0)＝該店沒資料；全部沒資料回 null（不可回 0，0 是合法值）
+function sumOf(only,ym,fn){ let t=0, ok=false; only.forEach(s=>{ const v=fn(pnlOf(s,ym),perfOf(s,ym)); if(v!==null&&v!==undefined&&v!==false){ t+=v; ok=true; } }); return ok?t:null; }
+// 小趨勢線：沒資料的月份斷開；最後一點加圓點
+function sparkSvg(vals,color,zeroLine){
+  const pts=vals.map((v,i)=>({i,v})).filter(p=>p.v!=null&&isFinite(p.v));
+  if(pts.length<2) return '';
+  let lo=Math.min(...pts.map(p=>p.v)), hi=Math.max(...pts.map(p=>p.v)); if(zeroLine){ lo=Math.min(lo,0); hi=Math.max(hi,0); }
+  if(hi===lo){ hi+=1; lo-=1; }
+  const X=i=>vals.length<=1?50:i/(vals.length-1)*100, Y=v=>26-(v-lo)/(hi-lo)*22;
+  let d='', prev=-2; pts.forEach(p=>{ d+=(p.i===prev+1?'L':'M')+X(p.i).toFixed(1)+' '+Y(p.v).toFixed(1)+' '; prev=p.i; });
+  const last=pts[pts.length-1];
+  const z=zeroLine&&lo<0?`<line x1="0" x2="100" y1="${Y(0).toFixed(1)}" y2="${Y(0).toFixed(1)}" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="2 2" vector-effect="non-scaling-stroke"/>`:'';
+  return `<svg class="kpi-spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">${z}<path d="${d}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round"/><circle cx="${X(last.i).toFixed(1)}" cy="${Y(last.v).toFixed(1)}" r="2.2" fill="${color}"/></svg>`;
+}
+// Chart.js：先排隊，innerHTML 設好之後再畫
+let _charts=[], _pendingCharts=[];
+function destroyCharts(){ _charts.forEach(c=>{ try{ c.destroy(); }catch(e){} }); _charts=[]; }
+function queueChart(id,cfg){ _pendingCharts.push({id,cfg}); return `<div class="chart-box"><canvas id="${id}"></canvas></div>`; }
+function drawPendingCharts(){
+  const list=_pendingCharts; _pendingCharts=[];
+  if(!window.Chart) return;
+  list.forEach(({id,cfg})=>{ const el=document.getElementById(id); if(el) _charts.push(new Chart(el,cfg)); });
+}
+const chartOpts=(yFmt,extra)=>Object.assign({ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+  plugins:{ legend:{position:'bottom',labels:{boxWidth:10,boxHeight:10,font:{size:11}}}, tooltip:{callbacks:{label:c=>`${c.dataset.label}：${c.parsed.y==null?'—':yFmt(c.parsed.y)}`}} },
+  scales:{ y:{ticks:{callback:v=>yFmt(v),font:{size:10}},grid:{color:'#f1f5f9'}}, x:{ticks:{font:{size:10}},grid:{display:false}} } }, extra||{});
+const mLabel=ym=>`${+ym.slice(5)}月`;
+// 三店：營收走勢、本月餘裕長條、人事費率趨勢
+function renderGroupCharts(m){
+  const ms=monthsUpTo(m,12).filter(x=>STORES.some(s=>pnlOf(s,x)));
+  const net=queueChart('chNet',{ type:'line', data:{ labels:ms.map(mLabel), datasets:STORES.map(s=>({ label:s, data:ms.map(x=>{ const pn=pnlOf(s,x); return pn?Math.round(n(pn.netSales)/1000)/10:null; }), borderColor:STORE_COLORS[s]||'#888', backgroundColor:STORE_COLORS[s]||'#888', borderWidth:2, pointRadius:2, tension:.3, spanGaps:false })) }, options:chartOpts(v=>v+' 萬') });
+  const sur=STORES.map(s=>{ const pn=pnlOf(s,m), pf=perfOf(s,m); return {s, v:(pn&&pf)?n(pn.operatingReward)-n(pf.laborCost):null}; });
+  const mx=Math.max(1,...sur.filter(x=>x.v!=null).map(x=>Math.abs(x.v)));
+  const bars=sur.sort((a,b)=>(b.v??-1e12)-(a.v??-1e12)).map(x=>`<div class="hbar" style="cursor:pointer;" onclick="OwnerScope.set('${x.s}')"><span class="nm">${x.s}</span><span class="trk">${x.v==null?'':`<i class="fil" style="left:0;width:${Math.max(3,Math.abs(x.v)/mx*100)}%;background:${x.v>=0?'#34a853':'#d93025'};"></i>`}</span><span class="v" style="color:${x.v==null?'#94a3b8':x.v>=0?'#137333':'#c5221f'}">${x.v==null?'無資料':(x.v>0?'+':'')+wan(x.v)}</span></div>`).join('');
+  const rms=monthsUpTo(m,12).filter(x=>STORES.some(s=>pnlOf(s,x)&&perfOf(s,x)));
+  const rate=rms.length?queueChart('chRate',{ type:'line', data:{ labels:rms.map(mLabel), datasets:STORES.map(s=>({ label:s, data:rms.map(x=>{ const pn=pnlOf(s,x), pf=perfOf(s,x); return (pn&&pf&&n(pn.netSales))?Math.round(n(pf.laborCost)/n(pn.netSales)*1000)/10:null; }), borderColor:STORE_COLORS[s]||'#888', backgroundColor:STORE_COLORS[s]||'#888', borderWidth:2, pointRadius:2, tension:.3 })) }, options:chartOpts(v=>v+'%') }):'<div class="empty">尚無人事資料</div>';
+  return `<div class="chart-card"><div class="chart-t">📈 營業淨額走勢</div><div class="chart-s">近 12 個月・單位萬元</div>${net}</div>
+  <div class="chart-card"><div class="chart-t">💰 ${mLabel(m)}門市餘裕</div><div class="chart-s">經營報酬－人事成本（含支援）・綠＝賺、紅＝虧・點門市看那一家</div>${bars}</div>
+  <div class="chart-card"><div class="chart-t">📐 人事費率</div><div class="chart-s">人事成本÷營業淨額・人事資料 2026/4 起</div>${rate}</div>`;
+}
+// 單店：今年 vs 去年同月、每工時人事成本＋合理範圍、出勤長條
+function renderStoreCharts(m,s,extra){
+  const ms=monthsUpTo(m,6).filter(x=>pnlOf(s,x));
+  const yoy=queueChart('chYoy',{ type:'bar', data:{ labels:ms.map(mLabel), datasets:[
+    { label:'去年同月', data:ms.map(x=>{ const p=pnlOf(s,ymMinus12(x)); return p?Math.round(n(p.netSales)/1000)/10:null; }), backgroundColor:'#cbd5e1', borderRadius:4 },
+    { label:'今年', data:ms.map(x=>{ const p=pnlOf(s,x); return p?Math.round(n(p.netSales)/1000)/10:null; }), backgroundColor:STORE_COLORS[s]||'#1a73e8', borderRadius:4 } ] }, options:chartOpts(v=>v+' 萬') });
+  const se=healthSeries(s).slice(-6);
+  let cph='<div class="empty">尚無人事成本資料</div>';
+  if(se.length){
+    const hist=se.slice(0,-1).map(x=>x.cph).filter(v=>v>0), avg=hist.length?hist.reduce((a,b)=>a+b,0)/hist.length:se[se.length-1].cph;
+    const lo=Math.round(avg*0.9), hi=Math.round(avg*1.1);
+    cph=queueChart('chCph',{ type:'line', data:{ labels:se.map(x=>mLabel(x.ym)), datasets:[
+      { label:'合理上限', data:se.map(()=>hi), borderColor:'rgba(52,168,83,.25)', backgroundColor:'rgba(52,168,83,.10)', pointRadius:0, borderWidth:1, fill:'+1' },
+      { label:'合理下限', data:se.map(()=>lo), borderColor:'rgba(52,168,83,.25)', pointRadius:0, borderWidth:1, fill:false },
+      { label:'每工時成本', data:se.map(x=>x.cph), borderColor:'#1a73e8', backgroundColor:'#1a73e8', borderWidth:2.5, pointRadius:3, tension:.3 } ] },
+      options:chartOpts(v=>'$'+v,{ plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>`${c.dataset.label}：$${c.parsed.y}`}} } }) });
+    cph+=`<div style="font-size:11px;color:var(--muted);margin-top:4px;">淺綠帶＝過去幾個月平均 ±10%（$${money(lo)}–$${money(hi)}）</div>`;
+  }
+  const d=(extra[s]||{}).disc;
+  const bar=(lbl,v,col,bg)=>`<div class="hbar"><span class="nm" style="min-width:52px;">${lbl}</span><span class="trk" style="background:${bg};">${v==null?'':`<i class="fil" style="left:0;width:${Math.min(100,Math.max(2,v))}%;background:${col};"></i>`}</span><span class="v">${v==null?'—':v+'%'}</span></div>`;
+  const disc=d?bar('缺卡率',d.missRate,'#d93025','#fce8e6')+bar('補登率',d.reqRate,'#e67e22','#fff3e0')+bar('遲到率',d.lateRate,'#e67e22','#fff3e0')+`<div style="font-size:11px;color:var(--muted);margin-top:4px;">未處理缺卡 ${d.missOpen} 張・班數 ${d.shifts}</div>`:'<div class="empty">本月尚無打卡資料</div>';
+  return `<div class="chart-card"><div class="chart-t">📈 營業淨額：今年 vs 去年同月</div><div class="chart-s">近 6 個月・單位萬元</div>${yoy}</div>
+  <div class="chart-card"><div class="chart-t">⏱️ 每工時人事成本</div><div class="chart-s">含公司負擔・近 6 個月</div>${cph}</div>
+  <div class="chart-card"><div class="chart-t">🕐 ${mLabel(m)}出勤</div><div class="chart-s">缺卡率＝缺卡單÷班數（已補登的照算）</div>${disc}</div>`;
+}
 // 摺疊區塊：記住每個區塊開或關（每台裝置）
 function foldOpen(id){ try{ return localStorage.getItem('odFold:'+id)==='1'; }catch(e){ return false; } }
 function foldToggle(id,el){ try{ localStorage.setItem('odFold:'+id, el.open?'1':'0'); }catch(e){} }
@@ -143,9 +215,6 @@ function renderHealthSection(fixed){
   return `<div class="card">
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
       ${fixed?'':`<select id="healthStore" onchange="curHealthStore=this.value;renderStoreHealth();" style="${inp}">${STORES.map(s=>`<option value="${s}"${s===curHealthStore?' selected':''}>${s}</option>`).join('')}</select>`}
-      <span style="font-size:12px;color:var(--muted);">加班目標</span><input type="number" id="otTarget" value="8" min="1" max="50" onchange="renderStoreHealth()" style="${inp}width:52px;text-align:center;">
-      <span style="font-size:12px;color:var(--muted);">% 合理帶±</span><input type="number" id="bandPct" value="10" min="1" max="50" onchange="renderStoreHealth()" style="${inp}width:52px;text-align:center;">
-      <span style="font-size:12px;color:var(--muted);">%</span>
     </div>
     <div id="storeHealth"></div>
   </div>`;
@@ -197,10 +266,21 @@ function renderStoreHealthBody(el,series,last,prev,avg,lo,hi,cphSt,otTarget){
   if(last.cph>hi) tips.push(`⏱️ 每工時成本 $${money(last.cph)} 高於近期均 $${money(avg)}（+${Math.round((last.cph-avg)/avg*1000)/10}%），留意人力配置／薪資結構。`);
   if(!tips.length) tips.push('✅ 本月每工時成本與加班佔比皆在合理範圍。');
   const tipsHtml=`<div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:11px 13px;margin:10px 0;font-size:12.5px;line-height:1.8;">${tips.map(t=>`<div>${t}</div>`).join('')}</div>`;
-  const rows=series.map(x=>{ const st=x.cph>hi?'🔴':x.cph<lo?'🟢':'🟡'; return `<tr><td>${x.ym}</td><td>$${money(x.cost)}</td><td>${x.hours}</td><td><b>$${money(x.cph)}</b> ${st}</td><td style="${(x.otRatio!=null&&x.otRatio>otTarget)?'color:#c5221f;font-weight:800;':''}">${x.otRatio==null?'—':x.otRatio+'%'}</td></tr>`; }).join('');
-  const trend=`<div style="font-size:12px;font-weight:800;color:var(--muted);margin:6px 0 8px;">📈 月度趨勢（🟢低/🟡合理/🔴偏高，帶 $${money(lo)}–$${money(hi)}）</div><div class="scroll"><table class="tbl"><thead><tr><th>月份</th><th>總成本</th><th>總工時</th><th>每工時</th><th>加班佔比</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-  el.innerHTML=kpi+tipsHtml+trend;
+  // 2026-10-10 圖表版：月度明細表改成趨勢圖；單店模式第一頁已有同一張圖，這裡就不重複
+  const showTrend=!OwnerScope.get();
+  el.innerHTML=kpi+tipsHtml+(showTrend?`<div style="font-size:12px;font-weight:800;color:var(--muted);margin:6px 0 4px;">📈 每工時人事成本（淺綠帶＝合理範圍 $${money(lo)}–$${money(hi)}）</div><div class="chart-box" style="height:160px;"><canvas id="chHealth"></canvas></div>`:'');
+  if(_healthChart){ try{ _healthChart.destroy(); }catch(e){} _healthChart=null; }
+  const cv=document.getElementById('chHealth');
+  if(cv&&window.Chart){
+    const se=series.slice(-6);
+    _healthChart=new Chart(cv,{ type:'line', data:{ labels:se.map(x=>mLabel(x.ym)), datasets:[
+      { label:'合理上限', data:se.map(()=>hi), borderColor:'rgba(52,168,83,.25)', backgroundColor:'rgba(52,168,83,.10)', pointRadius:0, borderWidth:1, fill:'+1' },
+      { label:'合理下限', data:se.map(()=>lo), borderColor:'rgba(52,168,83,.25)', pointRadius:0, borderWidth:1, fill:false },
+      { label:'每工時成本', data:se.map(x=>x.cph), borderColor:STORE_COLORS[curHealthStore]||'#1a73e8', backgroundColor:STORE_COLORS[curHealthStore]||'#1a73e8', borderWidth:2.5, pointRadius:3, tension:.3 } ] },
+      options:chartOpts(v=>'$'+v,{ plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>`${c.dataset.label}：$${c.parsed.y}`}} } }) });
+  }
 }
+let _healthChart=null;
 
 async function scanMonth(store,ym){
   const out={law:0, late:0, turnover:null, head:null, left:null, mgr:''};
@@ -302,14 +382,24 @@ function renderOverview(m,only){
     if(pnY&&pfY){ surY+=n(pnY.operatingReward)-n(pfY.laborCost); }
   });
   const rate=rateDen>0?(rateNum/rateDen*100):null;
+  // 上月（門市餘裕、人事費率沒有去年同期的人事資料，改跟上月比）
+  const pm=prevYm(m); let surP=null, rateNP=0, rateDP=0;
+  only.forEach(s=>{ const pn=pnlOf(s,pm), pf=perfOf(s,pm); if(pn&&pf){ surP=(surP||0)+n(pn.operatingReward)-n(pf.laborCost); rateNP+=n(pf.laborCost); rateDP+=n(pn.netSales); } });
+  const rateP=rateDP>0?rateNP/rateDP*100:null;
+  const mom=(cur,prev,txt,goodUp)=>{ if(prev==null||cur==null) return '<div class="kpi-yoy flat">—</div>'; const up=cur>prev; const good=goodUp?up:!up; return `<div class="kpi-yoy ${cur===prev?'flat':good?'up':'down'}">上月 ${txt(prev)}</div>`; };
+  const ms=monthsUpTo(m,12);
+  const spNet=sparkSvg(ms.map(x=>sumOf(only,x,(pn)=>pn&&n(pn.netSales))),'#1a73e8');
+  const spRew=sparkSvg(ms.map(x=>sumOf(only,x,(pn)=>pn&&n(pn.operatingReward))),'#1a73e8');
+  const spSur=sparkSvg(ms.map(x=>sumOf(only,x,(pn,pf)=>pn&&pf&&(n(pn.operatingReward)-n(pf.laborCost)))),'#c5221f',true);
+  const spRate=sparkSvg(ms.map(x=>{ let a=0,b=0,ok=false; only.forEach(s=>{ const pn=pnlOf(s,x), pf=perfOf(s,x); if(pn&&pf){ a+=n(pf.laborCost); b+=n(pn.netSales); ok=true; } }); return ok&&b?a/b*100:null; }),'#e67e22');
   const yoy=(cur,prev)=>{ if(!hasPrev||!prev) return '<div class="kpi-yoy flat">—</div>'; const d=cur-prev; const p=prev?Math.round(d/Math.abs(prev)*1000)/10:0; const cls=d>0?'up':d<0?'down':'flat'; const ar=d>0?'▲':d<0?'▼':'—'; return `<div class="kpi-yoy ${cls}">${ar} ${p>0?'+':''}${p}% vs 去年同期</div>`; };
   const one=only.length===1, P=one?'':'全體';
   return `<div class="sec-title">${one?'🏪 '+only[0]:'🏪 三店總覽'}<span class="sec-sub">${m.split('-')[0]}年${+m.split('-')[1]}月${one?'':' · 全體合計'}</span></div>
   <div class="kpi-grid" style="margin-bottom:10px;">
-    <div class="kpi"><div class="kpi-label">${P}營業淨額</div><div class="kpi-val">${money(net)}</div>${yoy(net,netY)}</div>
-    <div class="kpi"><div class="kpi-label">${P}經營報酬</div><div class="kpi-val">${money(rew)}</div>${yoy(rew,rewY)}</div>
-    <div class="kpi"><div class="kpi-label">${P}門市餘裕<span style="font-weight:600;color:var(--muted);">(含支援)</span></div><div class="kpi-val" style="color:${sur>=0?'#137333':'#c5221f'}">${money(sur)}</div>${yoy(sur,surY)}</div>
-    <div class="kpi"><div class="kpi-label">${one?'人事費率':'平均人事費率'}</div><div class="kpi-val">${rate!=null?rate.toFixed(1)+'%':'—'}</div><div class="kpi-yoy flat">人事成本÷營業淨額</div></div>
+    <div class="kpi"><div class="kpi-label">${P}營業淨額</div><div class="kpi-val">${wan(net)}</div>${yoy(net,netY)}${spNet}</div>
+    <div class="kpi"><div class="kpi-label">${P}經營報酬</div><div class="kpi-val">${wan(rew)}</div>${yoy(rew,rewY)}${spRew}</div>
+    <div class="kpi"><div class="kpi-label">${P}門市餘裕<span style="font-weight:600;color:var(--muted);">(含支援)</span></div><div class="kpi-val" style="color:${sur>=0?'#137333':'#c5221f'}">${wan(sur)}</div>${mom(sur,surP,wan,true)}${spSur}</div>
+    <div class="kpi"><div class="kpi-label">${one?'人事費率':'平均人事費率'}</div><div class="kpi-val">${rate!=null?rate.toFixed(1)+'%':'—'}</div>${mom(rate,rateP,v=>v.toFixed(1)+'%',false)}${spRate}</div>
   </div>`;
 }
 
@@ -449,22 +539,6 @@ function renderTodo(m,al,scope){
   const rows=order.map(s=>{ const L=al[s]||[], red=L.some(x=>x.sev==='red');
     return `<div class="todo-row" onclick="OwnerScope.set('${s}')"><span class="todo-name">${s}</span><span class="todo-items">${L.length?L.map(x=>x.t).join('・'):'沒有警示'}</span><span class="todo-cnt ${!L.length?'sev-ok':red?'sev-red':'sev-warn'}">${L.length?L.length+' 項':'✓'}</span><span style="color:#94a3b8;font-size:18px;">›</span></div>`; }).join('');
   return ttl+`<div class="card">${rows}<div style="font-size:11px;color:var(--muted);margin-top:6px;">點門市看那一家的細節</div></div>`;
-}
-// 三店比較（只在三店模式）：一張表看誰好誰差
-function compareRow(m,extra,s){
-  const pn=pnlOf(s,m), pf=perfOf(s,m), d=(extra[s]||{}).disc;
-  return { s, sur:(pn&&pf)?n(pn.operatingReward)-n(pf.laborCost):null, rate:(pn&&pf&&n(pn.netSales))?n(pf.laborCost)/n(pn.netSales)*100:null,
-    miss:d?d.missRate:null, law:(extra[s]||{}).law };
-}
-function compareSummary(m,extra){
-  const r=STORES.map(s=>compareRow(m,extra,s)).filter(x=>x.sur!=null).sort((a,b)=>b.sur-a.sur);
-  return r.length?`餘裕最高 ${r[0].s}`:'尚無損益資料';
-}
-function renderCompare(m,extra){
-  const rows=STORES.map(s=>compareRow(m,extra,s));
-  const td=(v,txt,bad)=>`<td style="${bad?'color:#c5221f;':''}">${v==null?'—':txt}</td>`;
-  return `<div class="scroll"><table class="tbl"><thead><tr><th>門市</th><th>門市餘裕</th><th>人事費率</th><th>缺卡率</th><th>知情放行</th></tr></thead><tbody>${rows.map(r=>`<tr style="cursor:pointer;" onclick="OwnerScope.set('${r.s}')"><td>${r.s} ›</td>${td(r.sur,money(r.sur),r.sur<0)}${td(r.rate,r.rate!=null?r.rate.toFixed(1)+'%':'',r.rate>35)}${td(r.miss,r.miss+'%',false)}${td(r.law,r.law+' 次',r.law>=3)}</tr>`).join('')}</tbody></table></div>
-  <div style="font-size:11px;color:var(--muted);margin-top:6px;">門市餘裕＝經營報酬－人事成本（含支援）。點門市看那一家。</div>`;
 }
 function scoreSummary(m,extra,scope){
   const r=renderScorecard(m,extra,'rank');
