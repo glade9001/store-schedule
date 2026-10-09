@@ -3,7 +3,7 @@
 // 客人不需登入莉學系統；身分＝LINE（liff.getIDToken），下單／改單／查單一律走 Cloud Functions（functions/groupbuy.js），
 // 伺服器驗證 Token 後才寫入。團購列表直接讀 Firestore（規則只放行 status == "open" 的查詢）。
 
-// ⏳ 待使用者在 LINE Developers 建立 LIFF App 後填入（不是密碼，可以放在程式裡）
+// LIFF ID：加盟主在團購頁〔設定〕分頁貼上，存在 gb_settings/liff（未登入可讀）；這裡留空就讀那份設定
 var LF_LIFF_ID = '';
 
 var lfStore = '', lfToken = '', lfProfile = null, lfCamps = [], lfMine = {}, lfMineList = [], lfPick = null, lfQty = 1, lfMax = 1, lfEdit = false;
@@ -21,6 +21,9 @@ window.onload = async function () {
   if (!lfStore) { try { var st = new URLSearchParams(location.search).get('liff.state') || ''; lfStore = new URLSearchParams(st.replace(/^[^?]*\?/, '')).get('store') || ''; } catch (e) {} }
   if (!gbStoreName(lfStore) || lfStore === gbStoreName(lfStore)) { lfFatal('連結少了門市資訊，請從門市群組裡的連結開啟'); return; }
   document.getElementById('lfStoreName').textContent = '7-ELEVEN ' + gbStoreName(lfStore) + '門市 團購';
+  if (!LF_LIFF_ID) {
+    try { var cfg = await gbTimeout(window.db.collection('gb_settings').doc('liff').get(), 10000); if (cfg.exists) LF_LIFF_ID = cfg.data().liff_id || ''; } catch (e) {}
+  }
   if (!LF_LIFF_ID) { lfFatal('團購還在準備中，請稍後再試'); return; }
   try {
     await liff.init({ liffId: LF_LIFF_ID });
