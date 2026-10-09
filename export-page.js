@@ -268,8 +268,9 @@ window.onload = async () => {
 };
 
 // ═══ 月結進度（2026-10-10，方案 C 的月結）═══
-// 送審（店長）→ 發布（加盟主審核後發布，員工可看）→ 匯出（本頁按過 Excel／PDF）→ 簽收（員工簽收雜湊＝薪資 payHash）
-// 匯出紀錄存 monthClose/{YYYY-MM}.exports[]（只為了顯示這一步，不影響薪資）。
+// 送審（店長）→ 發布（加盟主審核後發布，員工可看）→ 簽收（員工簽收雜湊＝薪資 payHash）
+// 匯出是選用的（使用者 2026-10-10：「匯出為非必要流程」），不算一步、不卡進度，只在下方註記最近一次匯出。
+// 匯出紀錄存 monthClose/{YYYY-MM}.exports[]（只為了顯示，不影響薪資）。
 let _mcSeq=0;
 async function renderMonthClose(ym){
   const el=document.getElementById('monthClose'); if(!el) return;
@@ -308,7 +309,6 @@ async function renderMonthClose(ym){
   const steps=[
     {t:'送審', v:`${sub}/${N}`, done:sub===N},
     {t:'發布', v:`${pub}/${N}`, done:pub===N},
-    {t:'匯出', v:exp?`${+exp.at.slice(5,7)}/${+exp.at.slice(8,10)}`:'未匯出', done:!!exp},
     {t:'簽收', v:ym<ACK_START?'—':(total?`${signed}/${total}`:'—'), done:total>0&&signed===total},
   ];
   const nowIdx=steps.findIndex(x=>!x.done);
@@ -317,10 +317,10 @@ async function renderMonthClose(ym){
   const draft=stores.filter(st=>['draft','none'].includes(info[st].status)), waiting=stores.filter(st=>info[st].status==='submitted');
   if(draft.length) next=`等 ${draft.join('、')} 店長送審。`;
   else if(waiting.length) next=`${waiting.join('、')} 已送審，<a href="salary.html?ref=export.html">到薪資頁審核發布 ›</a>`;
-  else if(!exp) next=`${N>1?'各店都':stores[0]}已發布，可以匯出 Excel／PDF。`;
   else if(total&&signed<total) next=`還有 ${total-signed} 人沒簽收（首頁會提醒他們）。`;
   else if(total) next='本月月結完成 ✅';
-  el.innerHTML=stepHtml+rows+(next?`<div class="mc-next">${next}</div>`:'');
+  const expLine=`<div style="font-size:11.5px;color:#64748b;margin-top:8px;">📤 匯出（選用）：${exp?`${+exp.at.slice(5,7)}/${+exp.at.slice(8,10)} ${exp.by||''} 匯出過 ${exp.kind==='pdf'?'PDF':'Excel'}`:'尚未匯出'}</div>`;
+  el.innerHTML=stepHtml+rows+(next?`<div class="mc-next">${next}</div>`:'')+expLine;
   el.classList.remove('hint');
 }
 async function logMonthExport(ym, stores, kind){
