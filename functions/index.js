@@ -2836,3 +2836,35 @@ if (process.env.LIXUE_TEST_HOOKS === "1") module.exports.__testHooks = { notifyE
 
 // ===== 團購第 2 階段：LIFF 下單 API（functions/groupbuy.js）=====
 Object.assign(exports, require("./groupbuy"));
+// ===== 團購：截單後提醒去結算（2026-10-10）=====
+// 每 15 分鐘掃「開放中、截單時間已過、還沒提醒過」的團購 → 推播（不用 LINE 額度；夜間排到 08:00）。
+// 對象：團購已開放給全員（gb_settings/stores.open）時＝加盟主／admin＋「只開本店」團購的該店店長（跨店團結算限加盟主）；
+//       還沒開放時只發給 admin（避免測試期間的團購吵到其他人）。提醒後寫 due_notified_at，不重複發。
+exports.scheduledGbDueReminder = onSchedule(
+  { schedule: "every 15 minutes", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [VAPID_PRIVATE] },
+  async () => {
+    const db = admin.firestore();
+    if (await maintenanceOn(db)) return;
+    const nowMs = Date.now();
+    const snap = await db.collection("gb_campaigns").where("status", "==", "open").get();
+    const due = snap.docs.filter((d) => { const c = d.data(); return c.end_time && c.end_time.toMillis() <= nowMs && !c.due_notified_at; });
+    if (!due.length) return;
+    const st = await db.collection("gb_settings").doc("stores").get();
+    const opened = st.exists && st.data().open === true;
+    const us = await db.collection("users").where("permission", "in", opened ? ["owner", "admin", "manager"] : ["admin"]).get();
+    const users = us.docs.map((d) => ({ uid: d.id, ...d.data() })).filter((u) => u.disabled !== true);
+    const CODE = { "美德": "meide", "聯鑫": "lianxin", "錦花": "jinhua" };
+    for (const d of due) {
+      const c = d.data(), stores = c.available_stores || [];
+      const uids = users.filter((u) => ["owner", "admin"].includes(u.permission)
+        || (u.permission === "manager" && stores.length === 1 && CODE[u.store] === stores[0])).map((u) => u.uid);
+      const total = c.ordered_qty || 0;
+      const rule = c.success_rule === "threshold"
+        ? `三店合計 ${total} 份，最低 ${c.min_qty} 份，${total >= (c.min_qty || 0) ? "已達標" : "未達標"}`
+        : `三店合計 ${total} 份`;
+      await sendOrQueuePush(db, uids, { title: "🛒 團購已截單，請結算", body: `「${c.title}」截單了（${rule}），到團購頁按「結算」`, url: "groupbuy.html", tag: `gb-due-${d.id}` },
+        VAPID_PRIVATE.value(), false).catch((e) => console.warn("[gbDue]", e.message));
+      await d.ref.update({ due_notified_at: admin.firestore.FieldValue.serverTimestamp() });
+    }
+  }
+);
