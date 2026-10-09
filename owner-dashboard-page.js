@@ -64,6 +64,7 @@ window.onload=async()=>{
   sel.innerHTML=months.map(m=>`<option value="${m}">${m.split('-')[0]}年${+m.split('-')[1]}月</option>`).join('');
   sel.value=months[months.length-1];
   OwnerScope.render(document.getElementById('scopeBar'), STORES);
+  renderMainTabs();
   OwnerScope.onChange(()=>{ OwnerScope.render(document.getElementById('scopeBar'), STORES); renderAll(dashMonth); window.scrollTo(0,0); });
   renderAll(sel.value);
   // 未休假獎金估算：每人要讀特休批次與補休帳本，放背景載入，好了再重畫（不擋第一屏）
@@ -90,12 +91,21 @@ function amortOf(s,m){return (DATA[s]&&DATA[s].amort)?DATA[s].amort[m]:null;}
 // 檢視切換：'main'＝儀表板全貌（計分卡只留摘要）、'score'＝只看計分卡
 // 同一頁換內容，不是另開網頁；月域掃描結果快取起來，切來切去不會重打 Firestore。
 var dashView='main', dashMonth='', dashCache={};
+// 〔總覽〕〔人事〕（2026-10-10 人事分析併入；人事分頁在 owner-hr.js，點了才讀資料）
+var mainTab=(function(){ try{ const v=new URLSearchParams(location.search).get('view'); if(v==='hr'||v==='overview') return v; return localStorage.getItem('odMainTab')||'overview'; }catch(e){ return 'overview'; } })();
+function renderMainTabs(){
+  const el=document.getElementById('mainTabs'); if(!el) return;
+  el.innerHTML=[['overview','總覽'],['hr','人事']].map(([k,t])=>`<button role="tab" aria-selected="${mainTab===k}" class="${mainTab===k?'on':''}" onclick="setMainTab('${k}')">${t}</button>`).join('');
+  const ms=document.getElementById('monthSel'); if(ms) ms.style.visibility = mainTab==='hr' ? 'hidden' : '';   // 人事分頁有自己的區間
+}
+function setMainTab(k){ mainTab=k; try{ localStorage.setItem('odMainTab',k); }catch(e){} renderMainTabs(); renderAll(dashMonth); window.scrollTo(0,0); }
 function openScoreView(){ dashView='score'; renderAll(dashMonth); window.scrollTo(0,0); }
 function closeScoreView(){ dashView='main'; renderAll(dashMonth); window.scrollTo(0,0); }
 
 async function renderAll(m){
   dashMonth=m;
   const el=document.getElementById('content');
+  if(mainTab==='hr'){ destroyCharts(); el.innerHTML='<div id="hrRoot"></div>'; if(window.HR) HR.render(); return; }
   el.innerHTML='<div class="empty">計算中…</div>';
   let c=dashCache[m];
   if(!c){
@@ -804,6 +814,6 @@ function renderLinks(){
   const R='?ref=owner-dashboard.html'+(OwnerScope.get()?'&store='+encodeURIComponent(OwnerScope.get()):'');
   return `<div class="sec-title">🔎 深入分析</div>`
     + L('performance.html'+R,'📊','#fff3e0','經營績效專區','三店趨勢比較、月度明細、去年同期')
-    + L('analytics.html'+R,'📈','#f3e8ff','人事分析','多月人事成本、支援成本、員工時薪')
+    + `<div class="link-row" onclick="setMainTab('hr')"><div class="link-ic" style="background:#f3e8ff">📈</div><div class="link-t"><div class="link-lbl">人事分析</div><div class="link-sub">成本組成、要注意的人、跨店支援、員工</div></div><div class="link-arr">›</div></div>`
     + L('export.html'+R,'📤','#e8f5e9','薪資匯出','Excel / PDF 薪資報表');
 }
