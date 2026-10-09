@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0e2140">
+<title>莉學團購</title>
+<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-functions.js"></script>
+<script src="firebase-init.js"></script>
+<script src="gb-common.js"></script>
+<link rel="stylesheet" href="groupbuy.css">
+<style>
+/* 客人端（LIFF）：比後台更大的字與按鈕 */
+.lf-hero{background:#0e2140;color:#fff;padding:14px 16px 12px;}
+.lf-hero b{font-size:18px;}
+.lf-hero small{display:block;opacity:.8;font-size:12.5px;margin-top:2px;}
+.lf-card{background:#fff;border-radius:16px;box-shadow:0 1px 5px rgba(0,0,0,.07);overflow:hidden;margin-bottom:14px;}
+.lf-img{width:100%;aspect-ratio:4/3;max-width:100%;background:#eef2f7 center/cover no-repeat;}
+.lf-body{padding:13px 14px 14px;}
+.lf-title{font-size:18px;font-weight:900;line-height:1.35;}
+.lf-price{font-size:20px;font-weight:900;color:#c5221f;margin:4px 0 2px;}
+.lf-desc{font-size:13.5px;color:#475569;line-height:1.65;white-space:pre-wrap;margin:6px 0;}
+.lf-meta{font-size:13px;color:var(--muted);line-height:1.7;}
+.lf-go{width:100%;border:none;border-radius:12px;padding:14px;font-size:17px;font-weight:900;background:#06c755;color:#fff;margin-top:10px;cursor:pointer;font-family:inherit;}
+.lf-go:disabled{background:#cbd5e1;color:#fff;}
+.lf-mine{background:#e6f4ea;color:#137333;border-radius:10px;padding:8px 11px;font-size:14px;font-weight:800;margin-top:8px;}
+.stepper{display:flex;align-items:center;justify-content:center;gap:18px;margin:14px 0 6px;}
+.stepper button{width:54px;height:54px;border-radius:50%;border:2px solid var(--border);background:#fff;font-size:26px;font-weight:900;cursor:pointer;}
+.stepper b{font-size:34px;min-width:60px;text-align:center;font-variant-numeric:tabular-nums;}
+.lf-foot{font-size:11.5px;color:#94a3b8;text-align:center;line-height:1.7;padding:10px 6px 30px;}
+</style>
+</head>
+<body>
+<div id="loadingOverlay"><div class="spinner"></div><div id="loadingText">載入中…</div></div>
+<div class="lf-hero"><b id="lfStoreName">莉學團購</b><small id="lfHello">7-ELEVEN 美德・聯鑫・錦花</small></div>
+<div class="wrap" style="padding-top:12px;">
+  <div class="gb-tabs" role="tablist">
+    <button role="tab" id="lfTabList" class="on" aria-selected="true" onclick="lfSetTab('list')">🛒 團購商品</button>
+    <button role="tab" id="lfTabMine" aria-selected="false" onclick="lfSetTab('mine')">📋 我的訂單</button>
+  </div>
+  <div id="lfList"></div>
+  <div id="lfMine" hidden></div>
+  <div class="lf-foot">資料僅用於團購訂單與到店取貨，只保存你的 LINE 暱稱與頭像，不收手機或真實姓名。<br>到店取貨付款。</div>
+</div>
+
+<!-- 選數量 -->
+<div class="modal" id="qtyModal" hidden>
+  <div class="sheet">
+    <h3 id="qmTitle">選擇數量</h3>
+    <p class="lead" id="qmLead"></p>
+    <div class="stepper"><button type="button" onclick="lfStep(-1)" aria-label="減少">−</button><b id="qmQty">1</b><button type="button" onclick="lfStep(1)" aria-label="增加">＋</button></div>
+    <div class="err" id="qmErr" style="text-align:center;"></div>
+    <div class="sheet-btns">
+      <button type="button" class="btn btn-g" onclick="document.getElementById('qtyModal').hidden=true">取消</button>
+      <button type="button" class="btn btn-p" id="qmOk" style="background:#06c755;" onclick="lfConfirm()">確定</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="liff-page.js"></script>
+</body>
+</html>

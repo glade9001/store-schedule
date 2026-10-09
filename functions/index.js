@@ -2833,3 +2833,6 @@ exports.scheduledMemoPhoneCleanup = onSchedule(
 
 // 本機測試用（只有設定 LIXUE_TEST_HOOKS=1 時才掛上；雲端不會有這個環境變數）
 if (process.env.LIXUE_TEST_HOOKS === "1") module.exports.__testHooks = { notifyEmployees, loadPushIndex, notifyOneEmp, deliverToPeople };
+
+// ===== 團購第 2 階段：LIFF 下單 API（functions/groupbuy.js）=====
+Object.assign(exports, require("./groupbuy"));
