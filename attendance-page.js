@@ -361,6 +361,37 @@ async function applyEditPunch(){
   }catch(e){ hideLoading(); alert('失敗：'+e.message); }
 }
 const isAnomRec=r=>['遲到','早退','缺卡'].includes(r.status) && !r.voided;
+// ===== 📍 定位留意（2026-10-10，只標記不擋）=====
+// 8/1～10/9 資料分析：手機時間竄改 0 筆、不同人共用座標 0 筆，沒有可判定的造假；
+// 但有人反覆打出「跟自己上次完全相同的座標」（最多一個月 21 次）。最可能是 iPhone 室內 Wi-Fi 定位快取，
+// 也無法排除改定位工具 → 只標給店長留意，不擋卡、不通知員工。
+// 距門市剛好 0m＝座標跟門市中心點完全一樣，也一併標出。
+// 只在已載入整月資料的檢視（本月異常、員工月表）計算，不另外讀資料。
+const GEO_REPEAT_MIN=5;   // 同一人同一座標本月出現幾次以上才標
+let GEO_FLAGS={};          // 打卡 id → 標記文字
+function geoKey(r){ return (r.lat!=null&&r.lng!=null&&(r.type==='上班'||r.type==='下班')&&r.source==='app'&&!r.voided) ? Number(r.lat).toFixed(7)+','+Number(r.lng).toFixed(7) : ''; }
+function computeGeoFlags(recs){
+  GEO_FLAGS={};
+  const cnt={}; recs.forEach(r=>{ const k=geoKey(r); if(k){ const kk=r.empName+'|'+k; cnt[kk]=(cnt[kk]||0)+1; } });
+  const byEmp={};
+  recs.forEach(r=>{
+    const k=geoKey(r); if(!k) return;
+    const n=cnt[r.empName+'|'+k], zero=r.distanceM===0;
+    if(n<GEO_REPEAT_MIN && !zero) return;
+    GEO_FLAGS[r.id]=[n>=GEO_REPEAT_MIN?`定位重複×${n}`:'', zero?'距門市0m':''].filter(Boolean).join('・');
+    const e=byEmp[r.empName]||(byEmp[r.empName]={rep:0,zero:0}); if(n>=GEO_REPEAT_MIN) e.rep++; if(zero) e.zero++;
+  });
+  return byEmp;
+}
+function geoNoticeCard(byEmp){
+  const list=Object.entries(byEmp); if(!list.length) return '';
+  return `<div class="card" style="background:#fffbeb;border:1px solid #fde68a;">
+    <div style="font-size:13px;font-weight:900;color:#b45309;margin-bottom:6px;">📍 定位留意（僅供參考，不影響打卡）</div>
+    ${list.map(([emp,e])=>`<div style="font-size:12.5px;padding:3px 0;"><a href="javascript:void(0)" onclick="gotoEmp('${String(emp).replace(/'/g,"\\'")}')" style="font-weight:800;color:var(--primary);">${empDisplay(emp)}</a>　${[e.rep?`同一座標 ${e.rep} 筆`:'',e.zero?`距門市 0m ${e.zero} 筆`:''].filter(Boolean).join('、')}</div>`).join('')}
+    <div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.6;">同一人本月有 ${GEO_REPEAT_MIN} 筆以上座標完全相同（到小數 7 位）。常見原因是 iPhone 在室內用 Wi-Fi 定位會回傳同一點；也可能是改定位工具。可對照排班與現場狀況判斷，不需要逐筆處理。</div>
+  </div>`;
+}
+async function gotoEmp(emp){ curEmp=emp; await setMode('emp'); }
 // 單筆打卡列（day/月/員工月表共用；showEmp 時前綴員工名）
 function punchRow(r, showEmp){
   const tag=r.type==='上班'?'tag-in':r.type==='下班'?'tag-out':'tag-visit';
@@ -390,7 +421,7 @@ function punchRow(r, showEmp){
   let h=`<div class="prow" style="${rowStyle}">${empLbl}
     <span class="ptag ${tag}">${r.type}</span>
     <span style="font-weight:800;">${time}</span>
-    <span class="meta">@${r.atStore}${r.distanceM!=null?` · ${r.distanceM}m`:''}${r.accuracy!=null&&r.accuracy>100?`<span style="color:#c5221f;font-weight:800;" title="手機沒用到 GPS，退回基地台/WiFi 粗略定位，這筆的位置不可信"> · ⚠️定位誤差±${Math.round(r.accuracy)}m</span>`:''}${r.shift?` · 班 ${r.shift}`:''}${r.homeStore&&r.homeStore!==r.atStore?` · 原店 ${r.homeStore}`:''}${srcTag}${voided?' · <span style="color:var(--danger);font-weight:800;">已註銷</span>':''}</span>
+    <span class="meta">@${r.atStore}${r.distanceM!=null?` · ${r.distanceM}m`:''}${r.accuracy!=null&&r.accuracy>100?`<span style="color:#c5221f;font-weight:800;" title="手機沒用到 GPS，退回基地台/WiFi 粗略定位，這筆的位置不可信"> · ⚠️定位誤差±${Math.round(r.accuracy)}m</span>`:''}${r.shift?` · 班 ${r.shift}`:''}${r.homeStore&&r.homeStore!==r.atStore?` · 原店 ${r.homeStore}`:''}${GEO_FLAGS[r.id]?`<span style="color:#b45309;font-weight:800;" title="座標與本人本月其他打卡完全相同，或剛好在門市中心點；可能是 iPhone 室內定位快取，也可能是改定位工具，僅供留意"> · 📍${GEO_FLAGS[r.id]}</span>`:(r.distanceM===0&&r.source==='app'?`<span style="color:#b45309;font-weight:800;" title="座標跟門市中心點完全一樣，僅供留意"> · 📍距門市0m</span>`:'')}${srcTag}${voided?' · <span style="color:var(--danger);font-weight:800;">已註銷</span>':''}</span>
     <span class="pstat ${needRev?'s-warn':sc}">${needRev?'離線待核':(anom?'⚠️ '+st:st)}</span>${reviewBtn}${voided?'':proxyBtn}${voided?'':editBtn}
   </div>`;
   if(r.note) h+=`<div class="meta" style="padding:0 0 6px 4px;">💬 ${r.note}${r.noteBy?`（${r.noteBy}）`:''}</div>`;
@@ -490,6 +521,7 @@ async function load(){
   return loadDay();
 }
 async function loadDay(){
+  GEO_FLAGS={};
   const list=document.getElementById('list'); if(list) list.innerHTML='<div class="empty">載入中…</div>';
   let recs=[];
   try{ // 讀當天+隔天，依歸班日(shiftDate)過濾，讓跨日夜班整段顯示在開始日
@@ -519,6 +551,7 @@ async function loadMonth(){
   const list=document.getElementById('list'); list.innerHTML='<div class="empty">載入中…</div>';
   const ym=curDate.slice(0,7);
   let recs=[]; try{ recs=(await fetchMonth()).filter(r=>String(gd(r)).startsWith(ym)); }catch(e){ list.innerHTML=`<div class="empty">讀取失敗：${e.message}</div>`; return; }
+  const geoNote=geoNoticeCard(computeGeoFlags(recs));
   const anoms=recs.filter(r=>isAnomRec(r) || (r.source==='offline'&&r.needReview&&!r.voided) || (r.otStatus==='pending'&&!r.voided)).sort((a,b)=>(gd(a)+(a.deviceTs||'')).localeCompare(gd(b)+(b.deviceTs||'')));
   const cnt=t=>anoms.filter(r=>r.status===t).length;
   // 2026-09-16 使用者指示：遲到不算「待處理」——它是既成事實，店長做什麼都不會消失；
@@ -530,7 +563,7 @@ async function loadMonth(){
     <div class="chip"><div class="chip-n">${cnt('早退')}</div><div class="chip-l">早退</div></div>
     <div class="chip"><div class="chip-n">${cnt('缺卡')}</div><div class="chip-l">缺卡</div></div>
   </div>`;
-  if(!anoms.length){ list.innerHTML='<div class="empty">🎉 本月無異常</div>'; return; }
+  if(!anoms.length){ list.innerHTML=geoNote+'<div class="empty">🎉 本月無異常</div>'; return; }
   const byDate={}; anoms.forEach(r=>{ const k=gd(r); (byDate[k]=byDate[k]||[]).push(r); });
   let html='';
   Object.keys(byDate).sort().forEach(dt=>{
@@ -538,7 +571,7 @@ async function loadMonth(){
     byDate[dt].sort((a,b)=>(a.deviceTs||'').localeCompare(b.deviceTs||'')).forEach(r=>{ html+=punchRow(r,true); });
     html+=`</div>`;
   });
-  list.innerHTML=html;
+  list.innerHTML=geoNote+html;
 }
 async function loadEmp(){
   const list=document.getElementById('list');
@@ -547,6 +580,7 @@ async function loadEmp(){
   const ym=curDate.slice(0,7);
   let all=[]; try{ all=await fetchMonth(); }catch(e){ list.innerHTML=`<div class="empty">讀取失敗：${e.message}</div>`; return; }
   const recs=all.filter(r=>r.empName===curEmp && String(gd(r)).startsWith(ym));
+  computeGeoFlags(recs);
   const hours=calcHours(recs), anom=recs.filter(isAnomRec).length;
   document.getElementById('sum').innerHTML=`<div class="sumbar">
     <div class="chip"><div class="chip-n" style="color:#137333">${hours.toFixed(1)}</div><div class="chip-l">本月有效工時(h)</div></div>
