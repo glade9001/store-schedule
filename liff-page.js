@@ -207,6 +207,12 @@ function lfFlexBubble(it) {
   if (img && /^https:\/\//.test(img) && img.length < 2000) b.hero = { type: 'image', url: img, size: 'full', aspectRatio: '1:1', aspectMode: 'cover', action: { type: 'uri', uri: liffUrl } };
   return b;
 }
+// 頁尾「網頁製作：kaikai」（2026-10-11 使用者：增加作品集曝光）：用外部瀏覽器開，客人可以加書籤；from＝來源統計用
+function lfOpenKaikai() {
+  var url = 'https://kaikai.web.app/?from=lixue-groupbuy';
+  try { if (window.liff && liff.isInClient()) { liff.openWindow({ url: url, external: true }); return; } } catch (e) {}
+  window.open(url, '_blank');
+}
 // 連點標題 5 下也能叫出分享測試（網址沒帶 ?debug=1 時用）
 var lfDebug = false, lfTapN = 0, lfTapT = 0;
 document.addEventListener('click', function (e) {
