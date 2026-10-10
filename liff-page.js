@@ -156,7 +156,7 @@ function lfRender() {
     lfItems[item.key] = item; keys.push(item.key);
   });
   var dbg = (lfParam('debug') === '1' || lfDebug) ? '<div class="card" style="font-size:13px;"><b>分享測試</b>（分享到自己的聊天室，看哪幾則有收到）<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">' +
-    [1, 2, 3, 4, 5].map(function (n) { return '<button class="btn btn-o" onclick="lfShareTest(' + n + ')">' + ['', '1 純文字', '2 卡片無＋1鈕', '3 卡片無圖', '4 單張完整', '5 輪播'][n] + '</button>'; }).join('') +
+    [1, 2, 3, 4, 5, 6].map(function (n) { return '<button class="btn btn-o" onclick="lfShareTest(' + n + ')">' + ['', '1 純文字', '2 卡片無＋1鈕', '3 卡片無圖', '4 單張完整', '5 輪播', '6 多張單卡'][n] + '</button>'; }).join('') +
     '</div><pre id="lfDbgOut" style="white-space:pre-wrap;font-size:11.5px;margin:6px 0 0;"></pre></div>' : '';
   el.innerHTML = keys.length ? dbg + '<button class="lf-share" onclick="lfShare()">📤 分享團購商品到 LINE 群組</button><div class="lf-grid">' + keys.map(function (k) { return lfTile(lfItems[k]); }).join('') + '</div>'
     : '<div class="card"><div class="empty" style="font-size:15px;">目前沒有開放中的團購<br>新團購會在群組裡通知 🙌</div></div>';
@@ -229,6 +229,7 @@ async function lfShareTest(n) {
       3: [{ type: 'flex', altText: '測試 3', contents: noImg }],
       4: [{ type: 'flex', altText: '測試 4', contents: one }],
       5: [{ type: 'flex', altText: '測試 5', contents: { type: 'carousel', contents: items.slice(0, 10).map(lfFlexBubble) } }],
+      6: items.slice(0, 5).map(function (it, i) { return { type: 'flex', altText: '測試 6-' + (i + 1), contents: lfFlexBubble(it) }; }),
     }[n];
     var r = await liff.shareTargetPicker(msgs, { isMultiple: true });
     out.textContent += '\n測試 ' + n + '：' + JSON.stringify(r) + '（LINE ' + liff.getLineVersion() + '）';
@@ -237,11 +238,13 @@ async function lfShareTest(n) {
 async function lfShare() {
   try {
     if (!liff.isApiAvailable('shareTargetPicker')) { gbToast('請在 LINE 裡打開這個頁面才能分享（或 LIFF 尚未開啟分享功能）'); return; }
-    var items = Object.keys(lfItems).map(function (k) { return lfItems[k]; }).filter(function (it) { return !it.sold; }).slice(0, 10);
+    // 每檔一張單張卡片（最多 5 則）：輪播卡片實機送不出去，單張卡片確認可以（2026-10-11 測試 2）
+    var items = Object.keys(lfItems).map(function (k) { return lfItems[k]; }).filter(function (it) { return !it.sold; });
     if (!items.length) { gbToast('目前沒有可以分享的團購'); return; }
-    var msg = { type: 'flex', altText: '🛒 團購開跑：' + items.map(function (it) { return it.c.base_title || it.c.title; }).join('、').slice(0, 300),
-      contents: { type: 'carousel', contents: items.map(lfFlexBubble) } };
-    var r = await liff.shareTargetPicker([msg], { isMultiple: true });
+    if (items.length > 5) gbToast('一次最多分享 5 檔，先分享截單最早的 5 檔');
+    items = items.sort(function (a, b) { return (gbToDate(a.c.end_time) || 0) - (gbToDate(b.c.end_time) || 0); }).slice(0, 5);
+    var msgs = items.map(function (it) { return { type: 'flex', altText: '🛒 團購：' + (it.c.base_title || it.c.title || '').slice(0, 300), contents: lfFlexBubble(it) }; });
+    var r = await liff.shareTargetPicker(msgs, { isMultiple: true });
     if (r && r.status === 'success') gbToast('✅ 已分享'); else if (!r) gbToast('已取消分享');
   } catch (e) { gbToast('分享失敗：' + lfErr(e)); }
 }
