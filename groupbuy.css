@@ -19,6 +19,12 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto S
 .st-success{background:#e8f0fe;color:#1a56c4;} .st-failed{background:#fce8e6;color:var(--danger);} .st-arrived{background:#ede9fe;color:#6d28d9;} .st-done{background:#f1f5f9;color:#94a3b8;}
 .st-due{background:#d93025;color:#fff;}
 .camp{display:flex;gap:12px;}
+.gb-row{display:flex;gap:10px;align-items:center;padding:10px 12px;margin-bottom:8px;cursor:pointer;}
+.gb-row .camp-img{width:48px;height:48px;border-radius:10px;}
+.gb-row .row-t{font-size:15px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.gb-row .camp-meta .st{font-size:11px;padding:1px 7px;}
+.gb-row .camp-meta{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.gb-row .chev{color:#94a3b8;font-size:14px;flex:none;}
 .camp-img{width:76px;height:76px;flex:none;border-radius:12px;background:#eef2f7 center/cover no-repeat;}
 .camp-body{flex:1;min-width:0;}
 .camp-title{font-size:16px;font-weight:900;line-height:1.35;margin:2px 0 4px;}

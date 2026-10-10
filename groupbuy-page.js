@@ -98,10 +98,31 @@ function render() {
     items[at[c.opt_group]].push(c);
   });
   el.innerHTML = items.map(function (ms) {
-    if (ms.length === 1 && !ms[0].opt_group) return campCard(ms[0]);
-    ms.sort(function (a, b) { return String(a.opt_code).localeCompare(String(b.opt_code)) || (a.round || 1) - (b.round || 1); });
-    return campGroupCard(ms);
+    var key = ms[0].opt_group || ms[0].id;
+    if (ms[0].opt_group) ms.sort(function (a, b) { return String(a.opt_code).localeCompare(String(b.opt_code)) || (a.round || 1) - (b.round || 1); });
+    if (!gbExp[key]) return campRow(ms, key);
+    var html = ms.length === 1 && !ms[0].opt_group ? campCard(ms[0]) : campGroupCard(ms);
+    // 展開後點上半部（圖片、品名那塊）收合
+    return html.replace('<div class="camp">', '<div class="camp" style="cursor:pointer;" onclick="gbToggleExp(\'' + key + '\')" title="點一下收合">');
   }).join('');
+}
+// 商品一多頁面太長（2026-10-10 使用者）：每檔先收成一行，點開才看完整資訊與按鈕
+var gbExp = {};
+function gbToggleExp(key) { gbExp[key] = !gbExp[key]; render(); }
+function gbShortDt(d) { return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); }
+function campRow(ms, key) {
+  var c = ms[0], img = (c.images || [])[0], imgOk = img && /^https:\/\//.test(img);
+  var sts = []; ms.forEach(function (m) { if (sts.indexOf(m.status) < 0) sts.push(m.status); });
+  var sum = ms.reduce(function (a, m) { return a + (m.ordered_qty || 0); }, 0);
+  var title = c.opt_group ? (c.base_title || c.title) + '（' + ms.filter(function (m) { return !(m.round > 1); }).length + ' 種）' : c.title;
+  var open = sts.indexOf('open') >= 0;
+  return '<div class="card gb-row" onclick="gbToggleExp(\'' + key + '\')">' +
+    (imgOk ? '<div class="camp-img" style="background-image:url(\'' + gbEsc(img).replace(/'/g, '%27') + '\')"></div>' : '<div class="camp-img" aria-hidden="true"></div>') +
+    '<div class="camp-body"><div class="row-t">' + (gbIsPinned(c, gbCamps) && (open || sts.indexOf('draft') >= 0) ? '📌 ' : '') + gbEsc(title) + '</div>' +
+      '<div class="camp-meta">' + sts.map(function (st) { return '<span class="st st-' + st + '">' + (GB_STATUS[st] || st) + '</span>'; }).join(' ') +
+        (ms.some(isDue) ? ' <span class="st st-due">待結算</span>' : '') + (c.is_test ? ' 🧪' : '') +
+        ' 已訂 <b>' + sum + '</b> 份' + (open && gbToDate(c.end_time) ? '・截 ' + gbShortDt(gbToDate(c.end_time)) : '') + '</div></div>' +
+    '<span class="chev" aria-hidden="true">▾</span></div>';
 }
 
 /** 多規格一組一張卡：上面是共同資訊與整組操作（文案、置頂、編輯、草稿／開放／截單），下面每個規格一列（數量、訂單、補單、結算） */
