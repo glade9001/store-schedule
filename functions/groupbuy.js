@@ -422,8 +422,6 @@ async function handleEvent(ev) {
   const groups = [...new Set(products.map((d) => d.data().opt_group || ("solo:" + d.id)))];
   // 合併成一檔的規格（bundles，2026-10-11）：一檔團購裡 A＝1 份、B＝3 份…，價格成比例
   const bundleOf = (d, code) => (d.data().bundles || []).find((b) => b.code === code);
-  const optList = (gid) => (gid.startsWith("solo:") ? (products.find((d) => "solo:" + d.id === gid).data().bundles || []).map((b) => b.code)
-    : products.filter((d) => d.data().opt_group === gid).map((d) => d.data().opt_code)).filter(Boolean).sort();
 
   for (let i = 0; i < p.items.length; i++) {
     const it = p.items[i];
@@ -432,10 +430,8 @@ async function handleEvent(ev) {
       const hit = products.filter((d) => d.data().opt_code === it.opt || !!bundleOf(d, it.opt));
       if (hit.length === 1) target = hit[0];
       else if (!hit.length) {   // 不猜：客人標了編號，通常是在喊已截單的多規格團，記到別檔會出錯
-        const opts = groups.length === 1 ? optList(groups[0]) : [];
         await pend(`找不到編號 ${it.opt}`, { parsed_qty: it.qty }, i);
-        // 商品確定（只有一檔）才提醒正確編號；不知道是哪個商品就不回覆，只進待確認（2026-10-11 使用者）
-        if (opts.length) out.push(`${who} 沒有編號 ${it.opt} 喔，請打 ${opts.map((o) => o + "+1").join("、")}`);
+        // 判斷不出來一律不回覆，只進待確認（2026-10-11 使用者：沒標／標錯編號也不提醒）
         continue;
       } else {
         await pend(`有 ${hit.length} 檔都有編號 ${it.opt}，無法判斷`, { parsed_qty: it.qty, candidates: hit.map((d) => d.id) }, i);
@@ -443,11 +439,9 @@ async function handleEvent(ev) {
       }
     } else if (products.length === 1 && !(products[0].data().bundles || []).length) target = products[0];
     else if (groups.length === 1) {
-      // 只有一檔、但分好幾個規格：請客人標編號
-      const opts = optList(groups[0]);
+      // 只有一檔、但分好幾個規格，客人沒標編號
       await pend("沒有標規格編號", { parsed_qty: it.qty, candidates: products.map((d) => d.id) }, i);
-      out.push(`收到 ${who} 的 +${it.qty}！這檔有 ${opts.join("／")} 好幾種，請標編號再喊一次，例如 ${opts[0]}+${it.qty}`);
-      continue;
+      continue;   // 不回覆，只進待確認
     } else {
       await pend(`同時有 ${groups.length} 檔開放中，無法判斷是哪一檔`, { parsed_qty: it.qty, candidates: products.map((d) => d.id) }, i);
       continue;   // 不知道是哪個商品：不回覆，只進待確認（2026-10-11 使用者）
