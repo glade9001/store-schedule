@@ -50,3 +50,8 @@ details.fold[open]>summary::after{content:' ▴';}
 @keyframes sp{to{transform:rotate(360deg);}}
 #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1e293b;color:#fff;padding:10px 16px;border-radius:10px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:60;}
 #toast.show{opacity:1;}
+/* iOS Safari 的 date 輸入框有自己的最小寬度、會撐出卡片（2026-10-11 實機回報）：
+   拿掉原生外觀＋min-width:0 才會乖乖吃 width:100%；拿掉外觀後文字會置中，改回靠左 */
+.f-row input[type=date]{-webkit-appearance:none;appearance:none;min-width:0;max-width:100%;display:block;min-height:46px;}
+.f-row input[type=date]::-webkit-date-and-time-value{text-align:left;}
+.f-row{min-width:0;}
