@@ -413,6 +413,7 @@ async function saveCampaign() {
   }
   var btn = document.getElementById('cfSave'); btn.disabled = true;
   try {
+    if (!c || !c.short) data.short = await gbNewShort();
     if (c) {
       await gbTimeout(window.db.collection('gb_campaigns').doc(c.id).update(data));
     } else {
@@ -428,6 +429,15 @@ async function saveCampaign() {
   btn.disabled = false;
 }
 // 多規格存檔：每一種規格是一檔團購（共用 opt_group），訂單、庫存、上限、結算都沿用單一團購的邏輯
+// 連結短碼（2026-10-11）：4 碼、避開 0/O/1/I/L 這類容易看錯的字；先查有沒有重複
+var GB_SHORT_CHARS = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+async function gbNewShort() {
+  for (var t = 0; t < 5; t++) {
+    var k = ''; for (var i = 0; i < 4; i++) k += GB_SHORT_CHARS[Math.floor(Math.random() * GB_SHORT_CHARS.length)];
+    try { var q = await gbTimeout(window.db.collection('gb_campaigns').where('short', '==', k).limit(1).get()); if (q.empty) return k; } catch (e) { return k; }
+  }
+  return null;
+}
 async function saveMultiCampaign(c, data, stock, err) {
   var base = data.title, members = c ? optMembers(c.opt_group) : [];
   for (var i = 0; i < members.length; i++) {
@@ -438,6 +448,7 @@ async function saveMultiCampaign(c, data, stock, err) {
   var group = c ? c.opt_group : 'og' + Date.now().toString(36) + gbRand(4);
   var batch = window.db.batch(), col = window.db.collection('gb_campaigns');
   var shared = Object.assign({}, data); delete shared.title; delete shared.price;
+  shared.short = (members[0] && members[0].short) || await gbNewShort();   // 同一組共用一個短碼（連結對應到 A，機器人再依編號找）
   gbOptRows.forEach(function (o) {
     var own = { title: base + ' (' + o.code + ') ' + o.label, price: Number(o.price), base_title: base, opt_group: group, opt_code: o.code, opt_label: o.label };
     if (o.id) batch.update(col.doc(o.id), Object.assign({}, shared, own));
@@ -661,7 +672,8 @@ async function openCopy(cid, kind) {
   gbCopyCtx = { c: c, kind: kind, stores: stores };
   var sel = document.getElementById('cpStore');
   // 加盟主先選門市（2026-10-11 使用者）：單店或最後的「三店合併」；記住上次選的。店長只有本店
-  var multi = owner && stores.length > 1;
+  var multi = owner && stores.length > 1 && kind !== 'open';   // 開團文案三店共用一份，不用選門市
+  document.getElementById('cpStore').parentElement.hidden = kind === 'open';
   sel.innerHTML = (multi ? '<option value="-">— 請先選門市 —</option>' : '') + stores.map(function (s) { return '<option value="' + s + '">' + gbStoreName(s) + '</option>'; }).join('') +
     (multi ? '<option value="">三店合併</option>' : '');
   if (multi) {
@@ -699,16 +711,19 @@ async function buildCopy() {
     // 多規格：一段文案列出所有規格，客人打編號 +1
     var opts = c.opt_group ? optMembers(c.opt_group).filter(function (m) { return m.status === 'open' || m.status === 'draft'; }) : [];
     var bds = c.bundles || [];
+    // 總部原文已經列了 (A)(B)(C) 價格就不再重複列（2026-10-11 使用者給的格式）
+    var codes = bds.length ? bds.map(function (b) { return b.code; }) : opts.map(function (m) { return m.opt_code; });
+    var listed = !!c.description && codes.length > 0 && codes.every(function (k) { return new RegExp('[(（]\\s*' + k + '\\s*[)）]').test(c.description); });
     if (bds.length) {
       // 合併成一檔：A＝1 份、B＝3 份…
       lines.push('🛒 ' + c.base_title);
-      bds.forEach(function (b) { lines.push('(' + b.code + ') ' + b.label + '　$' + b.mult * c.price); });
+      if (!listed) bds.forEach(function (b) { lines.push('(' + b.code + ') ' + b.label + '　$' + b.mult * c.price); });
       if (gbLimitTxt(c)) lines.push(gbLimitTxt(c) + '（每份 ' + c.unit_label + '）');
       lines.push(c.success_rule === 'threshold' ? '🎯 滿 ' + c.min_qty + ' 份（每份 ' + c.unit_label + '）成團（三店合計）' : '✅ 保證成團');
       opts = bds.map(function (b) { return { opt_code: b.code }; });   // 下面「編號＋數量」說明共用
     } else if (opts.length) {
       lines.push('🛒 ' + c.base_title);
-      opts.forEach(function (m) { lines.push('(' + m.opt_code + ') ' + m.opt_label + '　$' + m.price); });
+      if (!listed) opts.forEach(function (m) { lines.push('(' + m.opt_code + ') ' + m.opt_label + '　$' + m.price); });
       if (gbLimitTxt(c, true)) lines.push(gbLimitTxt(c, true));
       lines.push(c.success_rule === 'threshold' ? '🎯 每種各滿 ' + c.min_qty + ' 份成團（三店合計）' : '✅ 保證成團');
     } else {
@@ -721,9 +736,11 @@ async function buildCopy() {
     var tq = c.is_test ? '&test=1' : '';   // 測試團的連結只在測試模式顯示
     var ex = opts.length ? opts[0].opt_code : '';
     if (opts.length) lines.push('', '👉 回覆這則留言打「編號＋數量」，例如 ' + ex + '+1、' + (opts[1] ? opts[1].opt_code : ex) + '+2');
-    if (st && liffId) lines.push(opts.length ? '或點這裡下單：https://liff.line.me/' + liffId + '?store=' + st + '&c=' + c.id + tq : '', opts.length ? '' : '👉 點這裡 +1（或直接回覆這則留言 +1）：https://liff.line.me/' + liffId + '?store=' + st + '&c=' + c.id + tq);
-    else if (!st && liffId) x.stores.forEach(function (s) { lines.push(gbStoreName(s) + (opts.length ? ' 下單：' : ' +1：') + 'https://liff.line.me/' + liffId + '?store=' + s + '&c=' + c.id + tq); });
-    else if (!opts.length) lines.push('', '👉 直接回覆這則訊息打「+1」（要 2 份就打 +2）');
+    // 一個連結三店共用（2026-10-11）：不帶門市，客人第一次打開選取貨門市、之後記住；機器人照群組判斷門市。
+    // c＝4 碼短碼（沒有短碼的舊團用團購 ID），機器人看到會記下「這則貼文→這檔團購」
+    var link = liffId ? 'https://liff.line.me/' + liffId + '?c=' + (c.short || c.id) + tq : '';
+    if (opts.length) { if (link) lines.push('或點這裡下單：' + link); }
+    else lines.push('', link ? '👉 點這裡 +1（或直接回覆這則留言 +1）：' + link : '👉 直接回覆這則訊息打「+1」（要 2 份就打 +2）');
     while (lines.length && lines[lines.length - 1] === '') lines.pop();
     x.info = lines.slice(infoFrom).join('\n');
   } else if (x.kind === 'success') {

@@ -346,7 +346,13 @@ async function handleEvent(ev) {
 
   // 小編貼了含團購連結的訊息 → 記下「訊息 ID → 團購」，客人引用這則回覆 +1 就知道是哪一檔
   const lm = text.match(/liff\.line\.me\/[^\s?]+\?[^\s]*\bc=([A-Za-z0-9_-]{1,64})/);
-  if (lm) { await db.collection("gb_post_map").doc(msgId).set({ campaign_id: lm[1], store, posted_at: FieldValue.serverTimestamp() }); return; }
+  if (lm) {
+    // c＝團購 ID，或 4 碼短碼（2026-10-11 連結縮短：campaign.short）
+    let cid = lm[1];
+    if (cid.length <= 6) { const q = await db.collection("gb_campaigns").where("short", "==", cid).limit(1).get(); if (!q.empty) cid = q.docs[0].id; }
+    await db.collection("gb_post_map").doc(msgId).set({ campaign_id: cid, store, posted_at: FieldValue.serverTimestamp() });
+    return;
+  }
 
   // 下單頁（LIFF）代發的「✅ 已登記 商品 +N」：訂單已經成立，不可再當 +1 建單；達標成團的團回覆成團倒數
   if (/^✅\s*已登記/.test(text)) {
