@@ -786,6 +786,7 @@ async function buildCopy() {
       lines.push(c.success_rule === 'threshold' ? '🎯 滿 ' + c.min_qty + ' 份成團（三店合計）' : '✅ 保證成團');
     }
     lines.push('⏰ 預購至 ' + gbFmt(c.end_time), c.arrival_date ? '🚚 預計 ' + gbFmt(c.arrival_date, false) + ' 起到貨，到貨會在群組通知' : '🚚 到貨日確定後在群組通知', '💰 到店取貨付款');
+    lines.push('🌙 ' + GB_QUIET_TXT + ' 小幫手休息不回覆，+1 一樣有登記，點下單連結看「我的訂單」就能確認');   // 2026-10-10 使用者
     // 連結帶 c=團購 ID：機器人看到這則訊息會記下「訊息→團購」，客人引用這則回覆 +1 就知道是哪一檔
     var tq = c.is_test ? '&test=1' : '';   // 測試團的連結只在測試模式顯示
     var ex = opts.length ? opts[0].opt_code : '';

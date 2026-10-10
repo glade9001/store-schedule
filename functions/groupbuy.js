@@ -260,6 +260,17 @@ async function reply(replyToken, text) {
   if (!replyToken) return;
   await lineApi("/v2/bot/message/reply", "POST", { replyToken, messages: [{ type: "text", text: text.slice(0, 1000) }] }).catch((e) => console.warn("[gbBot reply]", e.message));
 }
+/** 機器人安靜時段：台灣時間 21:30～隔天 08:00 不在群組回覆（2026-10-10 使用者：避免打擾群組客人）。
+ *  訂單照樣登記；回覆權杖過期就不能用，所以不補發（補發要用推播，群組會照人數扣額度）。
+ *  ⚠️ 前端 gb-common.js 的 gbQuietNow 是同一個規則，改時間兩邊一起改 */
+function gbQuietNow(t) {
+  const d = new Date((t || Date.now()) + 8 * 3600000), m = d.getUTCHours() * 60 + d.getUTCMinutes();
+  return m >= 21 * 60 + 30 || m < 8 * 60;
+}
+async function groupReply(replyToken, text) {
+  if (gbQuietNow()) return;
+  await reply(replyToken, text);
+}
 function sigOk(raw, sig) {
   if (!raw || !sig) return false;
   const mac = crypto.createHmac("sha256", GB_SECRET.value()).update(raw).digest();
@@ -406,7 +417,7 @@ async function handleEvent(ev) {
     }
   }
   if (pinned) {
-    if (!pinned.length) { await reply(ev.replyToken, "本團已截單，有再次開團再通知您 🙏"); return; }
+    if (!pinned.length) { await groupReply(ev.replyToken, "本團已截單，有再次開團再通知您 🙏"); return; }
     scope = pinned;
   }
   // 額滿自動開團的同一系列（第 1、2…團）只算一檔，取團次最小的；裝不下會自動往下一團
@@ -421,7 +432,7 @@ async function handleEvent(ev) {
     // 沒有開放中的：最近 2 天內有截單的 → 回「已截單」，否則不理
     const recent = (await db.collection("gb_campaigns").where("status", "in", ["open", "closed", "success", "failed", "arrived"]).get()).docs
       .some((d) => (d.data().available_stores || []).includes(store) && d.data().end_time && Date.now() - d.data().end_time.toMillis() < 2 * 86400000);
-    if (recent) await reply(ev.replyToken, "本團已截單，有再次開團再通知您 🙏");
+    if (recent) await groupReply(ev.replyToken, "本團已截單，有再次開團再通知您 🙏");
     return;
   }
   const groups = [...new Set(products.map((d) => d.data().opt_group || ("solo:" + d.id)))];
@@ -469,7 +480,7 @@ async function handleEvent(ev) {
     }
   }
   const all = Object.values(okReply).concat(out);
-  if (all.length) await reply(ev.replyToken, [...new Set(all)].join("\n\n"));
+  if (all.length) await groupReply(ev.replyToken, [...new Set(all)].join("\n\n"));
 }
 
 // ---- 後台：核准／拒絕群組（加盟主／admin）----

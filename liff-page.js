@@ -475,7 +475,7 @@ async function lfConfirm() {
       var units = lfBundle ? lfQty * lfBundle.mult : lfQty;   // 合併規格：B 一組＝3 份
       var r = await gbTimeout(lfFn('gbPlaceOrder')({ idToken: lfToken, campaignId: c.id, store: lfStore, qty: units }));
       var rt = (r.data && r.data.title) || c.title;
-      gbToast('✅ 登記成功：' + rt + ' 共 ' + ((r.data && r.data.qty) || units) + ' 份');
+      gbToast('✅ 登記成功：' + rt + ' 共 ' + ((r.data && r.data.qty) || units) + ' 份' + (gbQuietNow() ? '（晚上不發群組訊息，可在「我的訂單」確認）' : ''));
       // 代發到群組：合併規格寫「A 10包 +2」讓群組看得懂（開頭「✅ 已登記」機器人會攔下，不會重複建單）
       // 代發訊息帶成團倒數／已訂份數（三店合計，2026-10-11 使用者：增加 +1 慾望）
       var d = r.data || {}, lack = Math.max(0, (d.minQty || 0) - (d.ordered || 0));
@@ -516,6 +516,7 @@ document.addEventListener('click', function (e) { if (e.target && e.target.match
 function lfPostToGroup(title, qty, extra) {
   try {
     if (!liff.isInClient()) return;
+    if (gbQuietNow()) return;   // 21:30～08:00 不代發，避免整個群組跳通知（2026-10-10 使用者）
     var ctx = liff.getContext() || {};
     if (['group', 'room', 'square_chat'].indexOf(ctx.type) < 0) return;
     // ⚠️ 開頭固定「✅ 已登記」：機器人看到就知道是下單頁代發的，不會再當成 +1 重複建單（2026-10-11 修）

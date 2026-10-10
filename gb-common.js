@@ -124,6 +124,13 @@ function gbIsPinned(c, all) { var k = gbPinKey(c); return (all || [c]).some(func
 function gbTimeout(p, ms, msg) {
   return Promise.race([p, new Promise(function (_, rej) { setTimeout(function () { rej(new Error(msg || '連線逾時，請稍後再試')); }, ms || 15000); })]);
 }
+/** 機器人安靜時段：台灣時間 21:30～隔天 08:00 不在群組發訊息（2026-10-10 使用者：避免打擾群組客人）。
+ *  ⚠️ functions/groupbuy.js 的 gbQuietNow 是同一個規則，改時間兩邊一起改 */
+var GB_QUIET_TXT = '21:30～08:00';
+function gbQuietNow(t) {
+  var d = new Date((t || Date.now()) + 8 * 3600000), m = d.getUTCHours() * 60 + d.getUTCMinutes();
+  return m >= 21 * 60 + 30 || m < 8 * 60;
+}
 function gbToast(msg) {
   var t = document.getElementById('toast'); if (!t) return;
   t.textContent = msg; t.classList.add('show');
