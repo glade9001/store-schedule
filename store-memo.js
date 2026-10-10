@@ -61,11 +61,27 @@ async function memoLoadGb(store) {
     const sn = await window.db.collection('gb_orders').where('campaign_id', '==', c.id).where('store', '==', code).get();
     const orders = sn.docs.map(d => ({ id: d.id, ...d.data() })).filter(o => o.status === 'active');
     return { c, orders, qty: orders.reduce((t, o) => t + (o.qty || 0), 0),
-      deadline: memoGbMs(c.pickup_deadline), arrived: c.status === 'arrived' };
+      deadline: memoGbMs(c.pickup_deadline), arrival: memoGbMs(c.arrival_date), arrived: c.status === 'arrived' };
   }));
   return out.filter(g => g.orders.length).sort((a, b) => (b.arrived - a.arrived) || ((a.deadline || 9e15) - (b.deadline || 9e15)));
 }
-function memoGbStatus(g) { return g.arrived ? STORE_MEMO.STATUS[2] : STORE_MEMO.STATUS[1]; }
+// 狀態跟著團購自動走（2026-10-10 使用者）：開放／截單＝待訂貨（門市不一定有貨）、成團＝已訂貨、到貨＝已到貨留貨
+function memoGbStep(g) { return g.arrived ? 2 : g.c.status === 'success' ? 1 : 0; }
+function memoGbStatus(g) { return STORE_MEMO.STATUS[memoGbStep(g)]; }
+function memoGbMd(ms) { const d = new Date(ms); return (d.getMonth() + 1) + '/' + d.getDate(); }
+// 可以按「已取貨」：已到貨；或已成團且有設取貨日（預計到貨日）、今天已到取貨日（使用者：取貨日開始才能來門市結帳）
+function memoGbCanPick(g) {
+  if (g.arrived) return true;
+  if (g.c.status !== 'success' || !g.arrival) return false;
+  const t = new Date(); t.setHours(0, 0, 0, 0);
+  return g.arrival <= t.getTime() + 86399999;
+}
+// 還不能取時的說明；可以取就回空字串
+function memoGbWaitText(g) {
+  if (memoGbCanPick(g)) return '';
+  if (g.arrival) return memoGbMd(g.arrival) + ' 起可取貨結帳';
+  return g.c.status === 'success' ? '到貨後才能取貨結帳' : g.c.status === 'open' ? '還在開放下單，成團後才叫貨' : '等結算，成團後才叫貨';
+}
 /** 取貨期限警示：過期 → 紅；36 小時內 → 橘；其他 null */
 function memoGbWarn(g) {
   if (!g.arrived || !g.deadline) return null;

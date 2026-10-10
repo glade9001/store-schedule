@@ -201,11 +201,11 @@ async function memoDelete(id) {
 
 // ===== 保證成團的團購留貨（資料在 gb_orders，store-memo.js memoLoadGb）=====
 // 一檔一張卡；點開逐人列出，按「已取貨」＝團購〔取貨〕分頁的同一個動作（記已取貨＋已付款）。
-// 跟取貨分頁一樣：已成團／已到貨才能按取貨，開放中、已截單還在等貨。
+// 已到貨、或已成團且到了取貨日（預計到貨日）才能按取貨（store-memo.js memoGbCanPick）。
 let memoGbPhone = {};
 function memoGbCard(g, i) {
   const w = memoGbWarn(g);
-  const st = g.arrived ? 2 : 1;
+  const st = memoGbStep(g), wait = memoGbWaitText(g);
   return `<div class="todo-card memo-card" onclick="memoGbOpen(${i})">
     <div class="stripe ${w ? 'memo-stale' : 'memo'}"></div>
     <div class="todo-body">
@@ -215,6 +215,7 @@ function memoGbCard(g, i) {
         <span class="tag scope">團購・保證成團</span>
         ${g.deadline && g.arrived ? `<span class="tag scope">取貨到 ${new Date(g.deadline).getMonth() + 1}/${new Date(g.deadline).getDate()}</span>` : ''}
         ${w ? `<span class="tag dl-soon">⚠️ ${w.text}</span>` : ''}
+        ${wait ? `<span class="tag scope">${memoEsc(wait)}</span>` : ''}
       </div>
     </div>
   </div>`;
@@ -226,7 +227,7 @@ async function memoGbOpen(i) {
     window.db.collection('gb_customers').doc(o.line_user_id).get()
       .then(d => { memoGbPhone[o.line_user_id] = d.exists ? (d.data().phone || '') : ''; })
       .catch(() => { memoGbPhone[o.line_user_id] = ''; })));
-  const canPick = ['success', 'arrived'].includes(g.c.status);
+  const canPick = memoGbCanPick(g);
   const w = memoGbWarn(g);
   const rows = g.orders.slice().sort((a, b) => String(a.display_name || '').localeCompare(String(b.display_name || ''), 'zh-Hant')).map(o => {
     const p = o.phone || (o.line_user_id ? memoGbPhone[o.line_user_id] : '') || '';
@@ -238,9 +239,9 @@ async function memoGbOpen(i) {
   }).join('');
   document.getElementById('memoDetTitle').textContent = memoGbTitle(g);
   document.getElementById('memoDetContent').innerHTML = `
-    ${memoStepsHtml({ status: g.arrived ? 2 : 1 })}
+    ${memoStepsHtml({ status: memoGbStep(g) })}
     ${w ? `<div class="memo-warn">⚠️ ${w.text}，請聯絡還沒取的客人</div>` : ''}
-    ${canPick ? '' : `<div class="memo-note">團購還在${g.c.status === 'open' ? '開放下單' : '等結算'}，成團後才能按取貨</div>`}
+    ${canPick ? '' : `<div class="memo-note">${memoEsc(memoGbWaitText(g))}，到時才能按取貨</div>`}
     ${rows}`;
   document.getElementById('memoDetActions').innerHTML =
     `<div class="det-actions"><button class="det-btn" style="background:#f1f3f4;" onclick="location.href='groupbuy.html?tab=pick'">🛒 到團購取貨頁（改付款、棄單）</button></div>`;

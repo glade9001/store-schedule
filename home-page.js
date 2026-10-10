@@ -2177,7 +2177,7 @@ async function loadPendingItems() {
       const gs = await withTimeout(memoLoadGb(st));
       (gs || []).forEach(g => {
         const w = memoGbWarn(g);
-        memoRows.push({ type:'門市備忘', desc:`${memoEsc(memoGbTitle(g))}・${memoGbStatus(g)}${w ? `・<span style="color:${w.late ? 'var(--danger)' : '#c2410c'};font-weight:800;">⚠️ ${w.text}</span>` : ''}`,
+        memoRows.push({ type:'門市備忘', desc:`${memoEsc(memoGbTitle(g))}・${memoGbStatus(g)}${g.arrival && !g.arrived ? `・${memoGbMd(g.arrival)} 起取貨` : ''}${w ? `・<span style="color:${w.late ? 'var(--danger)' : '#c2410c'};font-weight:800;">⚠️ ${w.text}</span>` : ''}`,
           link:'todo.html', color: w ? (w.late ? 'var(--danger)' : '#f97316') : '#0f9d8a' });
       });
     }
