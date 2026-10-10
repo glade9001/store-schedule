@@ -1775,20 +1775,18 @@ function lbRenderBar() {
   const col = LB_COLORS[lt ? lt.level : 'green'];
   const open = lbBarOpen;
   const md = d => (+d.slice(5,7)) + '/' + (+d.slice(8));
-  const sum = sc.lastDate
-    ? `${col[2]} ${mo}月工時：已排 ${fmt(sc.hours)}h（排到 ${md(sc.lastDate)}）· 不賠錢上限約 ${fmt(p.cap)}h`
-    : `${mo}月工時：還沒排班 · 不賠錢上限約 ${fmt(p.cap)}h`;
+  // 文案原則（使用者 2026-10-11）：一個數字、一句話；範圍與推算過程不放（燈號仍用誤差範圍判斷）
+  const sum = lt
+    ? `${col[2]} ${mo}月工時 ${fmt(sc.hours)}h／上限 ${fmt(lt.capP)}h（排到 ${md(sc.lastDate)}）`
+    : `${mo}月工時：還沒排班 · 整個月上限約 ${fmt(p.cap)}h`;
   const lines = [];
-  if(lt) {
-    const msg = { green: '在範圍內', yellow: '接近上限（在估算誤差內）', red: '已超過上限' }[lt.level];
-    lines.push(`照已排的 ${md(sc.lastDate)} 前比例，目前應在 <b>${fmt(lt.loP)}～${fmt(lt.hiP)}h</b> 以內：${msg}`);
-  }
-  lines.push(`整月上限約 ${fmt(p.cap)}h（營收差 ±4% 時為 ${fmt(p.capLo)}～${fmt(p.capHi)}h）`);
-  if(ev.minH) {
-    lines.push(`自動排班設定的最低人力：整月約 ${fmt(ev.minH)}h`);
-    if(ev.minH > p.capLo) lines.push(`<span style="color:#c5221f;font-weight:700;">⚠️ 最低人力已碰到上限：少排班救不了，要從營收或盤損著手</span>`);
-  }
-  const det = `<div class="lb-detail">${lines.join('<br>')}<div class="lb-note">依過去 ${lbLoaded.model.months.length} 個月經營數據估算「人事不超過就不賠錢」的時數，僅供參考，不會擋排班。</div></div>`;
+  // 顯示的上限是中間值 capP；燈號用誤差範圍判斷 → 黃燈可能已略超過 capP，文案要分開講
+  if(lt) lines.push(`<b>${lt.level === 'green' ? '還有空間'
+    : lt.level === 'red' ? `超過上限 ${fmt(sc.hours - lt.capP)}h`
+    : sc.hours > lt.capP ? `稍微超過 ${fmt(sc.hours - lt.capP)}h（還在估算誤差內）` : '快到上限了'}</b>`);
+  if(!lt || sc.days < lbDaysIn(ym)) lines.push(`整個月上限約 ${fmt(p.cap)}h`); // 整月都排完時跟上面同一個數，不重複
+  if(ev.minH && ev.minH > p.capLo) lines.push(`<span style="color:#c5221f;font-weight:700;">⚠️ 基本人力就要 ${fmt(ev.minH)}h，少排班省不下來，要從業績或盤損改善</span>`);
+  const det = `<div class="lb-detail">${lines.join('<br>')}<div class="lb-note">依過去 ${lbLoaded.model.months.length} 個月營收推算，僅供參考</div></div>`;
   bar.style.background = col[0]; bar.style.color = col[1];
   bar.innerHTML = `<div class="lb-head" onclick="lbToggleBar()"><span class="lb-sum">${sum}</span><span class="lb-caret">${open ? '▴' : '▾'}</span></div>${open ? det : ''}`;
   bar.style.display = 'block';

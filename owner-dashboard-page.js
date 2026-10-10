@@ -832,14 +832,14 @@ function renderLaborBudget(only){
     const ev=x.ev, p=ev.plan, lt=ev.light;
     if(ev.err||!p) return `<tr><td>${esc(s)}</td><td colspan="3" style="text-align:left;color:var(--muted);">${esc(ev.err||'資料不足')}</td></tr>`;
     const c=LB_COLORS[lt?lt.level:'green'];
-    const sched=ev.sched.lastDate?`${h(ev.sched.hours)}${sub(`排到 ${md(ev.sched.lastDate)}<br>應 ≤${h(lt.hiP)}`)}`:'未排';
+    const sched=ev.sched.lastDate?`${h(ev.sched.hours)}${sub(`排到 ${md(ev.sched.lastDate)}<br>應 ≤${h(lt.capP)}`)}`:'未排';
     const minH=ev.minH?sub(ev.minH>p.capLo?`<span style="color:#c5221f;">最低人力 ${h(ev.minH)} ⚠️</span>`:`最低人力 ${h(ev.minH)}`):'';
     return `<tr><td>${lt?c[2]+' ':''}${esc(s)}</td><td>${sched}</td><td>${h(p.cap)}${sub(`${h(p.capLo)}～${h(p.capHi)}`)}${minH}</td><td>${wan(p.beSales)}${sub(`預估 ${wan(p.sales)}`)}</td></tr>`;
   }).join('');
   const edit=only.map(s=>{ const x=lbDash[s]; if(!x) return ''; return `<div class="todo-line"><span>${esc(s)} 每月其他固定支出</span><span><input type="number" inputmode="numeric" id="lbOther_${esc(s)}" value="${x.loaded.otherMonthly||0}" style="width:90px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;text-align:right;"> <button onclick="saveLbOther('${esc(s)}')" style="padding:4px 10px;border:none;border-radius:6px;background:#1a73e8;color:#fff;font-weight:700;">存</button></span></div>`; }).join('');
   return `<div class="scroll"><table class="tbl" style="white-space:normal;"><thead><tr><th>門市</th><th>已排</th><th>整月上限</th><th>兩平營收</th></tr></thead><tbody>${rows}</tbody></table></div>
   <div style="font-size:11.5px;color:var(--muted);line-height:1.7;margin:8px 2px;">
-    ${+ym.slice(5)}月預估營收＝近 3 個月平均（回測誤差約 ±4%，所以上限是一個範圍）。「應 ≤」＝整月上限按已排好的天數攤；超過才亮紅燈，落在範圍內是黃燈。<br>
+    ${+ym.slice(5)}月預估營收＝近 3 個月平均（回測誤差約 ±4%，所以上限是一個範圍）。「應 ≤」＝整月上限按已排好的天數攤；稍微超過還在估算誤差內是黃燈，明顯超過才亮紅燈。<br>
     上限用工讀時薪換算：正職月薪固定，多排、少排的只有工讀時數。最低人力取自動排班設定；⚠️ 代表最低人力已碰到上限，少排班救不了。<br>
     經營報酬是未稅金額；5% 營業稅由總部隨發票付給門市、門市再報繳國稅局，屬代收代付，不影響兩平。店長在排班頁只看得到時數與燈號。
   </div>
