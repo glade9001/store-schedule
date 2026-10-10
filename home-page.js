@@ -2172,6 +2172,15 @@ async function loadPendingItems() {
             link:'todo.html', color: stale ? 'var(--danger)' : '#0f9d8a' });
         });
     }
+    // 保證成團的團購（門市自己的貨）：一檔一行，點進代辦頁才逐人列出（2026-10-10 使用者）
+    if(st && typeof memoLoadGb === 'function') {
+      const gs = await withTimeout(memoLoadGb(st));
+      (gs || []).forEach(g => {
+        const w = memoGbWarn(g);
+        memoRows.push({ type:'門市備忘', desc:`${memoEsc(memoGbTitle(g))}・${memoGbStatus(g)}${w ? `・<span style="color:${w.late ? 'var(--danger)' : '#c2410c'};font-weight:800;">⚠️ ${w.text}</span>` : ''}`,
+          link:'todo.html', color: w ? (w.late ? 'var(--danger)' : '#f97316') : '#0f9d8a' });
+      });
+    }
   } catch(e) {
     console.warn('門市備忘讀取失敗:', e);
   }

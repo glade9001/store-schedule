@@ -1,10 +1,12 @@
 // 門市備忘：代辦頁（todo.html）專用的畫面與操作。共用的狀態定義與判斷在 store-memo.js（首頁也載入）。
-let memoList = [], memoStore = '', memoEditingId = null, memoPay = '', memoClosedCollapsed = true;
+let memoList = [], memoGbList = [], memoStore = '', memoEditingId = null, memoPay = '', memoClosedCollapsed = true;
 
 async function memoLoad() {
   if (!memoStore) memoStore = myStore();
   try { memoList = await memoLoadOpen(memoStore); }
   catch (e) { memoList = []; console.warn('門市備忘讀取失敗', e); }
+  try { memoGbList = await memoLoadGb(memoStore); }
+  catch (e) { memoGbList = []; console.warn('團購留貨讀取失敗', e); }
 }
 function memoStores() {
   return (appConfig.stores || []).filter(s => s && s !== '人力支援' && s !== '測試店');
@@ -16,12 +18,12 @@ function memoSectionHtml() {
     .sort((a, b) => (!!memoStale(b) - !!memoStale(a)) || (b.status - a.status) || ((a.createdAt || 0) - (b.createdAt || 0)));
   const since = Date.now() - STORE_MEMO.CLOSED_SHOW_DAYS * 86400000;
   const closed = memoList.filter(m => m.status === 3 && (m.closedAt || 0) >= since).sort((a, b) => (b.closedAt || 0) - (a.closedAt || 0));
-  let h = `<div class="sec-header"><div class="sec-title">📦 門市備忘・${memoEsc(memoStore)}</div><div class="sec-count">${open.length}</div>
+  let h = `<div class="sec-header"><div class="sec-title">📦 門市備忘・${memoEsc(memoStore)}</div><div class="sec-count">${open.length + memoGbList.length}</div>
     <button class="memo-add" onclick="memoOpenAdd()">＋ 新增</button></div>`;
   if (isAdmin()) {
     h += `<div class="memo-stores">${memoStores().map(s => `<button class="memo-st ${s === memoStore ? 'on' : ''}" onclick="memoSwitchStore('${memoEsc(s)}')">${memoEsc(s)}</button>`).join('')}</div>`;
   }
-  if (open.length) h += open.map(m => memoCard(m)).join('');
+  if (open.length || memoGbList.length) h += memoGbList.map((g, i) => memoGbCard(g, i)).join('') + open.map(m => memoCard(m)).join('');
   else h += `<div class="memo-empty">目前沒有客訂／留貨</div>`;
   if (closed.length) {
     h += `<div class="collapse-hdr" onclick="memoToggleClosed()">
@@ -195,4 +197,73 @@ async function memoDelete(id) {
   try { await window.db.collection('storeMemos').doc(id).delete(); closeModal('memoDetModal'); showToast('已刪除'); }
   catch (e) { alert('刪除失敗：' + e.message); }
   await memoLoad(); renderAll(); hideLoading();
+}
+
+// ===== 保證成團的團購留貨（資料在 gb_orders，store-memo.js memoLoadGb）=====
+// 一檔一張卡；點開逐人列出，按「已取貨」＝團購〔取貨〕分頁的同一個動作（記已取貨＋已付款）。
+// 跟取貨分頁一樣：已成團／已到貨才能按取貨，開放中、已截單還在等貨。
+let memoGbPhone = {};
+function memoGbCard(g, i) {
+  const w = memoGbWarn(g);
+  const st = g.arrived ? 2 : 1;
+  return `<div class="todo-card memo-card" onclick="memoGbOpen(${i})">
+    <div class="stripe ${w ? 'memo-stale' : 'memo'}"></div>
+    <div class="todo-body">
+      <div class="todo-title">${memoEsc(memoGbTitle(g))}</div>
+      ${memoStepsHtml({ status: st })}
+      <div class="todo-foot">
+        <span class="tag scope">團購・保證成團</span>
+        ${g.deadline && g.arrived ? `<span class="tag scope">取貨到 ${new Date(g.deadline).getMonth() + 1}/${new Date(g.deadline).getDate()}</span>` : ''}
+        ${w ? `<span class="tag dl-soon">⚠️ ${w.text}</span>` : ''}
+      </div>
+    </div>
+  </div>`;
+}
+async function memoGbOpen(i) {
+  const g = memoGbList[i]; if (!g) return;
+  // 電話：訂單上手動填的優先，其次客人在 LINE 下單頁留的（gb_customers，員工可讀）
+  await Promise.all(g.orders.filter(o => !o.phone && o.line_user_id && memoGbPhone[o.line_user_id] === undefined).map(o =>
+    window.db.collection('gb_customers').doc(o.line_user_id).get()
+      .then(d => { memoGbPhone[o.line_user_id] = d.exists ? (d.data().phone || '') : ''; })
+      .catch(() => { memoGbPhone[o.line_user_id] = ''; })));
+  const canPick = ['success', 'arrived'].includes(g.c.status);
+  const w = memoGbWarn(g);
+  const rows = g.orders.slice().sort((a, b) => String(a.display_name || '').localeCompare(String(b.display_name || ''), 'zh-Hant')).map(o => {
+    const p = o.phone || (o.line_user_id ? memoGbPhone[o.line_user_id] : '') || '';
+    return `<div class="memo-kv" style="align-items:center;gap:8px;">
+      <span style="flex:1;min-width:0;"><b>${memoEsc(o.display_name || '客人')}</b> ×${o.qty || 0}${o.paid ? ' <small style="color:#137333;">已付款</small>' : ''}
+        <br>${p ? `<a href="tel:${memoEsc(p)}">📞 ${memoEsc(p)}</a>` : '<i>未留電話</i>'}</span>
+      ${canPick ? `<button class="det-btn memo-go" style="width:auto;padding:6px 12px;margin:0;" onclick="memoGbPick(${i},'${memoEsc(o.id)}')">✅ 已取貨</button>` : ''}
+    </div>`;
+  }).join('');
+  document.getElementById('memoDetTitle').textContent = memoGbTitle(g);
+  document.getElementById('memoDetContent').innerHTML = `
+    ${memoStepsHtml({ status: g.arrived ? 2 : 1 })}
+    ${w ? `<div class="memo-warn">⚠️ ${w.text}，請聯絡還沒取的客人</div>` : ''}
+    ${canPick ? '' : `<div class="memo-note">團購還在${g.c.status === 'open' ? '開放下單' : '等結算'}，成團後才能按取貨</div>`}
+    ${rows}`;
+  document.getElementById('memoDetActions').innerHTML =
+    `<div class="det-actions"><button class="det-btn" style="background:#f1f3f4;" onclick="location.href='groupbuy.html?tab=pick'">🛒 到團購取貨頁（改付款、棄單）</button></div>`;
+  openModal('memoDetModal');
+}
+async function memoGbPick(i, oid) {
+  const g = memoGbList[i]; if (!g) return;
+  const o = g.orders.find(x => x.id === oid); if (!o) return;
+  const amt = (o.qty || 0) * (g.c.price || 0);
+  if (!confirm(o.paid ? `確認「${o.display_name}」已取貨？` : `「${o.display_name}」${g.c.title} ×${o.qty}${amt ? '，應收 $' + amt : ''}\n\n請確認已收款，按「確定」記為已取貨、已付款。`)) return;
+  showLoading('更新中…');
+  try {
+    const fu = firebase.auth().currentUser;
+    // 欄位跟團購〔取貨〕分頁 togglePicked 一致；規則 gbPickupOnly 只允許這幾個欄位
+    await Promise.race([
+      window.db.collection('gb_orders').doc(oid).update({ status: 'picked_up', paid: true,
+        picked_up_at: firebase.firestore.FieldValue.serverTimestamp(), picked_up_by: fu ? fu.uid : null,
+        updated_at: firebase.firestore.FieldValue.serverTimestamp() }),
+      new Promise((_, r) => setTimeout(() => r(new Error('連線逾時，請再試一次')), 10000)),
+    ]);
+    showToast(`✅ ${o.display_name} 已取貨、已收款`);
+  } catch (e) { alert('更新失敗：' + (/permission/i.test(e.message) ? '沒有權限' : e.message)); }
+  await memoLoad(); renderAll(); hideLoading();
+  const ni = memoGbList.findIndex(x => x.c.id === g.c.id);
+  if (ni >= 0) memoGbOpen(ni); else closeModal('memoDetModal');
 }

@@ -2868,3 +2868,45 @@ exports.scheduledGbDueReminder = onSchedule(
     }
   }
 );
+
+// ===== 團購：取貨期限前 36 小時，還有人沒取 → 推播提醒該店店長（2026-10-10 使用者）=====
+// 只通知店員端（不發 LINE、不花額度），由店長決定要不要打電話。所有已到貨的團都算（不分保證／達標成團）。
+// 對象：已開放給全員時＝該店店長；還沒開放時只發 admin。每檔只提醒一次（pick_reminded_at）。
+// 取貨期限給得比 36 小時短時，到貨後至少 12 小時才提醒（不然一標到貨就跳「還沒取」）。
+exports.scheduledGbPickupReminder = onSchedule(
+  { schedule: "every 30 minutes", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [VAPID_PRIVATE] },
+  async () => {
+    const db = admin.firestore();
+    if (await maintenanceOn(db)) return;
+    const nowMs = Date.now(), H = 3600000;
+    const snap = await db.collection("gb_campaigns").where("status", "==", "arrived").get();
+    const due = snap.docs.filter((d) => {
+      const c = d.data(), dl = c.pickup_deadline && c.pickup_deadline.toMillis();
+      if (!dl || c.pick_reminded_at || c.is_test === true) return false;
+      const left = dl - nowMs, since = c.arrived_at ? nowMs - c.arrived_at.toMillis() : Infinity;
+      return left > 0 && left <= 36 * H && since >= 12 * H;
+    });
+    if (!due.length) return;
+    const st = await db.collection("gb_settings").doc("stores").get();
+    const opened = st.exists && st.data().open === true;
+    const us = await db.collection("users").where("permission", "in", opened ? ["manager", "admin"] : ["admin"]).get();
+    const users = us.docs.map((d) => ({ uid: d.id, ...d.data() })).filter((u) => u.disabled !== true);
+    const CODE = { "美德": "meide", "聯鑫": "lianxin", "錦花": "jinhua" }, NAME = { meide: "美德", lianxin: "聯鑫", jinhua: "錦花" };
+    const fmt = (ms) => new Date(ms).toLocaleString("zh-TW", { timeZone: "Asia/Taipei", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+    for (const d of due) {
+      const c = d.data();
+      const os = await db.collection("gb_orders").where("campaign_id", "==", d.id).where("status", "==", "active").get();
+      const byStore = {};
+      os.docs.forEach((o) => { const x = o.data(); const b = byStore[x.store] = byStore[x.store] || { n: 0, q: 0 }; b.n++; b.q += x.qty || 0; });
+      for (const code of Object.keys(byStore)) {
+        const uids = users.filter((u) => opened ? (u.permission === "manager" && CODE[u.store] === code) : u.permission === "admin").map((u) => u.uid);
+        if (!uids.length) continue;
+        const b = byStore[code];
+        await sendOrQueuePush(db, uids, { title: `📦 ${NAME[code] || code}：團購還有 ${b.n} 位沒取貨`,
+          body: `「${c.title}」還有 ${b.n} 位未取（${b.q} 份），取貨期限 ${fmt(c.pickup_deadline.toMillis())}，點開看名單與電話`,
+          url: "groupbuy.html?tab=pick", tag: `gb-pick-${d.id}-${code}` }, VAPID_PRIVATE.value(), false).catch((e) => console.warn("[gbPick]", e.message));
+      }
+      await d.ref.update({ pick_reminded_at: admin.firestore.FieldValue.serverTimestamp() });
+    }
+  }
+);
