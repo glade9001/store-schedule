@@ -92,6 +92,18 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
 .kpi-label{font-size:11px;color:var(--text-muted);font-weight:700;}
 .kpi-val{font-size:18px;font-weight:900;margin-top:2px;line-height:1.2;}
 .kpi-delta{font-size:11px;margin-top:4px;font-weight:800;}
+.hl .hl-sub{font-size:11px;font-weight:700;color:var(--text-muted);margin-left:4px;}
+.hl-row{font-size:13px;line-height:1.6;padding:5px 0;border-top:1px solid #f1f5f9;display:flex;gap:6px;}
+.chart-title+.hl-row{border-top:none;}
+.hl-ic{flex:0 0 auto;}
+.more-fold .chart-card{box-shadow:none;border:1px solid #eef1f4;margin-bottom:10px;}
+#discBox .kpi{box-shadow:none;background:#f8fafc;}
+#discBox .kpi-row{display:grid;grid-template-columns:1fr 1fr;}
+.pf-legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11px;font-weight:700;color:#475569;margin:-2px 0 4px;}
+.pf-legend span{display:inline-flex;align-items:center;gap:5px;}
+.pf-legend i{display:inline-block;width:18px;height:0;}
+.pf-legend b{display:inline-block;width:10px;height:10px;border-radius:2px;}
+
 </style>
 </head>
 <body>
@@ -165,6 +177,7 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
 <div id="ptPop" onclick="this.style.display='none'" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#fff;border:1.5px solid var(--border);box-shadow:0 6px 24px rgba(0,0,0,.18);border-radius:14px;padding:12px 18px;z-index:99998;max-width:88vw;text-align:center;cursor:pointer;"></div>
 
 <script src="pnl-loss.js"></script>
+<script src="attendance-discipline.js"></script>
 <script src="performance-page.js"></script>
 </body>
 </html>

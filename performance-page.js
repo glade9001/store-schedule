@@ -250,6 +250,28 @@ function switchTab(t){
 }
 // 點值精簡格式：萬/整數/一位小數
 function ptFmt(v){ if(v==null)return''; const a=Math.abs(v); if(a>=10000)return (v/10000).toFixed(1)+'萬'; if(Number.isInteger(v))return String(v); return v.toFixed(1); }
+// Y 軸範圍：不再貼著資料上下緣縮放（毛利率差 1pt 也會撐滿整張圖、看起來像大起大落）。
+// 範圍至少要有 minSpan（絕對值，例：毛利率 8pt）或 minSpanPct（平均值的百分比，例：營收 40%），
+// 資料本身變動更大時才照資料撐開；全部 ≥0 的指標下緣不低於 0。
+function chartRange(vals,opt){
+  const dMin=Math.min(...vals), dMax=Math.max(...vals);
+  let min=dMin, max=dMax;
+  const mean=vals.reduce((s,v)=>s+Math.abs(v),0)/vals.length;
+  const need=Math.max(opt.minSpan||0,(opt.minSpanPct||0)*mean/100);
+  if(max-min<need){ const c=(max+min)/2; min=c-need/2; max=c+need/2; }
+  if(min===max){ min-=Math.abs(min||1)*0.1; max+=Math.abs(max||1)*0.1; }
+  if(dMin>=0 && min<0){ max-=min; min=0; }
+  return [min,max];
+}
+// 去年同月差異文字：金額類用 %，比率類（opt.yoy='pp'）用百分點
+function yoyText(cur,prev,opt){
+  if(cur==null||prev==null) return '';
+  if(opt.yoy==='pp'){ const d=cur-prev; return (d>=0?'+':'')+d.toFixed(1)+'pt'; }
+  if(!prev) return '';
+  const d=(cur-prev)/Math.abs(prev)*100; return (d>=0?'+':'')+d.toFixed(1)+'%';
+}
+// 單店趨勢折線：實線＝當月數字，灰虛線＝去年同月（同一個 X 位置）→ 一眼分得出是季節性還是真的變了。
+// points=[{label,value,prev,detail}]；opt={color,fmt,minSpan,minSpanPct,yoy}
 function lineChart(points,opt){
   opt=opt||{};
   const esc=s=>String(s==null?'':s).replace(/['"\\<>]/g,'');
@@ -261,29 +283,79 @@ function lineChart(points,opt){
   if(a>b)return '<div style="font-size:12px;color:var(--text-muted);">尚無資料</div>';
   points=points.slice(a,b+1);
   const vals=points.map(p=>p.value).filter(v=>v!=null);
-  if(!vals.length)return '<div style="font-size:12px;color:var(--text-muted);">尚無資料</div>';
+  const pvals=points.map(p=>p.prev).filter(v=>v!=null);
+  const hasPrev=pvals.length>0;
   const n=points.length, W=Math.max(340,n*58+80), H=192, pl=38,pr=42,pt=28,pb=28, iw=W-pl-pr, ih=H-pt-pb;
-  let min=Math.min(...vals),max=Math.max(...vals);if(min===max){min=min-Math.abs(min||1)*0.1;max=max+Math.abs(max||1)*0.1;}
+  const [min,max]=chartRange(vals.concat(pvals),opt);
   const X=i=>pl+(n<=1?iw/2:i/(n-1)*iw);
   const Y=v=>pt+ih-(v-min)/(max-min)*ih;
-  // 平均線（虛線）＋左上標示
   // Y 軸刻度線（3 等分，淺灰）
   let grid='';
   for(let t=0;t<=3;t++){const gv=min+(max-min)*t/3, gy=Y(gv);
     grid+=`<line x1="${pl}" y1="${gy.toFixed(1)}" x2="${(W-pr).toFixed(1)}" y2="${gy.toFixed(1)}" stroke="#eef1f4" stroke-width="1"/>`+
       `<text x="${(pl-5)}" y="${(gy+3).toFixed(1)}" font-size="8" fill="#bbb" text-anchor="end">${ptFmt(gv)}</text>`;}
+  // 平均線（虛線）＋左上標示
   const avg=vals.reduce((s,v)=>s+v,0)/vals.length, avgY=Y(avg);
   const avgLine=`<line x1="${pl}" y1="${avgY.toFixed(1)}" x2="${(W-pr).toFixed(1)}" y2="${avgY.toFixed(1)}" stroke="${opt.color}" stroke-width="1" stroke-dasharray="4 3" opacity=".45"/>`+
     `<text x="${(pl+2)}" y="${(avgY-4).toFixed(1)}" font-size="8.5" fill="${opt.color}" text-anchor="start" opacity=".9" font-weight="700">均 ${fmtV(avg)}</text>`;
+  // 去年同月：灰色虛線，中間缺月就斷開（不硬連）
+  let prevPath='',prevDots='',pen=false;
+  points.forEach((p,i)=>{ if(p.prev==null){pen=false;return;} const x=X(i),y=Y(p.prev);
+    prevPath+=(pen?' L':' M')+x.toFixed(1)+' '+y.toFixed(1); pen=true;
+    prevDots+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2" fill="#94a3b8"/>`; });
   let path='',dots='',taps='',vlabels='',labels='';
   points.forEach((p,i)=>{if(p.value==null)return;const x=X(i),y=Y(p.value);
     path+=(path?' L':'M')+x.toFixed(1)+' '+y.toFixed(1);
     dots+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.8" fill="${opt.color}"/>`;
-    taps+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="14" fill="transparent" style="cursor:pointer" onclick="showPt('${esc(p.label)}','${esc(fmtV(p.value))}','${esc(p.detail||'')}')"/>`;
+    const yo=p.prev!=null?`去年同月 ${fmtV(p.prev)}（${yoyText(p.value,p.prev,opt)||'—'}）`:(hasPrev?'去年同月 無資料':'');
+    const det=[yo,p.detail||''].filter(Boolean).join('｜');
+    taps+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="14" fill="transparent" style="cursor:pointer" onclick="showPt('${esc(p.label)}','${esc(fmtV(p.value))}','${esc(det)}')"/>`;
     vlabels+=`<text x="${x.toFixed(1)}" y="${(y-6).toFixed(1)}" font-size="9" fill="${opt.color}" text-anchor="middle" font-weight="800">${ptFmt(p.value)}</text>`;});
   points.forEach((p,i)=>{labels+=`<text x="${X(i).toFixed(1)}" y="${H-8}" font-size="9" fill="#999" text-anchor="middle">${p.label}</text>`;});
-  return `<div class="chart-scroll" style="overflow-x:auto;"><svg viewBox="0 0 ${W} ${H}" style="min-width:${W}px;height:auto;">
-    ${grid}${avgLine}<path d="${path}" fill="none" stroke="${opt.color}" stroke-width="2.2"/>${dots}${taps}${vlabels}${labels}</svg></div>`;
+  // 圖例放在捲動區外面：圖表一打開就捲到最右邊（看最新月份），畫在 SVG 左上角的圖例會被捲走
+  const legend=hasPrev?`<div class="pf-legend"><span><i style="border-top:2.5px solid ${opt.color}"></i>當月</span><span><i style="border-top:2px dashed #94a3b8"></i>去年同月</span></div>`:'';
+  return `${legend}<div class="chart-scroll" style="overflow-x:auto;"><svg viewBox="0 0 ${W} ${H}" style="min-width:${W}px;height:auto;">
+    ${grid}${avgLine}<path d="${prevPath}" fill="none" stroke="#94a3b8" stroke-width="1.6" stroke-dasharray="4 3"/>${prevDots}<path d="${path}" fill="none" stroke="${opt.color}" stroke-width="2.2"/>${dots}${taps}${vlabels}${labels}</svg></div>`;
+}
+// 淨損耗堆疊長條：壞品／盤損（攤提）／現金短少 三段疊起來，一眼看出損耗從哪裡來。
+// 盤盈、現金溢收是負的損耗，不畫進長條（疊不上去），但長條頂端的數字＝真正的淨損耗（已扣掉）。
+// 灰色短橫線＝去年同月淨損耗。盤損是估算的月份（尚未盤點）那段畫淡色並標「估」。
+// rows=[{label,bad,inv,cash,total,prev,est,note}]
+const LOSS_PARTS=[{k:'bad',t:'壞品',c:'#c5221f'},{k:'inv',t:'盤損',c:'#f59e0b'},{k:'cash',t:'現金短少',c:'#7c3aed'}];
+function lossBarChart(rows){
+  const esc=s=>String(s==null?'':s).replace(/['"\\<>]/g,'');
+  let a=0,b=rows.length-1;
+  while(a<=b && rows[a].total==null)a++;
+  while(b>=a && rows[b].total==null)b--;
+  if(a>b)return '<div style="font-size:12px;color:var(--text-muted);">尚無資料</div>';
+  rows=rows.slice(a,b+1);
+  const pos=v=>(v!=null&&v>0)?v:0;
+  const top=Math.max(...rows.map(r=>Math.max(LOSS_PARTS.reduce((s,p)=>s+pos(r[p.k]),0), r.total||0, r.prev||0)),1)*1.15;
+  const n=rows.length, W=Math.max(340,n*58+80), H=196, pl=38,pr=42,pt=24,pb=28, iw=W-pl-pr, ih=H-pt-pb;
+  const step=iw/n, bw=Math.min(30,step*0.56);
+  const X=i=>pl+step*(i+0.5), Y=v=>pt+ih-v/top*ih;
+  let grid='';
+  for(let t=0;t<=3;t++){const gv=top*t/3, gy=Y(gv);
+    grid+=`<line x1="${pl}" y1="${gy.toFixed(1)}" x2="${(W-pr).toFixed(1)}" y2="${gy.toFixed(1)}" stroke="#eef1f4" stroke-width="1"/>`+
+      `<text x="${(pl-5)}" y="${(gy+3).toFixed(1)}" font-size="8" fill="#bbb" text-anchor="end">${ptFmt(gv)}</text>`;}
+  let bars='',labels='';
+  rows.forEach((r,i)=>{
+    const x=X(i)-bw/2; let acc=0;
+    if(r.total!=null){
+      LOSS_PARTS.forEach(p=>{ const v=pos(r[p.k]); if(!v) return;
+        const y1=Y(acc+v), h=Y(acc)-y1;
+        bars+=`<rect x="${x.toFixed(1)}" y="${y1.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" fill="${p.c}" opacity="${p.k==='inv'&&r.est?0.4:0.9}"/>`;
+        acc+=v; });
+      bars+=`<text x="${X(i).toFixed(1)}" y="${(Y(Math.max(acc,r.total))-5).toFixed(1)}" font-size="9" fill="#b91c1c" text-anchor="middle" font-weight="800">${ptFmt(r.total)}${r.est?'·估':''}</text>`;
+      const det=LOSS_PARTS.map(p=>`${p.t} ${r[p.k]==null?'—':money(r[p.k])}`).join('｜')
+        +(r.prev!=null?`｜去年同月 ${money(r.prev)}（${yoyText(r.total,r.prev,{})||'—'}）`:'｜去年同月 無資料')+(r.note?'｜'+r.note:'');
+      bars+=`<rect x="${(X(i)-step/2).toFixed(1)}" y="${pt}" width="${step.toFixed(1)}" height="${ih}" fill="transparent" style="cursor:pointer" onclick="showPt('${esc(r.label)} 淨損耗','${esc(money(r.total))}','${esc(det)}')"/>`;
+    }
+    if(r.prev!=null){ const py=Y(pos(r.prev)); bars+=`<line x1="${(X(i)-bw/2-4).toFixed(1)}" y1="${py.toFixed(1)}" x2="${(X(i)+bw/2+4).toFixed(1)}" y2="${py.toFixed(1)}" stroke="#64748b" stroke-width="2" stroke-dasharray="3 2"/>`; }
+    labels+=`<text x="${X(i).toFixed(1)}" y="${H-8}" font-size="9" fill="#999" text-anchor="middle">${r.label}</text>`;
+  });
+  const legend=`<div class="pf-legend">${LOSS_PARTS.map(p=>`<span><b style="background:${p.c}"></b>${p.t}</span>`).join('')}<span><i style="border-top:2px dashed #64748b"></i>去年同月</span></div>`;
+  return `${legend}<div class="chart-scroll" style="overflow-x:auto;"><svg viewBox="0 0 ${W} ${H}" style="min-width:${W}px;height:auto;">${grid}${bars}${labels}</svg></div>`;
 }
 /** 圖表畫完捲到最右邊：看的永遠是最新月份（不加的話每次都要自己往右滑） */
 function pfScrollChartsToEnd(root){
@@ -432,6 +504,91 @@ function pfRecentTable(months){
     </div></details>`;
 }
 
+// ===== 🔎 本月重點：跟去年同月比，挑出進步最多、退步最多的一項（不用自己一張張圖找）=====
+// 不同單位要排在一起比，一律換成「相對變化 %」排序；毛利率顯示時用百分點。
+// 現金短少會正負翻轉、金額又小，相對變化沒意義 → 不列入。金額類去年不到 3,000 元、或差不到 3,000 元的也跳過（雜支去年 380 元→今年 5,185 元會變成「+1264%」，不算重點）。
+function pfHighlights(m){
+  const L=pnlCache[m]; if(!L) return '';
+  const pm=prevYearMonth(m), P=pnlCache[pm];
+  const num=(d,k)=>(d&&d[k]!=null&&d[k]!=='')?+d[k]:null;
+  const PL=window.PnlLoss;
+  const cand=[
+    {t:'營業淨額',cur:num(L,'netSales'),prev:num(P,'netSales'),up:1},
+    {t:'毛利率',cur:num(L,'grossMargin'),prev:num(P,'grossMargin'),up:1,pp:1},
+    {t:'經營報酬',cur:num(L,'operatingReward'),prev:num(P,'operatingReward'),up:1},
+    {t:'淨損耗',cur:PL?PL.netLoss(L,amortCache[m]):null,prev:PL?PL.netLoss(P,amortCache[pm]):null,up:0,
+      tail:(amortCache[m]&&amortCache[m].est)?'，盤損為估算':''},
+    {t:'壞品',cur:num(L,'badGoodsCost'),prev:num(P,'badGoodsCost'),up:0},
+    {t:'門市電費',cur:num(L,'elecCost'),prev:num(P,'elecCost'),up:0},
+    {t:'雜支',cur:num(L,'miscCost'),prev:num(P,'miscCost'),up:0},
+  ].filter(c=>c.cur!=null&&c.prev!=null&&c.prev!==0&&(c.pp||(Math.abs(c.prev)>=3000&&Math.abs(c.cur-c.prev)>=3000)));
+  cand.forEach(c=>{ c.rel=(c.cur-c.prev)/Math.abs(c.prev)*100; c.good=c.up?c.rel:-c.rel;
+    c.txt=c.pp?`${c.cur.toFixed(1)}%（去年 ${c.prev.toFixed(1)}%，${c.cur>=c.prev?'+':''}${(c.cur-c.prev).toFixed(1)}pt${c.tail||''}）`
+      :`${money(c.cur)} 元（${c.rel>=0?'+':''}${c.rel.toFixed(1)}%${c.tail||''}）`; });
+  const lines=[];
+  if(!cand.length) lines.push('<div class="hl-row">去年同月沒有資料，還不能比較。</div>');
+  else{
+    const best=cand.reduce((a,b)=>b.good>a.good?b:a), worst=cand.reduce((a,b)=>b.good<a.good?b:a);
+    lines.push(best.good>0?`<div class="hl-row"><span class="hl-ic">✅</span>進步最多：<b>${best.t}</b> ${best.txt}</div>`:'<div class="hl-row"><span class="hl-ic">➖</span>沒有比去年進步的項目</div>');
+    lines.push(worst.good<0?`<div class="hl-row"><span class="hl-ic">⚠️</span>退步最多：<b>${worst.t}</b> ${worst.txt}</div>`:'<div class="hl-row"><span class="hl-ic">👍</span>沒有比去年退步的項目</div>');
+  }
+  // 人事費率去年沒有資料（2026/5 起才有）→ 跟上月比
+  const lr=x=>(perfCache[x]&&!PERF_EXCLUDE.has(x)&&num(pnlCache[x],'netSales'))?perfCache[x].laborCost/num(pnlCache[x],'netSales')*100:null;
+  const [y,mo]=m.split('-').map(Number), lm=`${mo===1?y-1:y}-${pad(mo===1?12:mo-1)}`;
+  const r=lr(m), rp=lr(lm);
+  if(r!=null) lines.push(`<div class="hl-row"><span class="hl-ic">📐</span>人事費率 <b>${r.toFixed(1)}%</b>${rp!=null?`（上月 ${rp.toFixed(1)}%，${r<=rp?'下降':'上升'} ${Math.abs(r-rp).toFixed(1)}pt）`:''}</div>`);
+  return `<div class="chart-card hl"><div class="chart-title">🔎 本月重點 <span class="hl-sub">${monthLabel(m)}・跟去年同月比</span></div>${lines.join('')}</div>`;
+}
+
+// ===== 🕐 出勤紀律（單店）：口徑同加盟主儀表板（attendance-discipline.js）=====
+const ATT_START='2026-08';   // 打卡系統的正式資料從 2026/8 起
+const DISC_K=[
+  {k:'missRate',t:'缺卡率',up:0},{k:'reqRate',t:'補登率',up:0},{k:'lateRate',t:'遲到率',up:0},{k:'appRate',t:'App 打卡率',up:1}];
+let discCache={}, discKey='appRate', discMonths=[];
+function ymNext(m){const[y,mo]=m.split('-').map(Number);return mo===12?`${y+1}-01`:`${y}-${pad(mo+1)}`;}
+function ymNow(){const d=new Date();return `${d.getFullYear()}-${pad(d.getMonth()+1)}`;}
+async function renderDisc(){
+  const box=document.getElementById('discBox'); if(!box) return;
+  const store=curStore, now=ymNow();
+  // 期間跟著上方的選擇；選到最新一個損益月時，一併帶出還沒有損益的月份（含本月進行中）
+  const allM=Object.keys(pnlCache).sort();
+  const end=(anaTo===allM[allM.length-1])?now:anaTo;
+  const months=[]; for(let m=anaFrom>ATT_START?anaFrom:ATT_START; m<=end; m=ymNext(m)) months.push(m);
+  await Promise.all(months.map(async ym=>{ const k=store+'|'+ym; if(discCache[k]!==undefined) return;
+    try{ discCache[k]=await window.AttDisc.month(store,ym); }catch(e){ discCache[k]=null; } }));
+  if(store!==curStore) return;   // 讀取途中換了門市
+  discMonths=months; drawDisc();
+}
+function drawDisc(){
+  const box=document.getElementById('discBox'); if(!box) return;
+  const store=curStore, now=ymNow(), months=discMonths;
+  const lbl=m=>{const p=m.split('-');return `${p[0].slice(2)}/${parseInt(p[1])}`;};
+  const D_=m=>discCache[store+'|'+m]||null;
+  const got=months.filter(D_);
+  const head='<div class="chart-title">🕐 出勤紀律</div>';
+  if(!got.length){ box.innerHTML=head+'<div style="font-size:12px;color:var(--text-muted);">此期間沒有打卡資料（打卡系統 2026/8 起）</div>'; return; }
+  // 指標卡看最近一個「完整」月份；本月還在進行中，數字會變
+  const full=got.filter(m=>m<now), cur=full.length?full[full.length-1]:got[got.length-1];
+  const D=D_(cur), Pd=D_(got[got.indexOf(cur)-1]||'');
+  const tiles=DISC_K.map(c=>{ const v=D[c.k], pv=Pd?Pd[c.k]:null;
+    let delta='<div class="kpi-delta neu">上月無資料</div>';
+    if(v!=null&&pv!=null){ const d=Math.round((v-pv)*10)/10, better=c.up?d>=0:d<=0;
+      delta=d===0?'<div class="kpi-delta neu">與上月持平</div>':`<div class="kpi-delta ${better?'up':'down'}">${better?'▲':'▼'} 上月 ${pv}%</div>`; }
+    return `<div class="kpi"><div class="kpi-label">${c.t}</div><div class="kpi-val">${v==null?'—':v+'%'}</div>${delta}</div>`; }).join('');
+  const col=DISC_K.find(c=>c.k===discKey)||DISC_K[3];
+  const sel=`<select onchange="discKey=this.value;drawDisc();" style="padding:6px 8px;border:1.5px solid var(--border);border-radius:8px;font-weight:700;font-size:12px;">${DISC_K.map(c=>`<option value="${c.k}"${c.k===col.k?' selected':''}>${c.t}</option>`).join('')}</select>`;
+  const pts=months.map(m=>{ const d=D_(m);
+    return {label:lbl(m)+(m===now?'*':''), value:d?d[col.k]:null,
+      detail:d?`${d.shifts} 班｜缺卡 ${d.miss} 張（未處理 ${d.missOpen}）｜補登 ${d.req} 件｜遲到 ${d.late}/${d.ins} 次｜App 打卡 ${d.app}・補登寫入 ${d.manual}`:''}; });
+  box.innerHTML=head
+    +`<div style="font-size:12px;color:var(--text-muted);margin:-2px 0 8px;">${monthLabel(cur)}${cur===now?'（進行中）':''}・${D.shifts} 班${D.missOpen?`・<b style="color:#c5221f;">未處理缺卡 ${D.missOpen} 張</b>`:''}</div>`
+    +`<div class="kpi-row">${tiles}</div>`
+    +`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;"><span style="font-size:12.5px;font-weight:800;color:var(--text-muted);">趨勢</span>${sel}</div>`
+    +lineChart(pts,{color:'#0b5aa8',fmt:v=>v.toFixed(1)+'%',minSpan:10,yoy:'pp'})
+    +`<div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;">缺卡率＝缺卡單÷班數（已補登的照算）；補登率＝補登申請÷班數；遲到率＝遲到÷上班卡；App 打卡率＝App 打的卡÷（App 卡＋補登寫入的卡），越高代表越少靠補登。${months.includes(now)?'＊本月進行中，數字還會變。':''}逐筆明細請到「出勤管理」。</div>`;
+  pfScrollChartsToEnd(box);
+}
+
 function renderAnalysis(){
   const wrap=document.getElementById('tabAnalysis');
   const allM=Object.keys(pnlCache).sort();
@@ -470,27 +627,42 @@ function renderAnalysis(){
     ${rateKpi}
     ${surplusKpi}
   </div><div style="font-size:12px;color:var(--text-muted);margin:-6px 4px 12px;">最新：${last.split('-')[0]}年${parseInt(last.split('-')[1])}月 · ${curStore}（KPI 與去年同期比）</div>`;
-  const chart=(title,key,fmt,color,unit)=>`<div class="chart-card"><div class="chart-title">${title}</div>${lineChart(pts.map(p=>({label:lbl(p.m),value:p.d[key]!=null?p.d[key]:null})),{fmt:v=>fmt(v)+unit,color})}</div>`;
-  const derived=(title,color,fn,fmt,unit)=>{const dp=pts.map(p=>{
-    const usable=perfCache[p.m]&&!PERF_EXCLUDE.has(p.m)&&p.d&&p.d.netSales;
+  // 每項指標的 Y 軸最小範圍（見 chartRange）與同比口徑（pp＝百分點）
+  const SPAN={netSales:{minSpanPct:40},grossMargin:{minSpan:8,yoy:'pp'},operatingReward:{minSpanPct:60},badGoodsCost:{minSpanPct:80},
+    elecCost:{minSpanPct:80},miscCost:{minSpanPct:100},cashDiff:{minSpan:6000}};
+  const val=(m,key)=>{const d=pnlCache[m]; return (d&&d[key]!=null&&d[key]!=='')?+d[key]:null;};
+  const chart=(title,key,fmt,color,unit)=>`<div class="chart-card"><div class="chart-title">${title}</div>${lineChart(pts.map(p=>({label:lbl(p.m),value:val(p.m,key),prev:val(prevYearMonth(p.m),key)})),Object.assign({fmt:v=>fmt(v)+unit,color},SPAN[key]||{}))}</div>`;
+  const perfUsable=m=>perfCache[m]&&!PERF_EXCLUDE.has(m)&&pnlCache[m]&&pnlCache[m].netSales;
+  const derived=(title,color,fn,fmt,unit,span)=>{const dp=pts.map(p=>{
+    const usable=perfUsable(p.m), pm=prevYearMonth(p.m);
     const pf=perfCache[p.m],pn=p.d;
     const det=usable?`營業淨額 ${money(pn.netSales)} 元｜經營報酬 ${money(pn.operatingReward)} 元｜人事成本(含支援) ${money(pf.laborCost)} 元｜總工時 ${pf.totalHours}h（本店${pf.ownHours} 支入${pf.supportInHours||0} 支出${pf.supportOutHours||0}）`:'';
-    return {label:lbl(p.m),value:usable?fn(pf,pn):null,detail:det};
-  });if(!dp.some(x=>x.value!=null))return '';return `<div class="chart-card"><div class="chart-title">${title}</div>${lineChart(dp,{fmt:v=>fmt(v)+unit,color})}</div>`;};
+    return {label:lbl(p.m),value:usable?fn(pf,pn):null,prev:perfUsable(pm)?fn(perfCache[pm],pnlCache[pm]):null,detail:det};
+  });if(!dp.some(x=>x.value!=null))return '';return `<div class="chart-card"><div class="chart-title">${title}</div>${lineChart(dp,Object.assign({fmt:v=>fmt(v)+unit,color},span||{}))}</div>`;};
+  // 淨損耗拆成三段（壞品／盤損攤提／現金短少），盤損負號存（盤損<0）故取負變成正的損失
+  const PL=window.PnlLoss;
+  const lossRows=pts.map(p=>{const am=amortCache[p.m], pm=prevYearMonth(p.m);
+    return {label:lbl(p.m), bad:val(p.m,'badGoodsCost'), inv:(am&&am.amort!=null)?-am.amort:null, cash:val(p.m,'cashDiff'),
+      total:PL?PL.netLoss(p.d,am):null, prev:PL?PL.netLoss(pnlCache[pm],amortCache[pm]):null, est:!!(am&&am.est), note:PL?PL.note(am):''};});
+  const lossCard=`<div class="chart-card"><div class="chart-title">淨損耗（元，越低越好）</div>${lossBarChart(lossRows)}<div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;">點長條看三項金額。盤點約 60~90 天一次，盤損已平均攤到它涵蓋的每個月；標「估」＝還沒盤點，盤損先沿用上次的月平均（淡色那段）。盤盈、現金溢收不畫進長條，但頂端數字已扣掉。</div></div>`;
   wrap.innerHTML=rangeBar+kpiHtml
+    +pfHighlights(last)
     +pfRecentTable(months)
     +chart('營業淨額（元）','netSales',money,'#1a73e8','')
-    +chart('毛利率（%）','grossMargin',v=>v.toFixed(1),'#34a853','')
     +chart('經營報酬（元）','operatingReward',money,'#e67e22','')
+    +lossCard
+    +derived('人事費率（人事成本÷營業淨額 %，越低越好）','#9334e6',(pf,pn)=>pf.laborCost/pn.netSales*100,v=>v.toFixed(1),'%',{minSpan:8,yoy:'pp'})
+    +`<div id="discBox" class="chart-card"><div class="chart-title">🕐 出勤紀律</div><div style="font-size:12px;color:var(--text-muted);">載入中…</div></div>`
+    +`<details class="chart-card rt-fold more-fold" ontoggle="if(this.open)pfScrollChartsToEnd(this)"><summary class="chart-title">📈 更多指標（毛利率、壞品、電費、雜支、現金短少、人力效率）</summary>`
+    +chart('毛利率（%）','grossMargin',v=>v.toFixed(1),'#34a853','')
     +chart('壞品（元）','badGoodsCost',money,'#c5221f','')
     +chart('門市電費（元）','elecCost',money,'#0891b2','')
     +chart('雜支（元）','miscCost',money,'#7c3aed','')
     +chart('現金短少（元，正＝短少為成本）','cashDiff',money,'#c0620f','')
-    +`<div class="chart-card"><div class="chart-title">淨損耗（壞品＋盤損＋現金短少，元，越低越好）</div>${lineChart(pts.map(p=>({label:lbl(p.m),value:window.PnlLoss?window.PnlLoss.netLoss(p.d,amortCache[p.m]):null,detail:window.PnlLoss?window.PnlLoss.note(amortCache[p.m]):''})),{fmt:money,color:'#b91c1c'})}<div style="font-size:11px;color:var(--text-muted);margin-top:6px;">盤點約 60~90 天一次，盤損已平均攤提到它涵蓋的每個月，故各月可互相比較；尚未盤點的月份沿用上次區間月均估算。</div></div>`
-    +`<div style="font-size:12px;color:var(--text-muted);font-weight:700;margin:8px 4px 8px;">📈 人力效率（含支援，需該月薪資已結算，2026/5 起；2026/4 系統剛上線不列入）</div>`
-    +derived('人事費率（人事成本÷營業淨額 %，越低越好）','#9334e6',(pf,pn)=>pf.laborCost/pn.netSales*100,v=>v.toFixed(1),'%')
-    +derived('每工時營收（營業淨額÷總工時，元/h）','#0891b2',(pf,pn)=>pf.totalHours?pn.netSales/pf.totalHours:null,v=>Math.round(v).toLocaleString('en-US'),'')
-    +derived('門市實際餘裕（經營報酬−人事成本，元）','#137333',(pf,pn)=>pn.operatingReward-pf.laborCost,money,'')
+    +`<div style="font-size:12px;color:var(--text-muted);font-weight:700;margin:8px 4px 8px;">人力效率（含支援，需該月薪資已結算，2026/5 起；2026/4 系統剛上線不列入）</div>`
+    +derived('每工時營收（營業淨額÷總工時，元/h）','#0891b2',(pf,pn)=>pf.totalHours?pn.netSales/pf.totalHours:null,v=>Math.round(v).toLocaleString('en-US'),'',{minSpanPct:40})
+    +derived('門市實際餘裕（經營報酬−人事成本，元）','#137333',(pf,pn)=>pn.operatingReward-pf.laborCost,money,'',{minSpanPct:80})
+    +`</details>`
     +(isAdminOwner()?`<div class="chart-card">
       <div class="chart-title" style="margin-bottom:10px;">🏪 三店比較</div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
@@ -503,6 +675,7 @@ function renderAnalysis(){
       <div id="compareBox"><div style="font-size:12px;color:var(--text-muted);">載入中…</div></div>
     </div>`:'');
   pfScrollChartsToEnd(wrap);
+  renderDisc();
   if(isAdminOwner()){ renderStoreTrend(); renderCompare(months[months.length-1]); }
 }
 let cmpData=null; // {store:{pnl:{m:..},perf:{m:..}}}

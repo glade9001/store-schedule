@@ -310,30 +310,9 @@ async function scanMonth(store,ym){
 }
 
 // ===== 出勤紀律追蹤（2026-10-10）：缺卡率／補登率／遲到率／未處理缺卡 =====
-// 分母「班數」＝當月有配到班別的上下班卡＋缺卡單，以「人｜班別日｜班別」去重（排班表不用另外讀）。
-// 缺卡單：因「已補登／代為補登」被註銷的照算（缺卡確實發生過）；因排班變更等原因被註銷的不算（那張單本來就不成立）。
-async function monthRequests(store,ym){
-  try{ const q=await window.db.collection('stores').doc(store).collection('attendanceRequests').where('targetDate','>=',ym+'-01').where('targetDate','<=',ym+'-31').get(); return q.docs.map(d=>d.data()); }
-  catch(e){ return []; }
-}
-function disciplineOf(att, reqs){
-  const keys=new Set(); let miss=0, missOpen=0, late=0, ins=0;
-  att.forEach(a=>{
-    const day=a.shiftDate||a.date;
-    if(a.type==='缺卡'){
-      if(a.voided && !/補登/.test(a.voidReason||'')) return;
-      miss++; if(!a.voided) missOpen++;
-      if(a.shift) keys.add(a.empName+'|'+day+'|'+a.shift);
-      return;
-    }
-    if(a.voided || !a.shift || a.status==='到場' || (a.type!=='上班'&&a.type!=='下班')) return;
-    keys.add(a.empName+'|'+day+'|'+a.shift);
-    if(a.type==='上班'){ ins++; if(a.status==='遲到') late++; }
-  });
-  const req=(reqs||[]).length, shifts=keys.size;
-  const pct=(a,b)=>b?Math.round(a/b*1000)/10:null;
-  return {shifts, miss, missOpen, req, late, ins, missRate:pct(miss,shifts), reqRate:pct(req,shifts), lateRate:pct(late,ins)};
-}
+// 計算口徑在 attendance-discipline.js（performance 單店分析共用），這裡只留薄包裝、呼叫點不變。
+async function monthRequests(store,ym){ return window.AttDisc.monthRequests(store,ym); }
+function disciplineOf(att, reqs){ return window.AttDisc.of(att, reqs); }
 const DISC_COLS=[
   {k:'missRate', t:'缺卡率', fmt:d=>d.missRate==null?'—':d.missRate+'%', sub:d=>`${d.miss}/${d.shifts}班`},
   {k:'reqRate',  t:'補登率', fmt:d=>d.reqRate==null?'—':d.reqRate+'%',  sub:d=>`${d.req}件`},
