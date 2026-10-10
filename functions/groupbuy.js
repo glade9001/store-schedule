@@ -134,7 +134,7 @@ async function placeOrderTx({ cid, store, userId, name, picture, add, source, so
       });
     }
     t.set(db.collection("gb_customers").doc(userId), { display_name: name || "", picture_url: picture || null, last_order_at: ts }, { merge: true });
-    return { qty: after, title: c.title || "", campaignId: tid, round: c.round || 1 };
+    return { qty: after, title: c.title || "", campaignId: tid, round: c.round || 1, ordered: now + add, rule: c.success_rule || "guaranteed", minQty: c.min_qty || 0 };
   });
 }
 
@@ -264,6 +264,10 @@ function sigOk(raw, sig) {
   let got; try { got = Buffer.from(sig, "base64"); } catch (e) { return false; }
   return got.length === mac.length && crypto.timingSafeEqual(got, mac);
 }
+function countdownText(ordered, min) {
+  const lack = Math.max(0, (min || 0) - (ordered || 0));
+  return lack > 0 ? `🎯 目前 ${ordered} 份，還差 ${lack} 份成團（三店合計）` : `🎉 已達成團門檻 ${min} 份，確定成團！`;
+}
 async function liffLink(store) {
   const s = await admin.firestore().collection("gb_settings").doc("liff").get().catch(() => null);
   const id = s && s.exists ? s.data().liff_id : "";
@@ -304,6 +308,17 @@ async function handleEvent(ev) {
   const lm = text.match(/liff\.line\.me\/[^\s?]+\?[^\s]*\bc=([A-Za-z0-9_-]{1,64})/);
   if (lm) { await db.collection("gb_post_map").doc(msgId).set({ campaign_id: lm[1], store, posted_at: FieldValue.serverTimestamp() }); return; }
 
+  // 下單頁（LIFF）代發的「✅ 已登記 商品 +N」：訂單已經成立，不可再當 +1 建單；達標成團的團回覆成團倒數
+  if (/^✅\s*已登記/.test(text)) {
+    if (!src.userId) return;
+    const os = await db.collection("gb_orders").where("line_user_id", "==", src.userId).get();
+    const last = os.docs.map((d) => d.data()).filter((o) => o.status === "active" && o.store === store)
+      .sort((a, b) => ((b.updated_at && b.updated_at.toMillis()) || 0) - ((a.updated_at && a.updated_at.toMillis()) || 0))[0];
+    if (!last) return;
+    const lc = await db.collection("gb_campaigns").doc(last.campaign_id).get();
+    if (lc.exists && lc.data().success_rule === "threshold") await reply(ev.replyToken, countdownText(lc.data().ordered_qty || 0, lc.data().min_qty || 0));
+    return;
+  }
   const p = parsePlus(text);
   if (!p) return;                                              // 不是 +1：不存檔、不回應
   const userId = src.userId || "";
@@ -349,8 +364,13 @@ async function handleEvent(ev) {
   }
   try {
     const r = await placeOrderTx({ cid, store, userId, name: prof.displayName || "", picture: prof.pictureUrl || null, add: p.qty, source: "group_text", sourceMessageId: msgId });
-    const cfg = await db.collection("gb_settings").doc("bot").get().catch(() => null);
-    if (cfg && cfg.exists && cfg.data().reply_on_success === true) await reply(ev.replyToken, `已登記 ${prof.displayName || ""}：${r.title} 共 ${r.qty} 份`);
+    // 達標成團：每次 +N 都回覆成團倒數（2026-10-11 使用者要求；回覆免費）；保證成團照「成單回覆」開關
+    if (r.rule === "threshold") {
+      await reply(ev.replyToken, `已登記 ${prof.displayName || ""}：${r.title} 共 ${r.qty} 份 👍\n` + countdownText(r.ordered, r.minQty));
+    } else {
+      const cfg = await db.collection("gb_settings").doc("bot").get().catch(() => null);
+      if (cfg && cfg.exists && cfg.data().reply_on_success === true) await reply(ev.replyToken, `已登記 ${prof.displayName || ""}：${r.title} 共 ${r.qty} 份`);
+    }
   } catch (e) {
     const kind = (e && e.details && e.details.kind) || "";
     if (kind === "closed") { await reply(ev.replyToken, "本團已截單，下次早點喊喔 🙏"); return; }

@@ -190,7 +190,8 @@ function lfPostToGroup(title, qty) {
     if (!liff.isInClient()) return;
     var ctx = liff.getContext() || {};
     if (['group', 'room', 'square_chat'].indexOf(ctx.type) < 0) return;
-    liff.sendMessages([{ type: 'text', text: title + ' +' + qty }]).catch(function () {});
+    // ⚠️ 開頭固定「✅ 已登記」：機器人看到就知道是下單頁代發的，不會再當成 +1 重複建單（2026-10-11 修）
+    liff.sendMessages([{ type: 'text', text: '✅ 已登記 ' + title + ' +' + qty }]).catch(function () {});
   } catch (e) {}
 }
 
