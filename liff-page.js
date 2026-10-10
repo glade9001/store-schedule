@@ -345,7 +345,7 @@ function lfCard(c) {
     prog = '<div class="lf-meta" style="margin-top:6px;">' + (lack ? '還差 <b>' + lack + '</b> 份成團（三店合計）' : '✅ 已達成團門檻') + '</div><div class="bar"><i style="width:' + p + '%;background:#06c755;"></i></div>';
   }
   var btn = lfBtn(c);
-  return '<div class="lf-card">' + (img && /^https:\/\//.test(img) ? '<img class="lf-img" src="' + gbEsc(img) + '" alt="">' : '') +
+  return '<div class="lf-card">' + lfGallery(c) +
     '<div class="lf-body"><div class="lf-title">' + gbEsc(c.title) + '</div><div class="lf-price">$' + (c.price || 0) + '</div>' +
     (c.description ? '<div class="lf-desc">' + gbEsc(c.description) + '</div>' : '') +
     '<div class="lf-meta">⏰ ' + gbFmt(c.end_time) + ' 截單（' + gbCountdown(c.end_time) + '）' +
@@ -374,7 +374,7 @@ function lfGroupCard(ms) {
       '</div>' + lfBtn(m, true) + '</div>';
   }).join('');
   var guaranteed = ms.every(function (m) { return m.success_rule !== 'threshold'; });
-  return '<div class="lf-card">' + (img && /^https:\/\//.test(img) ? '<img class="lf-img" src="' + gbEsc(img) + '" alt="">' : '') +
+  return '<div class="lf-card">' + lfGallery(c) +
     '<div class="lf-body"><div class="lf-title">' + gbEsc(c.base_title || c.title) + '</div>' +
     (c.description ? '<div class="lf-desc">' + gbEsc(c.description) + '</div>' : '') +
     '<div class="lf-meta">⏰ ' + gbFmt(c.end_time) + ' 截單（' + gbCountdown(c.end_time) + '）' + (gbLimitTxt(c, true) ? '<br>' + gbLimitTxt(c, true) : '') +
@@ -395,7 +395,7 @@ function lfBundleCard(c) {
   }).join('');
   var prog = c.success_rule === 'threshold' ? (c.min_qty ? '<div class="lf-meta" style="margin-top:6px;">' + (Math.max(0, c.min_qty - (c.ordered_qty || 0)) ? '還差 <b>' + Math.max(0, c.min_qty - (c.ordered_qty || 0)) + '</b> 份成團（三店合計）' : '✅ 已達成團門檻') + '</div>' : '')
     : '<div class="lf-meta" style="margin-top:6px;"><span style="background:#e6f4ea;color:#137333;font-weight:800;border-radius:7px;padding:2px 9px;">✅ 保證成團</span>　截單後一定出貨</div>';
-  return '<div class="lf-card">' + (img && /^https:\/\//.test(img) ? '<img class="lf-img" src="' + gbEsc(img) + '" alt="">' : '') +
+  return '<div class="lf-card">' + lfGallery(c) +
     '<div class="lf-body"><div class="lf-title">' + gbEsc(c.base_title || c.title) + '</div>' +
     (c.description ? '<div class="lf-desc">' + gbEsc(c.description) + '</div>' : '') +
     '<div class="lf-meta">⏰ ' + gbFmt(c.end_time) + ' 截單（' + gbCountdown(c.end_time) + '）' + (gbLimitTxt(c) ? '<br>' + gbLimitTxt(c) + '（每份 ' + gbEsc(c.unit_label || '') + '）' : '') +
@@ -526,4 +526,37 @@ async function lfSavePhone() {
     if (lfAfterPhone) { var f = lfAfterPhone; lfAfterPhone = null; f(); }
   } catch (e) { err.textContent = lfErr(e); }
   ok.disabled = false;
+}
+
+// ---- 多圖（最多 6 張，2026-10-10 使用者選「左右滑動輪播」）----
+// 詳細頁用；列表、分享卡片、首頁只放第一張（封面）。CSS scroll-snap，不用套件；右下角 2/6＋下方圓點；點圖全螢幕看。
+function lfImgList(c) { return (c.images || []).filter(function (u) { return /^https:\/\//.test(u); }).slice(0, 6); }
+function lfGallery(c) {
+  var ims = lfImgList(c);
+  if (!ims.length) return '';
+  if (ims.length === 1) return '<img class="lf-img" src="' + gbEsc(ims[0]) + '" alt="" onclick="lfZoom(\'' + c.id + '\',0)">';
+  return '<div class="lf-gal"><div class="lf-gal-track" onscroll="lfGalScroll(this)">' +
+    ims.map(function (u, i) { return '<img src="' + gbEsc(u) + '" alt="" ' + (i ? 'loading="lazy" ' : '') + 'onclick="lfZoom(\'' + c.id + '\',' + i + ')">'; }).join('') +
+    '</div><span class="lf-gal-n">1/' + ims.length + '</span>' +
+    '<div class="lf-gal-dots">' + ims.map(function (u, i) { return '<i' + (i ? '' : ' class="on"') + '></i>'; }).join('') + '</div></div>';
+}
+function lfGalScroll(el) {
+  var i = Math.round(el.scrollLeft / (el.clientWidth || 1)), box = el.parentNode;
+  var dots = box.querySelectorAll('.lf-gal-dots i'), n = box.querySelector('.lf-gal-n');
+  if (n) n.textContent = (i + 1) + '/' + dots.length;
+  for (var k = 0; k < dots.length; k++) dots[k].className = k === i ? 'on' : '';
+}
+function lfZoom(cid, i) {
+  var c = lfCamps.find(function (x) { return x.id === cid; }); if (!c) return;
+  var ims = lfImgList(c); if (!ims.length) return;
+  var ov = document.createElement('div');
+  ov.className = 'lf-zoom';
+  ov.innerHTML = '<button class="lf-zoom-x" aria-label="關閉">✕</button><div class="lf-gal-track">' +
+    ims.map(function (u) { return '<img src="' + gbEsc(u) + '" alt="">'; }).join('') + '</div>' +
+    (ims.length > 1 ? '<span class="lf-gal-n">' + (i + 1) + '/' + ims.length + '</span>' : '');
+  ov.onclick = function (e) { if (e.target.tagName !== 'IMG') document.body.removeChild(ov); };
+  var tr = ov.querySelector('.lf-gal-track');
+  tr.onscroll = function () { var n = ov.querySelector('.lf-gal-n'); if (n) n.textContent = (Math.round(tr.scrollLeft / (tr.clientWidth || 1)) + 1) + '/' + ims.length; };
+  document.body.appendChild(ov);
+  tr.scrollLeft = i * tr.clientWidth;
 }

@@ -89,13 +89,16 @@
       <div class="f" id="cfPriceWrap"><span>價格（元）</span><input id="cfPrice" type="number" inputmode="numeric" min="1" step="1" required></div>
       <div class="f"><span>每人上限 <small>留空＝不限</small></span><input id="cfLimit" type="number" inputmode="numeric" min="1" step="1" placeholder="不限"></div>
     </div>
-    <div class="f"><span>商品圖片</span>
-      <div style="display:flex;gap:10px;align-items:center;">
-        <div id="cfPreview" class="camp-img" style="width:64px;height:64px;"></div>
-        <label class="btn btn-o" style="cursor:pointer;">📷 選照片上傳<input id="cfFile" type="file" accept="image/*" hidden onchange="uploadCampImage(this.files[0])"></label>
+    <div class="f"><span>商品圖片 <small>最多 6 張，第一張是封面（列表、分享卡片用）</small></span>
+      <div id="cfImgs" class="cf-imgs"></div>
+      <div style="display:flex;gap:10px;align-items:center;margin-top:6px;">
+        <label class="btn btn-o" id="cfAddImg" style="cursor:pointer;">📷 選照片上傳<input id="cfFile" type="file" accept="image/*" multiple hidden onchange="uploadCampImages(this.files);this.value=''"></label>
         <span id="cfUpMsg" style="font-size:12px;color:var(--muted);font-weight:600;"></span>
       </div>
-      <input id="cfImage" type="url" placeholder="或貼圖片網址 https://…" oninput="syncPreview()" style="margin-top:6px;">
+      <div style="display:flex;gap:6px;margin-top:6px;">
+        <input id="cfImage" type="url" placeholder="或貼圖片網址 https://…" style="flex:1;">
+        <button type="button" class="btn btn-o" onclick="addImgUrl()">加入</button>
+      </div>
     </div>
     <div class="f"><span>開放門市</span><div class="checks" id="cfStores"></div></div>
     <label class="f" style="flex-direction:row;align-items:center;gap:8px;"><input type="checkbox" id="cfTest" style="width:20px;height:20px;"> 測試團 <small>只有測試群組與測試連結看得到，客人群組看不到</small></label>

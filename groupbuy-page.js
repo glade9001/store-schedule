@@ -201,8 +201,8 @@ function openCampaignForm(cid) {
   document.getElementById('cfDesc').value = c ? c.description || '' : '';
   document.getElementById('cfPrice').value = c ? c.price || '' : '';
   document.getElementById('cfLimit').value = c && !gbNoLimit(c) ? c.per_user_limit : '';
-  document.getElementById('cfImage').value = c ? (c.images || [])[0] || '' : '';
-  document.getElementById('cfFile').value = ''; document.getElementById('cfUpMsg').textContent = ''; syncPreview();
+  gbImgs = c ? (c.images || []).slice(0, GB_MAX_IMGS) : []; document.getElementById('cfImage').value = ''; renderImgs();
+  document.getElementById('cfFile').value = ''; document.getElementById('cfUpMsg').textContent = '';
   document.getElementById('cfStock').value = c && c.stock != null ? c.stock : '';
   document.getElementById('cfEnd').value = c ? gbInputDateTime(c.end_time) : '';
   document.getElementById('cfArrival').value = c ? gbInputDate(c.arrival_date) : '';
@@ -373,7 +373,7 @@ async function saveCampaign() {
   var stores = owner ? [].slice.call(document.querySelectorAll('#cfStores input:checked')).map(function (x) { return x.value; }) : [gbMyCode];
   var rule = document.querySelector('input[name=cfRule]:checked').value;
   var end = gbTsFromInput(document.getElementById('cfEnd').value);
-  var img = document.getElementById('cfImage').value.trim();
+  if (document.getElementById('cfImage').value.trim()) addImgUrl();   // 貼了網址忘了按「加入」
   if (!title) return err.textContent = '請填商品名稱';
   if (!(price > 0)) return err.textContent = '價格要是大於 0 的整數';
   if (multi) {
@@ -401,7 +401,7 @@ async function saveCampaign() {
   }
   var data = {
     title: title, description: document.getElementById('cfDesc').value.trim(), price: price,
-    images: img ? [img] : [], available_stores: stores, stock: stock, per_user_limit: limit,
+    images: gbImgs.slice(0, GB_MAX_IMGS), available_stores: stores, stock: stock, per_user_limit: limit,
     end_time: end, arrival_date: gbTsFromDate(document.getElementById('cfArrival').value, false),
     pickup_deadline: gbTsFromDate(document.getElementById('cfPickup').value, true),
     success_rule: rule, min_qty: rule === 'threshold' ? min : null, is_test: document.getElementById('cfTest').checked, auto_next: autoNext,
@@ -830,9 +830,24 @@ async function copyLink(url) {
 // 存在 store-schedule-3b056-city 這個 bucket 的 gb/ 資料夾（storage.rules：登入者可上傳 5MB 以內的圖片，其他一律不可讀寫），
 // 顯示用下載權杖網址（不經規則；LIFF 客人頁也看得到）。上傳前先在手機上縮到長邊 1280px、JPEG 0.85，省流量也省空間。
 var GB_BUCKET = 'gs://store-schedule-3b056-city';
-function syncPreview() {
-  var v = document.getElementById('cfImage').value.trim(), p = document.getElementById('cfPreview');
-  p.style.backgroundImage = /^https:\/\//.test(v) ? "url('" + v.replace(/'/g, '%27') + "')" : '';
+// 多圖（2026-10-10 使用者：最多 6 張）：gbImgs 是表單上目前的圖片網址，第一張＝封面
+var GB_MAX_IMGS = 6, gbImgs = [];
+function renderImgs() {
+  document.getElementById('cfImgs').innerHTML = gbImgs.map(function (u, i) {
+    return '<div class="cf-img" style="background-image:url(\'' + gbEsc(u).replace(/'/g, '%27') + '\')">' +
+      (i ? '<button type="button" class="cf-img-l" title="往前移" onclick="moveImg(' + i + ')">◀</button>' : '<span class="cf-img-cover">封面</span>') +
+      '<button type="button" class="cf-img-x" title="移除" onclick="removeImg(' + i + ')">✕</button></div>';
+  }).join('');
+  document.getElementById('cfAddImg').hidden = gbImgs.length >= GB_MAX_IMGS;
+}
+function moveImg(i) { var t = gbImgs[i - 1]; gbImgs[i - 1] = gbImgs[i]; gbImgs[i] = t; renderImgs(); }
+function removeImg(i) { gbImgs.splice(i, 1); renderImgs(); document.getElementById('cfUpMsg').textContent = ''; }
+function addImgUrl() {
+  var el = document.getElementById('cfImage'), v = el.value.trim(), msg = document.getElementById('cfUpMsg');
+  if (!v) return;
+  if (!/^https:\/\//.test(v)) { msg.textContent = '網址要是 https:// 開頭'; return; }
+  if (gbImgs.length >= GB_MAX_IMGS) { msg.textContent = '最多 ' + GB_MAX_IMGS + ' 張'; return; }
+  gbImgs.push(v); el.value = ''; renderImgs();
 }
 function shrinkImage(file) {
   return new Promise(function (res, rej) {
@@ -848,23 +863,33 @@ function shrinkImage(file) {
     img.src = url;
   });
 }
-async function uploadCampImage(file) {
+async function uploadCampImages(files) {
   var msg = document.getElementById('cfUpMsg'), save = document.getElementById('cfSave');
-  if (!file) return;
-  if (!/^image\//.test(file.type)) { msg.textContent = '請選圖片檔'; return; }
-  save.disabled = true; msg.textContent = '處理中…';
-  try {
-    var blob = await shrinkImage(file);
-    if (blob.size > 5 * 1024 * 1024) throw new Error('圖片太大（超過 5MB）');
-    var d = new Date(), ym = d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0');
-    var ref = firebase.app().storage(GB_BUCKET).ref('gb/' + ym + '/' + Date.now() + '_' + gbRand(6) + '.jpg');
-    var task = ref.put(blob, { contentType: 'image/jpeg' });
-    task.on('state_changed', function (sn) { msg.textContent = '上傳中 ' + Math.round(sn.bytesTransferred / sn.totalBytes * 100) + '%'; });
-    await gbTimeout(task, 60000, '上傳逾時，請確認網路後再試');
-    var url = await ref.getDownloadURL();
-    document.getElementById('cfImage').value = url; syncPreview();
-    msg.textContent = '✅ 已上傳';
-  } catch (e) { msg.textContent = '上傳失敗：' + (e.message || e); }
+  var list = [].slice.call(files || []);
+  if (!list.length) return;
+  var room = GB_MAX_IMGS - gbImgs.length;
+  if (room <= 0) { msg.textContent = '最多 ' + GB_MAX_IMGS + ' 張'; return; }
+  var skipped = Math.max(0, list.length - room);
+  list = list.slice(0, room);
+  save.disabled = true;
+  var fail = 0;
+  for (var i = 0; i < list.length; i++) {
+    var file = list[i], tag = list.length > 1 ? '第 ' + (i + 1) + '/' + list.length + ' 張 ' : '';
+    if (!/^image\//.test(file.type)) { fail++; continue; }
+    try {
+      msg.textContent = tag + '處理中…';
+      var blob = await shrinkImage(file);
+      if (blob.size > 5 * 1024 * 1024) throw new Error('圖片太大（超過 5MB）');
+      var d = new Date(), ym = d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0');
+      var ref = firebase.app().storage(GB_BUCKET).ref('gb/' + ym + '/' + Date.now() + '_' + gbRand(6) + '.jpg');
+      var task = ref.put(blob, { contentType: 'image/jpeg' });
+      task.on('state_changed', function (sn) { msg.textContent = tag + '上傳中 ' + Math.round(sn.bytesTransferred / sn.totalBytes * 100) + '%'; });
+      await gbTimeout(task, 60000, '上傳逾時，請確認網路後再試');
+      gbImgs.push(await ref.getDownloadURL());
+      renderImgs();
+    } catch (e) { fail++; console.warn('上傳失敗', e); }
+  }
+  msg.textContent = (fail ? '⚠️ ' + fail + ' 張上傳失敗' : '✅ 已上傳') + (skipped ? '（超過 ' + GB_MAX_IMGS + ' 張，略過 ' + skipped + ' 張）' : '');
   save.disabled = false;
 }
 
