@@ -233,7 +233,7 @@ function gbPriceIn(line) {
   var m = line.match(/(\d[\d,]*)\s*元/) || line.match(/\$\s*(\d[\d,]*)/) || line.match(/(?:NT|價)\s*\$?\s*(\d[\d,]*)/i);
   return m ? Number(m[1].replace(/,/g, '')) : null;
 }
-/** 回傳 { text, title, price, options:[{code,label,price}], end: Date|null } */
+/** 回傳 { text, title, price, options:[{code,label,price}], end: Date|null }（end 目前沒用：截單由使用者自己填） */
 function gbParseHq(raw) {
   var text = gbCleanHq(raw).trim();
   var lines = text.split(/\n/).map(function (l) { return l.trim(); });
@@ -283,12 +283,8 @@ function applyHqPaste() {
     document.getElementById('cfMulti').checked = false; gbOptRows = []; syncMulti();
     if (p0) { document.getElementById('cfPrice').value = p0; got.push('價格'); }
   }
-  if (r.end) {
-    var pad = function (n) { return String(n).padStart(2, '0'); };
-    document.getElementById('cfEnd').value = r.end.getFullYear() + '-' + pad(r.end.getMonth() + 1) + '-' + pad(r.end.getDate()) + 'T22:00';
-    got.push('截單 ' + (r.end.getMonth() + 1) + '/' + r.end.getDate() + ' 22:00');
-  }
-  msg.textContent = '✅ 已填入：' + got.join('、') + '。' + (r.text.length > 600 ? '說明超過 600 字已截斷，' : '') + '請逐項檢查，圖片要另外上傳。';
+  // 截單時間由使用者自己填（2026-10-11 使用者決定；總部的「優惠期間」不一定等於截單）
+  msg.textContent = '✅ 已填入：' + got.join('、') + '。' + (r.text.length > 600 ? '說明超過 600 字已截斷，' : '') + '⏰ 截單時間請自己填，圖片要另外上傳。';
 }
 // ---- 多規格 ----
 var gbOptRows = [];
