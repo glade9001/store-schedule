@@ -4,7 +4,7 @@
 // 比照 shift-utils.js：只有 function 與 var（前綴 hg），掛在首頁不會撞名。
 var HG_STORES = ['美德', '聯鑫', '錦花'];
 var HG_CODE = { '美德': 'meide', '聯鑫': 'lianxin', '錦花': 'jinhua' };
-var hgCamps = null, hgTimer = null;
+var hgCamps = null, hgTimer = null, hgUnsub = null;
 
 function hgUser() { try { return currentUser; } catch (e) { return null; } }
 function hgIsOwner(u) { return !!u && ['owner', 'admin'].indexOf(u.permission) >= 0; }
@@ -16,11 +16,17 @@ async function hgLoad() {
   var u = hgUser(), card = document.getElementById('gbDashCard');
   if (!card) return;
   if (!hgCanSee(u)) { card.style.display = 'none'; return; }
-  try {
-    var sn = await window.db.collection('gb_campaigns').where('status', '==', 'open').get();
-    hgCamps = sn.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
-  } catch (e) { hgCamps = []; }
-  hgRender();
+  // 即時監聽（2026-10-11 使用者：數據要自動更新）：有人下單／取消、改團購資料，卡片馬上跟著變；只聽開放中的團，筆數少
+  if (!hgUnsub) {
+    hgUnsub = window.db.collection('gb_campaigns').where('status', '==', 'open').onSnapshot(function (sn) {
+      hgCamps = sn.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
+      hgRender();
+    }, function (e) {
+      console.warn('[home-gb] 團購監聽失敗', e);
+      hgUnsub = null;   // 下次回到首頁（hgLoad）再重接
+      if (!hgCamps) { hgCamps = []; hgRender(); }
+    });
+  } else hgRender();
   if (!hgTimer) hgTimer = setInterval(function () { if (document.visibilityState === 'visible') hgRender(); }, 60000);   // 倒數每分鐘更新
 }
 
