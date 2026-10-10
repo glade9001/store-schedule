@@ -58,17 +58,57 @@ function isOpen(c) { const e = endMs(c); return c.status === "open" && isFinite(
  * 下單／加量（LIFF 與群組 +1 共用）。錯誤一律丟 HttpsError，details.kind 標原因給群組 +1 分流：
  *   closed／store／other_store／limit／stock／not_found
  */
+// ---- 額滿自動開下一團（2026-10-11 使用者：「若超出數量，會自動開第二團」）----
+// 開團勾 auto_next（且有設總庫存）→ 這一團裝不下時，訂單整筆放進「下一團」；下一團不存在就由伺服器建立
+// （複製設定、文件 ID 固定為 {第一團 ID}_r{團次}，同時兩個人觸發也只會建一份）。每一團各自結算、各自通知。
+function roundTitle(c, n) { return String(c.title || "").replace(/（第\d+團）$/, "") + `（第${n}團）`; }
+function nextRoundDoc(c, curId, n) {
+  const seriesId = c.series_id || curId;
+  return {
+    id: `${seriesId}_r${n}`,
+    data: {
+      title: roundTitle(c, n), description: c.description || "", price: c.price || 0, images: c.images || [],
+      available_stores: c.available_stores || [], stock: c.stock, per_user_limit: c.per_user_limit || 0,
+      end_time: c.end_time, arrival_date: c.arrival_date || null, pickup_deadline: c.pickup_deadline || null,
+      success_rule: c.success_rule || "guaranteed", min_qty: c.min_qty || null, is_test: c.is_test === true,
+      auto_next: true, series_id: seriesId, round: n, status: "open", ordered_qty: 0, ordered_by_store: {},
+      source_hq_post_id: c.source_hq_post_id || null, created_by: "system", created_by_name: "額滿自動開團",
+      created_at: FieldValue.serverTimestamp(), updated_at: FieldValue.serverTimestamp(), settled_by: null, settled_at: null,
+    },
+  };
+}
+/** 在 transaction 裡從 cid 往後找第一個裝得下 add 份的團；回傳 { id, ref, c, create }（create＝要新建的資料） */
+async function pickRound(t, db, cid, add) {
+  let id = cid, ref = db.collection("gb_campaigns").doc(cid), snap = await t.get(ref);
+  if (!snap.exists) return null;
+  let c = snap.data();
+  for (let guard = 0; guard < 20; guard++) {
+    const fits = c.stock == null || (c.ordered_qty || 0) + add <= c.stock;
+    if (fits || c.auto_next !== true || c.stock == null || add > c.stock) return { id, ref, c, create: null };
+    const n = (c.round || 1) + 1, nx = nextRoundDoc(c, id, n);
+    const nref = db.collection("gb_campaigns").doc(nx.id), ns = await t.get(nref);
+    if (!ns.exists) return { id: nx.id, ref: nref, c: Object.assign({}, nx.data, { ordered_qty: 0, ordered_by_store: {} }), create: nx.data };
+    id = nx.id; ref = nref; c = ns.data();
+  }
+  return { id, ref, c, create: null };
+}
+
+/**
+ * 下單／加量（LIFF 與群組 +1 共用）。錯誤一律丟 HttpsError，details.kind 標原因給群組 +1 分流：
+ *   closed／store／other_store／limit／stock／not_found
+ */
 async function placeOrderTx({ cid, store, userId, name, picture, add, source, sourceMessageId }) {
   const db = admin.firestore();
-  const cRef = db.collection("gb_campaigns").doc(cid);
-  const oRef = db.collection("gb_orders").doc(`${cid}_${userId}`);
   const E = (code, msg, kind) => new HttpsError(code, msg, { kind });
   return db.runTransaction(async (t) => {
-    const cs = await t.get(cRef);
-    if (!cs.exists) throw E("not-found", "團購不存在", "not_found");
-    const c = cs.data();
+    const first = await t.get(db.collection("gb_campaigns").doc(cid));
+    if (!first.exists) throw E("not-found", "團購不存在", "not_found");
+    if (!isOpen(first.data())) throw E("failed-precondition", "這檔團購已截單", "closed");
+    const r = await pickRound(t, db, cid, add);
+    const c = r.c, tid = r.id;
     if (!isOpen(c)) throw E("failed-precondition", "這檔團購已截單", "closed");
     if (!(c.available_stores || []).includes(store)) throw E("failed-precondition", `這檔團購沒有開放給${STORES[store]}`, "store");
+    const oRef = db.collection("gb_orders").doc(`${tid}_${userId}`);
     const os = await t.get(oRef);
     const o = os.exists ? os.data() : null;
     if (o && o.status === "active" && o.store !== store) {
@@ -82,18 +122,19 @@ async function placeOrderTx({ cid, store, userId, name, picture, add, source, so
     if (c.stock != null && now + add > c.stock) throw E("failed-precondition", `剩餘數量不足，只剩 ${Math.max(0, c.stock - now)} 份`, "stock");
     const obs = Object.assign({}, c.ordered_by_store || {}); obs[store] = (obs[store] || 0) + add;
     const ts = FieldValue.serverTimestamp();
+    if (r.create) t.set(r.ref, Object.assign({}, r.create, { ordered_qty: add, ordered_by_store: obs }));
+    else t.update(r.ref, { ordered_qty: now + add, ordered_by_store: obs, updated_at: ts });
     if (o) {
       t.update(oRef, { qty: after, status: "active", store, display_name: name || o.display_name || "", picture_url: picture || o.picture_url || null, updated_at: ts });
     } else {
       t.set(oRef, {
-        campaign_id: cid, store, source, source_message_id: sourceMessageId || null, line_user_id: userId,
+        campaign_id: tid, store, source, source_message_id: sourceMessageId || null, line_user_id: userId,
         display_name: name || "", picture_url: picture || null, note: "", qty: after, status: "active", paid: false,
         created_by: null, created_by_name: source === "group_text" ? "群組 +1" : "LINE 下單", created_at: ts, updated_at: ts, picked_up_at: null, picked_up_by: null,
       });
     }
-    t.update(cRef, { ordered_qty: now + add, ordered_by_store: obs, updated_at: ts });
     t.set(db.collection("gb_customers").doc(userId), { display_name: name || "", picture_url: picture || null, last_order_at: ts }, { merge: true });
-    return { qty: after, title: c.title || "" };
+    return { qty: after, title: c.title || "", campaignId: tid, round: c.round || 1 };
   });
 }
 
@@ -287,7 +328,11 @@ async function handleEvent(ev) {
   }
   if (!cid) {
     const sn = await db.collection("gb_campaigns").where("status", "==", "open").get();
-    const open = sn.docs.filter((d) => isOpen(d.data()) && fits(d.data()) && (d.data().available_stores || []).includes(store));
+    const raw = sn.docs.filter((d) => isOpen(d.data()) && fits(d.data()) && (d.data().available_stores || []).includes(store));
+    // 額滿自動開團的同一系列（第 1、2…團）只算一檔，取團次最小的；裝不下會自動往下一團
+    const bySeries = {};
+    raw.forEach((d) => { const k = d.data().series_id || d.id; if (!bySeries[k] || (d.data().round || 1) < (bySeries[k].data().round || 1)) bySeries[k] = d; });
+    const open = Object.values(bySeries);
     if (open.length === 1) cid = open[0].id;
     else if (open.length > 1) {
       await pend(`同時有 ${open.length} 檔開放中，無法判斷是哪一檔`, { candidates: open.map((d) => d.id) });
@@ -379,4 +424,25 @@ exports.gbResolvePending = onCall({ region: REGION }, async (request) => {
   const r = await placeOrderTx({ cid, store: pnd.store, userId: pnd.line_user_id, name: pnd.display_name, picture: pnd.picture_url, add: qty, source: "group_text", sourceMessageId: pnd.message_id });
   await ref.update({ status: "resolved", resolved_by: request.auth.uid, resolved_at: FieldValue.serverTimestamp(), campaign_id: cid, resolved_qty: qty });
   return { ok: true, qty: r.qty };
+});
+
+// ---- 店員補單遇到額滿：建立／取得下一團（後台 groupbuy-page.js 補單時呼叫）----
+exports.gbNextRound = onCall({ region: REGION }, async (request) => {
+  const u = await requireStaff(request);
+  const cid = String((request.data || {}).campaignId || "");
+  if (!/^[A-Za-z0-9_-]{1,80}$/.test(cid)) throw new HttpsError("invalid-argument", "團購不存在");
+  const add = cleanQty((request.data || {}).qty || 1) || 1;
+  const db = admin.firestore();
+  const res = await db.runTransaction(async (t) => {
+    const first = await t.get(db.collection("gb_campaigns").doc(cid));
+    if (!first.exists) throw new HttpsError("not-found", "團購不存在");
+    const c0 = first.data();
+    const owner = ["owner", "admin"].includes(u.permission);
+    if (!owner && !(c0.available_stores || []).includes(NAME_CODE[u.store])) throw new HttpsError("permission-denied", "這檔團購沒有開放給本店");
+    if (c0.auto_next !== true) throw new HttpsError("failed-precondition", "這檔沒有設定額滿自動開下一團");
+    const r = await pickRound(t, db, cid, add);
+    if (r.create) t.set(r.ref, r.create);
+    return { campaignId: r.id, title: r.c.title || "" };
+  });
+  return { ok: true, ...res };
 });

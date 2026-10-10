@@ -55,7 +55,7 @@ async function lfLoadCamps() {
     var now = Date.now();
     lfCamps = sn.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); })
       .filter(function (c) { var e = gbToDate(c.end_time); return (c.available_stores || []).indexOf(lfStore) >= 0 && e && e.getTime() > now && (c.is_test === true) === lfTest; })
-      .sort(function (a, b) { return gbToDate(a.end_time) - gbToDate(b.end_time); });
+      .sort(function (a, b) { return gbToDate(a.end_time) - gbToDate(b.end_time) || (a.round || 1) - (b.round || 1); });
   } catch (e) { lfCamps = []; gbToast('讀取團購失敗：' + lfErr(e)); }
 }
 async function lfLoadMine() {
@@ -76,7 +76,12 @@ function lfSetTab(t) {
 
 function lfRender() {
   var el = document.getElementById('lfList');
-  el.innerHTML = lfCamps.length ? lfCamps.map(lfCard).join('') : '<div class="card"><div class="empty" style="font-size:15px;">目前沒有開放中的團購<br>新團購會在群組裡通知 🙌</div></div>';
+  // 額滿自動開下一團：已經額滿、而且我沒訂的那一團不顯示，只看正在接單的團
+  var seriesOf = function (c) { return c.series_id || c.id; };
+  var hasRoomInSeries = function (c) { return lfCamps.some(function (o) { return o.id !== c.id && seriesOf(o) === seriesOf(c) && lfRemain(o) > 0; }); };
+  // 額滿、我沒訂、而且同系列已經有接單中的下一團 → 不顯示；還沒有下一團就保留，讓客人按了排進下一團
+  var shown = lfCamps.filter(function (c) { return !(c.auto_next && lfRemain(c) <= 0 && !lfMine[c.id] && hasRoomInSeries(c)); });
+  el.innerHTML = shown.length ? shown.map(lfCard).join('') : '<div class="card"><div class="empty" style="font-size:15px;">目前沒有開放中的團購<br>新團購會在群組裡通知 🙌</div></div>';
   var me = document.getElementById('lfMine');
   me.innerHTML = '<div class="card" style="display:flex;align-items:center;gap:10px;"><span style="flex:1;font-size:14px;">📱 聯絡手機：<b>' + (lfPhone ? gbEsc(lfPhone) : '還沒留') + '</b></span><button class="btn btn-o" onclick="lfAskPhone()">' + (lfPhone ? '修改' : '填寫') + '</button></div>' +
     (lfMineList.length ? lfMineList.map(lfMineCard).join('') : '<div class="card"><div class="empty" style="font-size:15px;">還沒有訂單</div></div>');
@@ -85,6 +90,8 @@ function lfRemain(c) { return c.stock == null ? Infinity : Math.max(0, c.stock -
 function lfCard(c) {
   var img = (c.images || [])[0], mine = lfMine[c.id], had = mine ? mine.qty : 0;
   var remain = lfRemain(c), canAdd = Math.min((c.per_user_limit || 0) - had, remain);
+  var toNext = c.auto_next && remain <= 0;   // 額滿但會自動開下一團 → 照樣可以喊，伺服器排進下一團
+  if (toNext) { canAdd = c.per_user_limit || 0; remain = Infinity; }
   // 保證成團也要讓客人看得到（2026-10-11 使用者）
   var prog = c.success_rule === 'threshold' ? '' : '<div class="lf-meta" style="margin-top:6px;"><span style="background:#e6f4ea;color:#137333;font-weight:800;border-radius:7px;padding:2px 9px;">✅ 保證成團</span>　截單後一定出貨</div>';
   if (c.success_rule === 'threshold' && c.min_qty) {
@@ -93,7 +100,7 @@ function lfCard(c) {
   }
   var btn = remain <= 0 ? '<button class="lf-go" disabled>已售完</button>'
     : canAdd <= 0 ? '<button class="lf-go" disabled>已達每人上限 ' + c.per_user_limit + ' 份</button>'
-    : '<button class="lf-go" onclick="lfOpen(\'' + c.id + '\')">' + (had ? '＋ 再加' : '＋1 我要') + '</button>';
+    : '<button class="lf-go" onclick="lfOpen(\'' + c.id + '\')">' + (toNext ? '＋1（這團已滿，排進下一團）' : had ? '＋ 再加' : '＋1 我要') + '</button>';
   return '<div class="lf-card">' + (img && /^https:\/\//.test(img) ? '<div class="lf-img" style="background-image:url(\'' + gbEsc(img).replace(/'/g, '%27') + '\')"></div>' : '') +
     '<div class="lf-body"><div class="lf-title">' + gbEsc(c.title) + '</div><div class="lf-price">$' + (c.price || 0) + '</div>' +
     (c.description ? '<div class="lf-desc">' + gbEsc(c.description) + '</div>' : '') +
@@ -117,7 +124,8 @@ function lfOpen(cid) {
   var c = lfCamps.find(function (x) { return x.id === cid; }); if (!c) return;
   if (!lfPhone) { lfAskPhone(function () { lfOpen(cid); }); return; }   // 第一次下單先留手機
   var had = lfMine[cid] ? lfMine[cid].qty : 0;
-  lfPick = c; lfEdit = false; lfQty = 1; lfMax = Math.min((c.per_user_limit || 0) - had, lfRemain(c));
+  lfPick = c; lfEdit = false; lfQty = 1;
+  lfMax = (c.auto_next && lfRemain(c) <= 0) ? (c.per_user_limit || 0) : Math.min((c.per_user_limit || 0) - had, lfRemain(c));
   document.getElementById('qmTitle').textContent = c.title;
   document.getElementById('qmLead').textContent = '$' + c.price + '／份・' + (had ? '你已訂 ' + had + ' 份，這次再加' : '要訂幾份？') + '（最多 ' + lfMax + ' 份）';
   lfShowQty();
@@ -143,8 +151,9 @@ async function lfConfirm() {
     } else {
       if (!lfPhone) { document.getElementById('qtyModal').hidden = true; lfAskPhone(lfConfirm); btn.disabled = false; return; }
       var r = await gbTimeout(lfFn('gbPlaceOrder')({ idToken: lfToken, campaignId: c.id, store: lfStore, qty: lfQty }));
-      gbToast('✅ 登記成功，共 ' + ((r.data && r.data.qty) || lfQty) + ' 份');
-      lfPostToGroup(c.title, lfQty);
+      var rt = (r.data && r.data.title) || c.title;
+      gbToast('✅ 登記成功：' + rt + ' 共 ' + ((r.data && r.data.qty) || lfQty) + ' 份');
+      lfPostToGroup(rt, lfQty);
     }
     document.getElementById('qtyModal').hidden = true;
     await Promise.all([lfLoadCamps(), lfLoadMine()]); lfRender();

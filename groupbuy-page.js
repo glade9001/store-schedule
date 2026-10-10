@@ -87,7 +87,7 @@ function campCard(c) {
   var img = (c.images || [])[0];
   var imgOk = img && /^https:\/\//.test(img);
   var stock = c.stock == null ? '不限量' : '剩 <b>' + Math.max(0, c.stock - (c.ordered_qty || 0)) + '</b> / ' + c.stock;
-  var rule = c.success_rule === 'threshold' ? '達標成團（' + (c.min_qty || 0) + '）' : '保證成團';
+  var rule = (c.success_rule === 'threshold' ? '達標成團（' + (c.min_qty || 0) + '）' : '保證成團') + (c.auto_next ? '・額滿自動開下一團' : '');
   var obs = c.ordered_by_store || {};
   var stores = (c.available_stores || []).map(function (s) { return '<span class="store-qty">' + gbStoreName(s) + '<b>' + (obs[s] || 0) + '</b></span>'; }).join('');
   var prog = c.success_rule === 'threshold' && c.min_qty ? '<div class="bar" title="成團進度"><i style="width:' + Math.min(100, Math.round((c.ordered_qty || 0) / c.min_qty * 100)) + '%"></i></div>' : '';
@@ -197,6 +197,7 @@ function openCampaignForm(cid) {
   document.getElementById('cfPickup').value = c ? gbInputDate(c.pickup_deadline) : '';
   document.getElementById('cfMin').value = c && c.min_qty ? c.min_qty : '';
   document.getElementById('cfTest').checked = !!(c && c.is_test);
+  document.getElementById('cfAutoNext').checked = !!(c && c.auto_next);
   var rule = c ? c.success_rule || 'guaranteed' : 'guaranteed';
   document.querySelectorAll('input[name=cfRule]').forEach(function (r) { r.checked = r.value === rule; });
   var sel = c ? (c.available_stores || []) : (owner ? GB_STORES.map(function (s) { return s.code; }) : [gbMyCode]);
@@ -228,6 +229,8 @@ async function saveCampaign() {
   if (!stores.length) return err.textContent = '請至少勾選一家開放門市';
   if (!end) return err.textContent = '請填截單時間';
   if (rule === 'threshold' && !(min >= 1)) return err.textContent = '達標成團要填最低成團數';
+  var autoNext = document.getElementById('cfAutoNext').checked;
+  if (autoNext && stock === null) return err.textContent = '勾「額滿自動開下一團」要先填總庫存（每一團的份數）';
   if (img && !/^https:\/\//.test(img)) return err.textContent = '圖片網址要以 https:// 開頭';
   var c = gbEditId ? gbCamps.find(function (x) { return x.id === gbEditId; }) : null;
   if (c && stock !== null && stock < (c.ordered_qty || 0)) return err.textContent = '總庫存不能少於已訂的 ' + (c.ordered_qty || 0) + ' 份';
@@ -240,7 +243,7 @@ async function saveCampaign() {
     images: img ? [img] : [], available_stores: stores, stock: stock, per_user_limit: limit,
     end_time: end, arrival_date: gbTsFromDate(document.getElementById('cfArrival').value, false),
     pickup_deadline: gbTsFromDate(document.getElementById('cfPickup').value, true),
-    success_rule: rule, min_qty: rule === 'threshold' ? min : null, is_test: document.getElementById('cfTest').checked,
+    success_rule: rule, min_qty: rule === 'threshold' ? min : null, is_test: document.getElementById('cfTest').checked, auto_next: autoNext,
     updated_at: firebase.firestore.FieldValue.serverTimestamp(),
   };
   var btn = document.getElementById('cfSave'); btn.disabled = true;
@@ -302,6 +305,15 @@ async function saveManualOrder() {
   if (!name) return err.textContent = '請填客人暱稱';
   if (!(qty >= 1)) return err.textContent = '數量要是正整數';
   var btn = document.getElementById('ofSave'); btn.disabled = true;
+  // 額滿自動開下一團：這一團裝不下 → 請伺服器建立／找到下一團，訂單放那裡
+  if (c.auto_next && c.stock != null && (c.ordered_qty || 0) + qty > c.stock) {
+    try {
+      var nr = await gbTimeout(gbFn('gbNextRound')({ campaignId: c.id, qty: qty }));
+      await loadCampaigns();
+      var nc = gbCamps.find(function (x) { return x.id === nr.data.campaignId; });
+      if (nc) { c = nc; gbOrderCamp = nc; gbToast('這一團滿了，改登記到「' + nc.title + '」'); }
+    } catch (e) { btn.disabled = false; return err.textContent = friendly(e); }
+  }
   var cRef = window.db.collection('gb_campaigns').doc(c.id);
   var oRef = window.db.collection('gb_orders').doc(c.id + '_m_' + gbRand(10));
   try {
@@ -440,6 +452,8 @@ async function openCopy(cid, kind) {
   sel.innerHTML = (owner && stores.length > 1 ? '<option value="">三店合併</option>' : '') + stores.map(function (s) { return '<option value="' + s + '">' + gbStoreName(s) + '</option>'; }).join('');
   document.getElementById('cpTitle').textContent = { open: '📝 開團文案', success: '🎉 成團文案', arrived: '📦 取貨通知' }[kind];
   document.getElementById('cpNamesWrap').hidden = kind !== 'arrived';
+  document.getElementById('cpArrivalWrap').hidden = kind !== 'success';
+  document.getElementById('cpArrival').value = gbInputDate(c.arrival_date);
   document.getElementById('cpNames').checked = false;
   openModal('copyModal');
   await buildCopy();
@@ -454,16 +468,18 @@ async function buildCopy() {
   var where = st ? gbStoreName(st) : x.stores.map(gbStoreName).join('・');
   var lines = [];
   if (x.kind === 'open') {
+    // 2026-10-11 使用者：總部小編原文（貼在「說明」）放最上面，系統再補客人需要的資訊
     var liffId = await gbLiffLinks();
-    lines.push('🛒【團購開跑】' + c.title, '💰 $' + c.price + '／份' + (c.per_user_limit ? '・每人限 ' + c.per_user_limit + ' 份' : ''));
-    if (c.description) lines.push(c.description);
-    lines.push('⏰ ' + gbFmt(c.end_time) + ' 截單' + (c.arrival_date ? '・預計 ' + gbFmt(c.arrival_date, false) + ' 到貨' : ''));
-    if (c.success_rule === 'threshold') lines.push('🎯 三店合計滿 ' + c.min_qty + ' 份成團');
+    if (c.description) lines.push(c.description, '', '──────────');
+    lines.push('🛒 ' + c.title, '💰 $' + c.price + '／份' + (c.per_user_limit ? '・每人限 ' + c.per_user_limit + ' 份' : ''));
+    lines.push(c.success_rule === 'threshold' ? '🎯 滿 ' + c.min_qty + ' 份成團（三店合計）' : '✅ 保證成團');
+    if (c.auto_next) lines.push('🔁 額滿會自動開下一團，不用擔心搶不到');
+    lines.push('⏰ 預購至 ' + gbFmt(c.end_time), c.arrival_date ? '🚚 預計 ' + gbFmt(c.arrival_date, false) + ' 起到貨，到貨會在群組通知' : '🚚 到貨日確定後在群組通知', '💰 到店取貨付款');
     // 連結帶 c=團購 ID：機器人看到這則訊息會記下「訊息→團購」，客人引用這則回覆 +1 就知道是哪一檔
     var tq = c.is_test ? '&test=1' : '';   // 測試團的連結只在測試模式顯示
     if (st && liffId) lines.push('', '👉 點這裡 +1（或直接回覆這則留言 +1）：https://liff.line.me/' + liffId + '?store=' + st + '&c=' + c.id + tq);
     else if (!st && liffId) x.stores.forEach(function (s) { lines.push(gbStoreName(s) + ' +1：https://liff.line.me/' + liffId + '?store=' + s + '&c=' + c.id + tq); });
-    else lines.push('', '要的朋友請在群組留言「+1」或私訊小編 🙌');
+    else lines.push('', '👉 直接回覆這則訊息打「+1」（要 2 份就打 +2）');
   } else if (x.kind === 'success') {
     lines.push('🎉【團購成團】' + c.title, '感謝大家支持！' + (st ? where + '共 ' + qty + ' 份' : '三店共 ' + qty + ' 份（' + x.stores.map(function (s) { return gbStoreName(s) + ' ' + (obs[s] || 0); }).join('・') + '）'));
     lines.push('📦 預計到貨：' + (c.arrival_date ? gbFmt(c.arrival_date, false) : '到貨日確定後通知'), '到貨後會再通知取貨，到店付款 $' + c.price + '／份');
@@ -658,4 +674,16 @@ async function resolvePending(id, action) {
   try { await gbTimeout(gbFn('gbResolvePending')(data)); gbToast(action === 'make' ? '✅ 已成立訂單' : '已忽略'); await loadPending(); if (action === 'make') await loadCampaigns(); }
   catch (e) { gbToast(friendly(e)); }
   gbLoading(false);
+}
+
+// 成團後才知道到貨日：在成團文案畫面填，存回團購（客人「我的訂單」也看得到），文案跟著更新
+async function saveCopyArrival() {
+  var x = gbCopyCtx; if (!x) return;
+  var v = document.getElementById('cpArrival').value;
+  try {
+    await gbTimeout(window.db.collection('gb_campaigns').doc(x.c.id).update({ arrival_date: gbTsFromDate(v, false), updated_at: firebase.firestore.FieldValue.serverTimestamp() }));
+    x.c.arrival_date = gbTsFromDate(v, false);
+    await buildCopy();
+    gbToast(v ? '✅ 已更新到貨日' : '已清除到貨日');
+  } catch (e) { gbToast('更新失敗：' + friendly(e)); }
 }
