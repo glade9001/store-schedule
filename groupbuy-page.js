@@ -185,7 +185,13 @@ function openCampaignForm(cid) {
   document.getElementById('campFormTitle').textContent = c ? '編輯團購' : '開團';
   document.getElementById('campFormLead').textContent = owner ? '新團購先存成「草稿」，確認後用「切換狀態」改為開放中。'
     : '店長只能開「只開放本店」的團購；跨店共用庫存的團請加盟主開。新團購先存成「草稿」。';
-  document.getElementById('cfTitle').value = c ? c.title || '' : '';
+  // 多規格（2026-10-11）：編輯其中一種＝整組一起編輯；共同欄位存到每一種，品名存 base_title
+  gbOptRows = c && c.opt_group ? optMembers(c.opt_group).map(function (m) { return { id: m.id, code: m.opt_code, label: m.opt_label || '', price: m.price || '' }; }) : [];
+  document.getElementById('cfMulti').checked = gbOptRows.length > 0;
+  document.getElementById('cfMulti').disabled = !!c;
+  document.getElementById('cfPasteWrap').hidden = !!c;   // 只在開新團時用
+  document.getElementById('cfPaste').value = ''; document.getElementById('cfPasteMsg').textContent = '';   // 已建立的團不能切換單一／多規格
+  document.getElementById('cfTitle').value = c ? (c.opt_group ? c.base_title || '' : c.title || '') : '';
   document.getElementById('cfDesc').value = c ? c.description || '' : '';
   document.getElementById('cfPrice').value = c ? c.price || '' : '';
   document.getElementById('cfLimit').value = c ? c.per_user_limit || 5 : 5;
@@ -206,8 +212,127 @@ function openCampaignForm(cid) {
     return '<label' + (dis ? ' style="opacity:.45"' : '') + '><input type="checkbox" value="' + s.code + '"' + (sel.indexOf(s.code) >= 0 ? ' checked' : '') + (owner ? '' : ' disabled') + '> ' + s.name + '</label>';
   }).join('');
   document.getElementById('cfErr').textContent = '';
-  syncRule();
+  syncRule(); syncMulti();
   openModal('campModal');
+}
+// ---- 貼上總部文案自動填表（2026-10-11）----
+// 純規則解析（不用 AI）：總部格式大致固定，遇到抓錯的格式再補規則。
+var GB_EMOJI_NUM = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9 };
+/** LINE 表情貼複製出來會變成 (one)(seven)(five)、(警告)、(+)，還有康熙部首字（⼝⼈⾊）→ 轉回正常文字 */
+function gbCleanHq(t) {
+  return String(t || '')
+    .replace(/[\u2E80-\u2EFF\u2F00-\u2FDF]/g, function (ch) { return ch.normalize('NFKC'); })
+    .replace(/\((zero|one|two|three|four|five|six|seven|eight|nine)\)/gi, function (_, w) { return String(GB_EMOJI_NUM[w.toLowerCase()]); })
+    .replace(/\(([0-9])\)/g, '$1')
+    .replace(/\(\+\)/g, '+')
+    .replace(/\(:\)\)|\(:\(\)/g, '')
+    .replace(/\([\u4e00-\u9fff]{1,4}\)/g, '')
+    .replace(/[ \t]+\n/g, '\n');
+}
+function gbPriceIn(line) {
+  var m = line.match(/(\d[\d,]*)\s*元/) || line.match(/\$\s*(\d[\d,]*)/) || line.match(/(?:NT|價)\s*\$?\s*(\d[\d,]*)/i);
+  return m ? Number(m[1].replace(/,/g, '')) : null;
+}
+/** 回傳 { text, title, price, options:[{code,label,price}], end: Date|null } */
+function gbParseHq(raw) {
+  var text = gbCleanHq(raw).trim();
+  var lines = text.split(/\n/).map(function (l) { return l.trim(); });
+  var title = (lines.find(function (l) { return l; }) || '').replace(/[\u{1F000}-\u{1FAFF}\u2600-\u27BF\uFE0F]+/gu, '').trim();
+  // 規格：(A) 開頭的行，價格在同一行或後面幾行
+  var options = [], cur = null;
+  lines.forEach(function (l) {
+    var m = l.match(/^[(（\[]\s*([A-Ja-j])\s*[)）\]]\s*(.*)$/) || l.match(/^([A-Ja-j])[.、:：]\s*(.+)$/);
+    if (m) { cur = { code: m[1].toUpperCase(), label: m[2].replace(/(只要|特價|售價)?\s*\$?\d[\d,]*\s*元.*$/, '').trim(), price: gbPriceIn(m[2]) }; options.push(cur); return; }
+    if (!cur) return;
+    if (!l) { if (cur.label && cur.price) cur = null; return; }
+    if (cur.price == null && gbPriceIn(l) != null) { cur.price = gbPriceIn(l); return; }
+    if (!cur.label) cur.label = l;
+  });
+  options = options.filter(function (o) { return o.label || o.price; });
+  var price = null;
+  if (!options.length) { for (var i = 0; i < lines.length && price == null; i++) price = gbPriceIn(lines[i]); }
+  // 截單：「期間／截止／截單／到」那一行的最後一個日期，晚上 10 點
+  var end = null, now = new Date();
+  var hay = '';
+  for (var li = 0; li < lines.length && !hay; li++) {
+    if (!/期間|截止|截單|預購|到期/.test(lines[li])) continue;
+    var h2 = lines[li] + ' ' + (lines[li + 1] || '');   // 「優惠期間：」的日期常在下一行
+    if (/\d{1,2}[\/.\-月]\d{1,2}/.test(h2)) hay = h2;
+  }
+  var ds = [], re = /(?:(\d{4})[\/.\-年])?(\d{1,2})[\/.\-月](\d{1,2})/g, m2, lastY = null;
+  while ((m2 = re.exec(hay))) { if (m2[1]) lastY = Number(m2[1]); ds.push({ y: m2[1] ? Number(m2[1]) : lastY, mo: Number(m2[2]), d: Number(m2[3]) }); }
+  if (ds.length) {
+    var e = ds[ds.length - 1], y = e.y || now.getFullYear();
+    if (!e.y && e.mo < now.getMonth() + 1 - 6) y++;   // 沒寫年份、月份比現在早很多 → 明年
+    end = new Date(y, e.mo - 1, e.d, 22, 0);
+  }
+  return { text: text, title: title, price: price, options: options, end: end };
+}
+function applyHqPaste() {
+  var raw = document.getElementById('cfPaste').value, msg = document.getElementById('cfPasteMsg');
+  if (!raw.trim()) { msg.textContent = '請先貼上文案'; return; }
+  var r = gbParseHq(raw), got = [];
+  if (r.title) { document.getElementById('cfTitle').value = r.title.slice(0, 60); got.push('品名'); }
+  document.getElementById('cfDesc').value = r.text.slice(0, 600); got.push('說明');
+  if (r.options.length >= 2) {
+    document.getElementById('cfMulti').checked = true;
+    gbOptRows = r.options.slice(0, GB_OPT_CODES.length).map(function (o, i) { return { code: GB_OPT_CODES[i], label: o.label || '', price: o.price || '' }; });
+    syncMulti(); got.push(r.options.length + ' 種規格');
+  } else {
+    var p0 = r.options.length ? r.options[0].price : r.price;
+    document.getElementById('cfMulti').checked = false; gbOptRows = []; syncMulti();
+    if (p0) { document.getElementById('cfPrice').value = p0; got.push('價格'); }
+  }
+  if (r.end) {
+    var pad = function (n) { return String(n).padStart(2, '0'); };
+    document.getElementById('cfEnd').value = r.end.getFullYear() + '-' + pad(r.end.getMonth() + 1) + '-' + pad(r.end.getDate()) + 'T22:00';
+    got.push('截單 ' + (r.end.getMonth() + 1) + '/' + r.end.getDate() + ' 22:00');
+  }
+  msg.textContent = '✅ 已填入：' + got.join('、') + '。' + (r.text.length > 600 ? '說明超過 600 字已截斷，' : '') + '請逐項檢查，圖片要另外上傳。';
+}
+// ---- 多規格 ----
+var gbOptRows = [];
+var GB_OPT_CODES = 'ABCDEFGHIJ';
+/** 同一組的各規格（只取第 1 團；額滿自動開的第 2 團以後不算） */
+function optMembers(group) {
+  return gbCamps.filter(function (x) { return x.opt_group === group && !(x.round > 1); })
+    .sort(function (a, b) { return String(a.opt_code).localeCompare(String(b.opt_code)); });
+}
+function syncMulti() {
+  var on = document.getElementById('cfMulti').checked;
+  if (on && !gbOptRows.length) gbOptRows = [{ code: 'A', label: '', price: '' }, { code: 'B', label: '', price: '' }];
+  document.getElementById('cfOptsWrap').hidden = !on;
+  document.getElementById('cfPriceWrap').hidden = on;
+  document.getElementById('cfPrice').required = !on;
+  renderOptRows();
+}
+function readOptRows() {
+  document.querySelectorAll('#cfOpts .opt-row').forEach(function (r, i) {
+    if (!gbOptRows[i]) return;
+    gbOptRows[i].label = r.querySelector('.ol').value.trim();
+    gbOptRows[i].price = r.querySelector('.op').value.trim();
+  });
+}
+function renderOptRows() {
+  document.getElementById('cfOpts').innerHTML = gbOptRows.map(function (o, i) {
+    return '<div class="opt-row"><b>' + o.code + '</b><input class="ol" placeholder="規格，例：10包" maxlength="30" value="' + gbEsc(o.label) + '">' +
+      '<input class="op" type="number" inputmode="numeric" min="1" step="1" placeholder="價格" value="' + gbEsc(String(o.price)) + '">' +
+      (o.id ? '<span></span>' : '<button type="button" class="x" aria-label="刪除" onclick="removeOptRow(' + i + ')">✕</button>') + '</div>';
+  }).join('');
+}
+function addOptRow() {
+  readOptRows();
+  if (gbOptRows.length >= GB_OPT_CODES.length) return gbToast('最多 ' + GB_OPT_CODES.length + ' 種');
+  var used = gbOptRows.map(function (o) { return o.code; });
+  var code = GB_OPT_CODES.split('').find(function (x) { return used.indexOf(x) < 0; });
+  gbOptRows.push({ code: code, label: '', price: '' }); renderOptRows();
+}
+function removeOptRow(i) {
+  readOptRows(); gbOptRows.splice(i, 1);
+  // 還沒建立的規格重新依序編號（已建立的代號不動，客人可能已經喊過）
+  var used = gbOptRows.filter(function (o) { return o.id; }).map(function (o) { return o.code; });
+  gbOptRows.forEach(function (o) { if (!o.id) { o.code = GB_OPT_CODES.split('').find(function (x) { return used.indexOf(x) < 0; }); used.push(o.code); } });
+  renderOptRows();
 }
 function syncRule() {
   var th = document.querySelector('input[name=cfRule]:checked').value === 'threshold';
@@ -217,13 +342,23 @@ async function saveCampaign() {
   var err = document.getElementById('cfErr'); err.textContent = '';
   var owner = gbIsOwner(gbUser);
   var title = document.getElementById('cfTitle').value.trim();
-  var price = intOf('cfPrice'), limit = intOf('cfLimit'), stock = intOf('cfStock'), min = intOf('cfMin');
+  var multi = document.getElementById('cfMulti').checked;
+  if (multi) readOptRows();
+  var price = multi ? 1 : intOf('cfPrice'), limit = intOf('cfLimit'), stock = intOf('cfStock'), min = intOf('cfMin');
   var stores = owner ? [].slice.call(document.querySelectorAll('#cfStores input:checked')).map(function (x) { return x.value; }) : [gbMyCode];
   var rule = document.querySelector('input[name=cfRule]:checked').value;
   var end = gbTsFromInput(document.getElementById('cfEnd').value);
   var img = document.getElementById('cfImage').value.trim();
   if (!title) return err.textContent = '請填商品名稱';
   if (!(price > 0)) return err.textContent = '價格要是大於 0 的整數';
+  if (multi) {
+    if (gbOptRows.length < 2) return err.textContent = '多規格至少要 2 種';
+    for (var oi = 0; oi < gbOptRows.length; oi++) {
+      var o = gbOptRows[oi], op = Number(o.price);
+      if (!o.label) return err.textContent = '規格 ' + o.code + ' 請填名稱（例：10包）';
+      if (!(Number.isInteger(op) && op > 0)) return err.textContent = '規格 ' + o.code + ' 的價格要是大於 0 的整數';
+    }
+  }
   if (!(limit >= 1)) return err.textContent = '每人上限至少 1';
   if (stock !== null && !(stock >= 1)) return err.textContent = '總庫存要是正整數，或留空表示不限量';
   if (!stores.length) return err.textContent = '請至少勾選一家開放門市';
@@ -246,6 +381,7 @@ async function saveCampaign() {
     success_rule: rule, min_qty: rule === 'threshold' ? min : null, is_test: document.getElementById('cfTest').checked, auto_next: autoNext,
     updated_at: firebase.firestore.FieldValue.serverTimestamp(),
   };
+  if (multi) return saveMultiCampaign(c, data, stock, err);
   var btn = document.getElementById('cfSave'); btn.disabled = true;
   try {
     if (c) {
@@ -262,17 +398,52 @@ async function saveCampaign() {
   } catch (e) { err.textContent = '儲存失敗：' + e.message; }
   btn.disabled = false;
 }
+// 多規格存檔：每一種規格是一檔團購（共用 opt_group），訂單、庫存、上限、結算都沿用單一團購的邏輯
+async function saveMultiCampaign(c, data, stock, err) {
+  var base = data.title, members = c ? optMembers(c.opt_group) : [];
+  for (var i = 0; i < members.length; i++) {
+    if (stock !== null && stock < (members[i].ordered_qty || 0)) return err.textContent = '規格 ' + members[i].opt_code + ' 已訂 ' + members[i].ordered_qty + ' 份，總庫存不能更少';
+    var rm = (members[i].available_stores || []).filter(function (s) { return data.available_stores.indexOf(s) < 0 && (members[i].ordered_by_store || {})[s]; });
+    if (rm.length) return err.textContent = '規格 ' + members[i].opt_code + ' 在' + rm.map(gbStoreName).join('、') + ' 已經有訂單，不能取消開放';
+  }
+  var group = c ? c.opt_group : 'og' + Date.now().toString(36) + gbRand(4);
+  var batch = window.db.batch(), col = window.db.collection('gb_campaigns');
+  var shared = Object.assign({}, data); delete shared.title; delete shared.price;
+  gbOptRows.forEach(function (o) {
+    var own = { title: base + ' (' + o.code + ') ' + o.label, price: Number(o.price), base_title: base, opt_group: group, opt_code: o.code, opt_label: o.label };
+    if (o.id) batch.update(col.doc(o.id), Object.assign({}, shared, own));
+    else batch.set(col.doc(), Object.assign({}, shared, own, {
+      // 新增在已開放的組裡：跟著組的狀態（避免同一組有的開放、有的還是草稿）
+      status: c ? c.status : 'draft', ordered_qty: 0, ordered_by_store: {}, source_hq_post_id: null,
+      created_by: gbUser.uid, created_by_name: gbUser.displayName || gbUser.empName || '', created_at: firebase.firestore.FieldValue.serverTimestamp(),
+      settled_by: null, settled_at: null }));
+  });
+  var btn = document.getElementById('cfSave'); btn.disabled = true;
+  try {
+    await gbTimeout(batch.commit());
+    closeModal('campModal');
+    gbToast(c ? '✅ 已更新 ' + gbOptRows.length + ' 種規格' : '✅ 已建立 ' + gbOptRows.length + ' 種規格的草稿，確認後用「切換狀態」開放');
+    await loadCampaigns();
+  } catch (e) { err.textContent = '儲存失敗：' + e.message; }
+  btn.disabled = false;
+}
 async function changeStatus(cid, st) {
   if (!st) return;
   var c = gbCamps.find(function (x) { return x.id === cid; });
   if (!c || !canEdit(c)) return;
   var warn = st === 'open' && gbToDate(c.end_time) && gbToDate(c.end_time).getTime() < Date.now() ? '\n⚠️ 截單時間已經過了，開放後客人仍無法下單，請先改截單時間。' : '';
-  var ok = await gbConfirm('切換狀態', '「' + c.title + '」從「' + GB_STATUS[c.status] + '」改為「' + GB_STATUS[st] + '」？' + warn, '改為' + GB_STATUS[st]);
+  // 多規格：同一組、目前狀態相同的規格一起改（草稿→開放、開放→截單）
+  // 成團／流局／到貨／結案每種規格結果可能不同（A 達標、B 沒有），只改這一種
+  var targets = c.opt_group && ['draft', 'open', 'closed'].indexOf(st) >= 0 ? optMembers(c.opt_group).filter(function (m) { return m.status === c.status; }) : [c];
+  var name = targets.length > 1 ? '「' + c.base_title + '」' + targets.map(function (m) { return m.opt_code; }).join('／') + ' 共 ' + targets.length + ' 種規格' : '「' + c.title + '」';
+  var ok = await gbConfirm('切換狀態', name + '從「' + GB_STATUS[c.status] + '」改為「' + GB_STATUS[st] + '」？' + warn, '改為' + GB_STATUS[st]);
   if (!ok) return;
   var upd = { status: st, updated_at: firebase.firestore.FieldValue.serverTimestamp() };
   if (st === 'success' || st === 'failed') { upd.settled_by = gbUser.uid; upd.settled_at = firebase.firestore.FieldValue.serverTimestamp(); }
   gbLoading(true, '更新中…');
-  try { await gbTimeout(window.db.collection('gb_campaigns').doc(cid).update(upd)); gbToast('✅ 已改為「' + GB_STATUS[st] + '」'); await loadCampaigns(); }
+  var batch = window.db.batch();
+  targets.forEach(function (m) { batch.update(window.db.collection('gb_campaigns').doc(m.id), upd); });
+  try { await gbTimeout(batch.commit()); gbToast('✅ 已改為「' + GB_STATUS[st] + '」'); await loadCampaigns(); }
   catch (e) { gbToast('更新失敗：' + e.message); }
   gbLoading(false);
 }
@@ -451,7 +622,7 @@ async function openCopy(cid, kind) {
   // 加盟主可選「三店合併」或單店；店長只有本店
   sel.innerHTML = (owner && stores.length > 1 ? '<option value="">三店合併</option>' : '') + stores.map(function (s) { return '<option value="' + s + '">' + gbStoreName(s) + '</option>'; }).join('');
   document.getElementById('cpTitle').textContent = { open: '📝 開團文案', success: '🎉 成團文案', arrived: '📦 取貨通知' }[kind];
-  document.getElementById('cpNamesWrap').hidden = kind !== 'arrived';
+  document.getElementById('cpNamesWrap').hidden = kind === 'open';
   document.getElementById('cpInfoBtn').hidden = document.getElementById('cpInfoHint').hidden = kind !== 'open';
   document.getElementById('cpArrivalWrap').hidden = kind !== 'success';
   document.getElementById('cpArrival').value = gbInputDate(c.arrival_date);
@@ -474,28 +645,47 @@ async function buildCopy() {
     var liffId = await gbLiffLinks();
     if (c.description) lines.push(c.description, '', '──────────');
     var infoFrom = lines.length;   // 從這裡往下是「團購資訊」：自己發圖文時只複製這段貼在下方（2026-10-11）
-    lines.push('🛒 ' + c.title, '💰 $' + c.price + '／份' + (c.per_user_limit ? '・每人限 ' + c.per_user_limit + ' 份' : ''));
-    lines.push(c.success_rule === 'threshold' ? '🎯 滿 ' + c.min_qty + ' 份成團（三店合計）' : '✅ 保證成團');
+    // 多規格：一段文案列出所有規格，客人打編號 +1
+    var opts = c.opt_group ? optMembers(c.opt_group).filter(function (m) { return m.status === 'open' || m.status === 'draft'; }) : [];
+    if (opts.length) {
+      lines.push('🛒 ' + c.base_title);
+      opts.forEach(function (m) { lines.push('(' + m.opt_code + ') ' + m.opt_label + '　$' + m.price); });
+      if (c.per_user_limit) lines.push('每種每人限 ' + c.per_user_limit + ' 份');
+      lines.push(c.success_rule === 'threshold' ? '🎯 每種各滿 ' + c.min_qty + ' 份成團（三店合計）' : '✅ 保證成團');
+    } else {
+      lines.push('🛒 ' + c.title, '💰 $' + c.price + '／份' + (c.per_user_limit ? '・每人限 ' + c.per_user_limit + ' 份' : ''));
+      lines.push(c.success_rule === 'threshold' ? '🎯 滿 ' + c.min_qty + ' 份成團（三店合計）' : '✅ 保證成團');
+    }
     if (c.auto_next) lines.push('🔁 額滿會自動開下一團，不用擔心搶不到');
     lines.push('⏰ 預購至 ' + gbFmt(c.end_time), c.arrival_date ? '🚚 預計 ' + gbFmt(c.arrival_date, false) + ' 起到貨，到貨會在群組通知' : '🚚 到貨日確定後在群組通知', '💰 到店取貨付款');
     // 連結帶 c=團購 ID：機器人看到這則訊息會記下「訊息→團購」，客人引用這則回覆 +1 就知道是哪一檔
     var tq = c.is_test ? '&test=1' : '';   // 測試團的連結只在測試模式顯示
-    if (st && liffId) lines.push('', '👉 點這裡 +1（或直接回覆這則留言 +1）：https://liff.line.me/' + liffId + '?store=' + st + '&c=' + c.id + tq);
-    else if (!st && liffId) x.stores.forEach(function (s) { lines.push(gbStoreName(s) + ' +1：https://liff.line.me/' + liffId + '?store=' + s + '&c=' + c.id + tq); });
-    else lines.push('', '👉 直接回覆這則訊息打「+1」（要 2 份就打 +2）');
+    var ex = opts.length ? opts[0].opt_code : '';
+    if (opts.length) lines.push('', '👉 回覆這則留言打「編號＋數量」，例如 ' + ex + '+1、' + (opts[1] ? opts[1].opt_code : ex) + '+2');
+    if (st && liffId) lines.push(opts.length ? '或點這裡下單：https://liff.line.me/' + liffId + '?store=' + st + '&c=' + c.id + tq : '', opts.length ? '' : '👉 點這裡 +1（或直接回覆這則留言 +1）：https://liff.line.me/' + liffId + '?store=' + st + '&c=' + c.id + tq);
+    else if (!st && liffId) x.stores.forEach(function (s) { lines.push(gbStoreName(s) + (opts.length ? ' 下單：' : ' +1：') + 'https://liff.line.me/' + liffId + '?store=' + s + '&c=' + c.id + tq); });
+    else if (!opts.length) lines.push('', '👉 直接回覆這則訊息打「+1」（要 2 份就打 +2）');
+    while (lines.length && lines[lines.length - 1] === '') lines.pop();
     x.info = lines.slice(infoFrom).join('\n');
   } else if (x.kind === 'success') {
     lines.push('🎉【團購成團】' + c.title, '感謝大家支持！' + (st ? where + '共 ' + qty + ' 份' : '三店共 ' + qty + ' 份（' + x.stores.map(function (s) { return gbStoreName(s) + ' ' + (obs[s] || 0); }).join('・') + '）'));
     lines.push('📦 預計到貨：' + (c.arrival_date ? gbFmt(c.arrival_date, false) : '到貨日確定後通知'), '到貨後會再通知取貨，到店付款 $' + c.price + '／份');
   } else {
     lines.push('📦【到貨通知】' + c.title + ' 到貨囉！', '請在 ' + (c.pickup_deadline ? gbFmt(c.pickup_deadline, false) : '3 天內') + ' 前到' + where + '門市取貨，到店付款 $' + c.price + '／份');
-    if (document.getElementById('cpNames').checked && st) {
-      try {
-        var sn = await gbTimeout(window.db.collection('gb_orders').where('campaign_id', '==', c.id).where('store', '==', st).get());
-        var os = sn.docs.map(function (d) { return d.data(); }).filter(function (o) { return o.status === 'active'; });
-        if (os.length) { lines.push('', '取貨名單：'); os.forEach(function (o) { lines.push('・' + o.display_name + ' ×' + o.qty); }); }
-      } catch (e) { lines.push('', '（取貨名單讀取失敗）'); }
-    } else if (document.getElementById('cpNames').checked) { lines.push('', '（取貨名單請選單一門市）'); }
+  }
+  // 名單（成團、取貨都可附）：選單店只列該店；三店合併依門市分開列（2026-10-11）
+  if (x.kind !== 'open' && document.getElementById('cpNames').checked) {
+    try {
+      var sn = await gbTimeout(window.db.collection('gb_orders').where('campaign_id', '==', c.id).get());
+      var os = sn.docs.map(function (d) { return d.data(); }).filter(function (o) { return o.status === 'active' && (st ? o.store === st : x.stores.indexOf(o.store) >= 0); });
+      var label = x.kind === 'success' ? '成團名單' : '取貨名單';
+      (st ? [st] : x.stores).forEach(function (s) {
+        var mine = os.filter(function (o) { return o.store === s; });
+        if (!mine.length) return;
+        lines.push('', st ? label + '：' : '【' + gbStoreName(s) + '門市】' + label + '（' + mine.reduce(function (a, o) { return a + o.qty; }, 0) + ' 份）');
+        mine.forEach(function (o) { lines.push('・' + o.display_name + ' ×' + o.qty); });
+      });
+    } catch (e) { lines.push('', '（名單讀取失敗）'); }
   }
   document.getElementById('cpText').value = lines.join('\n');
 }

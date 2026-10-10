@@ -69,10 +69,19 @@
   <form class="sheet" id="campForm" onsubmit="event.preventDefault();saveCampaign();">
     <h3 id="campFormTitle">開團</h3>
     <p class="lead" id="campFormLead"></p>
+    <div class="f" id="cfPasteWrap"><span>貼上總部文案 <small>自動填好品名、價格／規格、說明、截單時間；填完請逐項檢查</small></span>
+      <textarea id="cfPaste" placeholder="把總部的文案整段貼在這裡" style="min-height:70px;"></textarea>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><button type="button" class="btn btn-o" onclick="applyHqPaste()">✨ 自動填入</button><span id="cfPasteMsg" style="font-size:12.5px;color:var(--muted);font-weight:600;flex:1;min-width:160px;"></span></div>
+    </div>
     <div class="f"><span>商品名稱</span><input id="cfTitle" maxlength="60" required></div>
+    <label class="f" style="flex-direction:row;align-items:center;gap:8px;"><input type="checkbox" id="cfMulti" onchange="syncMulti()" style="width:20px;height:20px;"> 多規格 <small>同一個商品分 A／B／C 不同包裝或價格，客人在群組打「A+1」「B+2」</small></label>
+    <div class="f" id="cfOptsWrap" hidden><span>規格 <small>代號依序自動編 A、B、C…；庫存、每人上限、成團數是每一種各自計算</small></span>
+      <div id="cfOpts"></div>
+      <button type="button" class="btn btn-o" onclick="addOptRow()" style="margin-top:4px;">＋ 加一個規格</button>
+    </div>
     <div class="f"><span>說明</span><textarea id="cfDesc" maxlength="600"></textarea></div>
     <div class="f2">
-      <div class="f"><span>價格（元）</span><input id="cfPrice" type="number" inputmode="numeric" min="1" step="1" required></div>
+      <div class="f" id="cfPriceWrap"><span>價格（元）</span><input id="cfPrice" type="number" inputmode="numeric" min="1" step="1" required></div>
       <div class="f"><span>每人上限</span><input id="cfLimit" type="number" inputmode="numeric" min="1" step="1" value="5" required></div>
     </div>
     <div class="f"><span>商品圖片</span>
@@ -145,7 +154,7 @@
     <h3 id="cpTitle">文案</h3>
     <p class="lead">可以先改文字再複製，貼回門市群組。</p>
     <div class="f"><span>門市</span><select id="cpStore" onchange="buildCopy()"></select></div>
-    <label class="f" id="cpNamesWrap" style="flex-direction:row;align-items:center;gap:8px;" hidden><input type="checkbox" id="cpNames" onchange="buildCopy()" style="width:20px;height:20px;"> 附上取貨名單（暱稱 × 數量）</label>
+    <label class="f" id="cpNamesWrap" style="flex-direction:row;align-items:center;gap:8px;" hidden><input type="checkbox" id="cpNames" onchange="buildCopy()" style="width:20px;height:20px;"> 附上名單（暱稱 × 數量；三店合併會依門市分開列）</label>
     <div class="f" id="cpArrivalWrap" hidden><span>預計到貨日 <small>成團後才知道的話在這裡填，會寫進文案、也顯示在客人的「我的訂單」</small></span><input id="cpArrival" type="date" onchange="saveCopyArrival()"></div>
     <div class="f"><textarea id="cpText" style="min-height:220px;font-size:15px;line-height:1.6;"></textarea></div>
     <p class="lead" id="cpInfoHint" style="margin:0 0 6px;">自己發圖文時：先貼你的文案，再按「只複製團購資訊」貼在下方（含 +1 連結）。</p>

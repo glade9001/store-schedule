@@ -72,6 +72,8 @@ function nextRoundDoc(c, curId, n) {
       end_time: c.end_time, arrival_date: c.arrival_date || null, pickup_deadline: c.pickup_deadline || null,
       success_rule: c.success_rule || "guaranteed", min_qty: c.min_qty || null, is_test: c.is_test === true,
       auto_next: true, series_id: seriesId, round: n, status: "open", ordered_qty: 0, ordered_by_store: {},
+      // 多規格（2026-10-11）：下一團沿用同一組規格
+      opt_group: c.opt_group || null, opt_code: c.opt_code || null, opt_label: c.opt_label || null, base_title: c.base_title || null,
       source_hq_post_id: c.source_hq_post_id || null, created_by: "system", created_by_name: "額滿自動開團",
       created_at: FieldValue.serverTimestamp(), updated_at: FieldValue.serverTimestamp(), settled_by: null, settled_at: null,
     },
@@ -362,59 +364,101 @@ async function handleEvent(ev) {
   const userId = src.userId || "";
   let prof = {};
   if (userId) { try { prof = await lineApi(`/v2/bot/group/${src.groupId}/member/${userId}`); } catch (e) {} }
-  const base = { group_id: src.groupId, store, line_user_id: userId || null, display_name: prof.displayName || "", picture_url: prof.pictureUrl || null,
+  const who = prof.displayName || "";
+  const base = { group_id: src.groupId, store, line_user_id: userId || null, display_name: who, picture_url: prof.pictureUrl || null,
     text: text.slice(0, 200), parsed_qty: p.qty, message_id: msgId, received_at: FieldValue.serverTimestamp(), status: "pending" };
-  const pend = (reason, extra) => db.collection("gb_pending_plus").doc(msgId).set(Object.assign({}, base, { reason }, extra || {}));
+  // 一則訊息可能有好幾個編號（A+1 B+2）：待確認一個編號一筆；回覆只能用一次，所以全部收集起來最後一起回
+  const multi = p.items.length > 1;
+  const pend = (reason, extra, i) => db.collection("gb_pending_plus").doc(multi ? `${msgId}o${i}` : msgId)
+    .set(Object.assign({}, base, { reason }, extra || {}));
+  const out = [];
 
   if (!userId) { await pend("拿不到客人的 LINE 身分"); return; }
   if (p.otherStore && NAME_CODE[p.otherStore] !== store) { await pend(`提到${p.otherStore}取貨`); return; }
 
-  // 判斷是哪一檔：①引用了團購貼文 ②這家店只有一檔開放中 ③其他 → 待確認
-  let cid = "";
-  const qid = ev.message.quotedMessageId;
   // 測試模式（2026-10-11）：測試群組只配「測試團」、正式群組不配測試團，兩邊互不干擾
   const isTestGroup = g.is_test === true;
   const fits = (c) => (c.is_test === true) === isTestGroup;
+  const sn = await db.collection("gb_campaigns").where("status", "==", "open").get();
+  let scope = sn.docs.filter((d) => isOpen(d.data()) && fits(d.data()) && (d.data().available_stores || []).includes(store));
+  // ①引用了團購貼文：範圍縮到那一檔（多規格就是同一組的所有規格）
+  const qid = ev.message.quotedMessageId;
   if (qid) {
     const m = await db.collection("gb_post_map").doc(qid).get();
-    if (m.exists) { const qc = await db.collection("gb_campaigns").doc(m.data().campaign_id).get(); if (qc.exists && fits(qc.data())) cid = m.data().campaign_id; }
-  }
-  if (!cid) {
-    const sn = await db.collection("gb_campaigns").where("status", "==", "open").get();
-    const raw = sn.docs.filter((d) => isOpen(d.data()) && fits(d.data()) && (d.data().available_stores || []).includes(store));
-    // 額滿自動開團的同一系列（第 1、2…團）只算一檔，取團次最小的；裝不下會自動往下一團
-    const bySeries = {};
-    raw.forEach((d) => { const k = d.data().series_id || d.id; if (!bySeries[k] || (d.data().round || 1) < (bySeries[k].data().round || 1)) bySeries[k] = d; });
-    const open = Object.values(bySeries);
-    if (open.length === 1) cid = open[0].id;
-    else if (open.length > 1) {
-      await pend(`同時有 ${open.length} 檔開放中，無法判斷是哪一檔`, { candidates: open.map((d) => d.id) });
-      const link = (await liffLink(store)) + (isTestGroup ? "&test=1" : "");
-      await reply(ev.replyToken, `收到 ${prof.displayName || ""} 的 +${p.qty}！目前有好幾檔團購，請點連結選商品下單 🙏${link ? "\n" + link : ""}`);
-      return;
-    } else {
-      // 沒有開放中的：最近 2 天內有截單的 → 回「已截單」，否則不理
-      const recent = (await db.collection("gb_campaigns").where("status", "in", ["open", "closed", "success", "failed", "arrived"]).get()).docs
-        .some((d) => (d.data().available_stores || []).includes(store) && d.data().end_time && Date.now() - d.data().end_time.toMillis() < 2 * 86400000);
-      if (recent) await reply(ev.replyToken, "本團已截單，下次早點喊喔 🙏");
-      return;
+    if (m.exists) {
+      const qc = await db.collection("gb_campaigns").doc(m.data().campaign_id).get();
+      if (qc.exists && fits(qc.data())) {
+        const q = qc.data(), qs = q.series_id || qc.id;
+        const narrowed = scope.filter((d) => (q.opt_group ? d.data().opt_group === q.opt_group : (d.data().series_id || d.id) === qs));
+        if (!narrowed.length) { await reply(ev.replyToken, "本團已截單，有再次開團再通知您 🙏"); return; }   // 引用的那檔已截單：不可改記到別檔
+        scope = narrowed;
+      }
     }
   }
-  try {
-    const r = await placeOrderTx({ cid, store, userId, name: prof.displayName || "", picture: prof.pictureUrl || null, add: p.qty, source: "group_text", sourceMessageId: msgId });
-    // 達標成團：每次 +N 都回覆成團倒數（2026-10-11 使用者要求；回覆免費）；保證成團照「成單回覆」開關
-    if (r.rule === "threshold") {
-      await reply(ev.replyToken, `已登記 ${prof.displayName || ""}：${r.title} 共 ${r.qty} 份 👍\n` + countdownText(r.ordered, r.minQty));
-    } else {
-      const cfg = await db.collection("gb_settings").doc("bot").get().catch(() => null);
-      if (cfg && cfg.exists && cfg.data().reply_on_success === true) await reply(ev.replyToken, `已登記 ${prof.displayName || ""}：${r.title} 共 ${r.qty} 份`);
-    }
-  } catch (e) {
-    const kind = (e && e.details && e.details.kind) || "";
-    if (kind === "closed") { await reply(ev.replyToken, "本團已截單，下次早點喊喔 🙏"); return; }
-    if (kind === "limit") { await pend(e.message, { campaign_id: cid }); await reply(ev.replyToken, `${prof.displayName || ""} ${e.message}，超過的部分沒有登記喔`); return; }
-    await pend(e.message || "建單失敗", { campaign_id: cid });
+  // 額滿自動開團的同一系列（第 1、2…團）只算一檔，取團次最小的；裝不下會自動往下一團
+  const dedupe = (docs) => {
+    const by = {};
+    docs.forEach((d) => { const k = d.data().series_id || d.id; if (!by[k] || (d.data().round || 1) < (by[k].data().round || 1)) by[k] = d; });
+    return Object.values(by);
+  };
+  const products = dedupe(scope);
+  const link = async () => { const l = await liffLink(store); return l ? "\n" + l + (isTestGroup ? "&test=1" : "") : ""; };
+
+  if (!products.length) {
+    // 沒有開放中的：最近 2 天內有截單的 → 回「已截單」，否則不理
+    const recent = (await db.collection("gb_campaigns").where("status", "in", ["open", "closed", "success", "failed", "arrived"]).get()).docs
+      .some((d) => (d.data().available_stores || []).includes(store) && d.data().end_time && Date.now() - d.data().end_time.toMillis() < 2 * 86400000);
+    if (recent) await reply(ev.replyToken, "本團已截單，有再次開團再通知您 🙏");
+    return;
   }
+  const groups = [...new Set(products.map((d) => d.data().opt_group || ("solo:" + d.id)))];
+  const optList = (gid) => products.filter((d) => d.data().opt_group === gid).map((d) => d.data().opt_code).filter(Boolean).sort();
+
+  for (let i = 0; i < p.items.length; i++) {
+    const it = p.items[i];
+    let target = null;
+    if (it.opt) {
+      const hit = products.filter((d) => d.data().opt_code === it.opt);
+      if (hit.length === 1) target = hit[0];
+      else if (!hit.length) {   // 不猜：客人標了編號，通常是在喊已截單的多規格團，記到別檔會出錯
+        const opts = groups.length === 1 ? optList(groups[0]) : [];
+        await pend(`找不到編號 ${it.opt}`, { parsed_qty: it.qty }, i);
+        out.push(opts.length ? `${who} 沒有編號 ${it.opt} 喔，請打 ${opts.map((o) => o + "+1").join("、")}` : `收到 ${who} 的 ${it.opt}+${it.qty}，但找不到這個編號，請點連結下單 🙏${await link()}`);
+        continue;
+      } else {
+        await pend(`有 ${hit.length} 檔都有編號 ${it.opt}，無法判斷`, { parsed_qty: it.qty, candidates: hit.map((d) => d.id) }, i);
+        out.push(`收到 ${who} 的 ${it.opt}+${it.qty}！目前有好幾檔團購，請點連結選商品下單 🙏${await link()}`);
+        continue;
+      }
+    } else if (products.length === 1) target = products[0];
+    else if (groups.length === 1) {
+      // 只有一檔、但分好幾個規格：請客人標編號
+      const opts = optList(groups[0]);
+      await pend("沒有標規格編號", { parsed_qty: it.qty, candidates: products.map((d) => d.id) }, i);
+      out.push(`收到 ${who} 的 +${it.qty}！這檔有 ${opts.join("／")} 好幾種，請標編號再喊一次，例如 ${opts[0]}+${it.qty}`);
+      continue;
+    } else {
+      await pend(`同時有 ${groups.length} 檔開放中，無法判斷是哪一檔`, { parsed_qty: it.qty, candidates: products.map((d) => d.id) }, i);
+      out.push(`收到 ${who} 的 +${it.qty}！目前有好幾檔團購，請點連結選商品下單 🙏${await link()}`);
+      continue;
+    }
+    const cid = target.id;
+    try {
+      const r = await placeOrderTx({ cid, store, userId, name: who, picture: prof.pictureUrl || null, add: it.qty, source: "group_text", sourceMessageId: msgId });
+      // 達標成團：每次 +N 都回覆成團倒數（2026-10-11 使用者要求；回覆免費）；保證成團照「成單回覆」開關
+      if (r.rule === "threshold") out.push(`已登記 ${who}：${r.title} 共 ${r.qty} 份 👍\n` + countdownText(r.ordered, r.minQty));
+      else {
+        const cfg = await db.collection("gb_settings").doc("bot").get().catch(() => null);
+        if (cfg && cfg.exists && cfg.data().reply_on_success === true) out.push(`已登記 ${who}：${r.title} 共 ${r.qty} 份`);
+      }
+    } catch (e) {
+      const kind = (e && e.details && e.details.kind) || "";
+      if (kind === "closed") { out.push("本團已截單，有再次開團再通知您 🙏"); continue; }
+      if (kind === "limit") { await pend(e.message, { campaign_id: cid, parsed_qty: it.qty }, i); out.push(`${who} ${e.message}，超過的部分沒有登記喔`); continue; }
+      await pend(e.message || "建單失敗", { campaign_id: cid, parsed_qty: it.qty }, i);
+    }
+  }
+  if (out.length) await reply(ev.replyToken, [...new Set(out)].join("\n\n"));
 }
 
 // ---- 後台：核准／拒絕群組（加盟主／admin）----
