@@ -109,7 +109,7 @@ function campCard(c) {
   return '<div class="card" id="camp-' + c.id + '"><div class="camp">' +
     (imgOk ? '<div class="camp-img" style="background-image:url(\'' + gbEsc(img).replace(/'/g, '%27') + '\')"></div>' : '<div class="camp-img" aria-hidden="true"></div>') +
     '<div class="camp-body">' +
-      '<span class="st st-' + c.status + '">' + (GB_STATUS[c.status] || c.status) + '</span>' + (isDue(c) ? ' <span class="st st-due">待結算</span>' : '') +
+      '<span class="st st-' + c.status + '">' + (GB_STATUS[c.status] || c.status) + '</span>' + (isDue(c) ? ' <span class="st st-due">待結算</span>' : '') + (c.is_test ? ' <span class="st" style="background:#ede9fe;color:#6d28d9;">🧪 測試團</span>' : '') +
       '<div class="camp-title">' + gbEsc(c.title) + '</div>' +
       '<div class="camp-meta"><b>$' + (c.price || 0) + '</b>・每人上限 ' + (c.per_user_limit || '—') + '・' + rule + '・' + stock + '</div>' +
       '<div class="camp-meta">截單 ' + gbFmt(c.end_time) + (c.status === 'open' ? '（' + gbCountdown(c.end_time) + '）' : '') +
@@ -196,6 +196,7 @@ function openCampaignForm(cid) {
   document.getElementById('cfArrival').value = c ? gbInputDate(c.arrival_date) : '';
   document.getElementById('cfPickup').value = c ? gbInputDate(c.pickup_deadline) : '';
   document.getElementById('cfMin').value = c && c.min_qty ? c.min_qty : '';
+  document.getElementById('cfTest').checked = !!(c && c.is_test);
   var rule = c ? c.success_rule || 'guaranteed' : 'guaranteed';
   document.querySelectorAll('input[name=cfRule]').forEach(function (r) { r.checked = r.value === rule; });
   var sel = c ? (c.available_stores || []) : (owner ? GB_STORES.map(function (s) { return s.code; }) : [gbMyCode]);
@@ -239,7 +240,7 @@ async function saveCampaign() {
     images: img ? [img] : [], available_stores: stores, stock: stock, per_user_limit: limit,
     end_time: end, arrival_date: gbTsFromDate(document.getElementById('cfArrival').value, false),
     pickup_deadline: gbTsFromDate(document.getElementById('cfPickup').value, true),
-    success_rule: rule, min_qty: rule === 'threshold' ? min : null,
+    success_rule: rule, min_qty: rule === 'threshold' ? min : null, is_test: document.getElementById('cfTest').checked,
     updated_at: firebase.firestore.FieldValue.serverTimestamp(),
   };
   var btn = document.getElementById('cfSave'); btn.disabled = true;
@@ -459,8 +460,9 @@ async function buildCopy() {
     lines.push('⏰ ' + gbFmt(c.end_time) + ' 截單' + (c.arrival_date ? '・預計 ' + gbFmt(c.arrival_date, false) + ' 到貨' : ''));
     if (c.success_rule === 'threshold') lines.push('🎯 三店合計滿 ' + c.min_qty + ' 份成團');
     // 連結帶 c=團購 ID：機器人看到這則訊息會記下「訊息→團購」，客人引用這則回覆 +1 就知道是哪一檔
-    if (st && liffId) lines.push('', '👉 點這裡 +1（或直接回覆這則留言 +1）：https://liff.line.me/' + liffId + '?store=' + st + '&c=' + c.id);
-    else if (!st && liffId) x.stores.forEach(function (s) { lines.push(gbStoreName(s) + ' +1：https://liff.line.me/' + liffId + '?store=' + s + '&c=' + c.id); });
+    var tq = c.is_test ? '&test=1' : '';   // 測試團的連結只在測試模式顯示
+    if (st && liffId) lines.push('', '👉 點這裡 +1（或直接回覆這則留言 +1）：https://liff.line.me/' + liffId + '?store=' + st + '&c=' + c.id + tq);
+    else if (!st && liffId) x.stores.forEach(function (s) { lines.push(gbStoreName(s) + ' +1：https://liff.line.me/' + liffId + '?store=' + s + '&c=' + c.id + tq); });
     else lines.push('', '要的朋友請在群組留言「+1」或私訊小編 🙌');
   } else if (x.kind === 'success') {
     lines.push('🎉【團購成團】' + c.title, '感謝大家支持！' + (st ? where + '共 ' + qty + ' 份' : '三店共 ' + qty + ' 份（' + x.stores.map(function (s) { return gbStoreName(s) + ' ' + (obs[s] || 0); }).join('・') + '）'));
@@ -592,13 +594,14 @@ async function loadBotGroups() {
   gbBotGroups.sort(function (a, b) { return (order[a.status] == null ? 9 : order[a.status]) - (order[b.status] == null ? 9 : order[b.status]); });
   var rows = gbBotGroups.map(function (g) {
     var st = ST[g.status] || [g.status, 'st-draft'];
-    var mode = g.status === 'approved' ? (g.mode === 'store_listen' ? '監聽 ' + gbStoreName(g.store) + ' 的 +1' : '已停用') : '';
+    var mode = g.status === 'approved' ? (g.mode === 'store_listen' ? (g.is_test ? '🧪 測試群組・只抓測試團（' + gbStoreName(g.store) + '）' : '監聽 ' + gbStoreName(g.store) + ' 的 +1') : '已停用') : '';
     var act = '';
     if (g.status === 'pending' || (g.status === 'approved' && g.mode !== 'store_listen')) {
       act = '<select class="inline" id="bs-' + g.id + '">' + GB_STORES.map(function (s) { return '<option value="' + s.code + '"' + (s.code === g.store ? ' selected' : '') + '>' + s.name + '</option>'; }).join('') + '</select>' +
+        '<label style="font-size:12px;font-weight:700;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="bt-' + g.id + '"' + (g.is_test ? ' checked' : '') + '> 測試群組</label>' +
         '<button class="mini" onclick="botAction(\'' + g.id + '\',\'approve\')">核准監聽</button>';
     }
-    if (g.status === 'approved' && g.mode === 'store_listen') act += '<button class="mini" onclick="botAction(\'' + g.id + '\',\'disable\')">暫停</button>';
+    if (g.status === 'approved' && g.mode === 'store_listen') act += '<button class="mini" onclick="botAction(\'' + g.id + '\',\'' + (g.is_test ? 'setReal' : 'setTest') + '\')">' + (g.is_test ? '改成正式群組' : '改成測試群組') + '</button><button class="mini" onclick="botAction(\'' + g.id + '\',\'disable\')">暫停</button>';
     if (g.status === 'pending' || g.status === 'approved') act += '<button class="mini d" onclick="botAction(\'' + g.id + '\',\'reject\')">退出群組</button>';
     return '<div class="orow"><span class="nm">' + gbEsc(g.name || '（沒有名稱）') + '</span><span class="st ' + st[1] + '">' + st[0] + '</span><span class="sub">' + mode + (g.status === 'pending' ? '・加入 ' + gbFmt(g.joined_at) + '，24 小時內沒核准會自動退出' : '') + '</span>' + act + '</div>';
   }).join('');
@@ -609,11 +612,13 @@ async function loadBotGroups() {
 }
 async function botAction(gid, action) {
   var g = gbBotGroups.find(function (x) { return x.id === gid; }); if (!g) return;
-  var store = action === 'approve' ? document.getElementById('bs-' + gid).value : '';
-  var txt = { approve: '核准「' + (g.name || gid) + '」，開始監聽 ' + gbStoreName(store) + ' 的 +1？', disable: '暫停「' + (g.name || gid) + '」的 +1 監聽？機器人會留在群組。', reject: '讓機器人退出「' + (g.name || gid) + '」？' }[action];
+  var store = action === 'approve' ? document.getElementById('bs-' + gid).value : g.store;
+  var test = action === 'approve' ? document.getElementById('bt-' + gid).checked : action === 'setTest';
+  if (action === 'setTest' || action === 'setReal') action = 'approve';
+  var txt = { approve: '「' + (g.name || gid) + '」' + (test ? '設為 🧪 測試群組（只抓測試團）' : '設為正式群組') + '，監聽 ' + gbStoreName(store) + ' 的 +1？', disable: '暫停「' + (g.name || gid) + '」的 +1 監聽？機器人會留在群組。', reject: '讓機器人退出「' + (g.name || gid) + '」？' }[action];
   if (!await gbConfirm('機器人群組', txt, { approve: '核准', disable: '暫停', reject: '退出群組' }[action])) return;
   gbLoading(true, '處理中…');
-  try { await gbTimeout(gbFn('gbBotGroupAction')({ groupId: gid, action: action, store: store })); gbToast('✅ 已更新'); await loadBotGroups(); }
+  try { await gbTimeout(gbFn('gbBotGroupAction')({ groupId: gid, action: action, store: store, test: test })); gbToast('✅ 已更新'); await loadBotGroups(); }
   catch (e) { gbToast('失敗：' + friendly(e)); }
   gbLoading(false);
 }

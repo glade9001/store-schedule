@@ -7,6 +7,8 @@
 var LF_LIFF_ID = '';
 
 var lfPhone = '', lfAfterPhone = null;
+// 測試模式：連結帶 test=1 只看「測試團」；正式連結看不到測試團（2026-10-11）
+var lfTest = (function () { var q = new URLSearchParams(location.search); if (q.get('test') === '1') return true; try { return /(?:^|[?&])test=1(?:&|$)/.test(decodeURIComponent(q.get('liff.state') || '')); } catch (e) { return false; } })();
 var lfStore = '', lfToken = '', lfProfile = null, lfCamps = [], lfMine = {}, lfMineList = [], lfPick = null, lfQty = 1, lfMax = 1, lfEdit = false;
 
 function lfFn(name) { return firebase.app().functions('asia-east1').httpsCallable(name); }
@@ -21,7 +23,7 @@ window.onload = async function () {
   // liff.init 之後網址可能帶 liff.state，門市參數從那裡也要讀得到
   if (!lfStore) { try { var st = new URLSearchParams(location.search).get('liff.state') || ''; lfStore = new URLSearchParams(st.replace(/^[^?]*\?/, '')).get('store') || ''; } catch (e) {} }
   if (!gbStoreName(lfStore) || lfStore === gbStoreName(lfStore)) { lfFatal('連結少了門市資訊，請從門市群組裡的連結開啟'); return; }
-  document.getElementById('lfStoreName').textContent = '7-ELEVEN ' + gbStoreName(lfStore) + '門市 團購';
+  document.getElementById('lfStoreName').textContent = '7-ELEVEN ' + gbStoreName(lfStore) + '門市 團購' + (lfTest ? '（測試）' : '');
   if (!LF_LIFF_ID) {
     try { var cfg = await gbTimeout(window.db.collection('gb_settings').doc('liff').get(), 10000); if (cfg.exists) LF_LIFF_ID = cfg.data().liff_id || ''; } catch (e) {}
   }
@@ -52,7 +54,7 @@ async function lfLoadCamps() {
     var sn = await gbTimeout(window.db.collection('gb_campaigns').where('status', '==', 'open').get());
     var now = Date.now();
     lfCamps = sn.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); })
-      .filter(function (c) { var e = gbToDate(c.end_time); return (c.available_stores || []).indexOf(lfStore) >= 0 && e && e.getTime() > now; })
+      .filter(function (c) { var e = gbToDate(c.end_time); return (c.available_stores || []).indexOf(lfStore) >= 0 && e && e.getTime() > now && (c.is_test === true) === lfTest; })
       .sort(function (a, b) { return gbToDate(a.end_time) - gbToDate(b.end_time); });
   } catch (e) { lfCamps = []; gbToast('讀取團購失敗：' + lfErr(e)); }
 }
@@ -83,7 +85,8 @@ function lfRemain(c) { return c.stock == null ? Infinity : Math.max(0, c.stock -
 function lfCard(c) {
   var img = (c.images || [])[0], mine = lfMine[c.id], had = mine ? mine.qty : 0;
   var remain = lfRemain(c), canAdd = Math.min((c.per_user_limit || 0) - had, remain);
-  var prog = '';
+  // 保證成團也要讓客人看得到（2026-10-11 使用者）
+  var prog = c.success_rule === 'threshold' ? '' : '<div class="lf-meta" style="margin-top:6px;"><span style="background:#e6f4ea;color:#137333;font-weight:800;border-radius:7px;padding:2px 9px;">✅ 保證成團</span>　截單後一定出貨</div>';
   if (c.success_rule === 'threshold' && c.min_qty) {
     var p = Math.min(100, Math.round((c.ordered_qty || 0) / c.min_qty * 100)), lack = Math.max(0, c.min_qty - (c.ordered_qty || 0));
     prog = '<div class="lf-meta" style="margin-top:6px;">' + (lack ? '還差 <b>' + lack + '</b> 份成團（三店合計）' : '✅ 已達成團門檻') + '</div><div class="bar"><i style="width:' + p + '%;background:#06c755;"></i></div>';

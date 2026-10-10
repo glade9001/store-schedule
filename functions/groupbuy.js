@@ -278,14 +278,20 @@ async function handleEvent(ev) {
   // 判斷是哪一檔：①引用了團購貼文 ②這家店只有一檔開放中 ③其他 → 待確認
   let cid = "";
   const qid = ev.message.quotedMessageId;
-  if (qid) { const m = await db.collection("gb_post_map").doc(qid).get(); if (m.exists) cid = m.data().campaign_id; }
+  // 測試模式（2026-10-11）：測試群組只配「測試團」、正式群組不配測試團，兩邊互不干擾
+  const isTestGroup = g.is_test === true;
+  const fits = (c) => (c.is_test === true) === isTestGroup;
+  if (qid) {
+    const m = await db.collection("gb_post_map").doc(qid).get();
+    if (m.exists) { const qc = await db.collection("gb_campaigns").doc(m.data().campaign_id).get(); if (qc.exists && fits(qc.data())) cid = m.data().campaign_id; }
+  }
   if (!cid) {
     const sn = await db.collection("gb_campaigns").where("status", "==", "open").get();
-    const open = sn.docs.filter((d) => isOpen(d.data()) && (d.data().available_stores || []).includes(store));
+    const open = sn.docs.filter((d) => isOpen(d.data()) && fits(d.data()) && (d.data().available_stores || []).includes(store));
     if (open.length === 1) cid = open[0].id;
     else if (open.length > 1) {
       await pend(`同時有 ${open.length} 檔開放中，無法判斷是哪一檔`, { candidates: open.map((d) => d.id) });
-      const link = await liffLink(store);
+      const link = (await liffLink(store)) + (isTestGroup ? "&test=1" : "");
       await reply(ev.replyToken, `收到 ${prof.displayName || ""} 的 +${p.qty}！目前有好幾檔團購，請點連結選商品下單 🙏${link ? "\n" + link : ""}`);
       return;
     } else {
@@ -331,7 +337,7 @@ exports.gbBotGroupAction = onCall({ region: REGION, secrets: [GB_TOKEN] }, async
   if (d.action === "approve") {
     const store = String(d.store || "");
     if (!STORES[store]) throw new HttpsError("invalid-argument", "請選門市");
-    await ref.update({ status: "approved", mode: "store_listen", store, approved_by: by, approved_at: ts });
+    await ref.update({ status: "approved", mode: "store_listen", store, is_test: d.test === true, approved_by: by, approved_at: ts });
   } else if (d.action === "disable") {
     await ref.update({ status: "approved", mode: "disabled", updated_by: by, updated_at: ts });
   } else if (d.action === "reject") {
