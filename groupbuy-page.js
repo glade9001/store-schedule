@@ -46,6 +46,8 @@ async function loadCampaigns() {
 }
 
 // ---- 權限 ----
+// 標題列「🛍️ 下單頁」（2026-10-10 使用者）：快速打開客人看到的下單頁；有門市就直接帶本店
+function gbLiffUrl() { return 'https://glade9001.github.io/store-schedule/liff.html' + (gbMyCode ? '?store=' + encodeURIComponent(gbMyCode) : ''); }
 function onlyMine(c) { var s = c.available_stores || []; return s.length === 1 && s[0] === gbMyCode; }
 function canEdit(c) { return gbIsOwner(gbUser) || (gbIsManager(gbUser) && !!gbMyCode && onlyMine(c)); }
 function visible(c) {
