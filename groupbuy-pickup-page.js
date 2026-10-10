@@ -85,8 +85,8 @@ function pkCard(o) {
       (o.note ? '<br>備註：' + gbEsc(o.note) : '') +
       (picked ? '<br>✅ ' + gbFmt(o.picked_up_at) + ' 取貨' : '') + '</div>' +
     '<div class="pk-btns">' +
-      '<button class="pk-btn' + (picked ? ' on-pick' : '') + '" ' + (ns ? 'disabled ' : '') + 'onclick="togglePicked(\'' + o.id + '\')">' + (picked ? '✅ 已取貨' : '取貨') + '</button>' +
-      '<button class="pk-btn' + (o.paid ? ' on-paid' : '') + '" ' + (ns ? 'disabled ' : '') + 'onclick="togglePaid(\'' + o.id + '\')">' + (o.paid ? '💰 已付款' : '付款') + '</button>' +
+      '<button class="pk-btn' + (picked ? ' on-pick' : '') + '" ' + (ns ? 'disabled ' : '') + 'onclick="togglePicked(\'' + o.id + '\')">' + (picked ? '✅ 已取貨' : '取貨（含收款）') + '</button>' +
+      '<button class="pk-btn' + (o.paid ? ' on-paid' : '') + '" ' + (ns || picked ? 'disabled title="取貨時已一併收款" ' : '') + 'onclick="togglePaid(\'' + o.id + '\')">' + (o.paid ? '💰 已付款' : '先付款') + '</button>' +
       '<button class="pk-btn ns' + (ns ? ' on-ns' : '') + '" ' + (canNs ? '' : 'disabled title="過了取貨期限才能標棄單" ') + 'onclick="toggleNoShow(\'' + o.id + '\')">' + (ns ? '🚫 棄單' : '棄單') + '</button>' +
     '</div></div>';
 }
@@ -114,11 +114,12 @@ async function patchOrder(o, upd, msg) {
 }
 async function togglePicked(id) {
   var o = orderById(id); if (!o) return;
+  // 2026-10-11 使用者：到店取貨就付款 → 按「取貨」同時記為已付款；改回待取貨時一併改回未付款
   if (o.status === 'picked_up') {
-    if (!await pkConfirm('取消取貨', '把 ' + o.display_name + ' 改回「待取貨」？', '改回待取貨')) return;
-    return patchOrder(o, { status: 'active', picked_up_at: null, picked_up_by: null }, '已改回待取貨');
+    if (!await pkConfirm('取消取貨', '把 ' + o.display_name + ' 改回「待取貨」？付款狀態也會一起改回「未付款」。', '改回待取貨')) return;
+    return patchOrder(o, { status: 'active', paid: false, picked_up_at: null, picked_up_by: null }, '已改回待取貨（未付款）');
   }
-  return patchOrder(o, { status: 'picked_up', picked_up_at: firebase.firestore.FieldValue.serverTimestamp(), picked_up_by: pkUser.uid }, '✅ ' + o.display_name + ' 已取貨');
+  return patchOrder(o, { status: 'picked_up', paid: true, picked_up_at: firebase.firestore.FieldValue.serverTimestamp(), picked_up_by: pkUser.uid }, '✅ ' + o.display_name + ' 已取貨、已收款');
 }
 async function togglePaid(id) {
   var o = orderById(id); if (!o) return;
