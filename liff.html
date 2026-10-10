@@ -10,8 +10,8 @@
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-functions.js"></script>
 <script src="firebase-init.js"></script>
-<script src="gb-common.js?v=20261010f"></script>
-<link rel="stylesheet" href="groupbuy.css?v=20261010f">
+<script src="gb-common.js?v=20261010g"></script>
+<link rel="stylesheet" href="groupbuy.css?v=20261010g">
 <style>
 /* 客人端（LIFF）：比後台更大的字與按鈕 */
 .lf-hero{background:#0e2140;color:#fff;padding:14px 16px 12px;cursor:pointer;-webkit-tap-highlight-color:transparent;}   /* cursor:pointer：iPhone 才會對它觸發 click（連點 5 下開分享測試） */
@@ -21,6 +21,12 @@
 .lf-img{display:block;width:100%;height:auto;max-width:100%;background:#eef2f7;}   /* 依原圖比例完整顯示，不裁切 */
 /* 列表：一行兩格（2026-10-11） */
 .lf-share{width:100%;border:none;border-radius:12px;padding:12px;margin-bottom:10px;font-size:15px;font-weight:900;background:#0e2140;color:#fff;cursor:pointer;font-family:inherit;}
+.sh-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid #eef2f7;cursor:pointer;}
+.sh-row:first-child{border-top:none;}
+.sh-row input{width:22px;height:22px;flex:none;}
+.sh-row img,.sh-row .sh-noimg{width:48px;height:48px;border-radius:8px;object-fit:cover;flex:none;background:#f1f5f9;}
+.sh-row .sh-t{flex:1;min-width:0;font-size:14.5px;font-weight:800;line-height:1.35;}
+.sh-row .sh-t small{display:block;font-size:12px;font-weight:700;color:#c2410c;}
 .lf-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 .lf-tile{display:flex;flex-direction:column;text-align:left;background:#fff;border:none;border-radius:14px;box-shadow:0 1px 5px rgba(0,0,0,.07);overflow:hidden;padding:0;cursor:pointer;font-family:inherit;color:inherit;min-width:0;}
 .lf-tile-img{position:relative;width:100%;aspect-ratio:1/1;background:#f1f5f9;display:flex;align-items:center;justify-content:center;}
@@ -67,7 +73,7 @@
   <div id="lfList"></div>
   <div id="lfMine" hidden></div>
   <div id="lfDetail" hidden><div class="lf-detail-bar"><button onclick="lfCloseDetail()">← 返回商品列表</button></div><div class="wrap" style="padding-top:12px;" id="lfDetailBody"></div></div>
-  <div class="lf-foot">本服務由莉學商行經營，僅限美德・聯鑫・錦花三家門市。資料只用於團購訂單、取貨與聯絡，<a href="gb-privacy.html">隱私權政策</a>・<a href="gb-terms.html">服務條款</a><br>到店取貨付款。<br><span style="opacity:.6;">版本 20261010f</span></div>
+  <div class="lf-foot">本服務由莉學商行經營，僅限美德・聯鑫・錦花三家門市。資料只用於團購訂單、取貨與聯絡，<a href="gb-privacy.html">隱私權政策</a>・<a href="gb-terms.html">服務條款</a><br>到店取貨付款。<br><span style="opacity:.6;">版本 20261010g</span></div>
 </div>
 
 <!-- 手機（第一次下單前）-->
@@ -85,6 +91,20 @@
 </div>
 
 <!-- 選數量 -->
+<!-- 選擇要分享的商品（1～5 檔，2026-10-11） -->
+<div class="modal" id="shareModal" hidden>
+  <div class="sheet">
+    <h3>📤 要分享哪些商品？</h3>
+    <p class="lead">勾 1～5 檔，會合成一張卡片送出。</p>
+    <div id="shList"></div>
+    <div class="err" id="shErr" style="text-align:center;"></div>
+    <div class="sheet-btns">
+      <button type="button" class="btn btn-g" onclick="document.getElementById('shareModal').hidden=true">取消</button>
+      <button type="button" class="btn btn-p" id="shOk" style="background:#06c755;" onclick="lfShareSelected()">分享</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="qtyModal" hidden>
   <div class="sheet">
     <h3 id="qmTitle">選擇數量</h3>
@@ -100,6 +120,6 @@
 
 <div id="toast"></div>
 <!-- ?v＝版本號：LIFF 在 GitHub Pages（快取 10 分鐘），改了 JS／CSS 要一起改版本號，客人才會拿到新版 -->
-<script src="liff-page.js?v=20261010f"></script>
+<script src="liff-page.js?v=20261010g"></script>
 </body>
 </html>

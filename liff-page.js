@@ -262,17 +262,41 @@ function lfFlexList(items) {
     body: { type: 'box', layout: 'vertical', contents: rows },
     footer: { type: 'box', layout: 'vertical', contents: [{ type: 'button', style: 'link', height: 'sm', action: { type: 'uri', label: '看全部團購商品', uri: 'https://liff.line.me/' + LF_LIFF_ID + (lfTest ? '?test=1' : '') } }] } };
 }
-async function lfShare() {
+// 分享：先選 1～5 檔（預設勾截單最早的 5 檔），合成一張卡片送出（2026-10-11 使用者）
+var lfShareItems = [];
+function lfShare() {
+  if (!liff.isApiAvailable('shareTargetPicker')) { gbToast('請在 LINE 裡打開這個頁面才能分享（或 LIFF 尚未開啟分享功能）'); return; }
+  lfShareItems = Object.keys(lfItems).map(function (k) { return lfItems[k]; }).filter(function (it) { return !it.sold; })
+    .sort(function (a, b) { return (gbToDate(a.c.end_time) || 0) - (gbToDate(b.c.end_time) || 0); });
+  if (!lfShareItems.length) { gbToast('目前沒有可以分享的團購'); return; }
+  document.getElementById('shList').innerHTML = lfShareItems.map(function (it, i) {
+    var c = it.c, img = (c.images || [])[0];
+    return '<label class="sh-row"><input type="checkbox" value="' + i + '"' + (i < 5 ? ' checked' : '') + ' onchange="lfShareCheck(this)">' +
+      (img && /^https:\/\//.test(img) ? '<img src="' + gbEsc(img) + '" alt="">' : '<span class="sh-noimg"></span>') +
+      '<span class="sh-t">' + gbEsc(c.base_title || c.title) + '<small>' + it.price + '・' + gbEsc(lfHint(it.ms || [c])) + '</small></span></label>';
+  }).join('');
+  document.getElementById('shErr').textContent = '';
+  document.getElementById('shareModal').hidden = false;
+}
+function lfShareCheck(el) {
+  var n = document.querySelectorAll('#shList input:checked').length;
+  if (n > 5) { el.checked = false; document.getElementById('shErr').textContent = '最多選 5 檔'; return; }
+  document.getElementById('shErr').textContent = '';
+}
+async function lfShareSelected() {
+  var picked = [].slice.call(document.querySelectorAll('#shList input:checked')).map(function (x) { return lfShareItems[Number(x.value)]; });
+  var err = document.getElementById('shErr');
+  if (picked.length < 1) { err.textContent = '至少選 1 檔'; return; }
+  if (picked.length > 5) { err.textContent = '最多選 5 檔'; return; }
+  var btn = document.getElementById('shOk'); btn.disabled = true;
   try {
-    if (!liff.isApiAvailable('shareTargetPicker')) { gbToast('請在 LINE 裡打開這個頁面才能分享（或 LIFF 尚未開啟分享功能）'); return; }
-    // 一則訊息、一張卡片列出全部（2026-10-11：每檔一張會洗版；輪播實機沒送出，單張卡片確認可以）
-    var items = Object.keys(lfItems).map(function (k) { return lfItems[k]; }).filter(function (it) { return !it.sold; })
-      .sort(function (a, b) { return (gbToDate(a.c.end_time) || 0) - (gbToDate(b.c.end_time) || 0); });
-    if (!items.length) { gbToast('目前沒有可以分享的團購'); return; }
-    var msg = { type: 'flex', altText: '🛒 團購開跑中：' + items.map(function (it) { return it.c.base_title || it.c.title; }).join('、').slice(0, 300), contents: lfFlexList(items) };
+    // 一則訊息、一張卡片列出選的商品（每檔一張會洗版；輪播實機沒送出，單張卡片確認可以）
+    var msg = { type: 'flex', altText: '🛒 團購開跑中：' + picked.map(function (it) { return it.c.base_title || it.c.title; }).join('、').slice(0, 300), contents: lfFlexList(picked) };
     var r = await liff.shareTargetPicker([msg], { isMultiple: true });
-    if (r && r.status === 'success') gbToast('✅ 已分享'); else if (!r) gbToast('已取消分享');
-  } catch (e) { gbToast('分享失敗：' + lfErr(e)); }
+    if (r && r.status === 'success') { document.getElementById('shareModal').hidden = true; gbToast('✅ 已分享'); }
+    else if (!r) gbToast('已取消分享');
+  } catch (e) { err.textContent = '分享失敗：' + lfErr(e); }
+  btn.disabled = false;
 }
 // 列表小字（2026-10-11 使用者：增加 +1 慾望）：成團進度／已訂份數＋快截單、快賣完
 function lfHint(ms) {
