@@ -200,7 +200,7 @@ function lfFlexBubble(it) {
 // 連點標題 5 下也能叫出分享測試（網址沒帶 ?debug=1 時用）
 var lfDebug = false, lfTapN = 0, lfTapT = 0;
 document.addEventListener('click', function (e) {
-  if (!e.target.closest || !e.target.closest('.lf-hero')) return;
+  if (!e.target.closest || !e.target.closest('.lf-hero') || e.target.closest('button')) return;   // 「換門市」按鈕不算
   var now = Date.now(); lfTapN = now - lfTapT < 800 ? lfTapN + 1 : 1; lfTapT = now;
   if (lfTapN >= 5) { lfTapN = 0; lfDebug = !lfDebug; lfRender(); lfSetTab('list'); gbToast(lfDebug ? '已開啟分享測試' : '已關閉分享測試'); }
 });

@@ -10,11 +10,11 @@
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-functions.js"></script>
 <script src="firebase-init.js"></script>
-<script src="gb-common.js"></script>
-<link rel="stylesheet" href="groupbuy.css">
+<script src="gb-common.js?v=20261010c"></script>
+<link rel="stylesheet" href="groupbuy.css?v=20261010c">
 <style>
 /* 客人端（LIFF）：比後台更大的字與按鈕 */
-.lf-hero{background:#0e2140;color:#fff;padding:14px 16px 12px;}
+.lf-hero{background:#0e2140;color:#fff;padding:14px 16px 12px;cursor:pointer;-webkit-tap-highlight-color:transparent;}   /* cursor:pointer：iPhone 才會對它觸發 click（連點 5 下開分享測試） */
 .lf-hero b{font-size:18px;}
 .lf-hero small{display:block;opacity:.8;font-size:12.5px;margin-top:2px;}
 .lf-card{background:#fff;border-radius:16px;box-shadow:0 1px 5px rgba(0,0,0,.07);overflow:hidden;margin-bottom:14px;}
@@ -99,6 +99,7 @@
 </div>
 
 <div id="toast"></div>
-<script src="liff-page.js"></script>
+<!-- ?v＝版本號：LIFF 在 GitHub Pages（快取 10 分鐘），改了 JS／CSS 要一起改版本號，客人才會拿到新版 -->
+<script src="liff-page.js?v=20261010c"></script>
 </body>
 </html>
