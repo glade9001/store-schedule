@@ -1777,7 +1777,7 @@ function lbRenderBar() {
   const md = d => (+d.slice(5,7)) + '/' + (+d.slice(8));
   // 文案原則（使用者 2026-10-11）：一個數字、一句話；範圍與推算過程不放（燈號仍用誤差範圍判斷）
   const sum = lt
-    ? `${col[2]} ${mo}月工時 ${fmt(sc.hours)}h／上限 ${fmt(lt.capP)}h（排到 ${md(sc.lastDate)}）`
+    ? `${col[2]} ${mo}月排到 ${md(sc.lastDate)}：${fmt(sc.hours)}h／上限 ${fmt(lt.capP)}h` // 上限＝整月上限按已排天數攤，日期放前面才看得出是「到這天為止」
     : `${mo}月工時：還沒排班 · 整個月上限約 ${fmt(p.cap)}h`;
   const lines = [];
   // 顯示的上限是中間值 capP；燈號用誤差範圍判斷 → 黃燈可能已略超過 capP，文案要分開講
