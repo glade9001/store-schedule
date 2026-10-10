@@ -5,13 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#0e2140">
 <title>莉學團購</title>
+<script src="liff-watchdog.js?v=20261010j"></script>
 <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-functions.js"></script>
 <script src="firebase-init.js"></script>
-<script src="gb-common.js?v=20261010i"></script>
-<link rel="stylesheet" href="groupbuy.css?v=20261010i">
+<script src="gb-common.js?v=20261010j"></script>
+<link rel="stylesheet" href="groupbuy.css?v=20261010j">
 <style>
 /* 客人端（LIFF）：比後台更大的字與按鈕 */
 .lf-hero{background:#0e2140;color:#fff;padding:14px 16px 12px;cursor:pointer;-webkit-tap-highlight-color:transparent;}   /* cursor:pointer：iPhone 才會對它觸發 click（連點 5 下開分享測試） */
@@ -86,7 +87,7 @@
   <div id="lfList"></div>
   <div id="lfMine" hidden></div>
   <div id="lfDetail" hidden><div class="lf-detail-bar"><button onclick="lfCloseDetail()">← 返回商品列表</button></div><div class="wrap" style="padding-top:12px;" id="lfDetailBody"></div></div>
-  <div class="lf-foot">本服務由莉學商行經營，僅限美德・聯鑫・錦花三家門市。資料只用於團購訂單、取貨與聯絡，<a href="gb-privacy.html">隱私權政策</a>・<a href="gb-terms.html">服務條款</a><br>到店取貨付款。<br><a href="#" onclick="lfOpenKaikai();return false;" style="color:#64748b;text-decoration:none;font-weight:700;">網頁製作：kaikai ↗</a><br><span style="opacity:.6;">版本 20261010h</span></div>
+  <div class="lf-foot">本服務由莉學商行經營，僅限美德・聯鑫・錦花三家門市。資料只用於團購訂單、取貨與聯絡，<a href="gb-privacy.html">隱私權政策</a>・<a href="gb-terms.html">服務條款</a><br>到店取貨付款。<br><a href="#" onclick="lfOpenKaikai();return false;" style="color:#64748b;text-decoration:none;font-weight:700;">網頁製作：kaikai ↗</a><br><span style="opacity:.6;">版本 20261010j</span></div>
 </div>
 
 <!-- 手機（第一次下單前）-->
@@ -133,6 +134,6 @@
 
 <div id="toast"></div>
 <!-- ?v＝版本號：LIFF 在 GitHub Pages（快取 10 分鐘），改了 JS／CSS 要一起改版本號，客人才會拿到新版 -->
-<script src="liff-page.js?v=20261010i"></script>
+<script src="liff-page.js?v=20261010j"></script>
 </body>
 </html>

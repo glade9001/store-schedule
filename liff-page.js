@@ -34,16 +34,18 @@ window.onload = async function () {
   lfStore = lfParam('store');
   if (lfValidStore(lfStore)) lfRemember(lfStore); else lfStore = '';
   if (!LF_LIFF_ID) {
-    try { var cfg = await gbTimeout(window.db.collection('gb_settings').doc('liff').get(), 10000); if (cfg.exists) LF_LIFF_ID = cfg.data().liff_id || ''; } catch (e) {}
+    try { var cfg = await gbTimeout(window.db.collection('gb_settings').doc('liff').get(), 10000); if (cfg.exists) LF_LIFF_ID = cfg.data().liff_id || ''; }
+    catch (e) { lfFatal(LF_NET_MSG, true); return; }   // 讀不到設定多半是網路，不是「還在準備」
   }
   if (!LF_LIFF_ID) { lfFatal('團購還在準備中，請稍後再試'); return; }
   try {
-    await liff.init({ liffId: LF_LIFF_ID });
-    if (!liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return; }
+    // liff.init／getProfile 本身沒有逾時，網路不穩會一直等 → 自己設上限
+    await gbTimeout(liff.init({ liffId: LF_LIFF_ID }), 15000, LF_NET_MSG);
+    if (!liff.isLoggedIn()) { lfBootDone(); liff.login({ redirectUri: location.href }); return; }
     lfToken = liff.getIDToken() || '';
-    lfProfile = await liff.getProfile().catch(function () { return null; });
+    lfProfile = await gbTimeout(liff.getProfile(), 8000).catch(function () { return null; });
     if (lfProfile) document.getElementById('lfHello').textContent = '嗨，' + lfProfile.displayName + '・到店取貨付款';
-  } catch (e) { lfFatal('LINE 連線失敗：' + lfErr(e)); return; }
+  } catch (e) { lfFatal(e && e.message === LF_NET_MSG ? LF_NET_MSG : 'LINE 連線失敗：' + lfErr(e), true); return; }
   await lfLoadMine();
   // 沒帶門市：記住的門市 → 最近一筆訂單的門市 → 請客人選（pick=1 一律重選）
   var forcePick = lfParam('pick') === '1';
@@ -51,9 +53,10 @@ window.onload = async function () {
     try { var saved = localStorage.getItem(LF_STORE_KEY) || ''; if (lfValidStore(saved)) lfStore = saved; } catch (e) {}
     if (!lfStore && lfMineList.length && lfValidStore(lfMineList[0].store)) lfStore = lfMineList[0].store;
   }
-  if (!lfStore) { lfAskStore(); return; }
+  if (!lfStore) { lfAskStore(); lfBootDone(); return; }
   await lfStart();
 };
+var LF_NET_MSG = '網路不穩，連不上團購系統';
 function lfAskStore() {
   gbLoading(false);
   document.getElementById('lfStoreName').textContent = '請選擇取貨門市';
@@ -74,7 +77,8 @@ async function lfChooseStore(code) {
 async function lfStart() {
   document.getElementById('lfStoreName').innerHTML = gbEsc('7-ELEVEN ' + gbStoreName(lfStore) + '門市 團購' + (lfTest ? '（測試）' : '')) +
     ' <button onclick="lfAskStore()" style="margin-left:6px;font-size:12px;font-weight:800;padding:3px 9px;border-radius:999px;border:1px solid rgba(255,255,255,.5);background:transparent;color:#fff;cursor:pointer;font-family:inherit;vertical-align:middle;">換門市</button>';
-  await lfLoadCamps();
+  if (!(await lfLoadCamps())) { lfFatal(LF_NET_MSG, true); return; }   // 讀不到就說讀不到，不要顯示成「目前沒有團購」
+  lfBootDone();
   lfRender();
   lfSetTab(lfParam('tab') === 'mine' ? 'mine' : 'list');
   gbLoading(false);
@@ -99,9 +103,14 @@ async function lfStart() {
     lfAskPhone(null, '你在群組登記的團購已經收到了！留個手機號碼，到貨或沒來取貨時門市才聯絡得到你。只在莉學商行三家門市內部使用，不會公開在群組。');
   }
 }
-function lfFatal(msg) {
-  gbLoading(false);
-  document.getElementById('lfList').innerHTML = '<div class="card"><div class="empty" style="font-size:15px;">' + gbEsc(msg) + '</div></div>';
+function lfFatal(msg, retry) {
+  lfBootDone(); gbLoading(false);
+  document.querySelector('.gb-tabs').hidden = true;
+  document.getElementById('lfMine').hidden = true;
+  document.getElementById('lfList').hidden = false;
+  document.getElementById('lfList').innerHTML = '<div class="card"><div class="empty" style="font-size:15px;">' + gbEsc(msg) +
+    (retry ? '<div style="font-size:13px;margin-top:6px;">可以切換 Wi-Fi／行動數據後再試一次，你的訂單不會因此不見。</div>' : '') + '</div>' +
+    (retry ? '<button class="lf-go" style="background:#0e2140;" onclick="location.reload()">🔄 重新載入</button>' : '') + '</div>';
 }
 
 async function lfLoadCamps() {
@@ -111,7 +120,8 @@ async function lfLoadCamps() {
     lfCamps = sn.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); })
       .filter(function (c) { var e = gbToDate(c.end_time); return (c.available_stores || []).indexOf(lfStore) >= 0 && e && e.getTime() > now && (c.is_test === true) === lfTest; })
       .sort(function (a, b) { return gbToDate(a.end_time) - gbToDate(b.end_time) || (a.round || 1) - (b.round || 1); });
-  } catch (e) { lfCamps = []; gbToast('讀取團購失敗：' + lfErr(e)); }
+    return true;
+  } catch (e) { lfCamps = []; gbToast('讀取團購失敗：' + lfErr(e)); return false; }
 }
 async function lfLoadMine() {
   try {
