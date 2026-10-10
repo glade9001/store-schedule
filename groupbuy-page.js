@@ -233,6 +233,7 @@ function gbCleanHq(t) {
     .replace(/\(\+\)/g, '+')
     .replace(/\(:\)\)|\(:\(\)/g, '')
     .replace(/\([\u4e00-\u9fff]{1,4}\)/g, '')
+    .replace(/\([a-z][a-z _-]{1,19}\)/g, '')   // (right)(heart)(star) 這類英文表情代碼；(A) 大寫單字母是規格編號，不刪
     .replace(/[ \t]+\n/g, '\n');
 }
 function gbPriceIn(line) {
@@ -243,7 +244,8 @@ function gbPriceIn(line) {
 function gbParseHq(raw) {
   var text = gbCleanHq(raw).trim();
   var lines = text.split(/\n/).map(function (l) { return l.trim(); });
-  var title = (lines.find(function (l) { return l; }) || '').replace(/[\u{1F000}-\u{1FAFF}\u2600-\u27BF\uFE0F]+/gu, '').trim();
+  var title = (lines.find(function (l) { return l; }) || '').replace(/[\u{1F000}-\u{1FAFF}\u2600-\u27BF\uFE0F]+/gu, '')
+    .replace(/^[\s－\-–—•・★☆◆◇▶►※]+/, '').replace(/\s{2,}/g, ' ').trim();
   // 規格：(A) 開頭的行，價格在同一行或後面幾行
   var options = [], cur = null;
   lines.forEach(function (l) {
