@@ -1,5 +1,7 @@
 // 團購第 2 階段：客人端 LIFF 頁（2026-10-10）
 // 網址：liff.html?store=meide／lianxin／jinhua（小編貼在各門市群組）
+//   不帶門市（LINE 圖文選單、加好友歡迎訊息，2026-10-11）：記住的門市 → 最近一筆訂單的門市 → 請客人選；
+//   pick=1 強制重選門市、tab=mine 直接開〔我的訂單〕。
 // 客人不需登入莉學系統；身分＝LINE（liff.getIDToken），下單／改單／查單一律走 Cloud Functions（functions/groupbuy.js），
 // 伺服器驗證 Token 後才寫入。團購列表直接讀 Firestore（規則只放行 status == "open" 的查詢）。
 
@@ -18,12 +20,19 @@ function lfErr(e) {
   return m.replace(/^(FirebaseError|Error):\s*/, '') || '發生錯誤，請稍後再試';
 }
 
+// 網址參數：liff.init 之後可能被包進 liff.state，兩邊都要讀
+function lfParam(k) {
+  var q = new URLSearchParams(location.search);
+  if (q.get(k)) return q.get(k);
+  try { var st = q.get('liff.state') || ''; return new URLSearchParams(decodeURIComponent(st).replace(/^[^?]*\?/, '')).get(k) || ''; } catch (e) { return ''; }
+}
+function lfValidStore(c) { return !!c && GB_STORES.some(function (s) { return s.code === c; }); }
+var LF_STORE_KEY = 'gbLiffStore';
+function lfRemember(c) { try { localStorage.setItem(LF_STORE_KEY, c); } catch (e) {} }
+
 window.onload = async function () {
-  lfStore = new URLSearchParams(location.search).get('store') || '';
-  // liff.init 之後網址可能帶 liff.state，門市參數從那裡也要讀得到
-  if (!lfStore) { try { var st = new URLSearchParams(location.search).get('liff.state') || ''; lfStore = new URLSearchParams(st.replace(/^[^?]*\?/, '')).get('store') || ''; } catch (e) {} }
-  if (!gbStoreName(lfStore) || lfStore === gbStoreName(lfStore)) { lfFatal('連結少了門市資訊，請從門市群組裡的連結開啟'); return; }
-  document.getElementById('lfStoreName').textContent = '7-ELEVEN ' + gbStoreName(lfStore) + '門市 團購' + (lfTest ? '（測試）' : '');
+  lfStore = lfParam('store');
+  if (lfValidStore(lfStore)) lfRemember(lfStore); else lfStore = '';
   if (!LF_LIFF_ID) {
     try { var cfg = await gbTimeout(window.db.collection('gb_settings').doc('liff').get(), 10000); if (cfg.exists) LF_LIFF_ID = cfg.data().liff_id || ''; } catch (e) {}
   }
@@ -35,15 +44,46 @@ window.onload = async function () {
     lfProfile = await liff.getProfile().catch(function () { return null; });
     if (lfProfile) document.getElementById('lfHello').textContent = '嗨，' + lfProfile.displayName + '・到店取貨付款';
   } catch (e) { lfFatal('LINE 連線失敗：' + lfErr(e)); return; }
-  await Promise.all([lfLoadCamps(), lfLoadMine()]);
+  await lfLoadMine();
+  // 沒帶門市：記住的門市 → 最近一筆訂單的門市 → 請客人選（pick=1 一律重選）
+  var forcePick = lfParam('pick') === '1';
+  if (!lfStore && !forcePick) {
+    try { var saved = localStorage.getItem(LF_STORE_KEY) || ''; if (lfValidStore(saved)) lfStore = saved; } catch (e) {}
+    if (!lfStore && lfMineList.length && lfValidStore(lfMineList[0].store)) lfStore = lfMineList[0].store;
+  }
+  if (!lfStore) { lfAskStore(); return; }
+  await lfStart();
+};
+function lfAskStore() {
+  gbLoading(false);
+  document.getElementById('lfStoreName').textContent = '請選擇取貨門市';
+  document.querySelector('.gb-tabs').hidden = true;
+  document.getElementById('lfMine').hidden = true;
+  document.getElementById('lfList').hidden = false;
+  document.getElementById('lfList').innerHTML = '<div class="card"><div style="font-size:15px;font-weight:800;margin-bottom:4px;">你要在哪一家門市取貨？</div>' +
+    '<div style="font-size:13px;color:var(--muted);margin-bottom:10px;">選一次就會記住，之後可以按上方「換門市」修改。</div>' +
+    GB_STORES.map(function (s) { return '<button class="lf-go" style="background:#0e2140;" onclick="lfChooseStore(\'' + s.code + '\')">7-ELEVEN ' + s.name + '門市</button>'; }).join('') + '</div>';
+}
+async function lfChooseStore(code) {
+  if (!lfValidStore(code)) return;
+  lfStore = code; lfRemember(code);
+  document.querySelector('.gb-tabs').hidden = false;
+  gbLoading(true);
+  await lfStart();
+}
+async function lfStart() {
+  document.getElementById('lfStoreName').innerHTML = gbEsc('7-ELEVEN ' + gbStoreName(lfStore) + '門市 團購' + (lfTest ? '（測試）' : '')) +
+    ' <button onclick="lfAskStore()" style="margin-left:6px;font-size:12px;font-weight:800;padding:3px 9px;border-radius:999px;border:1px solid rgba(255,255,255,.5);background:transparent;color:#fff;cursor:pointer;font-family:inherit;vertical-align:middle;">換門市</button>';
+  await lfLoadCamps();
   lfRender();
+  lfSetTab(lfParam('tab') === 'mine' ? 'mine' : 'list');
   gbLoading(false);
   // 在群組直接 +1 的客人系統拿不到手機（2026-10-11 使用者：先做「打開頁面時請他補」）：
   // 有訂單、還沒留手機 → 一打開就請他留（只在他自己手機上填，不會出現在群組）
   if (!lfPhone && lfMineList.some(function (o) { return o.status === 'active'; })) {
     lfAskPhone(null, '你在群組登記的團購已經收到了！留個手機號碼，到貨或沒來取貨時門市才聯絡得到你。只在莉學商行三家門市內部使用，不會公開在群組。');
   }
-};
+}
 function lfFatal(msg) {
   gbLoading(false);
   document.getElementById('lfList').innerHTML = '<div class="card"><div class="empty" style="font-size:15px;">' + gbEsc(msg) + '</div></div>';

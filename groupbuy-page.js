@@ -624,7 +624,16 @@ async function loadBotGroups() {
   el.innerHTML = '<div style="font-size:15px;font-weight:900;margin-bottom:4px;">LINE 機器人群組</div>' +
     '<p style="font-size:12.5px;color:var(--muted);margin:0 0 8px;line-height:1.6;">機器人被拉進群組後會出現在這裡，核准並選門市才會開始抓 +1；不認識的群組按「退出群組」。</p>' +
     (rows || '<div class="empty" style="padding:14px;">機器人還沒有加入任何群組</div>') +
-    '<label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13.5px;font-weight:700;cursor:pointer;"><input type="checkbox" id="botReply"' + (bot.reply_on_success ? ' checked' : '') + ' onchange="saveBotReply(this.checked)" style="width:20px;height:20px;"> 自動成單時回覆「已登記 ○○ N 份」<span style="font-weight:600;color:var(--muted);font-size:12px;">（預設關閉，避免洗版）</span></label>';
+    '<label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13.5px;font-weight:700;cursor:pointer;"><input type="checkbox" id="botReply"' + (bot.reply_on_success ? ' checked' : '') + ' onchange="saveBotReply(this.checked)" style="width:20px;height:20px;"> 自動成單時回覆「已登記 ○○ N 份」<span style="font-weight:600;color:var(--muted);font-size:12px;">（預設關閉，避免洗版）</span></label>' +
+    '<div style="display:flex;align-items:center;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);flex-wrap:wrap;"><span style="flex:1;min-width:180px;font-size:13.5px;font-weight:700;">LINE 圖文選單<span style="display:block;font-weight:600;color:var(--muted);font-size:12px;">' +
+    (bot.rich_menu_at ? '上次更新：' + gbFmt(bot.rich_menu_at, true) : '還沒建立') + '・改了 LIFF ID 要再按一次</span></span><button class="mini" onclick="setupRichMenu()">更新 LINE 選單</button></div>';
+}
+async function setupRichMenu() {
+  if (!await gbConfirm('LINE 圖文選單', '把「我要下單／我的訂單／怎麼團購」選單套用到所有加好友的客人？舊選單會被取代。', '套用')) return;
+  gbLoading(true, '建立選單中…');
+  try { await gbTimeout(gbFn('gbSetupRichMenu')({}), 60000); gbToast('✅ 選單已更新，客人重新打開聊天室就會看到'); await loadBotGroups(); }
+  catch (e) { gbToast('失敗：' + friendly(e)); }
+  gbLoading(false);
 }
 async function botAction(gid, action) {
   var g = gbBotGroups.find(function (x) { return x.id === gid; }); if (!g) return;

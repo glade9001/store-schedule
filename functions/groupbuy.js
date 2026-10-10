@@ -284,9 +284,47 @@ exports.gbLineWebhook = onRequest({ region: REGION, secrets: [GB_SECRET, GB_TOKE
   res.status(200).send("ok");
 });
 
+// ---- 1 對 1（加好友、圖文選單、私訊）：2026-10-11 ----
+// 一律用免費的「回覆」；歡迎訊息由這裡發，LINE 官方帳號後台內建的「加入好友的歡迎訊息」要關掉，不然會收到兩則。
+const HOWTO_TEXT = "🛍️ 團購怎麼買？\n\n" +
+  "1️⃣ 點下方選單「我要下單」，選好取貨門市（只要選一次）\n" +
+  "2️⃣ 看到喜歡的商品，按「＋1 我要」選數量\n" +
+  "3️⃣ 第一次下單請留手機，到貨時門市才聯絡得到你\n" +
+  "4️⃣ 到貨後到門市取貨付款 💰\n\n" +
+  "📋 想改數量或取消：選單「我的訂單」（截單前都可以改）\n" +
+  "👥 有加入門市群組的話，在團購貼文下面喊「+1」也可以";
+async function replyMsgs(replyToken, messages) {
+  if (!replyToken) return;
+  await lineApi("/v2/bot/message/reply", "POST", { replyToken, messages }).catch((e) => console.warn("[gbBot reply]", e.message));
+}
+async function handleUserEvent(ev) {
+  const src = ev.source || {};
+  const liffId = await (async () => { const s = await admin.firestore().collection("gb_settings").doc("liff").get().catch(() => null); return s && s.exists ? s.data().liff_id || "" : ""; })();
+  const shop = liffId ? `https://liff.line.me/${liffId}` : "";
+  const shopBtn = shop ? [{ type: "action", action: { type: "uri", label: "🛒 我要下單", uri: shop } }] : [];
+  const howBtn = { type: "action", action: { type: "postback", label: "❓ 怎麼團購", data: "gb=howto", displayText: "怎麼團購？" } };
+  if (ev.type === "follow") {
+    let name = "";
+    if (src.userId) { try { name = (await lineApi(`/v2/bot/profile/${src.userId}`)).displayName || ""; } catch (e) {} }
+    await replyMsgs(ev.replyToken, [{
+      type: "text",
+      text: `嗨${name ? " " + name : ""}！我是莉學商行的團購小幫手 🛍️\n\n` +
+        "7-ELEVEN 美德・聯鑫・錦花三家門市的團購都在這裡下單，到店取貨付款。\n\n" +
+        "👇 點下方選單「我要下單」，就能看目前開放中的團購" + (shop ? `\n${shop}` : ""),
+      quickReply: { items: shopBtn.concat([howBtn]) },
+    }]);
+    return;
+  }
+  const isHowto = (ev.type === "postback" && ev.postback && ev.postback.data === "gb=howto") ||
+    (ev.type === "message" && ev.message && ev.message.type === "text" && /怎麼(團購|買|訂|下單)|教學|使用說明/.test(ev.message.text || ""));
+  if (isHowto) { await replyMsgs(ev.replyToken, [{ type: "text", text: HOWTO_TEXT, quickReply: { items: shopBtn.length ? shopBtn : [howBtn] } }]); return; }
+  // 其他私訊不自動回（留給門市在官方帳號後台手動回覆）
+}
+
 async function handleEvent(ev) {
   const src = ev.source || {};
-  if (src.type !== "group" || !src.groupId) return;          // 只處理群組（私訊、多人聊天不處理）
+  if (src.type === "user") { await handleUserEvent(ev); return; }
+  if (src.type !== "group" || !src.groupId) return;          // 多人聊天不處理
   const db = admin.firestore();
   const gRef = db.collection("gb_bot_groups").doc(src.groupId);
   if (ev.type === "join") {
@@ -410,6 +448,40 @@ exports.gbBotGroupAction = onCall({ region: REGION, secrets: [GB_TOKEN] }, async
     await ref.update({ status: "rejected", mode: "disabled", rejected_by: by, rejected_at: ts });
   } else throw new HttpsError("invalid-argument", "動作不正確");
   return { ok: true };
+});
+
+// ---- 圖文選單（2026-10-11）：加盟主／admin 在〔設定〕按「更新 LINE 選單」→ 建立新選單、設為預設、刪掉舊的 ----
+// 圖片在 functions/assets/gb-richmenu.png（2500×843，三格：我要下單／我的訂單／怎麼團購），換圖後重新部署再按一次。
+const LINE_DATA_API = process.env.GB_LINE_DATA_API || "https://api-data.line.me";
+exports.gbSetupRichMenu = onCall({ region: REGION, secrets: [GB_TOKEN] }, async (request) => {
+  const u = await requireOwner(request);
+  const db = admin.firestore();
+  const ls = await db.collection("gb_settings").doc("liff").get();
+  const liffId = ls.exists ? ls.data().liff_id || "" : "";
+  if (!liffId) throw new HttpsError("failed-precondition", "請先在〔設定〕填 LIFF ID");
+  const shop = `https://liff.line.me/${liffId}`;
+  const W = 2500, H = 843, c1 = 833, c2 = 834;
+  const { richMenuId } = await lineApi("/v2/bot/richmenu", "POST", {
+    size: { width: W, height: H }, selected: true, name: "團購選單", chatBarText: "團購選單",
+    areas: [
+      { bounds: { x: 0, y: 0, width: c1, height: H }, action: { type: "uri", label: "我要下單", uri: shop } },
+      { bounds: { x: c1, y: 0, width: c2, height: H }, action: { type: "uri", label: "我的訂單", uri: shop + "?tab=mine" } },
+      { bounds: { x: c1 + c2, y: 0, width: W - c1 - c2, height: H }, action: { type: "postback", label: "怎麼團購", data: "gb=howto", displayText: "怎麼團購？" } },
+    ],
+  });
+  const img = require("fs").readFileSync(require("path").join(__dirname, "assets", "gb-richmenu.png"));
+  const up = await fetch(`${LINE_DATA_API}/v2/bot/richmenu/${richMenuId}/content`, {
+    method: "POST", headers: { Authorization: "Bearer " + GB_TOKEN.value(), "Content-Type": "image/png" }, body: img,
+  });
+  if (!up.ok) { await lineApi(`/v2/bot/richmenu/${richMenuId}`, "DELETE").catch(() => {}); throw new HttpsError("internal", `上傳選單圖片失敗（${up.status}）`); }
+  await lineApi(`/v2/bot/user/all/richmenu/${richMenuId}`, "POST");
+  // 刪掉以前建的（只刪這支函式建的，名字是「團購選單」）
+  const list = await lineApi("/v2/bot/richmenu/list").catch(() => ({ richmenus: [] }));
+  for (const m of list.richmenus || []) {
+    if (m.richMenuId !== richMenuId && m.name === "團購選單") await lineApi(`/v2/bot/richmenu/${m.richMenuId}`, "DELETE").catch(() => {});
+  }
+  await db.collection("gb_settings").doc("bot").set({ rich_menu_id: richMenuId, rich_menu_at: FieldValue.serverTimestamp(), rich_menu_by: request.auth.uid }, { merge: true });
+  return { ok: true, richMenuId, by: u.empName || "" };
 });
 
 // 待核准超過 24 小時自動退出（防止被陌生人拉進群組）
