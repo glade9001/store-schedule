@@ -19,6 +19,7 @@
 <script src="schedule-draw.js"></script>
 <script src="shift-utils.js"></script>
 <script src="auto-schedule-core.js"></script>
+<script src="labor-budget.js"></script>
 <script src="comp-avail.js"></script>
 <link rel="stylesheet" href="auto-schedule-draft.css">
 <link rel="stylesheet" href="schedule-V2-page.css">
@@ -90,6 +91,8 @@
 
       <!-- 劃休衝突提醒（auto-schedule-draft.js asdRenderConflicts） -->
       <div id="leaveConflictBanner" class="leave-conflict-banner" style="display:none;"></div>
+      <!-- 本月工時 vs 不賠錢上限（labor-budget.js；只顯示時數與燈號，不露金額） -->
+      <div id="laborBudgetBar" class="lb-bar" style="display:none;"></div>
 
       <!-- 工具列 -->
       <div class="tool-bar" id="adminToolBar">

@@ -937,6 +937,7 @@ async function saveWeekRecordsMerged(store, weekStr, localRecords, extra) {
 
 async function saveScheduleData(isManual) {
   syncUIToMemory();
+  lbRenderBar(); // 改了班 → 本月工時燈號跟著更新（用剛同步的記憶體資料，不重讀）
   const store = document.getElementById('storeSelector').value;
   const weekStr = document.getElementById('weekSelector').value;
   if(!store || !weekStr) return;
@@ -1725,11 +1726,77 @@ let dayViewDayIdx = null;   // 三店人力檢視選中的星期（0=週一..6=�
 // 註：內部的 mode key 仍是 'day'（改名會波及 toggleScheduleContainers／updateViewToggleUI／viewBtn-day）
 function renderSchedule() {
   renderIncomingSupportBanner();
+  lbRefreshBar();
   if(typeof asdRenderConflicts === 'function') asdRenderConflicts(); // 📋 劃休有變動 → 依最新劃休重排
   switch(scheduleViewMode) {
     case 'day': return renderDayView();
     default:    return renderTable();
   }
+}
+
+// ===== 本月工時 vs 不賠錢上限（labor-budget.js）=====
+// 店長看得到，但只顯示時數與燈號，不顯示經營報酬／人事金額（使用者 2026-10-10 決定）。
+// 月份口徑同「N月人力」：以本週週一所在的月份為準；時數則逐日算進該月。
+let lbStoreCache = {};        // store -> Promise<lbLoadStore 結果>
+let lbLoaded = null;          // 目前門市已載入的結果
+let lbBarOpen = false; try { lbBarOpen = localStorage.getItem('lbBarOpen') === '1'; } catch(e) {}
+function lbBarMonth() {
+  const weekStr = document.getElementById('weekSelector').value;
+  if(!weekStr) return null;
+  const mon = weekStringToDate(weekStr);
+  return `${mon.getFullYear()}-${String(mon.getMonth()+1).padStart(2,'0')}`;
+}
+function lbRefreshBar() {
+  const store = document.getElementById('storeSelector').value;
+  const bar = document.getElementById('laborBudgetBar');
+  if(!bar) return;
+  if(!store || !canScheduleStore(store)) { bar.style.display = 'none'; lbLoaded = null; return; }
+  if(!lbStoreCache[store]) {
+    lbStoreCache[store] = lbLoadStore(window.db, store, (appData.employees || []).map(e => ({...e})))
+      .catch(e => { console.warn('[laborBudget]', e); delete lbStoreCache[store]; return null; });
+  }
+  lbStoreCache[store].then(res => {
+    if(document.getElementById('storeSelector').value !== store) return; // 讀完已換店
+    lbLoaded = res; lbRenderBar();
+  });
+}
+function lbRenderBar() {
+  const bar = document.getElementById('laborBudgetBar');
+  if(!bar) return;
+  const store = document.getElementById('storeSelector').value;
+  const ym = lbBarMonth();
+  const now = new Date(), curYm = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  if(!lbLoaded || lbLoaded.store !== store || !ym || ym < curYm || !canScheduleStore(store)) { bar.style.display = 'none'; return; }
+  const recs = (appData.records || []).filter(r => r.week);
+  const ev = lbEvaluate(lbLoaded, recs, ym);
+  if(ev.err || !ev.plan) { bar.style.display = 'none'; return; }
+  const p = ev.plan, sc = ev.sched, lt = ev.light, mo = +ym.slice(5,7);
+  const fmt = v => Math.round(v).toLocaleString();
+  const col = LB_COLORS[lt ? lt.level : 'green'];
+  const open = lbBarOpen;
+  const md = d => (+d.slice(5,7)) + '/' + (+d.slice(8));
+  const sum = sc.lastDate
+    ? `${col[2]} ${mo}月工時：已排 ${fmt(sc.hours)}h（排到 ${md(sc.lastDate)}）· 不賠錢上限約 ${fmt(p.cap)}h`
+    : `${mo}月工時：還沒排班 · 不賠錢上限約 ${fmt(p.cap)}h`;
+  const lines = [];
+  if(lt) {
+    const msg = { green: '在範圍內', yellow: '接近上限（在估算誤差內）', red: '已超過上限' }[lt.level];
+    lines.push(`照已排的 ${md(sc.lastDate)} 前比例，目前應在 <b>${fmt(lt.loP)}～${fmt(lt.hiP)}h</b> 以內：${msg}`);
+  }
+  lines.push(`整月上限約 ${fmt(p.cap)}h（營收差 ±4% 時為 ${fmt(p.capLo)}～${fmt(p.capHi)}h）`);
+  if(ev.minH) {
+    lines.push(`自動排班設定的最低人力：整月約 ${fmt(ev.minH)}h`);
+    if(ev.minH > p.capLo) lines.push(`<span style="color:#c5221f;font-weight:700;">⚠️ 最低人力已碰到上限：少排班救不了，要從營收或盤損著手</span>`);
+  }
+  const det = `<div class="lb-detail">${lines.join('<br>')}<div class="lb-note">依過去 ${lbLoaded.model.months.length} 個月經營數據估算「人事不超過就不賠錢」的時數，僅供參考，不會擋排班。</div></div>`;
+  bar.style.background = col[0]; bar.style.color = col[1];
+  bar.innerHTML = `<div class="lb-head" onclick="lbToggleBar()"><span class="lb-sum">${sum}</span><span class="lb-caret">${open ? '▴' : '▾'}</span></div>${open ? det : ''}`;
+  bar.style.display = 'block';
+}
+function lbToggleBar() {
+  lbBarOpen = !lbBarOpen;
+  try { localStorage.setItem('lbBarOpen', lbBarOpen ? '1' : '0'); } catch(e) {}
+  lbRenderBar();
 }
 
 // （已停用）「來本店支援」唯讀橫幅：實務上顯示意義不大，故不再呈現；保留函式避免呼叫端出錯，並隱藏任何殘留橫幅。
