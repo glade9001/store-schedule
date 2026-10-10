@@ -98,6 +98,9 @@ function campCard(c) {
     if (isDue(c) || c.status === 'closed') btns += '<button class="btn btn-p" style="background:#d93025;" onclick="settleCampaign(\'' + c.id + '\')">⚖️ 結算</button>';
     if (c.status === 'success') btns += '<button class="btn btn-p" style="background:#6d28d9;" onclick="markArrived(\'' + c.id + '\')">📦 標記到貨</button>';
   }
+  if (c.status === 'failed' && (c.ordered_qty || 0) > 0 && (canEdit(c) || gbIsManager(gbUser))) {
+    btns += '<button class="btn btn-g" onclick="openCopy(\'' + c.id + '\',\'failed\')">📝 流局文案</button>';
+  }
   if (['open', 'success', 'arrived'].indexOf(c.status) >= 0 && (canEdit(c) || gbIsManager(gbUser))) {
     btns += '<button class="btn btn-g" onclick="openCopy(\'' + c.id + '\',\'' + (c.status === 'open' ? 'open' : c.status === 'success' ? 'success' : 'arrived') + '\')">📝 ' + (c.status === 'open' ? '開團文案' : c.status === 'success' ? '成團文案' : '取貨通知') + '</button>';
   }
@@ -647,7 +650,8 @@ async function settleCampaign(cid) {
     await gbTimeout(window.db.collection('gb_campaigns').doc(cid).update({ status: success ? 'success' : 'failed', settled_by: gbUser.uid, settled_at: firebase.firestore.FieldValue.serverTimestamp(), updated_at: firebase.firestore.FieldValue.serverTimestamp() }));
     await loadCampaigns();
     gbLoading(false);
-    if (success) openCopy(cid, 'success'); else gbToast('已流局（未達最低成團數），不產生文案');
+    // 流局：有人訂才跳流局文案（讓 +1 過的客人知道不用等）；沒人訂就不用通知（2026-10-10 使用者）
+    if (success) openCopy(cid, 'success'); else if (total > 0) openCopy(cid, 'failed'); else gbToast('已流局（沒有人訂購，不用通知群組）');
   } catch (e) { gbLoading(false); gbToast('結算失敗：' + friendly(e)); }
 }
 async function markArrived(cid) {
@@ -674,16 +678,16 @@ async function openCopy(cid, kind) {
   gbCopyCtx = { c: c, kind: kind, stores: stores };
   var sel = document.getElementById('cpStore');
   // 加盟主先選門市（2026-10-11 使用者）：單店或最後的「三店合併」；記住上次選的。店長只有本店
-  var multi = owner && stores.length > 1 && kind !== 'open';   // 開團文案三店共用一份，不用選門市
-  document.getElementById('cpStore').parentElement.hidden = kind === 'open';
+  var multi = owner && stores.length > 1 && kind !== 'open' && kind !== 'failed';   // 開團、流局文案三店共用一份，不用選門市
+  document.getElementById('cpStore').parentElement.hidden = kind === 'open' || kind === 'failed';
   sel.innerHTML = (multi ? '<option value="-">— 請先選門市 —</option>' : '') + stores.map(function (s) { return '<option value="' + s + '">' + gbStoreName(s) + '</option>'; }).join('') +
     (multi ? '<option value="">三店合併</option>' : '');
   if (multi) {
     var last = null; try { last = localStorage.getItem('gbCopyStore'); } catch (e) {}
     sel.value = last !== null && (last === '' || stores.indexOf(last) >= 0) ? last : '-';
   }
-  document.getElementById('cpTitle').textContent = { open: '📝 開團文案', success: '🎉 成團文案', arrived: '📦 取貨通知' }[kind];
-  document.getElementById('cpNamesWrap').hidden = kind === 'open';
+  document.getElementById('cpTitle').textContent = { open: '📝 開團文案', success: '🎉 成團文案', arrived: '📦 取貨通知', failed: '😢 流局文案' }[kind];
+  document.getElementById('cpNamesWrap').hidden = kind === 'open' || kind === 'failed';
   document.getElementById('cpInfoBtn').hidden = document.getElementById('cpInfoHint').hidden = kind !== 'open';
   document.getElementById('cpArrivalWrap').hidden = kind !== 'success';
   document.getElementById('cpArrival').value = gbInputDate(c.arrival_date);
@@ -747,6 +751,9 @@ async function buildCopy() {
   } else if (x.kind === 'success') {
     lines.push('🎉【團購成團】' + c.title, '感謝大家支持！' + (st ? where + '共 ' + qty + ' 份' : '三店共 ' + qty + ' 份（' + x.stores.map(function (s) { return gbStoreName(s) + ' ' + (obs[s] || 0); }).join('・') + '）'));
     lines.push('📦 預計到貨：' + (c.arrival_date ? gbFmt(c.arrival_date, false) : '到貨日確定後通知'), '到貨後會再通知取貨，到店付款 $' + c.price + '／份');
+  } else if (x.kind === 'failed') {
+    var tot = c.ordered_qty || 0;
+    lines.push('😢【未成團】' + c.title, '這次三店合計 ' + tot + ' 份' + (c.min_qty ? '，未達成團數量 ' + c.min_qty + ' 份' : '') + '，這次不會出貨，不用取貨也不用付款。', '謝謝大家支持，有再次開團會在群組通知 🙏');
   } else {
     lines.push('📦【到貨通知】' + c.title + ' 到貨囉！', '請在 ' + (c.pickup_deadline ? gbFmt(c.pickup_deadline, false) : '3 天內') + ' 前到' + where + '門市取貨，到店付款 $' + c.price + '／份');
   }
