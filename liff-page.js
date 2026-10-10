@@ -186,7 +186,7 @@ function lfTile(it) {
     '<div class="lf-tile-img">' + (img && /^https:\/\//.test(img) ? '<img src="' + gbEsc(img) + '" alt="" loading="lazy">' : '<span>🛍️</span>') +
       (it.mine ? '<i class="lf-tile-mine">✅ 已訂 ' + it.mine + '</i>' : it.pinned ? '<i class="lf-tile-mine lf-tile-pin">📌 推薦</i>' : '') + (it.sold ? '<i class="lf-tile-sold">已售完</i>' : '') + '</div>' +
     '<div class="lf-tile-t">' + gbEsc(c.base_title || c.title) + '</div>' +
-    '<div class="lf-tile-p">' + it.price + '</div>' + (it.hint ? '<div class="lf-tile-h">' + it.hint + '</div>' : '') + '</button>';
+    '<div class="lf-tile-p">' + it.price + '</div>' + lfTileEnd(it.ms || [c]) + (it.hint ? '<div class="lf-tile-h">' + it.hint + '</div>' : '') + '</button>';
 }
 // ===== 一鍵分享開團商品（2026-10-11）：LINE 分享卡片（Flex 輪播），客人在群組點「＋1」就用自己的名義留言 =====
 // 留言格式「+1 #短碼 品名」：機器人看到 #短碼 就知道是哪一檔（同時開好幾檔也不會搞混）；短碼放品名前面，避免品名開頭的英文字被當成規格編號。
@@ -318,6 +318,13 @@ async function lfShareSelected() {
   btn.disabled = false;
 }
 // 列表小字（2026-10-11 使用者：增加 +1 慾望）：成團進度／已訂份數＋快截單、快賣完
+// 格子上的截單日（2026-10-10 使用者）：同組取最早截單；今天截單才加時間
+function lfTileEnd(ms) {
+  var t = Math.min.apply(null, ms.map(function (m) { var d = gbToDate(m.end_time); return d ? d.getTime() : Infinity; }));
+  if (t === Infinity) return '';
+  var d = new Date(t), today = gbFmt(new Date(), false) === gbFmt(d, false);
+  return '<div class="lf-tile-d">⏰ ' + (today ? '今天 ' + gbFmt(d).split(' ')[1] : gbFmt(d, false)) + ' 截單</div>';
+}
 function lfHint(ms) {
   var c = ms[0], ordered = ms.reduce(function (a, m) { return a + (m.ordered_qty || 0); }, 0), t;
   if (c.success_rule === 'threshold' && c.min_qty) {
