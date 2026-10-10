@@ -1131,6 +1131,7 @@ async function initApp() {
   ]);
   loadStats().catch(() => {});
   loadPendingItems();
+  if (typeof hgLoad === 'function') hgLoad();   // 首頁團購儀表板（home-gb.js）
 
   document.getElementById('appShell').classList.add('active');
   hideLoading();
@@ -1843,6 +1844,7 @@ async function refreshHomeLive(force) {
   finally { _homeRefreshing = false; }
   checkSalaryAck(); checkPnlPending(); checkPnlAnomaly(); checkLeaveHint();
   loadStats().catch(() => {});
+  if (typeof hgLoad === 'function') hgLoad();
 }
 document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') refreshHomeLive(false); });
 window.addEventListener('pageshow', e => { if(e.persisted) refreshHomeLive(true); });   // 從其他頁按返回

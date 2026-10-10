@@ -263,6 +263,13 @@
         <div class="fav-grid" id="grid-mgmt"></div>
       </div>
 
+      <!-- 團購進行中（2026-10-11）：店長看本店、加盟主以上可切三店／單店；home-gb.js 畫內容，員工不顯示 -->
+      <div class="card" id="gbDashCard" style="display:none;">
+        <div class="hg-head"><span class="hg-title">🛒 團購進行中</span><span class="hg-cnt" id="hgCount"></span><a href="groupbuy.html">團購頁 →</a></div>
+        <div id="hgScope"></div>
+        <div id="hgBody"></div>
+      </div>
+
       <!-- 門市工具：快捷鍵（全員可見）。CITY手順是自建頁（city.html），另外兩個是外部連結。工具變多時 .tool-row 會自動變成左右滑 -->
       <div class="tool-shortcuts">
         <div class="tool-title">門市工具</div>
@@ -461,6 +468,8 @@
 
 <script src="todo-recur.js"></script>
 <script src="store-memo.js"></script>
+<script src="owner-scope.js"></script>
+<script src="home-gb.js"></script>
 <script src="home-page.js"></script>
 <script src="home-nav.js"></script>
 <script src="home-tour.js"></script>
