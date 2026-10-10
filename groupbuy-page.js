@@ -221,7 +221,7 @@ function openCampaignForm(cid) {
   document.getElementById('campFormLead').textContent = owner ? '新團購先存成「草稿」，確認後用「切換狀態」改為開放中。'
     : '店長只能開「只開放本店」的團購；跨店共用庫存的團請加盟主開。新團購先存成「草稿」。';
   // 多規格（2026-10-11）：編輯其中一種＝整組一起編輯；共同欄位存到每一種，品名存 base_title
-  gbOptRows = c && c.opt_group ? optMembers(c.opt_group).map(function (m) { return { id: m.id, code: m.opt_code, label: m.opt_label || '', price: m.price || '' }; })
+  gbOptRows = c && c.opt_group ? optMembers(c.opt_group).map(function (m) { return { id: m.id, code: m.opt_code, label: m.opt_label || '', price: m.price || '', stock: m.stock != null && m.stock !== c.stock ? m.stock : '' }; })   // 跟總庫存一樣的留空，改總庫存才會跟著變
     : c && (c.bundles || []).length ? c.bundles.map(function (b) { return { code: b.code, label: b.label, price: b.mult * c.price, kept: true }; }) : [];
   setOptMode(c && c.opt_group ? 'split' : 'merge');
   document.querySelectorAll('input[name=cfOptMode]').forEach(function (r) { r.disabled = !!c; });   // 已建立的團不能切換計算方式
@@ -413,11 +413,13 @@ function optMembers(group) {
     .sort(function (a, b) { return String(a.opt_code).localeCompare(String(b.opt_code)); });
 }
 function optMode() { var r = document.querySelector('input[name=cfOptMode]:checked'); return r ? r.value : 'merge'; }
-function setOptMode(m) { document.querySelectorAll('input[name=cfOptMode]').forEach(function (r) { r.checked = r.value === m; }); syncOptHint(); }
+function setOptMode(m) { document.querySelectorAll('input[name=cfOptMode]').forEach(function (r) { r.checked = r.value === m; }); syncOptHint(); renderOptRows(); }
+/** 使用者切換合併／分開：先把畫面上填的收回來，再重畫（分開計算多一欄各規格庫存） */
+function optModeChanged() { readOptRows(); syncOptHint(); renderOptRows(); }
 function syncOptHint() {
   document.getElementById('cfOptHint').textContent = optMode() === 'merge'
     ? '價格成比例時用（例：10包 $175、30包 $525）：最便宜的那種算 1 份，B+1 自動記成 3 份；名單、成團數、庫存都看總份數'
-    : '每一種各開一檔，庫存、每人上限、成團數各自計算（價格不成比例時用，例如買多有折扣）';
+    : '每一種各開一檔，庫存、每人上限、成團數各自計算（價格不成比例、或不同顏色口味時用）。「庫存」欄可各別設定，留空＝用下方總庫存';
 }
 /** 合併成一檔：最便宜的規格＝1 份，其他規格的價格要是它的整數倍 → 回傳 { unit, bundles } 或錯誤字串 */
 function gbBundlesOf(rows) {
@@ -443,12 +445,15 @@ function readOptRows() {
     if (!gbOptRows[i]) return;
     gbOptRows[i].label = r.querySelector('.ol').value.trim();
     gbOptRows[i].price = r.querySelector('.op').value.trim();
+    var os = r.querySelector('.os'); if (os) gbOptRows[i].stock = os.value.trim();
   });
 }
 function renderOptRows() {
+  var split = optMode() === 'split';   // 分開計算才能各規格各自設庫存（2026-10-10 使用者）；合併成一檔是共用份數
   document.getElementById('cfOpts').innerHTML = gbOptRows.map(function (o, i) {
-    return '<div class="opt-row"><b>' + o.code + '</b><input class="ol" placeholder="規格，例：10包" maxlength="30" value="' + gbEsc(o.label) + '">' +
+    return '<div class="opt-row' + (split ? ' s' : '') + '"><b>' + o.code + '</b><input class="ol" placeholder="規格，例：10包" maxlength="30" value="' + gbEsc(o.label) + '">' +
       '<input class="op" type="number" inputmode="numeric" min="1" step="1" placeholder="價格" value="' + gbEsc(String(o.price)) + '">' +
+      (split ? '<input class="os" type="number" inputmode="numeric" min="1" step="1" placeholder="庫存" value="' + gbEsc(String(o.stock == null ? '' : o.stock)) + '">' : '') +
       (o.id ? '<span></span>' : '<button type="button" class="x" aria-label="刪除" onclick="removeOptRow(' + i + ')">✕</button>') + '</div>';
   }).join('');
 }
@@ -489,6 +494,7 @@ async function saveCampaign() {
       var o = gbOptRows[oi], op = Number(o.price);
       if (!o.label) return err.textContent = '規格 ' + o.code + ' 請填名稱（例：10包）';
       if (!(Number.isInteger(op) && op > 0)) return err.textContent = '規格 ' + o.code + ' 的價格要是大於 0 的整數';
+      if (optMode() === 'split' && String(o.stock || '') !== '' && !(Number.isInteger(Number(o.stock)) && Number(o.stock) >= 1)) return err.textContent = '規格 ' + o.code + ' 的庫存要是正整數，或留空用總庫存';
     }
   }
   if (limit !== null && !(limit >= 1 && limit < GB_NO_LIMIT)) return err.textContent = '每人上限要是 1～' + (GB_NO_LIMIT - 1) + ' 的整數，或留空表示不限';
@@ -498,9 +504,12 @@ async function saveCampaign() {
   if (!end) return err.textContent = '請填截單時間';
   if (rule === 'threshold' && !(min >= 1)) return err.textContent = '達標成團要填最低成團數';
   var autoNext = document.getElementById('cfAutoNext').checked;
-  if (autoNext && stock === null) return err.textContent = '勾「額滿自動開下一團」要先填總庫存（每一團的份數）';
+  var splitM = multi && optMode() === 'split';
+  // 各規格庫存：有填用自己的，沒填用總庫存
+  var effStock = function (o) { return String(o.stock || '') !== '' ? Number(o.stock) : stock; };
+  if (autoNext && (splitM ? gbOptRows.some(function (o) { return effStock(o) === null; }) : stock === null)) return err.textContent = '勾「額滿自動開下一團」要先填總庫存（每一團的份數）';
   var c = gbEditId ? gbCamps.find(function (x) { return x.id === gbEditId; }) : null;
-  if (c && stock !== null && stock < (c.ordered_qty || 0)) return err.textContent = '總庫存不能少於已訂的 ' + (c.ordered_qty || 0) + ' 份';
+  if (c && !splitM && stock !== null && stock < (c.ordered_qty || 0)) return err.textContent = '總庫存不能少於已訂的 ' + (c.ordered_qty || 0) + ' 份';
   if (c) {
     var removed = (c.available_stores || []).filter(function (s) { return stores.indexOf(s) < 0 && (c.ordered_by_store || {})[s]; });
     if (removed.length) return err.textContent = removed.map(gbStoreName).join('、') + ' 已經有訂單，不能取消開放';
@@ -513,7 +522,7 @@ async function saveCampaign() {
     success_rule: rule, min_qty: rule === 'threshold' ? min : null, is_test: document.getElementById('cfTest').checked, auto_next: autoNext,
     updated_at: firebase.firestore.FieldValue.serverTimestamp(),
   };
-  if (multi && optMode() === 'split') return saveMultiCampaign(c, data, stock, err);
+  if (splitM) return saveMultiCampaign(c, data, effStock, err);
   if (multi) {
     var bs = gbBundlesOf(gbOptRows);
     if (typeof bs === 'string') return err.textContent = bs;
@@ -546,10 +555,11 @@ async function gbNewShort() {
   }
   return null;
 }
-async function saveMultiCampaign(c, data, stock, err) {
+async function saveMultiCampaign(c, data, effStock, err) {
   var base = data.title, members = c ? optMembers(c.opt_group) : [];
   for (var i = 0; i < members.length; i++) {
-    if (stock !== null && stock < (members[i].ordered_qty || 0)) return err.textContent = '規格 ' + members[i].opt_code + ' 已訂 ' + members[i].ordered_qty + ' 份，總庫存不能更少';
+    var row = gbOptRows.find(function (o) { return o.id === members[i].id; }), ms = row ? effStock(row) : null;
+    if (ms !== null && ms < (members[i].ordered_qty || 0)) return err.textContent = '規格 ' + members[i].opt_code + ' 已訂 ' + members[i].ordered_qty + ' 份，庫存不能更少';
     var rm = (members[i].available_stores || []).filter(function (s) { return data.available_stores.indexOf(s) < 0 && (members[i].ordered_by_store || {})[s]; });
     if (rm.length) return err.textContent = '規格 ' + members[i].opt_code + ' 在' + rm.map(gbStoreName).join('、') + ' 已經有訂單，不能取消開放';
   }
@@ -558,7 +568,7 @@ async function saveMultiCampaign(c, data, stock, err) {
   var shared = Object.assign({}, data); delete shared.title; delete shared.price;
   shared.short = (members[0] && members[0].short) || await gbNewShort();   // 同一組共用一個短碼（連結對應到 A，機器人再依編號找）
   gbOptRows.forEach(function (o) {
-    var own = { title: base + ' (' + o.code + ') ' + o.label, price: Number(o.price), base_title: base, opt_group: group, opt_code: o.code, opt_label: o.label };
+    var own = { title: base + ' (' + o.code + ') ' + o.label, price: Number(o.price), base_title: base, opt_group: group, opt_code: o.code, opt_label: o.label, stock: effStock(o) };
     if (o.id) batch.update(col.doc(o.id), Object.assign({}, shared, own));
     else batch.set(col.doc(), Object.assign({}, shared, own, {
       // 新增在已開放的組裡：跟著組的狀態（避免同一組有的開放、有的還是草稿）

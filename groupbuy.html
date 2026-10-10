@@ -78,8 +78,8 @@
     <label class="f" style="flex-direction:row;align-items:center;gap:8px;"><input type="checkbox" id="cfMulti" onchange="syncMulti()" style="width:20px;height:20px;"> 多規格 <small>同一個商品分 A／B／C 不同包裝或價格，客人在群組打「A+1」「B+2」</small></label>
     <div class="f" id="cfOptsWrap" hidden><span>規格 <small>代號依序自動編 A、B、C…</small></span>
       <div class="seg" style="margin-bottom:4px;">
-        <label><input type="radio" name="cfOptMode" value="merge" checked onchange="syncOptHint()"> 合併成一檔</label>
-        <label><input type="radio" name="cfOptMode" value="split" onchange="syncOptHint()"> 分開計算</label>
+        <label><input type="radio" name="cfOptMode" value="merge" checked onchange="optModeChanged()"> 合併成一檔</label>
+        <label><input type="radio" name="cfOptMode" value="split" onchange="optModeChanged()"> 分開計算</label>
       </div>
       <small id="cfOptHint" style="display:block;font-weight:600;margin-bottom:6px;"></small>
       <div id="cfOpts"></div>

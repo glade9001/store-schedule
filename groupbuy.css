@@ -107,6 +107,7 @@ label.f small{flex-basis:100%;font-weight:600;}
 .sum span{font-size:11.5px;color:var(--muted);font-weight:700;}
 /* 多規格（2026-10-11） */
 .opt-row{display:grid;grid-template-columns:28px 1fr 92px 32px;gap:6px;align-items:center;margin-bottom:6px;}
+.opt-row.s{grid-template-columns:24px 1fr 78px 64px 28px;}
 .opt-row b{font-size:17px;color:var(--text);text-align:center;}
 .opt-row input{min-width:0;}
 .opt-row .x{border:none;background:none;font-size:18px;color:#94a3b8;cursor:pointer;padding:0;}
