@@ -256,38 +256,48 @@ function openCampaignForm(cid) {
 // ---- 貼上總部文案自動填表（2026-10-11）----
 // 純規則解析（不用 AI）：總部格式大致固定，遇到抓錯的格式再補規則。
 var GB_EMOJI_NUM = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9 };
-/** LINE 表情貼複製出來會變成 (one)(seven)(five)、(警告)、(+)，還有康熙部首字（⼝⼈⾊）→ 轉回正常文字 */
+/** 規格行：(A)… / A.… / 1【…】 / 1.… —— 這種行裡的中文括號是商品顏色口味（曜石黑），不是貼圖 */
+var GB_HQ_SPEC_LINE = /^\s*(?:[(（\[]\s*[A-Ja-j]\s*[)）\]]|[A-Ja-j][.、:：]|\d{1,2}\s*(?:[.、:：)）]|(?=【)))/;
+/** LINE 表情貼複製出來會變成 (one)(seven)(five)、(警告)、(+)、(")、(i)，還有康熙部首字（⼝⼈⾊）→ 轉回正常文字 */
 function gbCleanHq(t) {
   return String(t || '')
-    .replace(/[\u2E80-\u2EFF\u2F00-\u2FDF]/g, function (ch) { return ch.normalize('NFKC'); })
+    .replace(/[⺀-⻿⼀-⿟]/g, function (ch) { return ch.normalize('NFKC'); })
     .replace(/\((zero|one|two|three|four|five|six|seven|eight|nine)\)/gi, function (_, w) { return String(GB_EMOJI_NUM[w.toLowerCase()]); })
     .replace(/\(([0-9])\)/g, '$1')
     .replace(/\(\+\)/g, '+')
     .replace(/\(:\)\)|\(:\(\)/g, '')
-    .replace(/\([\u4e00-\u9fff]{1,4}\)/g, '')
+    .replace(/(\S)\([a-z]\)/g, '$1')   // (i) 這類單字母小寫表情；行首的 (a) 可能是規格編號，不刪
     // (toilet)(loud volume)(Moon Smile) 這類英文表情代碼（要有小寫字母）；(A) 單字母是規格編號、(USB) 全大寫縮寫，不刪
     .replace(/\((?=[^)]*[a-z])[A-Za-z][A-Za-z0-9 '’&_-]{1,29}\)/g, '')
-    .replace(/^[ \t\u3000]+/gm, '').replace(/[ \t\u3000]{2,}/g, ' ')
-    .replace(/[ \t]+\n/g, '\n');
+    .replace(/\([^\w\s㐀-鿿+()]{1,2}\)/g, '')   // (")(*)(-)($)(!) 符號表情
+    .split('\n').map(function (l) {
+      // (警告)(折扣) 中文表情；但規格行或有【】的商品名行裡是顏色口味，保留
+      return GB_HQ_SPEC_LINE.test(l) || /【/.test(l) ? l : l.replace(/\([一-鿿]{1,4}\)/g, '');
+    }).join('\n')
+    .replace(/^[ \t　]+/gm, '').replace(/[ \t　]{2,}/g, ' ')
+    .replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n');
 }
 function gbPriceIn(line) {
   var m = line.match(/(\d[\d,]*)\s*元/) || line.match(/\$\s*(\d[\d,]*)/) || line.match(/(?:NT|價)\s*\$?\s*(\d[\d,]*)/i);
   return m ? Number(m[1].replace(/,/g, '')) : null;
 }
-/** 單一規格時挑售價：「組合價／團購價／特價」優先，「均價／原價／單瓶」這類參考價最後才用 */
+var GB_HQ_REF_PRICE = /均價|平均|原價|市價|建議售價|定價|單[瓶包罐盒入顆支片條件]|每[瓶包罐盒入顆支片條件]|省下?\s*\$?\d/;
+/** 單一規格時挑售價：「組合價／團購價／特價」優先，「均價／原價／單瓶」這類參考價最後才用 → { price, line } */
 function gbPickPrice(lines) {
-  var best = null, bestScore = -9;
+  var best = null, bestLine = '', bestScore = -9;
   lines.forEach(function (l) {
     var p = gbPriceIn(l); if (p == null) return;
     var sc = /組合價|團購價|團購|優惠價|特價|售價|只要|下殺|價/.test(l) ? 1 : 0;
-    if (/均價|平均|原價|市價|建議售價|定價|單[瓶包罐盒入顆支片條件]|每[瓶包罐盒入顆支片條件]|省下?\s*\$?\d/.test(l)) sc = -1;
-    if (sc > bestScore) { best = p; bestScore = sc; }
+    if (GB_HQ_REF_PRICE.test(l)) sc = -1;
+    if (sc > bestScore) { best = p; bestLine = l; bestScore = sc; }
   });
-  return best;
+  return { price: best, line: bestLine };
 }
 /** 文案最後常有「品名+1」給大家照著留言 → 當品名用，並從說明拿掉 */
 var GB_HQ_PLUS_RE = /^(.{2,40}?)\s*[+＋]\s*\d{1,2}$/;
-/** 回傳 { text, title, price, options:[{code,label,price}], end: Date|null }（end 目前沒用：截單由使用者自己填） */
+function gbCommonPrefix(arr) { var p = arr[0] || ''; arr.forEach(function (x) { while (p && x.indexOf(p) !== 0) p = p.slice(0, -1); }); return p; }
+function gbCommonSuffix(arr) { var r = function (x) { return x.split('').reverse().join(''); }; return r(gbCommonPrefix(arr.map(r))); }
+/** 回傳 { text, title, price, priceNote, options:[{code,label,price}], end: Date|null }（end 目前沒用：截單由使用者自己填） */
 function gbParseHq(raw) {
   var text = gbCleanHq(raw).trim();
   var lines = text.split(/\n/).map(function (l) { return l.trim(); });
@@ -296,22 +306,63 @@ function gbParseHq(raw) {
     text = text.split(/\n/).filter(function (l) { return l.trim() !== plusLine; }).join('\n').replace(/\n{3,}/g, '\n\n').trim();
     lines = lines.filter(function (l) { return l !== plusLine; });
   }
-  var title = plusLine ? plusLine.match(GB_HQ_PLUS_RE)[1] : (lines.find(function (l) { return l; }) || '');
-  title = title.replace(/[\u{1F000}-\u{1FAFF}\u2600-\u27BF\uFE0F]+/gu, '')
-    .replace(/^[\s－\-–—•・★☆◆◇▶►※]+/, '').replace(/\s{2,}/g, ' ').trim();
-  // 規格：(A) 開頭的行，價格在同一行或後面幾行
-  var options = [], cur = null;
+  // 規格：(A)／A. 開頭的行，或 1【…】／1. 開頭的行；價格在同一行或後面幾行
+  var options = [], cur = null, numbered = [];
   lines.forEach(function (l) {
     var m = l.match(/^[(（\[]\s*([A-Ja-j])\s*[)）\]]\s*(.*)$/) || l.match(/^([A-Ja-j])[.、:：]\s*(.+)$/);
-    if (m) { cur = { code: m[1].toUpperCase(), label: m[2].replace(/(只要|特價|售價)?\s*\$?\d[\d,]*\s*元.*$/, '').trim(), price: gbPriceIn(m[2]) }; options.push(cur); return; }
+    var n = !m && l.match(/^(\d{1,2})\s*(?:[.、:：)）]\s*|(?=【))(.+)$/);
+    if (m || n) {
+      var body = (m || n)[2];
+      cur = { code: m ? m[1].toUpperCase() : n[1], label: body.replace(/(只要|特價|售價)?\s*\$?\d[\d,]*\s*元.*$/, '').trim(), price: gbPriceIn(body) };
+      (m ? options : numbered).push(cur); return;
+    }
     if (!cur) return;
     if (!l) { if (cur.label && cur.price) cur = null; return; }
-    if (cur.price == null && gbPriceIn(l) != null) { cur.price = gbPriceIn(l); return; }
+    if (cur.price == null && gbPriceIn(l) != null && !GB_HQ_REF_PRICE.test(l)) { cur.price = gbPriceIn(l); return; }
     if (!cur.label) cur.label = l;
   });
+  // 數字編號容易跟「1. 無香料 2. 好攜帶」這種賣點條列搞混：要有價格、或各行品名開頭相同才算規格
+  var useNum = !options.length && numbered.length >= 2 &&
+      (numbered.every(function (o) { return o.price; }) || gbCommonPrefix(numbered.map(function (o) { return o.label; })).length >= 6);
+  if (useNum) options = numbered;
   options = options.filter(function (o) { return o.label || o.price; });
-  var price = null;
-  if (!options.length) price = gbPickPrice(lines);
+  // 總部用 1、2、3、5、6 編號 → 說明裡改成系統的 (A)(B)(C)…，客人照著打 A+1，不會有兩套編號
+  if (useNum) {
+    var ni = 0;
+    text = text.split('\n').map(function (l) {
+      var mm = l.match(/^(\d{1,2})\s*(?:[.、:：)）]\s*|(?=【))/);
+      if (!mm || ni >= options.length || mm[1] !== options[ni].code) return l;
+      return '(' + GB_OPT_CODES[ni++] + ')' + l.slice(mm[0].length);
+    }).join('\n');
+  }
+  // 各規格開頭相同（同一商品不同顏色口味）→ 相同的部分當品名，規格只留不同的部分
+  var optTitle = '';
+  if (options.length >= 2) {
+    var labels = options.map(function (o) { return o.label; });
+    var pre = gbCommonPrefix(labels);
+    if (pre.length >= 4) {
+      var rest = labels.map(function (x) { return x.slice(pre.length); });
+      var suf = gbCommonSuffix(rest);
+      if (suf && rest.some(function (x) { return x.length === suf.length; })) suf = '';
+      options.forEach(function (o, i) { o.label = rest[i].slice(0, rest[i].length - suf.length).trim(); });
+      optTitle = pre.replace(/[\s(（\[\-－–—:：]+$/, '').trim();
+    }
+  }
+  var title = plusLine ? plusLine.match(GB_HQ_PLUS_RE)[1] : optTitle || (lines.find(function (l) { return l; }) || '');
+  title = title.replace(/[\u{1F000}-\u{1FAFF}☀-➿️]+/gu, '')
+    .replace(/^[\s－\-–—•・★☆◆◇▶►※]+/, '').replace(/\s{2,}/g, ' ').trim();
+  // 價格：規格沒寫價格就用全文的價格；只有「平均單盒 99」而品名寫「5盒」→ 推算 495（要提醒使用者確認）
+  var pk = gbPickPrice(lines), price = pk.price, priceNote = '';
+  if (price != null && GB_HQ_REF_PRICE.test(pk.line)) {
+    var um = pk.line.match(/[單每]\s*([瓶包罐盒入顆支片條件])/), unit = um && um[1];
+    var qm = unit && (title + ' ' + text).match(new RegExp('(\\d+)\\s*' + unit));
+    if (qm && Number(qm[1]) > 1) { priceNote = '價格是用「' + pk.line + '」× ' + qm[1] + unit + ' 推算的，請確認'; price = price * Number(qm[1]); }
+    else priceNote = '價格是「' + pk.line + '」，請確認是不是一份的售價';
+  }
+  if (options.length) {
+    if (options.some(function (o) { return !o.price; }) && price) options.forEach(function (o) { if (!o.price) o.price = price; });
+    else priceNote = '';
+  }
   // 截單：「期間／截止／截單／到」那一行的最後一個日期，晚上 10 點
   var end = null, now = new Date();
   var hay = '';
@@ -327,7 +378,7 @@ function gbParseHq(raw) {
     if (!e.y && e.mo < now.getMonth() + 1 - 6) y++;   // 沒寫年份、月份比現在早很多 → 明年
     end = new Date(y, e.mo - 1, e.d, 22, 0);
   }
-  return { text: text, title: title, price: price, options: options, end: end };
+  return { text: text, title: title, price: options.length ? null : price, priceNote: priceNote, options: options, end: end };
 }
 function applyHqPaste() {
   var raw = document.getElementById('cfPaste').value, msg = document.getElementById('cfPasteMsg');
@@ -339,16 +390,19 @@ function applyHqPaste() {
     document.getElementById('cfMulti').checked = true;
     gbOptRows = r.options.slice(0, GB_OPT_CODES.length).map(function (o, i) { return { code: GB_OPT_CODES[i], label: o.label || '', price: o.price || '' }; });
     syncMulti();
-    var bs = gbBundlesOf(gbOptRows);   // 價格成比例 → 預設合併成一檔
-    setOptMode(typeof bs === 'string' ? 'split' : 'merge');
-    got.push(r.options.length + ' 種規格（' + (typeof bs === 'string' ? '價格不成比例，分開計算' : '價格成比例，合併成一檔') + '）');
+    var bs = gbOptRows.every(function (o) { return Number(o.price) > 0; }) ? gbBundlesOf(gbOptRows) : '有規格沒抓到價格';   // 價格成比例 → 預設合併成一檔
+    // 價格都一樣（不同顏色口味）要分開計算，合併的話名單看不出誰訂哪一種
+    var same = typeof bs !== 'string' && bs.bundles.every(function (b) { return b.mult === 1; });
+    var merge = typeof bs !== 'string' && !same;
+    setOptMode(merge ? 'merge' : 'split');
+    got.push(r.options.length + ' 種規格（' + (merge ? '價格成比例，合併成一檔' : same ? '價格相同，分開計算' : '價格不成比例，分開計算') + '）');
   } else {
     var p0 = r.options.length ? r.options[0].price : r.price;
     document.getElementById('cfMulti').checked = false; gbOptRows = []; syncMulti();
     if (p0) { document.getElementById('cfPrice').value = p0; got.push('價格'); }
   }
   // 截單時間由使用者自己填（2026-10-11 使用者決定；總部的「優惠期間」不一定等於截單）
-  msg.textContent = '✅ 已填入：' + got.join('、') + '。' + (r.text.length > 600 ? '說明超過 600 字已截斷，' : '') + '⏰ 截單時間請自己填，圖片要另外上傳。';
+  msg.textContent = '✅ 已填入：' + got.join('、') + '。' + (r.priceNote ? '⚠️ ' + r.priceNote + '。' : '') + (r.text.length > 600 ? '說明超過 600 字已截斷，' : '') + '⏰ 截單時間請自己填，圖片要另外上傳。';
 }
 // ---- 多規格 ----
 var gbOptRows = [];
