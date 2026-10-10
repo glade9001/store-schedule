@@ -1,7 +1,7 @@
 // ===== 莉學商行 Service Worker =====
 // 策略：HTML 永遠走網路，靜態資源才快取
 
-const CACHE_NAME = 'lixue-static-v14';
+const CACHE_NAME = 'lixue-static-v15';
 
 // 快取靜態資源（相對於 sw.js 位置，故 web.app 與 github.io 皆適用）
 const STATIC_ASSETS = [

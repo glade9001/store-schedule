@@ -559,13 +559,15 @@ async function doPunch(type){
     otIntent=choice.intent; otContent=choice.content||'';
   }
   // 遲到才打卡 → 先告知會記錄的時間，並讓員工留一句說明（不改時間）
+  // 遲到 10 分鐘內不跳說明框、直接打卡（2026-10-10 使用者決定）；遲到照樣記錄，只是不問說明
+  const LATE_NOTE_MIN=10;
   let empNote='';
   if(!os.off && type==='上班'){
     const nm=serverNowMs();
     const sh=matchPunchShift(candShifts, nm, '上班');
     if(sh){
       const lateMin=lateMinutesOf(nm, sh.startMs);
-      if(lateMin>0){
+      if(lateMin>LATE_NOTE_MIN){
         hideLoading();
         const schedT=new Date(sh.startMs).toLocaleTimeString('zh-TW',{hour12:false,hour:'2-digit',minute:'2-digit'});
         const nowHm=new Date(nm).toLocaleTimeString('zh-TW',{hour12:false,hour:'2-digit',minute:'2-digit'});
