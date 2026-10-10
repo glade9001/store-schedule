@@ -48,11 +48,11 @@ function hgRender() {
   var card = document.getElementById('gbDashCard'); if (!card || !hgCamps) return;
   var u = hgUser(), code = hgScopeCode();
   card.style.display = '';
+  var sc = document.getElementById('hgScope');
   if (hgIsOwner(u) && window.OwnerScope) {
-    var sc = document.getElementById('hgScope');
     OwnerScope.render(sc, HG_STORES);
     if (!sc._hgBound) { sc._hgBound = true; OwnerScope.onChange(function () { hgRender(); }); }
-  }
+  } else if (sc) sc.innerHTML = '';   // 角色預覽從 admin 切成店長／員工：清掉留下來的門市選單（店長本來就只看本店）
   var now = Date.now();
   var live = hgCamps.filter(function (c) {
     return c.is_test !== true && hgMs(c.end_time) > now && (!code || (c.available_stores || []).indexOf(code) >= 0);
