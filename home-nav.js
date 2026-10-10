@@ -13,6 +13,7 @@ var HN_TIER_LABEL = { owner: '加盟主', admin: '管理者' };   // 選單上�
 // 順序＝抽屜顯示順序。門市工具是全員功能，要排在「管理功能」分隔線之前，否則看起來像管理專用
 var HN_GROUPS = [
   { key: 'me',     title: '我的',       fav: 'me' },
+  { key: 'acct',   title: '作帳人員限定', fav: 'me' },   // 店長在每日營業頁指派的人才看得到（2026-10-11）
   { key: 'store',  title: '門市工具',   fav: '', fold: true },   // 首頁已固定顯示這幾個，抽屜裡預設收起來（狀態記在 localStorage）
   { key: 'sched',  title: '排班・出勤', fav: 'mgmt' },
   { key: 'people', title: '人事・薪資', fav: 'mgmt' },
@@ -32,8 +33,8 @@ var HOME_FEATURES = [
   { id: 'leaveRec',  group: 'me', icon: '🏖️', label: '特補休紀錄', sub: '餘額查詢、批次與異動明細', go: 'leave.html?mode=self', kw: '特休 補休 餘額' },
   { id: 'mySalary',  group: 'me', icon: '💰', label: '薪水',       sub: '薪資明細與簽收',           go: 'my-salary.html', show: function () { return !!currentUser?.empName; }, kw: '薪資 簽收' },
   { id: 'myAttend',  group: 'me', icon: '🕐', label: '我的出勤',   sub: '打卡紀錄、遲到早退、補登', go: 'my-attendance.html', kw: '打卡 補登 缺卡' },
-  // 作帳人員（店長在每日營業頁指派，2026-10-11）：只看得到輸入畫面；店長以上走「營運」那一項
-  { id: 'dailySalesInput', group: 'me', icon: '🧾', label: '輸入營業額', sub: '早班日結後輸入營業額、來客、報廢', go: 'daily-sales.html', show: function () { return !hnIsLead() && HN_DS_INPUTTER; }, kw: '營業額 來客 報廢 日結' },
+  // 作帳人員（店長在每日營業頁指派，2026-10-11）：獨立一區「作帳人員限定」；店長以上走「營運」那一項
+  { id: 'dailySalesInput', group: 'acct', icon: '🧾', label: '輸入營業額', sub: '早班日結後輸入營業額、來客、報廢', go: 'daily-sales.html', show: function () { return !hnIsLead() && HN_DS_INPUTTER; }, kw: '營業額 來客 報廢 日結' },
   { id: 'todo',      group: 'me', icon: '✅', label: '代辦清單',   sub: '待辦事項與公告',           go: 'todo.html', kw: '待辦 公告' },
   // ── 管理（店長以上）──
   { id: 'adminSchedule', group: 'sched',  icon: '📋', label: '排班',       sub: '排班、發布班表',             go: 'schedule-V2.html?mode=admin', show: hnIsLead },
@@ -280,7 +281,7 @@ function renderNavDrawer() {
       if (open) html += items.map(function (f) { return hnItemHtml(f, favs, false); }).join('');
       return;
     }
-    html += '<div class="nd-group">' + g.title + (g.fav === 'me' ? countTag('me') : '') + '</div>';
+    html += '<div class="nd-group">' + g.title + (g.key === 'me' ? countTag('me') : '') + '</div>';   // 首頁 n／3 只標在「我的」，作帳區共用同一組常用
     html += items.map(function (f) { return hnItemHtml(f, favs, false); }).join('');
   });
   body.innerHTML = html;
