@@ -242,7 +242,9 @@ async function memoGbOpen(i) {
     ${memoStepsHtml({ status: memoGbStep(g) })}
     ${w ? `<div class="memo-warn">⚠️ ${w.text}，請聯絡還沒取的客人</div>` : ''}
     ${canPick ? '' : `<div class="memo-note">${memoEsc(memoGbWaitText(g))}，到時才能按取貨</div>`}
-    ${rows}`;
+    ${rows}
+    ${g.cancelled.length ? `<div class="memo-log-hdr">已取消（${g.cancelled.length} 筆）</div>` + g.cancelled.map(o =>
+      `<div class="memo-log" style="color:#94a3b8;"><s>${memoEsc(o.display_name || '客人')} ×${o.qty || 0}</s>　${memoEsc(memoGbCancelText(o))}</div>`).join('') : ''}`;
   document.getElementById('memoDetActions').innerHTML =
     `<div class="det-actions"><button class="det-btn" style="background:#f1f3f4;" onclick="location.href='groupbuy.html?tab=pick'">🛒 到團購取貨頁（改付款、棄單）</button></div>`;
   openModal('memoDetModal');

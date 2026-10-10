@@ -59,11 +59,16 @@ async function memoLoadGb(store) {
   // 每檔各查一次（campaign_id＋store 兩個等號條件，不需要複合索引；規則要求查詢帶門市）
   const out = await Promise.all(camps.map(async c => {
     const sn = await window.db.collection('gb_orders').where('campaign_id', '==', c.id).where('store', '==', code).get();
-    const orders = sn.docs.map(d => ({ id: d.id, ...d.data() })).filter(o => o.status === 'active');
-    return { c, orders, qty: orders.reduce((t, o) => t + (o.qty || 0), 0),
+    const all = sn.docs.map(d => ({ id: d.id, ...d.data() }));
+    const orders = all.filter(o => o.status === 'active');
+    // 已取消的也帶著（2026-10-10 使用者：客人取消要讓店員看到紀錄，不然會以為單不見了）
+    const cancelled = all.filter(o => o.status === 'cancelled').sort((a, b) => memoGbMs(b.cancelled_at) - memoGbMs(a.cancelled_at));
+    return { c, orders, cancelled, qty: orders.reduce((t, o) => t + (o.qty || 0), 0),
       deadline: memoGbMs(c.pickup_deadline), arrival: memoGbMs(c.arrival_date), arrived: c.status === 'arrived' };
   }));
-  return out.filter(g => g.orders.length).sort((a, b) => (b.arrived - a.arrived) || ((a.deadline || 9e15) - (b.deadline || 9e15)));
+  // 還有人沒取；或全都取消了但取消在 3 天內（讓店員看得到為什麼不見了）
+  const recent = Date.now() - 3 * 86400000;
+  return out.filter(g => g.orders.length || g.cancelled.some(o => memoGbMs(o.cancelled_at) >= recent)).sort((a, b) => (b.arrived - a.arrived) || ((a.deadline || 9e15) - (b.deadline || 9e15)));
 }
 // 狀態跟著團購自動走（2026-10-10 使用者）：開放／截單＝待訂貨（門市不一定有貨）、成團＝已訂貨、到貨＝已到貨留貨
 function memoGbStep(g) { return g.arrived ? 2 : g.c.status === 'success' ? 1 : 0; }
@@ -91,5 +96,10 @@ function memoGbWarn(g) {
   return null;
 }
 function memoGbTitle(g) {
-  return `🛒 ${g.c.title || ''}・留貨 ${g.qty} 份（未取 ${g.orders.length} 人）`;
+  return `🛒 ${g.c.title || ''}・留貨 ${g.qty} 份（未取 ${g.orders.length} 人${g.cancelled.length ? '・取消 ' + g.cancelled.length + ' 筆' : ''}）`;
+}
+function memoGbCancelText(o) {
+  const t = memoGbMs(o.cancelled_at), d = new Date(t);
+  return (o.cancelled_by === 'customer' ? '客人自己取消' : '店員取消') +
+    (t ? ` ${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : '');
 }
