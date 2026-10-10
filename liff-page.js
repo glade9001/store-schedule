@@ -82,7 +82,16 @@ async function lfStart() {
   var pc = lfParam('c');
   if (pc && lfParam('tab') !== 'mine') {
     var hit = Object.keys(lfItems).find(function (k) { var it = lfItems[k]; return [it.c].concat(it.ms || []).some(function (m) { return m.short === pc || m.id === pc; }); });
-    if (hit) lfShowDetail(hit);
+    if (hit) {
+      lfShowDetail(hit);
+      // 分享卡片的「＋1」：直接跳出數量視窗（add＝規格編號，單一規格是 1）
+      var add = lfParam('add'), it = lfItems[hit];
+      if (add) {
+        if ((it.c.bundles || []).length) { if (it.c.bundles.some(function (b) { return b.code === add; })) lfOpen(it.c.id, add); }
+        else if (it.ms) { var m = it.ms.find(function (x) { return x.opt_code === add && lfRemain(x) > 0; }) || it.ms.find(function (x) { return x.opt_code === add; }); if (m) lfOpen(m.id); }
+        else lfOpen(it.c.id);
+      }
+    }
   }
   // 在群組直接 +1 的客人系統拿不到手機（2026-10-11 使用者：先做「打開頁面時請他補」）：
   // 有訂單、還沒留手機 → 一打開就請他留（只在他自己手機上填，不會出現在群組）
@@ -180,10 +189,11 @@ function lfFlexBubble(it) {
   var liffUrl = 'https://liff.line.me/' + LF_LIFF_ID + '?c=' + code + (lfTest ? '&test=1' : '');
   var opts = (c.bundles || []).length ? c.bundles.map(function (b) { return { code: b.code, label: b.label, price: b.mult * c.price }; })
     : it.ms ? it.ms.map(function (m) { return { code: m.opt_code, label: m.opt_label, price: m.price }; }) : [];
-  var plusBtn = function (label, text) { return { type: 'button', style: 'primary', color: '#06c755', height: 'sm', action: { type: 'message', label: label.slice(0, 20), text: text.slice(0, 40) } }; };
-  var btns = opts.length ? opts.slice(0, 4).map(function (o) { return plusBtn(o.code + ' ' + o.label + ' ＋1', o.code + '+1 #' + code + ' ' + nm); })
-    : [plusBtn('＋1 我要', '+1 #' + code + ' ' + nm)];
-  btns.push({ type: 'button', style: 'link', height: 'sm', action: { type: 'uri', label: '看詳情／選數量', uri: liffUrl } });
+  // ⚠️ 分享出去的卡片不能用 message 動作（「點了幫客人留言」）：LINE 會回報成功但實際不送出（2026-10-11 實機 5 種測試確認）。
+  // 改成開下單頁直接跳出那件商品（多規格先選好）的數量視窗，確定後下單頁照樣以客人名義在群組留「✅ 已登記 … +N」。
+  var plusBtn = function (label, add) { return { type: 'button', style: 'primary', color: '#06c755', height: 'sm', action: { type: 'uri', label: label.slice(0, 20), uri: liffUrl + '&add=' + add } }; };
+  var btns = opts.length ? opts.slice(0, 4).map(function (o) { return plusBtn(o.code + ' ' + o.label + ' ＋1', o.code); }) : [plusBtn('＋1 我要', '1')];
+  btns.push({ type: 'button', style: 'link', height: 'sm', action: { type: 'uri', label: '看詳情', uri: liffUrl } });
   var body = [
     { type: 'text', text: c.base_title || c.title || '', weight: 'bold', size: 'md', wrap: true, maxLines: 2 },
     { type: 'text', text: opts.length ? opts.map(function (o) { return o.code + ' ' + o.label + ' $' + o.price; }).join('\n') : '$' + (c.price || 0), color: '#c5221f', weight: 'bold', size: opts.length ? 'sm' : 'xl', wrap: true, margin: 'sm' },
