@@ -265,18 +265,39 @@ function gbCleanHq(t) {
     .replace(/\(\+\)/g, '+')
     .replace(/\(:\)\)|\(:\(\)/g, '')
     .replace(/\([\u4e00-\u9fff]{1,4}\)/g, '')
-    .replace(/\([a-z][a-z _-]{1,19}\)/g, '')   // (right)(heart)(star) 這類英文表情代碼；(A) 大寫單字母是規格編號，不刪
+    // (toilet)(loud volume)(Moon Smile) 這類英文表情代碼（要有小寫字母）；(A) 單字母是規格編號、(USB) 全大寫縮寫，不刪
+    .replace(/\((?=[^)]*[a-z])[A-Za-z][A-Za-z0-9 '’&_-]{1,29}\)/g, '')
+    .replace(/^[ \t\u3000]+/gm, '').replace(/[ \t\u3000]{2,}/g, ' ')
     .replace(/[ \t]+\n/g, '\n');
 }
 function gbPriceIn(line) {
   var m = line.match(/(\d[\d,]*)\s*元/) || line.match(/\$\s*(\d[\d,]*)/) || line.match(/(?:NT|價)\s*\$?\s*(\d[\d,]*)/i);
   return m ? Number(m[1].replace(/,/g, '')) : null;
 }
+/** 單一規格時挑售價：「組合價／團購價／特價」優先，「均價／原價／單瓶」這類參考價最後才用 */
+function gbPickPrice(lines) {
+  var best = null, bestScore = -9;
+  lines.forEach(function (l) {
+    var p = gbPriceIn(l); if (p == null) return;
+    var sc = /組合價|團購價|團購|優惠價|特價|售價|只要|下殺|價/.test(l) ? 1 : 0;
+    if (/均價|平均|原價|市價|建議售價|定價|單[瓶包罐盒入顆支片條件]|每[瓶包罐盒入顆支片條件]|省下?\s*\$?\d/.test(l)) sc = -1;
+    if (sc > bestScore) { best = p; bestScore = sc; }
+  });
+  return best;
+}
+/** 文案最後常有「品名+1」給大家照著留言 → 當品名用，並從說明拿掉 */
+var GB_HQ_PLUS_RE = /^(.{2,40}?)\s*[+＋]\s*\d{1,2}$/;
 /** 回傳 { text, title, price, options:[{code,label,price}], end: Date|null }（end 目前沒用：截單由使用者自己填） */
 function gbParseHq(raw) {
   var text = gbCleanHq(raw).trim();
   var lines = text.split(/\n/).map(function (l) { return l.trim(); });
-  var title = (lines.find(function (l) { return l; }) || '').replace(/[\u{1F000}-\u{1FAFF}\u2600-\u27BF\uFE0F]+/gu, '')
+  var plusLine = lines.filter(function (l) { return GB_HQ_PLUS_RE.test(l) && !/^[(（\[]?[A-Ja-j][)）\]]?\s*[+＋]/.test(l); }).pop();
+  if (plusLine) {
+    text = text.split(/\n/).filter(function (l) { return l.trim() !== plusLine; }).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    lines = lines.filter(function (l) { return l !== plusLine; });
+  }
+  var title = plusLine ? plusLine.match(GB_HQ_PLUS_RE)[1] : (lines.find(function (l) { return l; }) || '');
+  title = title.replace(/[\u{1F000}-\u{1FAFF}\u2600-\u27BF\uFE0F]+/gu, '')
     .replace(/^[\s－\-–—•・★☆◆◇▶►※]+/, '').replace(/\s{2,}/g, ' ').trim();
   // 規格：(A) 開頭的行，價格在同一行或後面幾行
   var options = [], cur = null;
@@ -290,7 +311,7 @@ function gbParseHq(raw) {
   });
   options = options.filter(function (o) { return o.label || o.price; });
   var price = null;
-  if (!options.length) { for (var i = 0; i < lines.length && price == null; i++) price = gbPriceIn(lines[i]); }
+  if (!options.length) price = gbPickPrice(lines);
   // 截單：「期間／截止／截單／到」那一行的最後一個日期，晚上 10 點
   var end = null, now = new Date();
   var hay = '';
