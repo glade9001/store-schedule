@@ -1,6 +1,6 @@
 // 首頁團購儀表板（2026-10-11 使用者：A 只看即時資料）
-// 重點：還差幾份成團、剩餘時間。店長看本店；加盟主／admin 用 owner-scope.js 切三店／單店（跟儀表板等頁共用同一個選擇）。
-// 員工看不到。資料只讀開放中的團購（gb_campaigns status==open，規則本來就開放讀取），不碰訂單與個資。
+// 重點：還差幾份成團、剩餘時間。員工、店長看本店；加盟主／admin 用 owner-scope.js 切三店／單店（跟儀表板等頁共用同一個選擇）。
+// 保證成團的團只顯示本店份數（2026-10-11 使用者）；達標成團顯示三店合計（成團看的是三店加總）＋本店。資料只讀開放中的團購（gb_campaigns status==open，規則本來就開放讀取），不碰訂單與個資。
 // 比照 shift-utils.js：只有 function 與 var（前綴 hg），掛在首頁不會撞名。
 var HG_STORES = ['美德', '聯鑫', '錦花'];
 var HG_CODE = { '美德': 'meide', '聯鑫': 'lianxin', '錦花': 'jinhua' };
@@ -8,7 +8,7 @@ var hgCamps = null, hgTimer = null;
 
 function hgUser() { try { return currentUser; } catch (e) { return null; } }
 function hgIsOwner(u) { return !!u && ['owner', 'admin'].indexOf(u.permission) >= 0; }
-function hgCanSee(u) { return !!u && ['manager', 'owner', 'admin'].indexOf(u.permission) >= 0; }
+function hgCanSee(u) { return !!u && ['employee', 'manager', 'owner', 'admin'].indexOf(u.permission) >= 0; }   // 2026-10-11 員工也看
 function hgEsc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 function hgMs(ts) { return ts && typeof ts.toMillis === 'function' ? ts.toMillis() : (ts && ts.seconds ? ts.seconds * 1000 : 0); }
 
@@ -77,7 +77,7 @@ function hgRender() {
     return '<div class="hg-row" onclick="location.href=\'groupbuy.html\'">' +
       '<div class="hg-top"><span class="hg-t">' + hgEsc(r.title) + '</span><span class="hg-left' + (lf.urgent ? ' urgent' : '') + '">⏰ ' + lf.t + '</span></div>' +
       '<div class="hg-mid"><span class="hg-st' + (r.th && r.lack ? ' lack' : ' ok') + '">' + status + '</span>' +
-        '<span class="hg-q">已訂 ' + r.ordered + ' 份' + (r.mine !== null && code ? '・本店 ' + r.mine : '') + '</span></div>' +
+        '<span class="hg-q">' + (r.th ? '已訂 ' + r.ordered + ' 份' + (code ? '・本店 ' + r.mine : '') : (code ? '本店已訂 ' + r.mine + ' 份' : '三店已訂 ' + r.ordered + ' 份')) + '</span></div>' +
       (r.th ? '<div class="hg-bar"><i style="width:' + pct + '%"></i></div>' : '') + '</div>';
   }).join('') + (rows.length > show.length ? '<div class="hg-more" onclick="location.href=\'groupbuy.html\'">還有 ' + (rows.length - show.length) + ' 檔 →</div>' : '');
 }
