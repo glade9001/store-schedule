@@ -78,6 +78,12 @@ async function lfStart() {
   lfRender();
   lfSetTab(lfParam('tab') === 'mine' ? 'mine' : 'list');
   gbLoading(false);
+  // 從分享卡片／開團文案的連結（?c=短碼）進來：直接打開那件商品
+  var pc = lfParam('c');
+  if (pc && lfParam('tab') !== 'mine') {
+    var hit = Object.keys(lfItems).find(function (k) { var it = lfItems[k]; return [it.c].concat(it.ms || []).some(function (m) { return m.short === pc || m.id === pc; }); });
+    if (hit) lfShowDetail(hit);
+  }
   // 在群組直接 +1 的客人系統拿不到手機（2026-10-11 使用者：先做「打開頁面時請他補」）：
   // 有訂單、還沒留手機 → 一打開就請他留（只在他自己手機上填，不會出現在群組）
   if (!lfPhone && lfMineList.some(function (o) { return o.status === 'active'; })) {
@@ -140,7 +146,7 @@ function lfRender() {
     item.hint = lfHint(item.ms || [c]);
     lfItems[item.key] = item; keys.push(item.key);
   });
-  el.innerHTML = keys.length ? '<div class="lf-grid">' + keys.map(function (k) { return lfTile(lfItems[k]); }).join('') + '</div>'
+  el.innerHTML = keys.length ? '<button class="lf-share" onclick="lfShare()">📤 分享團購商品到 LINE 群組</button><div class="lf-grid">' + keys.map(function (k) { return lfTile(lfItems[k]); }).join('') + '</div>'
     : '<div class="card"><div class="empty" style="font-size:15px;">目前沒有開放中的團購<br>新團購會在群組裡通知 🙌</div></div>';
   // 詳細頁開著的話一起更新（下單後數量、按鈕狀態要變）；那檔已經不在了就關掉
   if (lfDetailKey) { if (lfItems[lfDetailKey]) lfShowDetail(lfDetailKey, true); else lfCloseDetail(); }
@@ -156,6 +162,48 @@ function lfTile(it) {
       (it.mine ? '<i class="lf-tile-mine">✅ 已訂 ' + it.mine + '</i>' : '') + (it.sold ? '<i class="lf-tile-sold">已售完</i>' : '') + '</div>' +
     '<div class="lf-tile-t">' + gbEsc(c.base_title || c.title) + '</div>' +
     '<div class="lf-tile-p">' + it.price + '</div>' + (it.hint ? '<div class="lf-tile-h">' + it.hint + '</div>' : '') + '</button>';
+}
+// ===== 一鍵分享開團商品（2026-10-11）：LINE 分享卡片（Flex 輪播），客人在群組點「＋1」就用自己的名義留言 =====
+// 留言格式「+1 #短碼 品名」：機器人看到 #短碼 就知道是哪一檔（同時開好幾檔也不會搞混）；短碼放品名前面，避免品名開頭的英文字被當成規格編號。
+// 卡片內容是分享當下的數字（截單倒數、還差幾份），不會自動更新；點「看詳情」才是即時的。
+function lfCountdown(c) {
+  var end = gbToDate(c.end_time), left = end ? end.getTime() - Date.now() : 0;
+  if (left <= 0) return '';
+  var d = Math.floor(left / 86400000), h = Math.floor(left % 86400000 / 3600000);
+  return '⏰ ' + (d ? d + ' 天 ' + h + ' 小時' : Math.max(1, Math.ceil(left / 3600000)) + ' 小時') + '後截單';
+}
+function lfFlexBubble(it) {
+  var c = it.c, img = (c.images || [])[0], code = c.short || c.id, nm = (c.base_title || c.title || '').replace(/\s+/g, '').slice(0, 14);
+  var liffUrl = 'https://liff.line.me/' + LF_LIFF_ID + '?c=' + code + (lfTest ? '&test=1' : '');
+  var opts = (c.bundles || []).length ? c.bundles.map(function (b) { return { code: b.code, label: b.label, price: b.mult * c.price }; })
+    : it.ms ? it.ms.map(function (m) { return { code: m.opt_code, label: m.opt_label, price: m.price }; }) : [];
+  var plusBtn = function (label, text) { return { type: 'button', style: 'primary', color: '#06c755', height: 'sm', action: { type: 'message', label: label.slice(0, 20), text: text.slice(0, 40) } }; };
+  var btns = opts.length ? opts.slice(0, 4).map(function (o) { return plusBtn(o.code + ' ' + o.label + ' ＋1', o.code + '+1 #' + code + ' ' + nm); })
+    : [plusBtn('＋1 我要', '+1 #' + code + ' ' + nm)];
+  btns.push({ type: 'button', style: 'link', height: 'sm', action: { type: 'uri', label: '看詳情／選數量', uri: liffUrl } });
+  var body = [
+    { type: 'text', text: c.base_title || c.title || '', weight: 'bold', size: 'md', wrap: true, maxLines: 2 },
+    { type: 'text', text: opts.length ? opts.map(function (o) { return o.code + ' ' + o.label + ' $' + o.price; }).join('\n') : '$' + (c.price || 0), color: '#c5221f', weight: 'bold', size: opts.length ? 'sm' : 'xl', wrap: true, margin: 'sm' },
+  ];
+  var hint = lfHint(it.ms || [c]), cd = lfCountdown(c);
+  if (hint) body.push({ type: 'text', text: hint, color: '#c2410c', size: 'sm', weight: 'bold', wrap: true, margin: 'md' });
+  if (cd) body.push({ type: 'text', text: cd, color: '#64748b', size: 'xs', wrap: true, margin: 'xs' });
+  var b = { type: 'bubble', size: 'kilo',
+    body: { type: 'box', layout: 'vertical', contents: body },
+    footer: { type: 'box', layout: 'vertical', spacing: 'sm', contents: btns } };
+  if (img && /^https:\/\//.test(img) && img.length < 2000) b.hero = { type: 'image', url: img, size: 'full', aspectRatio: '1:1', aspectMode: 'cover', action: { type: 'uri', uri: liffUrl } };
+  return b;
+}
+async function lfShare() {
+  try {
+    if (!liff.isApiAvailable('shareTargetPicker')) { gbToast('請在 LINE 裡打開這個頁面才能分享（或 LIFF 尚未開啟分享功能）'); return; }
+    var items = Object.keys(lfItems).map(function (k) { return lfItems[k]; }).filter(function (it) { return !it.sold; }).slice(0, 10);
+    if (!items.length) { gbToast('目前沒有可以分享的團購'); return; }
+    var msg = { type: 'flex', altText: '🛒 團購開跑：' + items.map(function (it) { return it.c.base_title || it.c.title; }).join('、').slice(0, 300),
+      contents: { type: 'carousel', contents: items.map(lfFlexBubble) } };
+    var r = await liff.shareTargetPicker([msg], { isMultiple: true });
+    if (r && r.status === 'success') gbToast('✅ 已分享');
+  } catch (e) { gbToast('分享失敗：' + lfErr(e)); }
 }
 // 列表小字（2026-10-11 使用者：增加 +1 慾望）：成團進度／已訂份數＋快截單、快賣完
 function lfHint(ms) {

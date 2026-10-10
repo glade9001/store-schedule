@@ -384,19 +384,30 @@ async function handleEvent(ev) {
   const fits = (c) => (c.is_test === true) === isTestGroup;
   const sn = await db.collection("gb_campaigns").where("status", "==", "open").get();
   let scope = sn.docs.filter((d) => isOpen(d.data()) && fits(d.data()) && (d.data().available_stores || []).includes(store));
-  // ①引用了團購貼文：範圍縮到那一檔（多規格就是同一組的所有規格）
+  // 範圍縮到某一檔（多規格就是同一組的所有規格）；那檔已截單 → 回截單，不可改記到別檔
+  let pinned = null;
+  const pinTo = (qc) => {
+    const q = qc.data(), qs = q.series_id || qc.id;
+    pinned = scope.filter((d) => (q.opt_group ? d.data().opt_group === q.opt_group : (d.data().series_id || d.id) === qs));
+  };
+  // ①訊息帶商品短碼「#N6R8」（LINE 分享卡片的「＋1」按鈕送出的留言，2026-10-11）
+  const hm = text.normalize("NFKC").match(/#([2-9A-HJ-NP-Z]{4})(?![A-Za-z0-9])/);
+  if (hm) {
+    const hc = await db.collection("gb_campaigns").where("short", "==", hm[1]).limit(1).get();
+    if (!hc.empty && fits(hc.docs[0].data())) pinTo(hc.docs[0]);
+  }
+  // ②引用了團購貼文
   const qid = ev.message.quotedMessageId;
-  if (qid) {
+  if (!pinned && qid) {
     const m = await db.collection("gb_post_map").doc(qid).get();
     if (m.exists) {
       const qc = await db.collection("gb_campaigns").doc(m.data().campaign_id).get();
-      if (qc.exists && fits(qc.data())) {
-        const q = qc.data(), qs = q.series_id || qc.id;
-        const narrowed = scope.filter((d) => (q.opt_group ? d.data().opt_group === q.opt_group : (d.data().series_id || d.id) === qs));
-        if (!narrowed.length) { await reply(ev.replyToken, "本團已截單，有再次開團再通知您 🙏"); return; }   // 引用的那檔已截單：不可改記到別檔
-        scope = narrowed;
-      }
+      if (qc.exists && fits(qc.data())) pinTo(qc);
     }
+  }
+  if (pinned) {
+    if (!pinned.length) { await reply(ev.replyToken, "本團已截單，有再次開團再通知您 🙏"); return; }
+    scope = pinned;
   }
   // 額滿自動開團的同一系列（第 1、2…團）只算一檔，取團次最小的；裝不下會自動往下一團
   const dedupe = (docs) => {
