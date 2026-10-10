@@ -146,7 +146,10 @@ function lfRender() {
     item.hint = lfHint(item.ms || [c]);
     lfItems[item.key] = item; keys.push(item.key);
   });
-  el.innerHTML = keys.length ? '<button class="lf-share" onclick="lfShare()">📤 分享團購商品到 LINE 群組</button><div class="lf-grid">' + keys.map(function (k) { return lfTile(lfItems[k]); }).join('') + '</div>'
+  var dbg = lfParam('debug') === '1' ? '<div class="card" style="font-size:13px;"><b>分享測試</b>（分享到自己的聊天室，看哪幾則有收到）<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">' +
+    [1, 2, 3, 4, 5].map(function (n) { return '<button class="btn btn-o" onclick="lfShareTest(' + n + ')">' + ['', '1 純文字', '2 卡片無＋1鈕', '3 卡片無圖', '4 單張完整', '5 輪播'][n] + '</button>'; }).join('') +
+    '</div><pre id="lfDbgOut" style="white-space:pre-wrap;font-size:11.5px;margin:6px 0 0;"></pre></div>' : '';
+  el.innerHTML = keys.length ? dbg + '<button class="lf-share" onclick="lfShare()">📤 分享團購商品到 LINE 群組</button><div class="lf-grid">' + keys.map(function (k) { return lfTile(lfItems[k]); }).join('') + '</div>'
     : '<div class="card"><div class="empty" style="font-size:15px;">目前沒有開放中的團購<br>新團購會在群組裡通知 🙌</div></div>';
   // 詳細頁開著的話一起更新（下單後數量、按鈕狀態要變）；那檔已經不在了就關掉
   if (lfDetailKey) { if (lfItems[lfDetailKey]) lfShowDetail(lfDetailKey, true); else lfCloseDetail(); }
@@ -194,6 +197,26 @@ function lfFlexBubble(it) {
   if (img && /^https:\/\//.test(img) && img.length < 2000) b.hero = { type: 'image', url: img, size: 'full', aspectRatio: '1:1', aspectMode: 'cover', action: { type: 'uri', uri: liffUrl } };
   return b;
 }
+// 分享除錯（2026-10-11：顯示「已分享」但實際沒送出）：?debug=1 列出 4 種分享，找出 LINE 擋的是哪一種
+async function lfShareTest(n) {
+  var out = document.getElementById('lfDbgOut');
+  try {
+    var items = Object.keys(lfItems).map(function (k) { return lfItems[k]; }).filter(function (it) { return !it.sold; });
+    var one = lfFlexBubble(items[0]);
+    var noMsg = JSON.parse(JSON.stringify(one));
+    noMsg.footer.contents = noMsg.footer.contents.filter(function (x) { return x.action.type !== 'message'; });
+    var noImg = JSON.parse(JSON.stringify(one)); delete noImg.hero;
+    var msgs = {
+      1: [{ type: 'text', text: '測試 1：純文字分享' }],
+      2: [{ type: 'flex', altText: '測試 2', contents: noMsg }],
+      3: [{ type: 'flex', altText: '測試 3', contents: noImg }],
+      4: [{ type: 'flex', altText: '測試 4', contents: one }],
+      5: [{ type: 'flex', altText: '測試 5', contents: { type: 'carousel', contents: items.slice(0, 10).map(lfFlexBubble) } }],
+    }[n];
+    var r = await liff.shareTargetPicker(msgs, { isMultiple: true });
+    out.textContent += '\n測試 ' + n + '：' + JSON.stringify(r) + '（LINE ' + liff.getLineVersion() + '）';
+  } catch (e) { out.textContent += '\n測試 ' + n + ' 錯誤：' + (e.code || '') + ' ' + (e.message || e); }
+}
 async function lfShare() {
   try {
     if (!liff.isApiAvailable('shareTargetPicker')) { gbToast('請在 LINE 裡打開這個頁面才能分享（或 LIFF 尚未開啟分享功能）'); return; }
@@ -202,7 +225,7 @@ async function lfShare() {
     var msg = { type: 'flex', altText: '🛒 團購開跑：' + items.map(function (it) { return it.c.base_title || it.c.title; }).join('、').slice(0, 300),
       contents: { type: 'carousel', contents: items.map(lfFlexBubble) } };
     var r = await liff.shareTargetPicker([msg], { isMultiple: true });
-    if (r && r.status === 'success') gbToast('✅ 已分享');
+    if (r && r.status === 'success') gbToast('✅ 已分享'); else if (!r) gbToast('已取消分享');
   } catch (e) { gbToast('分享失敗：' + lfErr(e)); }
 }
 // 列表小字（2026-10-11 使用者：增加 +1 慾望）：成團進度／已訂份數＋快截單、快賣完
