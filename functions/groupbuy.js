@@ -411,7 +411,6 @@ async function handleEvent(ev) {
     return Object.values(by);
   };
   const products = dedupe(scope);
-  const link = async () => { const l = await liffLink(store); return l ? "\n" + l + (isTestGroup ? "&test=1" : "") : ""; };
 
   if (!products.length) {
     // 沒有開放中的：最近 2 天內有截單的 → 回「已截單」，否則不理
@@ -435,12 +434,12 @@ async function handleEvent(ev) {
       else if (!hit.length) {   // 不猜：客人標了編號，通常是在喊已截單的多規格團，記到別檔會出錯
         const opts = groups.length === 1 ? optList(groups[0]) : [];
         await pend(`找不到編號 ${it.opt}`, { parsed_qty: it.qty }, i);
-        out.push(opts.length ? `${who} 沒有編號 ${it.opt} 喔，請打 ${opts.map((o) => o + "+1").join("、")}` : `收到 ${who} 的 ${it.opt}+${it.qty}，但找不到這個編號，請點連結下單 🙏${await link()}`);
+        // 商品確定（只有一檔）才提醒正確編號；不知道是哪個商品就不回覆，只進待確認（2026-10-11 使用者）
+        if (opts.length) out.push(`${who} 沒有編號 ${it.opt} 喔，請打 ${opts.map((o) => o + "+1").join("、")}`);
         continue;
       } else {
         await pend(`有 ${hit.length} 檔都有編號 ${it.opt}，無法判斷`, { parsed_qty: it.qty, candidates: hit.map((d) => d.id) }, i);
-        out.push(`收到 ${who} 的 ${it.opt}+${it.qty}！目前有好幾檔團購，請點連結選商品下單 🙏${await link()}`);
-        continue;
+        continue;   // 不知道是哪個商品：不回覆，只進待確認
       }
     } else if (products.length === 1 && !(products[0].data().bundles || []).length) target = products[0];
     else if (groups.length === 1) {
@@ -451,8 +450,7 @@ async function handleEvent(ev) {
       continue;
     } else {
       await pend(`同時有 ${groups.length} 檔開放中，無法判斷是哪一檔`, { parsed_qty: it.qty, candidates: products.map((d) => d.id) }, i);
-      out.push(`收到 ${who} 的 +${it.qty}！目前有好幾檔團購，請點連結選商品下單 🙏${await link()}`);
-      continue;
+      continue;   // 不知道是哪個商品：不回覆，只進待確認（2026-10-11 使用者）
     }
     const cid = target.id;
     const bd = it.opt ? bundleOf(target, it.opt) : null;
