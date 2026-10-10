@@ -36,6 +36,11 @@ window.onload = async function () {
   await Promise.all([lfLoadCamps(), lfLoadMine()]);
   lfRender();
   gbLoading(false);
+  // 在群組直接 +1 的客人系統拿不到手機（2026-10-11 使用者：先做「打開頁面時請他補」）：
+  // 有訂單、還沒留手機 → 一打開就請他留（只在他自己手機上填，不會出現在群組）
+  if (!lfPhone && lfMineList.some(function (o) { return o.status === 'active'; })) {
+    lfAskPhone(null, '你在群組登記的團購已經收到了！留個手機號碼，到貨或沒來取貨時門市才聯絡得到你。只在莉學商行三家門市內部使用，不會公開在群組。');
+  }
 };
 function lfFatal(msg) {
   gbLoading(false);
@@ -178,8 +183,9 @@ function lfPostToGroup(title, qty) {
 }
 
 // ---- 手機（第一次下單前要留；我的訂單可改）----
-function lfAskPhone(after) {
+function lfAskPhone(after, lead) {
   lfAfterPhone = typeof after === 'function' ? after : null;
+  document.querySelector('#phoneModal .lead').textContent = lead || '到貨時或逾期沒來取貨時，門市會用這支電話聯絡你。只在莉學商行三家門市內部使用，不會拿來行銷，也不會公開在群組。';
   document.getElementById('pmPhone').value = lfPhone || '';
   document.getElementById('pmErr').textContent = '';
   document.getElementById('phoneModal').hidden = false;
