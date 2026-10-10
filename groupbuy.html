@@ -148,9 +148,11 @@
     <label class="f" id="cpNamesWrap" style="flex-direction:row;align-items:center;gap:8px;" hidden><input type="checkbox" id="cpNames" onchange="buildCopy()" style="width:20px;height:20px;"> 附上取貨名單（暱稱 × 數量）</label>
     <div class="f" id="cpArrivalWrap" hidden><span>預計到貨日 <small>成團後才知道的話在這裡填，會寫進文案、也顯示在客人的「我的訂單」</small></span><input id="cpArrival" type="date" onchange="saveCopyArrival()"></div>
     <div class="f"><textarea id="cpText" style="min-height:220px;font-size:15px;line-height:1.6;"></textarea></div>
+    <p class="lead" id="cpInfoHint" style="margin:0 0 6px;">自己發圖文時：先貼你的文案，再按「只複製團購資訊」貼在下方（含 +1 連結）。</p>
+    <button type="button" class="btn btn-o" id="cpInfoBtn" onclick="copyInfo()" style="width:100%;padding:12px;font-size:15px;margin-bottom:8px;" hidden>📋 只複製團購資訊</button>
     <div class="sheet-btns">
       <button type="button" class="btn btn-g" onclick="closeModal('copyModal')">關閉</button>
-      <button type="button" class="btn btn-p" onclick="copyText()">📋 複製</button>
+      <button type="button" class="btn btn-p" onclick="copyText()">📋 全部複製</button>
     </div>
   </div>
 </div>

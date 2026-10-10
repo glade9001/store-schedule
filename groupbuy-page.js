@@ -452,6 +452,7 @@ async function openCopy(cid, kind) {
   sel.innerHTML = (owner && stores.length > 1 ? '<option value="">三店合併</option>' : '') + stores.map(function (s) { return '<option value="' + s + '">' + gbStoreName(s) + '</option>'; }).join('');
   document.getElementById('cpTitle').textContent = { open: '📝 開團文案', success: '🎉 成團文案', arrived: '📦 取貨通知' }[kind];
   document.getElementById('cpNamesWrap').hidden = kind !== 'arrived';
+  document.getElementById('cpInfoBtn').hidden = document.getElementById('cpInfoHint').hidden = kind !== 'open';
   document.getElementById('cpArrivalWrap').hidden = kind !== 'success';
   document.getElementById('cpArrival').value = gbInputDate(c.arrival_date);
   document.getElementById('cpNames').checked = false;
@@ -467,10 +468,12 @@ async function buildCopy() {
   var qty = st ? (obs[st] || 0) : (c.ordered_qty || 0);
   var where = st ? gbStoreName(st) : x.stores.map(gbStoreName).join('・');
   var lines = [];
+  x.info = '';
   if (x.kind === 'open') {
     // 2026-10-11 使用者：總部小編原文（貼在「說明」）放最上面，系統再補客人需要的資訊
     var liffId = await gbLiffLinks();
     if (c.description) lines.push(c.description, '', '──────────');
+    var infoFrom = lines.length;   // 從這裡往下是「團購資訊」：自己發圖文時只複製這段貼在下方（2026-10-11）
     lines.push('🛒 ' + c.title, '💰 $' + c.price + '／份' + (c.per_user_limit ? '・每人限 ' + c.per_user_limit + ' 份' : ''));
     lines.push(c.success_rule === 'threshold' ? '🎯 滿 ' + c.min_qty + ' 份成團（三店合計）' : '✅ 保證成團');
     if (c.auto_next) lines.push('🔁 額滿會自動開下一團，不用擔心搶不到');
@@ -480,6 +483,7 @@ async function buildCopy() {
     if (st && liffId) lines.push('', '👉 點這裡 +1（或直接回覆這則留言 +1）：https://liff.line.me/' + liffId + '?store=' + st + '&c=' + c.id + tq);
     else if (!st && liffId) x.stores.forEach(function (s) { lines.push(gbStoreName(s) + ' +1：https://liff.line.me/' + liffId + '?store=' + s + '&c=' + c.id + tq); });
     else lines.push('', '👉 直接回覆這則訊息打「+1」（要 2 份就打 +2）');
+    x.info = lines.slice(infoFrom).join('\n');
   } else if (x.kind === 'success') {
     lines.push('🎉【團購成團】' + c.title, '感謝大家支持！' + (st ? where + '共 ' + qty + ' 份' : '三店共 ' + qty + ' 份（' + x.stores.map(function (s) { return gbStoreName(s) + ' ' + (obs[s] || 0); }).join('・') + '）'));
     lines.push('📦 預計到貨：' + (c.arrival_date ? gbFmt(c.arrival_date, false) : '到貨日確定後通知'), '到貨後會再通知取貨，到店付款 $' + c.price + '／份');
@@ -499,6 +503,16 @@ async function copyText() {
   var t = document.getElementById('cpText');
   try { await navigator.clipboard.writeText(t.value); gbToast('✅ 已複製，貼到門市群組就好'); }
   catch (e) { t.focus(); t.select(); try { document.execCommand('copy'); gbToast('✅ 已複製'); } catch (e2) { gbToast('請長按文字框自行複製'); } }
+}
+// 只複製團購資訊（不含總部原文）：自己發的圖文貼完，再把這段貼在下方
+async function copyInfo() {
+  var info = gbCopyCtx && gbCopyCtx.info; if (!info) return;
+  try { await navigator.clipboard.writeText(info); gbToast('✅ 已複製團購資訊，貼在你的文案下方'); }
+  catch (e) {
+    var t = document.getElementById('cpText'), i = t.value.indexOf(info);
+    t.focus(); if (i >= 0) t.setSelectionRange(i, i + info.length);
+    try { document.execCommand('copy'); gbToast('✅ 已複製團購資訊'); } catch (e2) { gbToast('請長按選取文字框下半段自行複製'); }
+  }
 }
 
 
