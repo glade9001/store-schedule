@@ -122,20 +122,55 @@ function lfRender() {
   // 額滿、我沒訂、而且同系列已經有接單中的下一團 → 不顯示；還沒有下一團就保留，讓客人按了排進下一團
   var shown = lfCamps.filter(function (c) { return !(c.auto_next && lfRemain(c) <= 0 && !lfMine[c.id] && hasRoomInSeries(c)); });
   // 多規格（2026-10-11）：同一組的規格合成一張卡片，依編號排
-  var seen = {}, cards = [];
+  // 列表一行兩格：只放圖片、標題、價格；點進去才看說明與下單（2026-10-11 使用者）
+  var seen = {}; lfItems = {};
+  var keys = [];
   shown.forEach(function (c) {
-    if ((c.bundles || []).length) { cards.push(lfBundleCard(c)); return; }
-    if (!c.opt_group) { cards.push(lfCard(c)); return; }
-    if (seen[c.opt_group]) return;
-    seen[c.opt_group] = 1;
-    cards.push(lfGroupCard(shown.filter(function (m) { return m.opt_group === c.opt_group; })
-      .sort(function (a, b) { return String(a.opt_code).localeCompare(String(b.opt_code)) || (a.round || 1) - (b.round || 1); })));
+    var item;
+    if ((c.bundles || []).length) item = { key: c.id, c: c, html: function () { return lfBundleCard(c); }, price: '$' + c.price + ' 起', mine: lfMine[c.id] ? lfMine[c.id].qty : 0, sold: false };
+    else if (!c.opt_group) item = { key: c.id, c: c, html: function () { return lfCard(c); }, price: '$' + (c.price || 0), mine: lfMine[c.id] ? lfMine[c.id].qty : 0, sold: lfRemain(c) <= 0 && !c.auto_next };
+    else {
+      if (seen[c.opt_group]) return;
+      seen[c.opt_group] = 1;
+      var ms = shown.filter(function (m) { return m.opt_group === c.opt_group; })
+        .sort(function (a, b) { return String(a.opt_code).localeCompare(String(b.opt_code)) || (a.round || 1) - (b.round || 1); });
+      item = { key: c.opt_group, c: c, html: function () { return lfGroupCard(ms); }, price: '$' + Math.min.apply(null, ms.map(function (m) { return m.price || 0; })) + ' 起',
+        mine: ms.reduce(function (a, m) { return a + (lfMine[m.id] ? lfMine[m.id].qty : 0); }, 0), sold: ms.every(function (m) { return lfRemain(m) <= 0 && !m.auto_next; }) };
+    }
+    lfItems[item.key] = item; keys.push(item.key);
   });
-  el.innerHTML = shown.length ? cards.join('') : '<div class="card"><div class="empty" style="font-size:15px;">目前沒有開放中的團購<br>新團購會在群組裡通知 🙌</div></div>';
+  el.innerHTML = keys.length ? '<div class="lf-grid">' + keys.map(function (k) { return lfTile(lfItems[k]); }).join('') + '</div>'
+    : '<div class="card"><div class="empty" style="font-size:15px;">目前沒有開放中的團購<br>新團購會在群組裡通知 🙌</div></div>';
+  // 詳細頁開著的話一起更新（下單後數量、按鈕狀態要變）；那檔已經不在了就關掉
+  if (lfDetailKey) { if (lfItems[lfDetailKey]) lfShowDetail(lfDetailKey, true); else lfCloseDetail(); }
   var me = document.getElementById('lfMine');
   me.innerHTML = '<div class="card" style="display:flex;align-items:center;gap:10px;"><span style="flex:1;font-size:14px;">📱 聯絡手機：<b>' + (lfPhone ? gbEsc(lfPhone) : '還沒留') + '</b></span><button class="btn btn-o" onclick="lfAskPhone()">' + (lfPhone ? '修改' : '填寫') + '</button></div>' +
     (lfMineList.length ? lfMineList.map(lfMineCard).join('') : '<div class="card"><div class="empty" style="font-size:15px;">還沒有訂單</div></div>');
 }
+var lfItems = {}, lfDetailKey = '';
+function lfTile(it) {
+  var c = it.c, img = (c.images || [])[0];
+  return '<button class="lf-tile" onclick="lfShowDetail(\'' + it.key + '\')">' +
+    '<div class="lf-tile-img">' + (img && /^https:\/\//.test(img) ? '<img src="' + gbEsc(img) + '" alt="" loading="lazy">' : '<span>🛍️</span>') +
+      (it.mine ? '<i class="lf-tile-mine">✅ 已訂 ' + it.mine + '</i>' : '') + (it.sold ? '<i class="lf-tile-sold">已售完</i>' : '') + '</div>' +
+    '<div class="lf-tile-t">' + gbEsc(c.base_title || c.title) + '</div>' +
+    '<div class="lf-tile-p">' + it.price + '</div></button>';
+}
+function lfShowDetail(key, refresh) {
+  var it = lfItems[key]; if (!it) return;
+  var box = document.getElementById('lfDetail');
+  document.getElementById('lfDetailBody').innerHTML = it.html();
+  if (!refresh) {
+    lfDetailKey = key; box.hidden = false; box.scrollTop = 0;
+    try { history.pushState({ lfDetail: 1 }, ''); } catch (e) {}   // 手機返回鍵＝回列表
+  }
+}
+function lfCloseDetail(fromPop) {
+  if (!lfDetailKey) return;
+  lfDetailKey = ''; document.getElementById('lfDetail').hidden = true;
+  if (!fromPop) { try { history.back(); } catch (e) {} }
+}
+window.addEventListener('popstate', function () { lfCloseDetail(true); });
 function lfRemain(c) { return c.stock == null ? Infinity : Math.max(0, c.stock - (c.ordered_qty || 0)); }
 function lfCard(c) {
   var img = (c.images || [])[0], mine = lfMine[c.id], had = mine ? mine.qty : 0;
@@ -149,7 +184,7 @@ function lfCard(c) {
     prog = '<div class="lf-meta" style="margin-top:6px;">' + (lack ? '還差 <b>' + lack + '</b> 份成團（三店合計）' : '✅ 已達成團門檻') + '</div><div class="bar"><i style="width:' + p + '%;background:#06c755;"></i></div>';
   }
   var btn = lfBtn(c);
-  return '<div class="lf-card">' + (img && /^https:\/\//.test(img) ? '<div class="lf-img" style="background-image:url(\'' + gbEsc(img).replace(/'/g, '%27') + '\')"></div>' : '') +
+  return '<div class="lf-card">' + (img && /^https:\/\//.test(img) ? '<img class="lf-img" src="' + gbEsc(img) + '" alt="">' : '') +
     '<div class="lf-body"><div class="lf-title">' + gbEsc(c.title) + '</div><div class="lf-price">$' + (c.price || 0) + '</div>' +
     (c.description ? '<div class="lf-desc">' + gbEsc(c.description) + '</div>' : '') +
     '<div class="lf-meta">⏰ ' + gbFmt(c.end_time) + ' 截單（' + gbCountdown(c.end_time) + '）' +
@@ -178,7 +213,7 @@ function lfGroupCard(ms) {
       '</div>' + lfBtn(m, true) + '</div>';
   }).join('');
   var guaranteed = ms.every(function (m) { return m.success_rule !== 'threshold'; });
-  return '<div class="lf-card">' + (img && /^https:\/\//.test(img) ? '<div class="lf-img" style="background-image:url(\'' + gbEsc(img).replace(/'/g, '%27') + '\')"></div>' : '') +
+  return '<div class="lf-card">' + (img && /^https:\/\//.test(img) ? '<img class="lf-img" src="' + gbEsc(img) + '" alt="">' : '') +
     '<div class="lf-body"><div class="lf-title">' + gbEsc(c.base_title || c.title) + '</div>' +
     (c.description ? '<div class="lf-desc">' + gbEsc(c.description) + '</div>' : '') +
     '<div class="lf-meta">⏰ ' + gbFmt(c.end_time) + ' 截單（' + gbCountdown(c.end_time) + '）' + (gbLimitTxt(c, true) ? '<br>' + gbLimitTxt(c, true) : '') +
@@ -199,7 +234,7 @@ function lfBundleCard(c) {
   }).join('');
   var prog = c.success_rule === 'threshold' ? (c.min_qty ? '<div class="lf-meta" style="margin-top:6px;">' + (Math.max(0, c.min_qty - (c.ordered_qty || 0)) ? '還差 <b>' + Math.max(0, c.min_qty - (c.ordered_qty || 0)) + '</b> 份成團（三店合計）' : '✅ 已達成團門檻') + '</div>' : '')
     : '<div class="lf-meta" style="margin-top:6px;"><span style="background:#e6f4ea;color:#137333;font-weight:800;border-radius:7px;padding:2px 9px;">✅ 保證成團</span>　截單後一定出貨</div>';
-  return '<div class="lf-card">' + (img && /^https:\/\//.test(img) ? '<div class="lf-img" style="background-image:url(\'' + gbEsc(img).replace(/'/g, '%27') + '\')"></div>' : '') +
+  return '<div class="lf-card">' + (img && /^https:\/\//.test(img) ? '<img class="lf-img" src="' + gbEsc(img) + '" alt="">' : '') +
     '<div class="lf-body"><div class="lf-title">' + gbEsc(c.base_title || c.title) + '</div>' +
     (c.description ? '<div class="lf-desc">' + gbEsc(c.description) + '</div>' : '') +
     '<div class="lf-meta">⏰ ' + gbFmt(c.end_time) + ' 截單（' + gbCountdown(c.end_time) + '）' + (gbLimitTxt(c) ? '<br>' + gbLimitTxt(c) + '（每份 ' + gbEsc(c.unit_label || '') + '）' : '') +
