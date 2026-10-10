@@ -73,6 +73,7 @@ async function dsOnStore(first) {
   if (dsRole === 'lead') { document.getElementById('dsTabs').style.display = ''; await dsRenderTab(); }
   else { document.getElementById('dsTabs').style.display = 'none'; document.getElementById('dsMain').innerHTML = ''; }
   dsLoaded();
+  if (first) dsMaybeIntro();
 }
 
 // ───────── 輸入 ─────────
@@ -271,4 +272,45 @@ async function dsSaveWho() {
     dsInputters = list;
     dsToast(`✅ 已儲存（${list.length} 人）`);
   } catch (e) { dsToast('❌ 儲存失敗：' + e.message); }
+}
+
+// ───────── 首次說明（使用者 2026-10-11：實驗性功能、說明好處、鼓勵記錄）─────────
+// 看過紀錄：本機 localStorage（快）＋ users/{uid}.appUsage.dsIntroSeen（換手機、新裝主畫面 App 不會再跳）。
+// 放在 appUsage 底下是因為它本來就在 users 規則的「本人可改」清單，不必為一個旗標改規則。
+function dsIntroKey() { return 'dsIntroSeen:' + (dsUser?.empName || ''); }
+async function dsMaybeIntro() {
+  try { if (localStorage.getItem(dsIntroKey())) return; } catch (e) {}
+  const uid = firebase.auth().currentUser?.uid;
+  if (uid) {
+    const u = await window.db.collection('users').doc(uid).get().catch(() => null);
+    if (u && u.exists && ((u.data().appUsage || {}).dsIntroSeen)) { try { localStorage.setItem(dsIntroKey(), '1'); } catch (e) {} return; }
+  }
+  dsShowIntro();
+}
+function dsShowIntro() {
+  const lead = dsRole === 'lead';
+  const item = (ic, t, d) => `<div class="intro-item"><span class="ic">${ic}</span><div><b>${t}</b>${d}</div></div>`;
+  const items = lead ? [
+    item('📅', '看出星期幾生意好、哪天人排太多', '每工時營業額按星期比，最低的那天就是可以調整人力的地方。'),
+    item('🧮', '客單價、報廢率每天看得到', '不用等下個月的損益表，月中就知道走勢。'),
+    item('⏱️', '之後讓工時上限跟著實際業績調整', '資料累積一兩個月、確認跟損益表對得上後，排班頁的上限會改用這個月的實際營業額。'),
+  ] : [
+    item('🧾', '早班日結後，輸入當天三個數字', '營業額（含稅）、來客數、報廢，大約 30 秒。'),
+    item('🙌', '幫門市排出剛好的人力', '店長會用這些數字看哪天生意好、哪天人排太多。'),
+  ];
+  document.getElementById('dsIntro').innerHTML = `<div class="intro-box">
+    <span class="intro-tag">🧪 實驗性功能</span>
+    <div class="intro-title">每日營業記錄</div>
+    <div class="intro-lead">${lead ? '每天記下營業額、來客數、報廢，累積越多天，分析越準。' : '店長指派你負責記錄每天的營業數字。'}</div>
+    ${items.join('')}
+    <div class="intro-foot">${lead ? '不強制輸入，有記錄才看得到分析；可以在「作帳人員」指派日結的人代為輸入。功能還在試用，有覺得不好用的地方歡迎回饋。' : '可以修改最近 7 天的資料。功能還在試用，有覺得不好用的地方請跟店長說。'}</div>
+    <button class="btn-primary" onclick="dsCloseIntro()">開始記錄</button>
+  </div>`;
+  document.getElementById('dsIntro').style.display = 'flex';
+}
+function dsCloseIntro() {
+  document.getElementById('dsIntro').style.display = 'none';
+  try { localStorage.setItem(dsIntroKey(), '1'); } catch (e) {}
+  const uid = firebase.auth().currentUser?.uid;
+  if (uid) window.db.collection('users').doc(uid).set({ appUsage: { dsIntroSeen: new Date().toISOString() } }, { merge: true }).catch(() => {});
 }

@@ -19,6 +19,7 @@
   <button class="header-back" onclick="dsBack()">← 返回</button>
   <div class="header-title">🧾 每日營業</div>
   <select id="dsStore" class="store-sel" onchange="dsOnStore()" style="display:none;"></select>
+  <button class="header-help" onclick="dsShowIntro()" aria-label="說明">說明</button>
 </div>
 
 <div class="wrap">
@@ -26,6 +27,7 @@
   <div id="dsTabs" class="tabs" style="display:none;"></div>
   <div id="dsMain"></div>
 </div>
+<div id="dsIntro" class="intro-ov" style="display:none;" onclick="if(event.target===this)dsCloseIntro()"></div>
 <div id="toast"></div>
 
 <script src="daily-sales-page.js"></script>
