@@ -12,6 +12,12 @@ window.onload = async function () {
   gbUser = await gbRequireUser();
   if (!gbUser) return;
   gbMyCode = gbCodeOf(gbUser.store);
+  if (gbUser.gbPreview) {
+    var pb = document.createElement('div');
+    pb.style.cssText = 'background:#fff3e0;color:#b45309;font-size:13px;font-weight:800;padding:8px 14px;text-align:center;line-height:1.5;';
+    pb.textContent = '🎭 角色預覽：' + ({ employee: '員工', manager: '店長', owner: '加盟主' }[gbUser.permission] || gbUser.permission) + '（' + (gbUser.store || '未設門市') + '）・按鈕會真的寫入資料，請只看不按；回首頁可恢復身分';
+    document.querySelector('.header').after(pb);
+  }
   gbCanCreate = gbIsOwner(gbUser) || (gbIsManager(gbUser) && !!gbMyCode);
   if (gbIsOwner(gbUser)) document.getElementById('tabSet').hidden = false;
   gbEnsureStoreSettings(gbUser);

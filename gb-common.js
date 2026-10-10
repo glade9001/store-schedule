@@ -143,6 +143,13 @@ async function gbRequireUser() {
   var saved = localStorage.getItem('currentUser') || sessionStorage.getItem('currentUser');
   if (!saved) { location.replace('home.html'); return null; }
   var u; try { u = JSON.parse(saved); } catch (e) { location.replace('home.html'); return null; }
+  // 首頁「🎭 角色預覽」（只有 admin 能開）：預覽身分存在 sessionStorage，這裡跟著用；資料庫權限仍是 admin 本人
+  try {
+    if (u.permission === 'admin' && sessionStorage.getItem('isPreviewMode') === '1') {
+      var pv = JSON.parse(sessionStorage.getItem('currentUser') || 'null');
+      if (pv && pv.permission && pv.permission !== 'admin') { u = pv; u.gbPreview = true; }
+    }
+  } catch (e) {}
   var fb = await new Promise(function (r) { var un = firebase.auth().onAuthStateChanged(function (x) { un(); r(x); }); });
   if (!fb) { location.replace('home.html'); return null; }
   if (['employee', 'manager', 'owner', 'admin'].indexOf(u.permission) < 0) { alert('沒有使用權限'); location.replace('home.html'); return null; }
