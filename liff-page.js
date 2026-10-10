@@ -163,8 +163,11 @@ function lfRender() {
         mine: ms.reduce(function (a, m) { return a + (lfMine[m.id] ? lfMine[m.id].qty : 0); }, 0), sold: ms.every(function (m) { return lfRemain(m) <= 0 && !m.auto_next; }) };
     }
     item.hint = lfHint(item.ms || [c]);
+    item.pinned = gbIsPinned(c, lfCamps);
     lfItems[item.key] = item; keys.push(item.key);
   });
+  // 置頂的排最前面，其餘維持截單時間先後（sort 是穩定排序）
+  keys.sort(function (a, b) { return (lfItems[b].pinned ? 1 : 0) - (lfItems[a].pinned ? 1 : 0); });
   var dbg = (lfParam('debug') === '1' || lfDebug) ? '<div class="card" style="font-size:13px;"><b>分享測試</b>（分享到自己的聊天室，看哪幾則有收到）<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">' +
     [5, 7].map(function (n) { return '<button class="btn btn-o" onclick="lfShareTest(' + n + ')">' + { 5: 'A 輪播', 7: 'B 一張列出全部' }[n] + '</button>'; }).join('') +
     '</div><pre id="lfDbgOut" style="white-space:pre-wrap;font-size:11.5px;margin:6px 0 0;"></pre></div>' : '';
@@ -181,7 +184,7 @@ function lfTile(it) {
   var c = it.c, img = (c.images || [])[0];
   return '<button class="lf-tile" onclick="lfShowDetail(\'' + it.key + '\')">' +
     '<div class="lf-tile-img">' + (img && /^https:\/\//.test(img) ? '<img src="' + gbEsc(img) + '" alt="" loading="lazy">' : '<span>🛍️</span>') +
-      (it.mine ? '<i class="lf-tile-mine">✅ 已訂 ' + it.mine + '</i>' : '') + (it.sold ? '<i class="lf-tile-sold">已售完</i>' : '') + '</div>' +
+      (it.mine ? '<i class="lf-tile-mine">✅ 已訂 ' + it.mine + '</i>' : it.pinned ? '<i class="lf-tile-mine lf-tile-pin">📌 推薦</i>' : '') + (it.sold ? '<i class="lf-tile-sold">已售完</i>' : '') + '</div>' +
     '<div class="lf-tile-t">' + gbEsc(c.base_title || c.title) + '</div>' +
     '<div class="lf-tile-p">' + it.price + '</div>' + (it.hint ? '<div class="lf-tile-h">' + it.hint + '</div>' : '') + '</button>';
 }

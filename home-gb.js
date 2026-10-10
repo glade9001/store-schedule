@@ -74,9 +74,9 @@ function hgRender() {
     // 多規格各自成團：取「最接近成團」那種的差額
     var lack = th ? Math.min.apply(null, ms.map(function (m) { return Math.max(0, (m.min_qty || 0) - (m.ordered_qty || 0)); })) : 0;
     var minQ = th ? (c.min_qty || 0) : 0;
-    return { c: c, end: Math.min.apply(null, ms.map(function (m) { return hgMs(m.end_time); })), ordered: ordered, mine: mine, by: by, th: th, lack: lack, minQ: minQ,
+    return { c: c, pin: ms.some(function (m) { return m.pinned === true; }), end: Math.min.apply(null, ms.map(function (m) { return hgMs(m.end_time); })), ordered: ordered, mine: mine, by: by, th: th, lack: lack, minQ: minQ,
       title: c.base_title || String(c.title || '').replace(/（第\d+團）$/, '') };
-  }).sort(function (a, b) { return a.end - b.end; });
+  }).sort(function (a, b) { return (b.pin ? 1 : 0) - (a.pin ? 1 : 0) || a.end - b.end; });   // 置頂的在前
 
   var body = document.getElementById('hgBody'), cnt = document.getElementById('hgCount');
   cnt.textContent = rows.length ? rows.length + ' 檔' : '';
@@ -87,7 +87,7 @@ function hgRender() {
     var status = r.th ? (r.lack ? '還差 <b>' + r.lack + '</b> 份成團' : '🎉 已達成團') : '保證成團';
     var pct = r.th ? Math.min(100, Math.round((r.minQ - r.lack) / (r.minQ || 1) * 100)) : 100;
     return '<div class="hg-row" onclick="location.href=\'groupbuy.html\'">' +
-      '<div class="hg-top"><span class="hg-t">' + hgEsc(r.title) + '</span><span class="hg-left' + (lf.urgent ? ' urgent' : '') + '">⏰ ' + lf.t + '</span></div>' +
+      '<div class="hg-top"><span class="hg-t">' + (r.pin ? '📌 ' : '') + hgEsc(r.title) + '</span><span class="hg-left' + (lf.urgent ? ' urgent' : '') + '">⏰ ' + lf.t + '</span></div>' +
       '<div class="hg-mid"><span class="hg-st' + (r.th && r.lack ? ' lack' : ' ok') + '">' + status + '</span>' +
         '<span class="hg-q">' + (r.th ? '已訂 ' + r.ordered + ' 份' + (code ? '・本店 ' + r.mine : '') : (code ? '本店已訂 ' + r.mine + ' 份' : '三店已訂 ' + r.ordered + ' 份')) + (r.by ? '（' + r.by + '）' : '') + '</span></div>' +
       (r.th ? '<div class="hg-bar"><i style="width:' + pct + '%"></i></div>' : '') + '</div>';

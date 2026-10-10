@@ -118,6 +118,9 @@ function gbRand(n) {
   return s;
 }
 /** Firestore SDK 沒有逾時：transaction／讀取卡住時畫面會凍住（記憶 reference_firestore_no_timeout） */
+// 置頂（2026-10-10）：pinned 存在每一團上；同一組多規格、同一系列（額滿自動開的下一團）任一團置頂就整組置頂
+function gbPinKey(c) { return c.opt_group || c.series_id || c.id; }
+function gbIsPinned(c, all) { var k = gbPinKey(c); return (all || [c]).some(function (o) { return o.pinned === true && gbPinKey(o) === k; }); }
 function gbTimeout(p, ms, msg) {
   return Promise.race([p, new Promise(function (_, rej) { setTimeout(function () { rej(new Error(msg || '連線逾時，請稍後再試')); }, ms || 15000); })]);
 }

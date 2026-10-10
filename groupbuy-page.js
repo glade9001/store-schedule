@@ -72,9 +72,11 @@ function render() {
   }).join('');
   var list = vis.filter(function (c) { return gbFilter === 'all' ? true : gbFilter === 'due' ? isDue(c) : c.status === gbFilter; });
   // 待結算最前，其次開放中依截單時間，其餘依建立時間新到舊
+  // 置頂的開放中／草稿團排在同一類最前面
   var rank = function (c) { return isDue(c) ? 0 : c.status === 'open' ? 1 : c.status === 'draft' ? 2 : 3; };
   list.sort(function (a, b) {
     var r = rank(a) - rank(b); if (r) return r;
+    var pa = gbIsPinned(a, gbCamps), pb = gbIsPinned(b, gbCamps); if (pa !== pb) return pa ? -1 : 1;
     if (a.status === 'open') return (gbToDate(a.end_time) || 0) - (gbToDate(b.end_time) || 0);
     return (gbToDate(b.created_at) || 0) - (gbToDate(a.created_at) || 0);
   });
@@ -105,6 +107,9 @@ function campCard(c) {
     btns += '<button class="btn btn-g" onclick="openCopy(\'' + c.id + '\',\'' + (c.status === 'open' ? 'open' : c.status === 'success' ? 'success' : 'arrived') + '\')">📝 ' + (c.status === 'open' ? '開團文案' : c.status === 'success' ? '成團文案' : '取貨通知') + '</button>';
   }
   if (gbIsOwner(gbUser) && c.status !== 'open') btns += '<button class="btn btn-g" style="color:#d93025;" onclick="deleteCampaign(\'' + c.id + '\')">🗑 刪除</button>';
+  if (canEdit(c) && (c.status === 'open' || c.status === 'draft')) {
+    btns += '<button class="btn btn-g" onclick="togglePin(\'' + c.id + '\')">' + (gbIsPinned(c, gbCamps) ? '取消置頂' : '📌 置頂') + '</button>';
+  }
   if (canEdit(c)) {
     btns += '<button class="btn btn-o" onclick="openCampaignForm(\'' + c.id + '\')">編輯</button>';
     btns += '<select class="inline" aria-label="切換狀態" onchange="changeStatus(\'' + c.id + '\',this.value);this.value=\'\'"><option value="">切換狀態…</option>' +
@@ -114,6 +119,7 @@ function campCard(c) {
     (imgOk ? '<div class="camp-img" style="background-image:url(\'' + gbEsc(img).replace(/'/g, '%27') + '\')"></div>' : '<div class="camp-img" aria-hidden="true"></div>') +
     '<div class="camp-body">' +
       '<span class="st st-' + c.status + '">' + (GB_STATUS[c.status] || c.status) + '</span>' + (isDue(c) ? ' <span class="st st-due">待結算</span>' : '') + (c.is_test ? ' <span class="st" style="background:#ede9fe;color:#6d28d9;">🧪 測試團</span>' : '') +
+        (gbIsPinned(c, gbCamps) && (c.status === 'open' || c.status === 'draft') ? ' <span class="st" style="background:#fff3e0;color:#b45309;">📌 置頂</span>' : '') +
       '<div class="camp-title">' + gbEsc(c.title) + '</div>' +
       ((c.bundles || []).length ? '<div class="camp-meta">' + c.bundles.map(function (b) { return gbEsc(b.code + ' ' + b.label) + ' $' + b.mult * c.price + (b.mult > 1 ? '（' + b.mult + ' 份）' : ''); }).join('・') + '</div>' : '') +
       '<div class="camp-meta"><b>$' + (c.price || 0) + '</b>・' + (gbNoLimit(c) ? '每人不限' : '每人上限 ' + c.per_user_limit) + '・' + rule + '・' + stock + '</div>' +
@@ -125,6 +131,21 @@ function campCard(c) {
     '<div class="actions">' + btns + '</div>' +
     (gbOpen[c.id] ? '<div class="orders" id="orders-' + c.id + '">' + ordersHtml(c) + '</div>' : '') +
   '</div>';
+}
+
+// 置頂（2026-10-10 使用者）：客人下單頁、首頁卡片、這裡的列表都排最前面；多規格／同系列整組一起切
+async function togglePin(cid) {
+  var c = gbCamps.find(function (x) { return x.id === cid; }); if (!c || !canEdit(c)) return;
+  var on = !gbIsPinned(c, gbCamps), k = gbPinKey(c);
+  var group = gbCamps.filter(function (o) { return gbPinKey(o) === k; });
+  try {
+    var b = window.db.batch();
+    group.forEach(function (o) { b.update(window.db.collection('gb_campaigns').doc(o.id), { pinned: on, updated_at: firebase.firestore.FieldValue.serverTimestamp() }); });
+    await gbTimeout(b.commit());
+    group.forEach(function (o) { o.pinned = on; });
+    gbToast(on ? '📌 已置頂，客人下單頁會排在最前面' : '已取消置頂');
+    render();
+  } catch (e) { gbToast('更新失敗：' + friendly(e)); }
 }
 
 // ---- 訂單明細 ----
