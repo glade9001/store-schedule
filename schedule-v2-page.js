@@ -1734,7 +1734,7 @@ function renderSchedule() {
   }
 }
 
-// ===== 本月工時 vs 不賠錢上限（labor-budget.js）=====
+// ===== 本月工時 vs 工時上限（labor-budget.js）=====
 // 店長看得到，但只顯示時數與燈號，不顯示經營報酬／人事金額（使用者 2026-10-10 決定）。
 // 月份口徑同「N月人力」：以本週週一所在的月份為準；時數則逐日算進該月。
 let lbStoreCache = {};        // store -> Promise<lbLoadStore 結果>
@@ -1781,7 +1781,7 @@ function lbRenderBar() {
     : `${mo}月工時：還沒排班 · 整個月上限約 ${fmt(p.cap)}h`;
   const lines = [];
   // 顯示的上限是中間值 capP；燈號用誤差範圍判斷 → 黃燈可能已略超過 capP，文案要分開講
-  if(lt) lines.push(`<b>${lt.level === 'green' ? '還有空間'
+  if(lt) lines.push(`<b>${lt.level === 'green' ? '在上限內' /* 不寫「還有空間」：店長會讀成可以多排（使用者 2026-10-11） */
     : lt.level === 'red' ? `超過上限 ${fmt(sc.hours - lt.capP)}h`
     : sc.hours > lt.capP ? `稍微超過 ${fmt(sc.hours - lt.capP)}h（還在估算誤差內）` : '快到上限了'}</b>`);
   if(!lt || sc.days < lbDaysIn(ym)) lines.push(`整個月上限約 ${fmt(p.cap)}h`); // 整月都排完時跟上面同一個數，不重複

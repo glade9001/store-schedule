@@ -69,7 +69,7 @@ window.onload=async()=>{
   renderAll(sel.value);
   // 未休假獎金估算：每人要讀特休批次與補休帳本，放背景載入，好了再重畫（不擋第一屏）
   loadLeaveEstimate().then(()=>{ if(dashView==='main') renderAll(dashMonth); }).catch(e=>console.warn('未休假獎金估算失敗',e));
-  // 本月工時 vs 不賠錢上限：要讀各店本月班表與設定，同樣放背景
+  // 本月工時 vs 工時上限：要讀各店本月班表與設定，同樣放背景
   loadLaborBudget().then(()=>{ if(dashView==='main') renderAll(dashMonth); }).catch(e=>console.warn('工時上限計算失敗',e));
 };
 
@@ -607,7 +607,7 @@ function collectAlerts(m,extra){
     if(ex.law>=3) L.push({sev:'warn',t:'排班知情放行',v:ex.law+' 次'});
     const od=leaveEst?leaveEst.items.filter(x=>x.store===s&&x.overdue):[];
     if(od.length) L.push({sev:'warn',t:'特休／補休過期未處理',v:od.length+' 筆'});
-    const lbe=lbDash&&lbDash[s]; if(lbe&&lbe.ev.light&&lbe.ev.light.level==='red') L.push({sev:'red',t:`${+lbDash._ym.slice(5)}月排班超過不賠錢上限`,v:'+'+Math.round(lbe.ev.sched.hours-lbe.ev.light.hiP)+'h'});
+    const lbe=lbDash&&lbDash[s]; if(lbe&&lbe.ev.light&&lbe.ev.light.level==='red') L.push({sev:'red',t:`${+lbDash._ym.slice(5)}月排班超過工時上限`,v:'+'+Math.round(lbe.ev.sched.hours-lbe.ev.light.hiP)+'h'});
     L.sort((a,b)=>(a.sev==='red'?0:1)-(b.sev==='red'?0:1));
   });
   return out;
@@ -792,7 +792,7 @@ async function shareReview(m, recipients){
   }catch(e){ hideLoading(); alert('分享失敗：'+e.message); }
 }
 // ===== 下鑽入口 =====
-// ===== 本月工時 vs 不賠錢上限（labor-budget.js；排班頁同一套算法）=====
+// ===== 本月工時 vs 工時上限（labor-budget.js；排班頁同一套算法）=====
 // 看的是「日曆上的這個月」，跟上方選的損益月份無關（損益月份是已結算的過去）。
 // 這裡給加盟主看金額（預估營收、兩平營收、人事預算）；店長在排班頁只看到時數與燈號。
 var lbDash=null;
@@ -809,7 +809,8 @@ async function loadLaborBudget(){
     ]);
     const emps=[]; if(es) es.forEach(d=>emps.push({name:d.id,...d.data()}));
     const other=lc&&lc.exists?n(lc.data().otherMonthly):0;
-    const loaded={store:s, model:lbBuildModel(DATA[s].pnl,DATA[s].perf,{ptWage:lbPartTimeWage(emps),other}), asCfg:ac&&ac.exists?ac.data():null, otherMonthly:other};
+    const pct=lbOwnerPct(lc&&lc.exists?lc.data():null);
+    const loaded={store:s, model:lbBuildModel(DATA[s].pnl,DATA[s].perf,{ptWage:lbPartTimeWage(emps),other,ownerPct:pct}), asCfg:ac&&ac.exists?ac.data():null, otherMonthly:other, ownerPct:pct};
     const recs=[]; ws.forEach((snap,i)=>{ if(snap&&snap.exists) (snap.data().records||[]).forEach(r=>recs.push({...r,week:weeks[i]})); });
     out[s]={loaded, ev:lbEvaluate(loaded,recs,ym)};
   }));
@@ -820,7 +821,7 @@ function lbSummary(only){
   const reds=only.filter(s=>lbDash[s]&&lbDash[s].ev.light&&lbDash[s].ev.light.level==='red');
   if(reds.length) return `🔴 ${reds.join('、')} 超過上限`;
   const ys=only.filter(s=>lbDash[s]&&lbDash[s].ev.light&&lbDash[s].ev.light.level==='yellow');
-  return ys.length?`🟡 ${ys.join('、')} 接近上限`:'都在範圍內';
+  return ys.length?`🟡 ${ys.join('、')} 接近上限`:'都在上限內';
 }
 function renderLaborBudget(only){
   if(!lbDash) return '<div class="empty">計算中…</div>';
@@ -834,23 +835,26 @@ function renderLaborBudget(only){
     const c=LB_COLORS[lt?lt.level:'green'];
     const sched=ev.sched.lastDate?`${h(ev.sched.hours)}${sub(`排到 ${md(ev.sched.lastDate)}<br>應 ≤${h(lt.capP)}`)}`:'未排';
     const minH=ev.minH?sub(ev.minH>p.capLo?`<span style="color:#c5221f;">最低人力 ${h(ev.minH)} ⚠️</span>`:`最低人力 ${h(ev.minH)}`):'';
-    return `<tr><td>${lt?c[2]+' ':''}${esc(s)}</td><td>${sched}</td><td>${h(p.cap)}${sub(`${h(p.capLo)}～${h(p.capHi)}`)}${minH}</td><td>${wan(p.beSales)}${sub(`預估 ${wan(p.sales)}`)}</td></tr>`;
+    const take=x.loaded.ownerPct?sub(`加盟主留 ${Math.round(x.loaded.ownerPct*100)}%（約 ${wan(p.ownerTake)}）`):sub('打平（未設加盟主比例）');
+    return `<tr><td>${lt?c[2]+' ':''}${esc(s)}</td><td>${sched}</td><td>${h(p.cap)}${take}${minH}</td><td>${wan(p.beSales)}${sub(`預估 ${wan(p.sales)}`)}</td></tr>`;
   }).join('');
-  const edit=only.map(s=>{ const x=lbDash[s]; if(!x) return ''; return `<div class="todo-line"><span>${esc(s)} 每月其他固定支出</span><span><input type="number" inputmode="numeric" id="lbOther_${esc(s)}" value="${x.loaded.otherMonthly||0}" style="width:90px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;text-align:right;"> <button onclick="saveLbOther('${esc(s)}')" style="padding:4px 10px;border:none;border-radius:6px;background:#1a73e8;color:#fff;font-weight:700;">存</button></span></div>`; }).join('');
+  const inp=(id,v,w)=>`<input type="number" inputmode="decimal" id="${id}" value="${v}" style="width:${w}px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;text-align:right;">`;
+  const edit=only.map(s=>{ const x=lbDash[s]; if(!x) return ''; return `<div class="todo-line" style="flex-wrap:wrap;gap:6px;"><span>${esc(s)}</span><span style="white-space:nowrap;">加盟主留 ${inp('lbPct_'+esc(s),Math.round((x.loaded.ownerPct||0)*1000)/10,52)}%　其他支出 ${inp('lbOther_'+esc(s),x.loaded.otherMonthly||0,78)} <button onclick="saveLbOther('${esc(s)}')" style="padding:4px 10px;border:none;border-radius:6px;background:#1a73e8;color:#fff;font-weight:700;">存</button></span></div>`; }).join('');
   return `<div class="scroll"><table class="tbl" style="white-space:normal;"><thead><tr><th>門市</th><th>已排</th><th>整月上限</th><th>兩平營收</th></tr></thead><tbody>${rows}</tbody></table></div>
   <div style="font-size:11.5px;color:var(--muted);line-height:1.7;margin:8px 2px;">
-    ${+ym.slice(5)}月預估營收＝近 3 個月平均（回測誤差約 ±4%，所以上限是一個範圍）。「應 ≤」＝整月上限按已排好的天數攤；稍微超過還在估算誤差內是黃燈，明顯超過才亮紅燈。<br>
-    上限用工讀時薪換算：正職月薪固定，多排、少排的只有工讀時數。最低人力取自動排班設定；⚠️ 代表最低人力已碰到上限，少排班救不了。<br>
-    經營報酬是未稅金額；5% 營業稅由總部隨發票付給門市、門市再報繳國稅局，屬代收代付，不影響兩平。店長在排班頁只看得到時數與燈號。
+    整月上限＝扣掉加盟主要留的比例後，人事還能用多少，換算成工讀時數。「應 ≤」是按已排天數攤的上限。<br>
+    ⚠️ 基本人力已超過上限：少排班達不到，要靠業績或盤損。店長在排班頁只看得到時數與燈號。
   </div>
-  <details style="margin-top:4px;"><summary style="font-size:12.5px;font-weight:700;cursor:pointer;">其他固定支出（試算沒包含的每月支出，如記帳費；填了上限會往下修）</summary>${edit}</details>`;
+  <details style="margin-top:4px;"><summary style="font-size:12.5px;font-weight:700;cursor:pointer;">⚙️ 設定：加盟主留多少比例、其他每月固定支出</summary>${edit}</details>`;
 }
 async function saveLbOther(s){
   const el=document.getElementById('lbOther_'+s); if(!el) return;
   const v=Math.round(parseFloat(el.value)||0);
-  if(v<0){ alert('請填 0 以上的金額'); return; }
+  const pe=document.getElementById('lbPct_'+s), pct=Math.round((parseFloat(pe&&pe.value)||0)*10)/10;
+  if(v<0){ alert('其他支出請填 0 以上的金額'); return; }
+  if(pct<0||pct>=50){ alert('加盟主比例請填 0～50 之間'); return; }
   try{
-    await window.db.collection('stores').doc(s).collection('config').doc('laborBudget').set({otherMonthly:v, updatedBy:currentUser.empName||'', updatedAt:new Date().toISOString()},{merge:true});
+    await window.db.collection('stores').doc(s).collection('config').doc('laborBudget').set({otherMonthly:v, ownerPct:pct, updatedBy:currentUser.empName||'', updatedAt:new Date().toISOString()},{merge:true});
     await loadLaborBudget(); renderAll(dashMonth);
   }catch(e){ alert('儲存失敗：'+e.message); }
 }

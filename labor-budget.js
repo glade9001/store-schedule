@@ -1,9 +1,9 @@
-// 本月人事「不賠錢上限」：排班頁一行燈號＋加盟主儀表板三店對照共用。
+// 本月人事「工時上限」（打平後再讓加盟主留一定比例）：排班頁一行燈號＋加盟主儀表板三店對照共用。
 // 來源：stores/{店}/pnl（經營報酬，未稅）＋ perfSnapshot（實際人事成本，含雇主負擔）＋ config/autoSchedule（最低人力）。
 //
 // 算法（2026-10-10 試算回測過，見專案記憶 project_pnl）：
 //   經營報酬 ＋ 加回盤損 ＋ 加回電費 ≈ a ＋ b × 營業淨額（各店自己的歷史月份回歸）
-//   本月人事預算 ＝（a ＋ b × 預估營收 − 本月電費 ＋ 盤損月攤）×（1 − 營業稅 5%）− 其他固定支出
+//   本月人事預算 ＝（a ＋ b × 預估營收 − 本月電費 ＋ 盤損月攤）×（1 − 營業稅）×（1 − 加盟主比例）− 其他固定支出
 //   預估營收＝最近 3 個月平均（回測誤差約 ±4%，比「去年同月」準）；電費用去年同月（季節差很大）
 //   時數上限 ＝ 近 3 月實際時數 ＋（預算 − 近 3 月實際人事）÷ 工讀平均時薪
 //     ⚠️ 用工讀時薪換算而不是平均時薪：正職月薪固定，多排／少排的只有工讀時數。
@@ -46,7 +46,7 @@ function lbPartTimeWage(employees) {
 /**
  * @param pnl  { 'YYYY-MM': pnl doc }
  * @param perf { 'YYYY-MM': perfSnapshot doc }
- * @param opts { ptWage, other（每月其他固定支出）}
+ * @param opts { ptWage, other（每月其他固定支出）, ownerPct（加盟主要留的經營報酬比例，0.05＝5%）}
  * @returns 模型，或 { err: '原因' }
  */
 function lbBuildModel(pnl, perf, opts) {
@@ -71,7 +71,7 @@ function lbBuildModel(pnl, perf, opts) {
   var H0 = 0, L0 = 0;
   pm.forEach(function (m) { H0 += +perf[m].totalHours / pm.length; L0 += +perf[m].laborCost / pm.length; });
   var w = +opts.ptWage > 0 ? +opts.ptWage : L0 / H0; // 沒有工讀時薪就退回平均時薪
-  return { a: f.a, b: f.b, invAvg: invSum / ms.length, months: ms, pnl: pnl, H0: H0, L0: L0, perfMonths: pm, w: w, other: +opts.other || 0 };
+  return { a: f.a, b: f.b, invAvg: invSum / ms.length, months: ms, pnl: pnl, H0: H0, L0: L0, perfMonths: pm, w: w, other: +opts.other || 0, ownerPct: +opts.ownerPct || 0 };
 }
 
 /** 某月的預估：營收、人事預算、時數上限（含 ±誤差範圍）、兩平營收 */
@@ -83,10 +83,12 @@ function lbPlan(model, ym) {
   var ly = model.pnl[lbAddMonth(ym, -12)];
   var elec = ly && +ly.elecCost > 0 ? +ly.elecCost
     : model.months.reduce(function (s, m) { return s + (+model.pnl[m].elecCost || 0); }, 0) / model.months.length;
-  var budgetAt = function (S) { return (model.a + model.b * S - elec + model.invAvg) * (1 - LB_TAX) - model.other; };
+  // 加盟主先留 ownerPct（可分配的經營報酬 × 比例），剩下才是人事預算（使用者 2026-10-11：上限要讓加盟主有賺，不是打平）
+  var poolAt = function (S) { return (model.a + model.b * S - elec + model.invAvg) * (1 - LB_TAX); };
+  var budgetAt = function (S) { return poolAt(S) * (1 - model.ownerPct) - model.other; };
   var capAt = function (S) { return model.H0 + (budgetAt(S) - model.L0) / model.w; };
   return {
-    ym: ym, salesFrom: prev, sales: sales, elec: elec,
+    ym: ym, salesFrom: prev, sales: sales, elec: elec, ownerTake: poolAt(sales) * model.ownerPct,
     budget: budgetAt(sales),
     cap: capAt(sales), capLo: capAt(sales * (1 - LB_SALES_ERR)), capHi: capAt(sales * (1 + LB_SALES_ERR)),
     beSales: ((model.L0 + model.other) / (1 - LB_TAX) - model.a + elec - model.invAvg) / model.b
@@ -160,6 +162,9 @@ function lbLight(plan, sched, ym) {
   return { level: level, frac: frac, loP: lo, hiP: hi, capP: plan.cap * frac };
 }
 
+/** config/laborBudget.ownerPct 存的是百分比數字（5＝5%），沒設定＝0（打平） */
+function lbOwnerPct(c) { var v = +(c && c.ownerPct); return v > 0 && v < 100 ? v / 100 : 0; }
+
 /** 讀一家店算燈號需要的資料（employees 已有就傳進來省一次讀取） */
 function lbLoadStore(db, store, employees) {
   var ref = db.collection('stores').doc(store);
@@ -174,8 +179,8 @@ function lbLoadStore(db, store, employees) {
     var emps = employees || [];
     if (r[4]) r[4].forEach(function (d) { emps.push(Object.assign({ name: d.id }, d.data())); });
     var lbc = r[3] && r[3].exists ? r[3].data() : {};
-    var model = lbBuildModel(toMap(r[0]), toMap(r[1]), { ptWage: lbPartTimeWage(emps), other: +lbc.otherMonthly || 0 });
-    return { store: store, model: model, asCfg: r[2] && r[2].exists ? r[2].data() : null, otherMonthly: +lbc.otherMonthly || 0 };
+    var model = lbBuildModel(toMap(r[0]), toMap(r[1]), { ptWage: lbPartTimeWage(emps), other: +lbc.otherMonthly || 0, ownerPct: lbOwnerPct(lbc) });
+    return { store: store, model: model, asCfg: r[2] && r[2].exists ? r[2].data() : null, otherMonthly: +lbc.otherMonthly || 0, ownerPct: lbOwnerPct(lbc) };
   });
 }
 
