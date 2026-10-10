@@ -134,9 +134,10 @@ function lfRender() {
       seen[c.opt_group] = 1;
       var ms = shown.filter(function (m) { return m.opt_group === c.opt_group; })
         .sort(function (a, b) { return String(a.opt_code).localeCompare(String(b.opt_code)) || (a.round || 1) - (b.round || 1); });
-      item = { key: c.opt_group, c: c, html: function () { return lfGroupCard(ms); }, price: '$' + Math.min.apply(null, ms.map(function (m) { return m.price || 0; })) + ' 起',
+      item = { key: c.opt_group, c: c, ms: ms, html: function () { return lfGroupCard(ms); }, price: '$' + Math.min.apply(null, ms.map(function (m) { return m.price || 0; })) + ' 起',
         mine: ms.reduce(function (a, m) { return a + (lfMine[m.id] ? lfMine[m.id].qty : 0); }, 0), sold: ms.every(function (m) { return lfRemain(m) <= 0 && !m.auto_next; }) };
     }
+    item.hint = lfHint(item.ms || [c]);
     lfItems[item.key] = item; keys.push(item.key);
   });
   el.innerHTML = keys.length ? '<div class="lf-grid">' + keys.map(function (k) { return lfTile(lfItems[k]); }).join('') + '</div>'
@@ -154,7 +155,20 @@ function lfTile(it) {
     '<div class="lf-tile-img">' + (img && /^https:\/\//.test(img) ? '<img src="' + gbEsc(img) + '" alt="" loading="lazy">' : '<span>🛍️</span>') +
       (it.mine ? '<i class="lf-tile-mine">✅ 已訂 ' + it.mine + '</i>' : '') + (it.sold ? '<i class="lf-tile-sold">已售完</i>' : '') + '</div>' +
     '<div class="lf-tile-t">' + gbEsc(c.base_title || c.title) + '</div>' +
-    '<div class="lf-tile-p">' + it.price + '</div></button>';
+    '<div class="lf-tile-p">' + it.price + '</div>' + (it.hint ? '<div class="lf-tile-h">' + it.hint + '</div>' : '') + '</button>';
+}
+// 列表小字（2026-10-11 使用者：增加 +1 慾望）：成團進度／已訂份數＋快截單、快賣完
+function lfHint(ms) {
+  var c = ms[0], ordered = ms.reduce(function (a, m) { return a + (m.ordered_qty || 0); }, 0), t;
+  if (c.success_rule === 'threshold' && c.min_qty) {
+    var lack = ms.length > 1 ? Math.min.apply(null, ms.map(function (m) { return Math.max(0, m.min_qty - (m.ordered_qty || 0)); })) : Math.max(0, c.min_qty - ordered);
+    t = lack ? '🔥 還差 ' + lack + ' 份成團' : '🎉 已成團・' + ordered + ' 份';
+  } else t = ordered ? '🔥 已訂 ' + ordered + ' 份' : '✅ 保證成團';
+  var end = gbToDate(c.end_time), left = end ? end.getTime() - Date.now() : 0;
+  if (left > 0 && left < 86400000) t += '・剩 ' + Math.max(1, Math.ceil(left / 3600000)) + ' 小時';
+  var remain = Math.min.apply(null, ms.map(lfRemain));
+  if (remain !== Infinity && remain > 0 && remain <= 5 && !c.auto_next) t += '・剩 ' + remain + ' 份';
+  return t;
 }
 function lfShowDetail(key, refresh) {
   var it = lfItems[key]; if (!it) return;
