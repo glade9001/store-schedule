@@ -508,20 +508,9 @@ function otChoosePrivate(){ _otDone({intent:'private', content: _otReason==='lat
 function otCancel(){ _otDone(null); }
 function _otDone(v){ document.getElementById('otModal').style.display='none'; const r=_otResolve; _otResolve=null; if(r) r(v); }
 
-// 遲到才想起來打卡：照實記錄時間，只讓員工留一句說明（2026-09-16 使用者定案）。
-// 時間要改一律走補登/修改申請（店長核准、留痕），這裡不提供任何改時間的捷徑。
-let _lnResolve=null;
-function latePrompt(lateMin, schedTime, nowHm){
-  return new Promise(resolve=>{
-    _lnResolve=resolve;
-    document.getElementById('lnMsg').innerHTML=`排班 ${schedTime} 開始，現在打卡會記錄為 <b>${nowHm}</b>（遲到 ${lateMin} 分）。<br>時間不會被修改；如果是系統或其他原因，可以在下面說明，店長看得到。`;
-    document.getElementById('lnNote').value='';
-    document.getElementById('lateNoteModal').style.display='flex';
-  });
-}
-function lnSubmit(){ const v=document.getElementById('lnNote').value.trim().slice(0,200); _lnDone({ok:true, note:v}); }
-function lnCancel(){ _lnDone(null); }
-function _lnDone(v){ document.getElementById('lateNoteModal').style.display='none'; const r=_lnResolve; _lnResolve=null; if(r) r(v); }
+// ✂️ 遲到說明框已移除（2026-10-10 使用者決定，讓打卡回到按一下就完成）：
+//    遲到分鐘數照實記錄、店長在出勤管理看得到；時間要改一律走補登/修改申請。
+//    舊紀錄上的員工說明仍會在出勤頁顯示（後端 clockPunch 仍收這個欄位）。
 
 // ✂️ B1「遲到 10 分鐘內問是否忘記打卡」已移除（2026-09-15 使用者決定）：
 //    8/1～9/15 共 29 筆經此送出的更正申請 100% 核准、申報時間多比實際打卡早 3～7 分鐘，
@@ -558,32 +547,12 @@ async function doPunch(type){
     if(choice===null) return; // 取消
     otIntent=choice.intent; otContent=choice.content||'';
   }
-  // 遲到才打卡 → 先告知會記錄的時間，並讓員工留一句說明（不改時間）
-  // 遲到 10 分鐘內不跳說明框、直接打卡（2026-10-10 使用者決定）；遲到照樣記錄，只是不問說明
-  const LATE_NOTE_MIN=10;
-  let empNote='';
-  if(!os.off && type==='上班'){
-    const nm=serverNowMs();
-    const sh=matchPunchShift(candShifts, nm, '上班');
-    if(sh){
-      const lateMin=lateMinutesOf(nm, sh.startMs);
-      if(lateMin>LATE_NOTE_MIN){
-        hideLoading();
-        const schedT=new Date(sh.startMs).toLocaleTimeString('zh-TW',{hour12:false,hour:'2-digit',minute:'2-digit'});
-        const nowHm=new Date(nm).toLocaleTimeString('zh-TW',{hour12:false,hour:'2-digit',minute:'2-digit'});
-        const ln=await latePrompt(lateMin, schedT, nowHm);
-        if(ln===null) return;   // 取消打卡
-        empNote=ln.note||'';
-        showLoading('打卡中…');
-      }
-    }
-  }
   showLoading('打卡中…');
   // 🌟 交由後端 callable 權威判定（伺服器時間＋複驗圍欄＋狀態），前端只送座標
   try{
     const fn=firebase.app().functions('asia-east1').httpsCallable('clockPunch');
     const res=await fn({ lat:myGeo.lat, lng:myGeo.lng, accuracy:myGeo.acc, type,
-      clientTime:new Date().toISOString(), deviceInfo:navigator.userAgent, punchMethod:'GPS', otIntent, otContent, empNote });
+      clientTime:new Date().toISOString(), deviceInfo:navigator.userAgent, punchMethod:'GPS', otIntent, otContent });
     const r=res.data||{};
     hideLoading();
     const msg = r.status==='遲到'?`⚠️ ${type}打卡成功（遲到 ${r.lateMin} 分）`
