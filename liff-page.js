@@ -146,7 +146,7 @@ function lfRender() {
     item.hint = lfHint(item.ms || [c]);
     lfItems[item.key] = item; keys.push(item.key);
   });
-  var dbg = lfParam('debug') === '1' ? '<div class="card" style="font-size:13px;"><b>分享測試</b>（分享到自己的聊天室，看哪幾則有收到）<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">' +
+  var dbg = (lfParam('debug') === '1' || lfDebug) ? '<div class="card" style="font-size:13px;"><b>分享測試</b>（分享到自己的聊天室，看哪幾則有收到）<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">' +
     [1, 2, 3, 4, 5].map(function (n) { return '<button class="btn btn-o" onclick="lfShareTest(' + n + ')">' + ['', '1 純文字', '2 卡片無＋1鈕', '3 卡片無圖', '4 單張完整', '5 輪播'][n] + '</button>'; }).join('') +
     '</div><pre id="lfDbgOut" style="white-space:pre-wrap;font-size:11.5px;margin:6px 0 0;"></pre></div>' : '';
   el.innerHTML = keys.length ? dbg + '<button class="lf-share" onclick="lfShare()">📤 分享團購商品到 LINE 群組</button><div class="lf-grid">' + keys.map(function (k) { return lfTile(lfItems[k]); }).join('') + '</div>'
@@ -197,6 +197,13 @@ function lfFlexBubble(it) {
   if (img && /^https:\/\//.test(img) && img.length < 2000) b.hero = { type: 'image', url: img, size: 'full', aspectRatio: '1:1', aspectMode: 'cover', action: { type: 'uri', uri: liffUrl } };
   return b;
 }
+// 連點標題 5 下也能叫出分享測試（網址沒帶 ?debug=1 時用）
+var lfDebug = false, lfTapN = 0, lfTapT = 0;
+document.addEventListener('click', function (e) {
+  if (!e.target.closest || !e.target.closest('.lf-hero')) return;
+  var now = Date.now(); lfTapN = now - lfTapT < 800 ? lfTapN + 1 : 1; lfTapT = now;
+  if (lfTapN >= 5) { lfTapN = 0; lfDebug = !lfDebug; lfRender(); lfSetTab('list'); gbToast(lfDebug ? '已開啟分享測試' : '已關閉分享測試'); }
+});
 // 分享除錯（2026-10-11：顯示「已分享」但實際沒送出）：?debug=1 列出 4 種分享，找出 LINE 擋的是哪一種
 async function lfShareTest(n) {
   var out = document.getElementById('lfDbgOut');
