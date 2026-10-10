@@ -64,11 +64,17 @@ function hgRender() {
     var ms = groups[k], c = ms[0];
     var ordered = ms.reduce(function (a, m) { return a + (m.ordered_qty || 0); }, 0);
     var mine = code ? ms.reduce(function (a, m) { return a + ((m.ordered_by_store || {})[code] || 0); }, 0) : null;
+    // 三店檢視：括號列出各門市份數（只列這檔有開放的門市）
+    var by = code ? '' : HG_STORES.filter(function (n) {
+      return ms.some(function (m) { return (m.available_stores || []).indexOf(HG_CODE[n]) >= 0; });
+    }).map(function (n) {
+      return n + ' ' + ms.reduce(function (a, m) { return a + ((m.ordered_by_store || {})[HG_CODE[n]] || 0); }, 0);
+    }).join('・');
     var th = c.success_rule === 'threshold' && c.min_qty;
     // 多規格各自成團：取「最接近成團」那種的差額
     var lack = th ? Math.min.apply(null, ms.map(function (m) { return Math.max(0, (m.min_qty || 0) - (m.ordered_qty || 0)); })) : 0;
     var minQ = th ? (c.min_qty || 0) : 0;
-    return { c: c, end: Math.min.apply(null, ms.map(function (m) { return hgMs(m.end_time); })), ordered: ordered, mine: mine, th: th, lack: lack, minQ: minQ,
+    return { c: c, end: Math.min.apply(null, ms.map(function (m) { return hgMs(m.end_time); })), ordered: ordered, mine: mine, by: by, th: th, lack: lack, minQ: minQ,
       title: c.base_title || String(c.title || '').replace(/（第\d+團）$/, '') };
   }).sort(function (a, b) { return a.end - b.end; });
 
@@ -83,7 +89,7 @@ function hgRender() {
     return '<div class="hg-row" onclick="location.href=\'groupbuy.html\'">' +
       '<div class="hg-top"><span class="hg-t">' + hgEsc(r.title) + '</span><span class="hg-left' + (lf.urgent ? ' urgent' : '') + '">⏰ ' + lf.t + '</span></div>' +
       '<div class="hg-mid"><span class="hg-st' + (r.th && r.lack ? ' lack' : ' ok') + '">' + status + '</span>' +
-        '<span class="hg-q">' + (r.th ? '已訂 ' + r.ordered + ' 份' + (code ? '・本店 ' + r.mine : '') : (code ? '本店已訂 ' + r.mine + ' 份' : '三店已訂 ' + r.ordered + ' 份')) + '</span></div>' +
+        '<span class="hg-q">' + (r.th ? '已訂 ' + r.ordered + ' 份' + (code ? '・本店 ' + r.mine : '') : (code ? '本店已訂 ' + r.mine + ' 份' : '三店已訂 ' + r.ordered + ' 份')) + (r.by ? '（' + r.by + '）' : '') + '</span></div>' +
       (r.th ? '<div class="hg-bar"><i style="width:' + pct + '%"></i></div>' : '') + '</div>';
   }).join('') + (rows.length > show.length ? '<div class="hg-more" onclick="location.href=\'groupbuy.html\'">還有 ' + (rows.length - show.length) + ' 檔 →</div>' : '');
 }
@@ -101,7 +107,7 @@ function hgRender() {
     '.hg-t{flex:1;min-width:0;font-size:14px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}' +
     '.hg-left{font-size:12px;font-weight:800;color:#64748b;white-space:nowrap;}' +
     '.hg-left.urgent{color:#d93025;}' +
-    '.hg-mid{display:flex;align-items:baseline;gap:8px;margin-top:3px;font-size:12.5px;}' +
+    '.hg-mid{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;margin-top:3px;font-size:12.5px;}' +
     '.hg-st{font-weight:800;}' +
     '.hg-st.lack{color:#c2410c;} .hg-st.ok{color:#137333;}' +
     '.hg-q{color:#64748b;font-weight:700;margin-left:auto;white-space:nowrap;}' +
