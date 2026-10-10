@@ -156,7 +156,7 @@ function lfRender() {
     lfItems[item.key] = item; keys.push(item.key);
   });
   var dbg = (lfParam('debug') === '1' || lfDebug) ? '<div class="card" style="font-size:13px;"><b>分享測試</b>（分享到自己的聊天室，看哪幾則有收到）<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">' +
-    [1, 2, 3, 4, 5, 6].map(function (n) { return '<button class="btn btn-o" onclick="lfShareTest(' + n + ')">' + ['', '1 純文字', '2 卡片無＋1鈕', '3 卡片無圖', '4 單張完整', '5 輪播', '6 多張單卡'][n] + '</button>'; }).join('') +
+    [5, 7].map(function (n) { return '<button class="btn btn-o" onclick="lfShareTest(' + n + ')">' + { 5: 'A 輪播', 7: 'B 一張列出全部' }[n] + '</button>'; }).join('') +
     '</div><pre id="lfDbgOut" style="white-space:pre-wrap;font-size:11.5px;margin:6px 0 0;"></pre></div>' : '';
   el.innerHTML = keys.length ? dbg + '<button class="lf-share" onclick="lfShare()">📤 分享團購商品到 LINE 群組</button><div class="lf-grid">' + keys.map(function (k) { return lfTile(lfItems[k]); }).join('') + '</div>'
     : '<div class="card"><div class="empty" style="font-size:15px;">目前沒有開放中的團購<br>新團購會在群組裡通知 🙌</div></div>';
@@ -230,21 +230,47 @@ async function lfShareTest(n) {
       4: [{ type: 'flex', altText: '測試 4', contents: one }],
       5: [{ type: 'flex', altText: '測試 5', contents: { type: 'carousel', contents: items.slice(0, 10).map(lfFlexBubble) } }],
       6: items.slice(0, 5).map(function (it, i) { return { type: 'flex', altText: '測試 6-' + (i + 1), contents: lfFlexBubble(it) }; }),
+      7: [{ type: 'flex', altText: '測試 7：一張列出全部', contents: lfFlexList(items) }],
     }[n];
     var r = await liff.shareTargetPicker(msgs, { isMultiple: true });
     out.textContent += '\n測試 ' + n + '：' + JSON.stringify(r) + '（LINE ' + liff.getLineVersion() + '）';
   } catch (e) { out.textContent += '\n測試 ' + n + ' 錯誤：' + (e.code || '') + ' ' + (e.message || e); }
 }
+// 一張卡片列出所有開團商品（單張 bubble：每列小圖、品名、價格、成團進度、「＋1」按鈕），只送一則不洗版
+function lfFlexList(items) {
+  var rows = [];
+  items.slice(0, 8).forEach(function (it, i) {
+    var c = it.c, img = (c.images || [])[0], code = c.short || c.id;
+    var liffUrl = 'https://liff.line.me/' + LF_LIFF_ID + '?c=' + code + (lfTest ? '&test=1' : '');
+    var multi = (c.bundles || []).length || it.ms;
+    var price = (c.bundles || []).length ? '$' + c.price + ' 起' : it.ms ? '$' + Math.min.apply(null, it.ms.map(function (m) { return m.price || 0; })) + ' 起' : '$' + (c.price || 0);
+    var info = [
+      { type: 'text', text: c.base_title || c.title || '', weight: 'bold', size: 'sm', wrap: true, maxLines: 2 },
+      { type: 'text', text: price + '　' + lfHint(it.ms || [c]), size: 'xs', color: '#c2410c', wrap: true, margin: 'xs' },
+    ];
+    var cd = lfCountdown(c); if (cd) info.push({ type: 'text', text: cd, size: 'xxs', color: '#64748b', margin: 'xs' });
+    var row = { type: 'box', layout: 'horizontal', spacing: 'md', margin: i ? 'lg' : 'none', action: { type: 'uri', uri: liffUrl }, contents: [] };
+    if (img && /^https:\/\//.test(img) && img.length < 2000) row.contents.push({ type: 'image', url: img, size: '72px', aspectRatio: '1:1', aspectMode: 'cover', flex: 0 });
+    row.contents.push({ type: 'box', layout: 'vertical', flex: 1, contents: info });
+    row.contents.push({ type: 'box', layout: 'vertical', flex: 0, justifyContent: 'center', contents: [
+      { type: 'button', style: 'primary', color: '#06c755', height: 'sm', action: { type: 'uri', label: multi ? '選規格' : '＋1', uri: liffUrl + (multi ? '' : '&add=1') } }] });
+    if (i) rows.push({ type: 'separator', margin: 'lg' });
+    rows.push(row);
+  });
+  return { type: 'bubble', size: 'giga',
+    header: { type: 'box', layout: 'vertical', backgroundColor: '#0e2140', paddingAll: '14px', contents: [{ type: 'text', text: '🛒 團購開跑中', color: '#ffffff', weight: 'bold', size: 'lg' }] },
+    body: { type: 'box', layout: 'vertical', contents: rows },
+    footer: { type: 'box', layout: 'vertical', contents: [{ type: 'button', style: 'link', height: 'sm', action: { type: 'uri', label: '看全部團購商品', uri: 'https://liff.line.me/' + LF_LIFF_ID + (lfTest ? '?test=1' : '') } }] } };
+}
 async function lfShare() {
   try {
     if (!liff.isApiAvailable('shareTargetPicker')) { gbToast('請在 LINE 裡打開這個頁面才能分享（或 LIFF 尚未開啟分享功能）'); return; }
-    // 每檔一張單張卡片（最多 5 則）：輪播卡片實機送不出去，單張卡片確認可以（2026-10-11 測試 2）
-    var items = Object.keys(lfItems).map(function (k) { return lfItems[k]; }).filter(function (it) { return !it.sold; });
+    // 一則訊息、一張卡片列出全部（2026-10-11：每檔一張會洗版；輪播實機沒送出，單張卡片確認可以）
+    var items = Object.keys(lfItems).map(function (k) { return lfItems[k]; }).filter(function (it) { return !it.sold; })
+      .sort(function (a, b) { return (gbToDate(a.c.end_time) || 0) - (gbToDate(b.c.end_time) || 0); });
     if (!items.length) { gbToast('目前沒有可以分享的團購'); return; }
-    if (items.length > 5) gbToast('一次最多分享 5 檔，先分享截單最早的 5 檔');
-    items = items.sort(function (a, b) { return (gbToDate(a.c.end_time) || 0) - (gbToDate(b.c.end_time) || 0); }).slice(0, 5);
-    var msgs = items.map(function (it) { return { type: 'flex', altText: '🛒 團購：' + (it.c.base_title || it.c.title || '').slice(0, 300), contents: lfFlexBubble(it) }; });
-    var r = await liff.shareTargetPicker(msgs, { isMultiple: true });
+    var msg = { type: 'flex', altText: '🛒 團購開跑中：' + items.map(function (it) { return it.c.base_title || it.c.title; }).join('、').slice(0, 300), contents: lfFlexList(items) };
+    var r = await liff.shareTargetPicker([msg], { isMultiple: true });
     if (r && r.status === 'success') gbToast('✅ 已分享'); else if (!r) gbToast('已取消分享');
   } catch (e) { gbToast('分享失敗：' + lfErr(e)); }
 }
