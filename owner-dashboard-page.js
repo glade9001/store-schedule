@@ -859,7 +859,6 @@ function renderLinks(){
   const L=(href,ic,bg,lbl,sub)=>`<div class="link-row" onclick="window.location.href='${href}'"><div class="link-ic" style="background:${bg}">${ic}</div><div class="link-t"><div class="link-lbl">${lbl}</div><div class="link-sub">${sub}</div></div><div class="link-arr">›</div></div>`;
   const R='?ref=owner-dashboard.html'+(OwnerScope.get()?'&store='+encodeURIComponent(OwnerScope.get()):'');
   return `<div class="sec-title">🔎 深入分析</div>`
-    + L('performance.html'+R,'📊','#fff3e0','經營績效專區','三店趨勢比較、月度明細、去年同期')
-    + `<div class="link-row" onclick="setMainTab('hr')"><div class="link-ic" style="background:#f3e8ff">📈</div><div class="link-t"><div class="link-lbl">人事分析</div><div class="link-sub">成本組成、要注意的人、跨店支援、員工</div></div><div class="link-arr">›</div></div>`
-    + L('salary.html?panel=export','📤','#e8f5e9','月結與匯出','薪資管理裡的送審／發布／簽收進度、Excel／PDF');
+    + L('performance.html'+R,'📊','#fff3e0','經營績效專區','三店趨勢比較、月度明細、去年同期');
+  // 2026-10-11 只留經營績效：人事分析在上方〔人事〕分頁、月結與匯出在薪資管理，都有別的入口
 }
