@@ -341,18 +341,21 @@ async function handleEvent(ev) {
   if (ev.type !== "message" || !ev.message || ev.message.type !== "text") return;
   const gs = await gRef.get();
   const g = gs.exists ? gs.data() : null;
-  if (!g || g.status !== "approved" || g.mode !== "store_listen" || !STORES[g.store]) return;   // 白名單外一律丟棄
-  const store = g.store, text = String(ev.message.text || ""), msgId = ev.message.id;
+  const text = String(ev.message.text || ""), msgId = ev.message.id;
 
-  // 小編貼了含團購連結的訊息 → 記下「訊息 ID → 團購」，客人引用這則回覆 +1 就知道是哪一檔
+  // 小編貼了含團購連結的訊息 → 記下「訊息 ID → 團購」，客人引用這則回覆 +1 就知道是哪一檔。
+  // 待核准的群組也先記（2026-10-11：先貼文案、後核准，客人回覆舊文案 +1 對不到）；只記訊息→團購，不含客人資料
   const lm = text.match(/liff\.line\.me\/[^\s?]+\?[^\s]*\bc=([A-Za-z0-9_-]{1,64})/);
-  if (lm) {
+  if (lm && g && (g.status === "approved" || g.status === "pending")) {
+    const store = g.store || "";
     // c＝團購 ID，或 4 碼短碼（2026-10-11 連結縮短：campaign.short）
     let cid = lm[1];
     if (cid.length <= 6) { const q = await db.collection("gb_campaigns").where("short", "==", cid).limit(1).get(); if (!q.empty) cid = q.docs[0].id; }
     await db.collection("gb_post_map").doc(msgId).set({ campaign_id: cid, store, posted_at: FieldValue.serverTimestamp() });
     return;
   }
+  if (!g || g.status !== "approved" || g.mode !== "store_listen" || !STORES[g.store]) return;   // 白名單外一律丟棄
+  const store = g.store;
 
   // 下單頁（LIFF）代發的「✅ 已登記 商品 +N」：訂單已經成立，不可再當 +1 建單；達標成團的團回覆成團倒數
   if (/^✅\s*已登記/.test(text)) {
