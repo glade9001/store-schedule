@@ -155,7 +155,7 @@ function orderRow(c, o) {
     '<span class="nm">' + gbEsc(o.display_name) + '</span>' + gbNoShowTag(o) + '<span class="q">×' + (o.qty || 0) + '</span>' +
     '<span class="st st-' + (o.status === 'active' ? 'open' : o.status === 'picked_up' ? 'success' : o.status === 'no_show' ? 'failed' : 'draft') + '">' + (GB_ORDER_STATUS[o.status] || o.status) + '</span>' +
     (o.paid ? '<span class="st st-success">已付款</span>' : '') +
-    '<span class="sub">' + (GB_SOURCE[o.source] || o.source || '') + (o.created_by_name ? '・' + gbEsc(o.created_by_name) : '') + '・' + gbFmt(o.created_at) + (o.note ? '・' + gbEsc(o.note) : '') + '</span>' +
+    '<span class="sub">' + (gbPhoneHtml(o) ? gbPhoneHtml(o) + '・' : '') + (GB_SOURCE[o.source] || o.source || '') + (o.created_by_name ? '・' + gbEsc(o.created_by_name) : '') + '・' + gbFmt(o.created_at) + (o.note ? '・' + gbEsc(o.note) : '') + '</span>' +
     (can ? '<button class="mini" onclick="openQtyForm(\'' + c.id + '\',\'' + o.id + '\')">改數量</button><button class="mini d" onclick="cancelOrder(\'' + c.id + '\',\'' + o.id + '\')">取消</button>' : '') +
   '</div>';
 }
@@ -286,6 +286,7 @@ function openOrderForm(cid) {
   document.getElementById('ofName').value = '';
   document.getElementById('ofQty').value = 1;
   document.getElementById('ofNote').value = '';
+  document.getElementById('ofPhone').value = '';
   document.getElementById('ofErr').textContent = '';
   openModal('orderModal');
   setTimeout(function () { document.getElementById('ofName').focus(); }, 50);
@@ -295,6 +296,8 @@ async function saveManualOrder() {
   var c = gbOrderCamp; if (!c) return;
   var store = document.getElementById('ofStore').value, name = document.getElementById('ofName').value.trim();
   var qty = intOf('ofQty'), note = document.getElementById('ofNote').value.trim();
+  var phone = document.getElementById('ofPhone').value.replace(/[\s-]/g, '');
+  if (phone && !/^09\d{8}$/.test(phone)) return err.textContent = '手機號碼格式不正確（09 開頭共 10 碼），或留空';
   if (!name) return err.textContent = '請填客人暱稱';
   if (!(qty >= 1)) return err.textContent = '數量要是正整數';
   var btn = document.getElementById('ofSave'); btn.disabled = true;
@@ -314,7 +317,7 @@ async function saveManualOrder() {
       var obs = Object.assign({}, d.ordered_by_store || {}); obs[store] = (obs[store] || 0) + qty;
       t.set(oRef, {
         campaign_id: c.id, store: store, source: 'manual', source_message_id: null, line_user_id: null,
-        display_name: name, picture_url: null, note: note, qty: qty, status: 'active', paid: false,
+        display_name: name, picture_url: null, note: note, phone: phone || null, qty: qty, status: 'active', paid: false,
         created_by: gbUser.uid, created_by_name: gbUser.displayName || gbUser.empName || '',
         created_at: firebase.firestore.FieldValue.serverTimestamp(), updated_at: firebase.firestore.FieldValue.serverTimestamp(),
         picked_up_at: null, picked_up_by: null,

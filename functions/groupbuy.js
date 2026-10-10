@@ -101,9 +101,26 @@ async function placeOrderTx({ cid, store, userId, name, picture, add, source, so
  * 下單／加量：{ idToken, campaignId, store, qty }
  * 已有訂單（訂購中）→ 數量「加上」qty；已取消 → 重新以 qty 成立
  */
+// 手機（2026-10-11 使用者：「要收手機，避免棄單」）：台灣手機 09 開頭 10 碼；只存在 gb_customers，員工可讀
+function cleanPhone(p) {
+  const s = String(p || "").replace(/[\s-]/g, "").normalize("NFKC");
+  if (!/^09\d{8}$/.test(s)) throw new HttpsError("invalid-argument", "手機號碼格式不正確（09 開頭共 10 碼）");
+  return s;
+}
+exports.gbSetPhone = onCall({ region: REGION }, async (request) => {
+  const d = request.data || {};
+  const who = await verifyLineToken(d.idToken);
+  const phone = cleanPhone(d.phone);
+  await admin.firestore().collection("gb_customers").doc(who.sub).set({ phone, phone_updated_at: FieldValue.serverTimestamp(), display_name: who.name || "" }, { merge: true });
+  return { ok: true, phone };
+});
+
 exports.gbPlaceOrder = onCall({ region: REGION }, async (request) => {
   const d = request.data || {};
   const who = await verifyLineToken(d.idToken);
+  // LIFF 下單一定要先留手機（群組 +1 拿不到手機，不在此限）
+  const cu = await admin.firestore().collection("gb_customers").doc(who.sub).get();
+  if (!cu.exists || !cu.data().phone) throw new HttpsError("failed-precondition", "第一次下單請先留手機號碼", { kind: "need_phone" });
   const store = cleanStore(d.store);
   const add = cleanQty(d.qty);
   if (add < 1) throw new HttpsError("invalid-argument", "數量至少 1");
@@ -161,7 +178,8 @@ exports.gbMyOrders = onCall({ region: REGION }, async (request) => {
       perUserLimit: c.per_user_limit || 0, editable: o.status === "active" && isOpen(c),
     };
   }).sort((a, b) => (b.endTime || 0) - (a.endTime || 0));
-  return { ok: true, name: who.name, orders: out };
+  const cu = await db.collection("gb_customers").doc(who.sub).get();
+  return { ok: true, name: who.name, phone: cu.exists ? (cu.data().phone || "") : "", orders: out };
 });
 
 // =====================================================================

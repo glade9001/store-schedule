@@ -81,6 +81,7 @@ function pkCard(o) {
       '<span class="pk-amt">$' + ((o.qty || 0) * (c.price || 0)).toLocaleString() + '</span></div>' +
     '<div class="pk-sub">' + gbEsc(c.title || '') + ' ×<b>' + (o.qty || 0) + '</b>' +
       (c.pickup_deadline ? '・取貨到 ' + gbFmt(c.pickup_deadline, false) + (pastDeadline(c) && !picked ? ' <b style="color:var(--danger)">已過期</b>' : '') : '') +
+      (gbPhoneHtml(o) ? '<br>' + gbPhoneHtml(o) : '') +
       (o.note ? '<br>備註：' + gbEsc(o.note) : '') +
       (picked ? '<br>✅ ' + gbFmt(o.picked_up_at) + ' 取貨' : '') + '</div>' +
     '<div class="pk-btns">' +

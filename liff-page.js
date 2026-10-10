@@ -6,6 +6,7 @@
 // LIFF ID：加盟主在團購頁〔設定〕分頁貼上，存在 gb_settings/liff（未登入可讀）；這裡留空就讀那份設定
 var LF_LIFF_ID = '';
 
+var lfPhone = '', lfAfterPhone = null;
 var lfStore = '', lfToken = '', lfProfile = null, lfCamps = [], lfMine = {}, lfMineList = [], lfPick = null, lfQty = 1, lfMax = 1, lfEdit = false;
 
 function lfFn(name) { return firebase.app().functions('asia-east1').httpsCallable(name); }
@@ -54,6 +55,7 @@ async function lfLoadMine() {
   try {
     var r = await gbTimeout(lfFn('gbMyOrders')({ idToken: lfToken }));
     lfMineList = (r.data && r.data.orders) || [];
+    lfPhone = (r.data && r.data.phone) || '';
     lfMine = {}; lfMineList.forEach(function (o) { if (o.status === 'active') lfMine[o.campaignId] = o; });
   } catch (e) { lfMineList = []; lfMine = {}; }
 }
@@ -69,7 +71,8 @@ function lfRender() {
   var el = document.getElementById('lfList');
   el.innerHTML = lfCamps.length ? lfCamps.map(lfCard).join('') : '<div class="card"><div class="empty" style="font-size:15px;">目前沒有開放中的團購<br>新團購會在群組裡通知 🙌</div></div>';
   var me = document.getElementById('lfMine');
-  me.innerHTML = lfMineList.length ? lfMineList.map(lfMineCard).join('') : '<div class="card"><div class="empty" style="font-size:15px;">還沒有訂單</div></div>';
+  me.innerHTML = '<div class="card" style="display:flex;align-items:center;gap:10px;"><span style="flex:1;font-size:14px;">📱 聯絡手機：<b>' + (lfPhone ? gbEsc(lfPhone) : '還沒留') + '</b></span><button class="btn btn-o" onclick="lfAskPhone()">' + (lfPhone ? '修改' : '填寫') + '</button></div>' +
+    (lfMineList.length ? lfMineList.map(lfMineCard).join('') : '<div class="card"><div class="empty" style="font-size:15px;">還沒有訂單</div></div>');
 }
 function lfRemain(c) { return c.stock == null ? Infinity : Math.max(0, c.stock - (c.ordered_qty || 0)); }
 function lfCard(c) {
@@ -104,6 +107,7 @@ function lfMineCard(o) {
 // ---- 選數量 ----
 function lfOpen(cid) {
   var c = lfCamps.find(function (x) { return x.id === cid; }); if (!c) return;
+  if (!lfPhone) { lfAskPhone(function () { lfOpen(cid); }); return; }   // 第一次下單先留手機
   var had = lfMine[cid] ? lfMine[cid].qty : 0;
   lfPick = c; lfEdit = false; lfQty = 1; lfMax = Math.min((c.per_user_limit || 0) - had, lfRemain(c));
   document.getElementById('qmTitle').textContent = c.title;
@@ -129,6 +133,7 @@ async function lfConfirm() {
       await gbTimeout(lfFn('gbUpdateMyOrder')({ idToken: lfToken, campaignId: c.id, qty: lfQty }));
       gbToast('✅ 已改為 ' + lfQty + ' 份');
     } else {
+      if (!lfPhone) { document.getElementById('qtyModal').hidden = true; lfAskPhone(lfConfirm); btn.disabled = false; return; }
       var r = await gbTimeout(lfFn('gbPlaceOrder')({ idToken: lfToken, campaignId: c.id, store: lfStore, qty: lfQty }));
       gbToast('✅ 登記成功，共 ' + ((r.data && r.data.qty) || lfQty) + ' 份');
       lfPostToGroup(c.title, lfQty);
@@ -170,4 +175,28 @@ function lfPostToGroup(title, qty) {
     if (['group', 'room', 'square_chat'].indexOf(ctx.type) < 0) return;
     liff.sendMessages([{ type: 'text', text: title + ' +' + qty }]).catch(function () {});
   } catch (e) {}
+}
+
+// ---- 手機（第一次下單前要留；我的訂單可改）----
+function lfAskPhone(after) {
+  lfAfterPhone = typeof after === 'function' ? after : null;
+  document.getElementById('pmPhone').value = lfPhone || '';
+  document.getElementById('pmErr').textContent = '';
+  document.getElementById('phoneModal').hidden = false;
+  setTimeout(function () { document.getElementById('pmPhone').focus(); }, 50);
+}
+async function lfSavePhone() {
+  var v = document.getElementById('pmPhone').value.replace(/[\s-]/g, '');
+  var err = document.getElementById('pmErr'); err.textContent = '';
+  if (!/^09\d{8}$/.test(v)) { err.textContent = '請填 09 開頭的 10 碼手機號碼'; return; }
+  var ok = document.getElementById('pmOk'); ok.disabled = true;
+  try {
+    await gbTimeout(lfFn('gbSetPhone')({ idToken: lfToken, phone: v }));
+    lfPhone = v;
+    document.getElementById('phoneModal').hidden = true;
+    gbToast('✅ 已儲存手機');
+    lfRender();
+    if (lfAfterPhone) { var f = lfAfterPhone; lfAfterPhone = null; f(); }
+  } catch (e) { err.textContent = lfErr(e); }
+  ok.disabled = false;
 }

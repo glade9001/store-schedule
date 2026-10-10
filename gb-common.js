@@ -33,12 +33,13 @@ function gbCodeOf(name) {
 }
 // 棄單紀錄（2026-10-10）：LINE 下單的客人才有 userId 可累計；讀 gb_customers 的 no_show_count
 var gbNoShow = {};   // LINE userId → 棄單次數
+var gbPhone = {};    // LINE userId → 手機（客人在 LIFF 留的）
 async function gbLoadNoShow(orders) {
   var ids = [];
   (orders || []).forEach(function (o) { if (o.line_user_id && gbNoShow[o.line_user_id] === undefined && ids.indexOf(o.line_user_id) < 0) ids.push(o.line_user_id); });
   await Promise.all(ids.map(function (id) {
     return window.db.collection('gb_customers').doc(id).get()
-      .then(function (s) { gbNoShow[id] = s.exists ? (s.data().no_show_count || 0) : 0; })
+      .then(function (s) { gbNoShow[id] = s.exists ? (s.data().no_show_count || 0) : 0; gbPhone[id] = s.exists ? (s.data().phone || '') : ''; })
       .catch(function () { gbNoShow[id] = 0; });
   }));
 }
@@ -47,6 +48,12 @@ function gbNoShowTag(o) {
   var n = o && o.line_user_id ? (gbNoShow[o.line_user_id] || 0) : 0;
   if (!n) return '';
   return '<span class="st" style="background:' + (n >= 2 ? '#d93025;color:#fff' : '#fff3e0;color:#c0620f') + '" title="這位客人過去沒來取貨的次數">棄單 ' + n + ' 次</span>';
+}
+/** 電話：訂單上手動填的優先，其次客人在 LIFF 留的；手機上點了直接撥號 */
+function gbPhoneHtml(o) {
+  var p = (o && o.phone) || (o && o.line_user_id ? gbPhone[o.line_user_id] : '') || '';
+  if (!p) return o && o.source === 'group_text' ? '<span style="color:#c0620f;">未留電話</span>' : '';
+  return '<a href="tel:' + gbEsc(p) + '" style="color:#1a73e8;font-weight:800;text-decoration:none;">📞 ' + gbEsc(p) + '</a>';
 }
 function gbEsc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {

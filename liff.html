@@ -43,7 +43,21 @@
   </div>
   <div id="lfList"></div>
   <div id="lfMine" hidden></div>
-  <div class="lf-foot">資料僅用於團購訂單與到店取貨，只保存你的 LINE 暱稱與頭像，不收手機或真實姓名。<br>到店取貨付款。</div>
+  <div class="lf-foot">本服務由莉學商行經營，僅限美德・聯鑫・錦花三家門市。資料只用於團購訂單、取貨與聯絡，<a href="gb-privacy.html">隱私權政策</a>・<a href="gb-terms.html">服務條款</a><br>到店取貨付款。</div>
+</div>
+
+<!-- 手機（第一次下單前）-->
+<div class="modal" id="phoneModal" hidden>
+  <form class="sheet" onsubmit="event.preventDefault();lfSavePhone();">
+    <h3>留個手機號碼</h3>
+    <p class="lead">到貨時或逾期沒來取貨時，門市會用這支電話聯絡你。只在莉學商行三家門市內部使用，不會拿來行銷。</p>
+    <div class="f"><span>手機號碼</span><input id="pmPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="0912345678" maxlength="12" required></div>
+    <div class="err" id="pmErr"></div>
+    <div class="sheet-btns">
+      <button type="button" class="btn btn-g" onclick="document.getElementById('phoneModal').hidden=true">取消</button>
+      <button type="submit" class="btn btn-p" id="pmOk" style="background:#06c755;">儲存</button>
+    </div>
+  </form>
 </div>
 
 <!-- 選數量 -->
