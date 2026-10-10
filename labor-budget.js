@@ -10,7 +10,7 @@
 // 營業稅：經營報酬是未稅金額。發票是加盟主開給統一超商（買受人）的三聯式，總計＝經營報酬×1.05，
 //    總部按發票總計付款，那 5% 再由加盟主報 401 繳給國稅局 → 代收代付，不影響兩平（2026-10-11 依發票確認）。
 //    若哪天確認總部只撥未稅金額、稅要自己吸收，把 LB_TAX 改成 0.05 即可。
-// 店長只看時數與燈號，金額只在加盟主儀表板出現。
+// 店長看得到時數、燈號與人事成本（整月推估 vs 人事上限，使用者 2026-10-11 加）；經營報酬、加盟主比例只在儀表板。
 // 本檔頂層只用 function 與 var（前綴 lb），避免跟頁面撞名。
 
 var LB_PERF_EXCLUDE = { '2026-04': 1 }; // 同 performance-page.js：系統剛上線那個月薪資不完整
@@ -184,11 +184,21 @@ function lbLoadStore(db, store, employees) {
   });
 }
 
+/**
+ * 照目前排法推估整月人事成本：已排時數按已排天數放大成整月 → 近 3 月實際人事 ＋ 時數差 × 工讀時薪
+ * （同上限的換算方式，兩個金額才能直接比）
+ */
+function lbProjectedCost(model, sched, ym) {
+  if (!model || model.err || !sched || !sched.days) return null;
+  var full = sched.hours * lbDaysIn(ym) / sched.days;
+  return model.L0 + (full - model.H0) * model.w;
+}
+
 /** 一家店某月的完整結果（排班頁、儀表板都用這個） */
 function lbEvaluate(loaded, records, ym) {
   var plan = lbPlan(loaded.model, ym);
   var m = loaded.model, sched = lbScheduledHours(records, ym, m && !m.err ? m.H0 / 30 : 0);
-  return { ym: ym, plan: plan, sched: sched, light: lbLight(plan, sched, ym), minH: lbMinHours(loaded.asCfg, ym), err: loaded.model.err || (plan ? '' : '資料不足') };
+  return { ym: ym, plan: plan, sched: sched, light: lbLight(plan, sched, ym), minH: lbMinHours(loaded.asCfg, ym), projCost: lbProjectedCost(m, sched, ym), err: loaded.model.err || (plan ? '' : '資料不足') };
 }
 
 var LB_COLORS = { green: ['#e6f4ea', '#137333', '🟢'], yellow: ['#fef7e0', '#a15c00', '🟡'], red: ['#fce8e6', '#c5221f', '🔴'] };

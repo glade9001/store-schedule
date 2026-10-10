@@ -1735,7 +1735,7 @@ function renderSchedule() {
 }
 
 // ===== 本月工時 vs 工時上限（labor-budget.js）=====
-// 店長看得到，但只顯示時數與燈號，不顯示經營報酬／人事金額（使用者 2026-10-10 決定）。
+// 店長看得到時數、燈號與人事成本（2026-10-11 加）；不顯示經營報酬與加盟主比例。
 // 月份口徑同「N月人力」：以本週週一所在的月份為準；時數則逐日算進該月。
 let lbStoreCache = {};        // store -> Promise<lbLoadStore 結果>
 let lbLoaded = null;          // 目前門市已載入的結果
@@ -1785,6 +1785,8 @@ function lbRenderBar() {
     : lt.level === 'red' ? `超過上限 ${fmt(sc.hours - lt.capP)}h`
     : sc.hours > lt.capP ? `稍微超過 ${fmt(sc.hours - lt.capP)}h（還在估算誤差內）` : '快到上限了'}</b>`);
   if(!lt || sc.days < lbDaysIn(ym)) lines.push(`整個月上限約 ${fmt(p.cap)}h`); // 整月都排完時跟上面同一個數，不重複
+  const wan1 = v => (Math.round(v / 1000) / 10) + ' 萬';
+  if(ev.projCost != null) lines.push(`照目前排法，整月人事約 ${wan1(ev.projCost)}／上限 ${wan1(p.budget)}`);
   if(ev.minH && ev.minH > p.capLo) lines.push(`<span style="color:#c5221f;font-weight:700;">⚠️ 基本人力就要 ${fmt(ev.minH)}h，少排班省不下來，要從業績或盤損改善</span>`);
   const det = `<div class="lb-detail">${lines.join('<br>')}<div class="lb-note">依過去 ${lbLoaded.model.months.length} 個月營收推算，僅供參考</div></div>`;
   bar.style.background = col[0]; bar.style.color = col[1];

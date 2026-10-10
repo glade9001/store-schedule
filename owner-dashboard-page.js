@@ -833,17 +833,17 @@ function renderLaborBudget(only){
     const ev=x.ev, p=ev.plan, lt=ev.light;
     if(ev.err||!p) return `<tr><td>${esc(s)}</td><td colspan="3" style="text-align:left;color:var(--muted);">${esc(ev.err||'資料不足')}</td></tr>`;
     const c=LB_COLORS[lt?lt.level:'green'];
-    const sched=ev.sched.lastDate?`${h(ev.sched.hours)}${sub(`排到 ${md(ev.sched.lastDate)}<br>應 ≤${h(lt.capP)}`)}`:'未排';
+    const sched=ev.sched.lastDate?`${h(ev.sched.hours)}${sub(`排到 ${md(ev.sched.lastDate)}<br>應 ≤${h(lt.capP)}`)}${ev.projCost!=null?sub(`整月人事約 ${wan(ev.projCost)}`):''}`:'未排';
     const minH=ev.minH?sub(ev.minH>p.capLo?`<span style="color:#c5221f;">最低人力 ${h(ev.minH)} ⚠️</span>`:`最低人力 ${h(ev.minH)}`):'';
     const take=x.loaded.ownerPct?sub(`加盟主留 ${Math.round(x.loaded.ownerPct*100)}%（約 ${wan(p.ownerTake)}）`):sub('打平（未設加盟主比例）');
-    return `<tr><td>${lt?c[2]+' ':''}${esc(s)}</td><td>${sched}</td><td>${h(p.cap)}${take}${minH}</td><td>${wan(p.beSales)}${sub(`預估 ${wan(p.sales)}`)}</td></tr>`;
+    return `<tr><td>${lt?c[2]+' ':''}${esc(s)}</td><td>${sched}</td><td>${h(p.cap)}${sub(`人事上限 ${wan(p.budget)}`)}${take}${minH}</td><td>${wan(p.beSales)}${sub(`預估 ${wan(p.sales)}`)}</td></tr>`;
   }).join('');
   const inp=(id,v,w)=>`<input type="number" inputmode="decimal" id="${id}" value="${v}" style="width:${w}px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;text-align:right;">`;
   const edit=only.map(s=>{ const x=lbDash[s]; if(!x) return ''; return `<div class="todo-line" style="flex-wrap:wrap;gap:6px;"><span>${esc(s)}</span><span style="white-space:nowrap;">加盟主留 ${inp('lbPct_'+esc(s),Math.round((x.loaded.ownerPct||0)*1000)/10,52)}%　其他支出 ${inp('lbOther_'+esc(s),x.loaded.otherMonthly||0,78)} <button onclick="saveLbOther('${esc(s)}')" style="padding:4px 10px;border:none;border-radius:6px;background:#1a73e8;color:#fff;font-weight:700;">存</button></span></div>`; }).join('');
   return `<div class="scroll"><table class="tbl" style="white-space:normal;"><thead><tr><th>門市</th><th>已排</th><th>整月上限</th><th>兩平營收</th></tr></thead><tbody>${rows}</tbody></table></div>
   <div style="font-size:11.5px;color:var(--muted);line-height:1.7;margin:8px 2px;">
     整月上限＝扣掉加盟主要留的比例後，人事還能用多少，換算成工讀時數。「應 ≤」是按已排天數攤的上限。<br>
-    ⚠️ 基本人力已超過上限：少排班達不到，要靠業績或盤損。店長在排班頁只看得到時數與燈號。
+    ⚠️ 基本人力已超過上限：少排班達不到，要靠業績或盤損。店長在排班頁看得到時數、燈號與人事成本，看不到經營報酬與加盟主比例。
   </div>
   <details style="margin-top:4px;"><summary style="font-size:12.5px;font-weight:700;cursor:pointer;">⚙️ 設定：加盟主留多少比例、其他每月固定支出</summary>${edit}</details>`;
 }
