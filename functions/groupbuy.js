@@ -375,11 +375,13 @@ async function handleEvent(ev) {
   if (userId) { try { prof = await lineApi(`/v2/bot/group/${src.groupId}/member/${userId}`); } catch (e) {} }
   const who = prof.displayName || "";
   const base = { group_id: src.groupId, store, line_user_id: userId || null, display_name: who, picture_url: prof.pictureUrl || null,
-    text: text.slice(0, 200), parsed_qty: p.qty, message_id: msgId, received_at: FieldValue.serverTimestamp(), status: "pending" };
+    text: text.slice(0, 200), parsed_qty: p.qty, message_id: msgId, received_at: FieldValue.serverTimestamp(), status: "pending",
+    // 客人回覆的是哪一則訊息：店員確認一次後系統記下「那則貼文＝這檔」，之後回覆同一則自動記單（2026-10-11）
+    quoted_message_id: ev.message.quotedMessageId || null };
   // 一則訊息可能有好幾個編號（A+1 B+2）：待確認一個編號一筆；回覆只能用一次，所以全部收集起來最後一起回
   const multi = p.items.length > 1;
   const pend = (reason, extra, i) => db.collection("gb_pending_plus").doc(multi ? `${msgId}o${i}` : msgId)
-    .set(Object.assign({}, base, { reason }, extra || {}));
+    .set(Object.assign({}, base, { reason, parsed_opt: (p.items[i || 0] || {}).opt || null }, extra || {}));
   const out = [];
 
   if (!userId) { await pend("拿不到客人的 LINE 身分"); return; }
@@ -639,8 +641,40 @@ exports.gbResolvePending = onCall({ region: REGION }, async (request) => {
   if (!pnd.line_user_id) throw new HttpsError("failed-precondition", "這筆沒有客人的 LINE 身分，請改用手動補單");
   const r = await placeOrderTx({ cid, store: pnd.store, userId: pnd.line_user_id, name: pnd.display_name, picture: pnd.picture_url, add: qty, source: "group_text", sourceMessageId: pnd.message_id });
   await ref.update({ status: "resolved", resolved_by: request.auth.uid, resolved_at: FieldValue.serverTimestamp(), campaign_id: cid, resolved_qty: qty });
-  return { ok: true, qty: r.qty };
+  const learned = await learnQuotedPost(db, pnd, cid, request.auth.uid);
+  return { ok: true, qty: r.qty, learned };
 });
+
+// 店員確認一筆「回覆舊貼文 +1」→ 記下那則貼文＝這檔團購，並把回覆同一則、還在待確認的 +1 一起補記（2026-10-11）。
+// 用在：開團文案貼在群組核准之前（機器人當時沒記），或其他原因沒記到的貼文；不用重貼文案。
+// 只自動補「確定得出來」的：單一規格沒標編號、或多規格有標編號；其他留給店員。
+async function learnQuotedPost(db, pnd, cid, by) {
+  const qid = pnd.quoted_message_id;
+  if (!qid) return { mapped: false, resolved: 0 };
+  const mref = db.collection("gb_post_map").doc(qid);
+  if (!(await mref.get()).exists) await mref.set({ campaign_id: cid, store: pnd.store, posted_at: FieldValue.serverTimestamp(), learned_by: by });
+  const cs = await db.collection("gb_campaigns").doc(cid).get();
+  if (!cs.exists) return { mapped: true, resolved: 0 };
+  const c = cs.data();
+  const sib = c.opt_group ? (await db.collection("gb_campaigns").where("opt_group", "==", c.opt_group).get()).docs.filter((d) => isOpen(d.data())) : [];
+  const others = (await db.collection("gb_pending_plus").where("quoted_message_id", "==", qid).get()).docs
+    .filter((d) => d.data().status === "pending" && d.data().store === pnd.store && d.data().line_user_id);
+  let n = 0;
+  for (const d of others) {
+    const x = d.data(), opt = x.parsed_opt || null, q = Number(x.parsed_qty) || 0;
+    let tid = null, add = q;
+    if ((c.bundles || []).length) { const b = opt && c.bundles.find((y) => y.code === opt); if (b) { tid = cid; add = q * (b.mult || 1); } }
+    else if (c.opt_group) { const hit = opt && sib.filter((s) => s.data().opt_code === opt).sort((a, b) => (a.data().round || 1) - (b.data().round || 1))[0]; if (hit) tid = hit.id; }
+    else if (!opt) tid = cid;
+    if (!tid || add < 1) continue;
+    try {
+      await placeOrderTx({ cid: tid, store: x.store, userId: x.line_user_id, name: x.display_name, picture: x.picture_url, add, source: "group_text", sourceMessageId: x.message_id });
+      await d.ref.update({ status: "resolved", resolved_by: by, resolved_at: FieldValue.serverTimestamp(), campaign_id: tid, resolved_qty: add, auto_learned: true });
+      n++;
+    } catch (e) { console.warn("[learnQuotedPost]", d.id, e.message); }
+  }
+  return { mapped: true, resolved: n };
+}
 
 // ---- 店員補單遇到額滿：建立／取得下一團（後台 groupbuy-page.js 補單時呼叫）----
 exports.gbNextRound = onCall({ region: REGION }, async (request) => {

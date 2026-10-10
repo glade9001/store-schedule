@@ -962,7 +962,13 @@ async function resolvePending(id, action) {
   var data = { pendingId: id, action: action };
   if (action === 'make') { data.campaignId = document.getElementById('pc-' + id).value; data.qty = parseInt(document.getElementById('pq-' + id).value, 10); if (!data.campaignId || !(data.qty >= 1)) return gbToast('請選團購與數量'); }
   gbLoading(true, '處理中…');
-  try { await gbTimeout(gbFn('gbResolvePending')(data)); gbToast(action === 'make' ? '✅ 已成立訂單' : '已忽略'); await loadPending(); if (action === 'make') await loadCampaigns(); }
+  try {
+    var r = await gbTimeout(gbFn('gbResolvePending')(data), 30000);
+    var lr = (r.data && r.data.learned) || {};
+    // 客人是回覆某則貼文：系統記住那則＝這檔，同一則的其他 +1 一起補記
+    gbToast(action !== 'make' ? '已忽略' : '✅ 已成立訂單' + (lr.mapped ? '，已記住這篇貼文' + (lr.resolved ? '，另外自動補記 ' + lr.resolved + ' 筆' : '') : ''));
+    await loadPending(); if (action === 'make') await loadCampaigns();
+  }
   catch (e) { gbToast(friendly(e)); }
   gbLoading(false);
 }
