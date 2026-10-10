@@ -412,13 +412,16 @@ async function handleEvent(ev) {
     return;
   }
   const groups = [...new Set(products.map((d) => d.data().opt_group || ("solo:" + d.id)))];
-  const optList = (gid) => products.filter((d) => d.data().opt_group === gid).map((d) => d.data().opt_code).filter(Boolean).sort();
+  // 合併成一檔的規格（bundles，2026-10-11）：一檔團購裡 A＝1 份、B＝3 份…，價格成比例
+  const bundleOf = (d, code) => (d.data().bundles || []).find((b) => b.code === code);
+  const optList = (gid) => (gid.startsWith("solo:") ? (products.find((d) => "solo:" + d.id === gid).data().bundles || []).map((b) => b.code)
+    : products.filter((d) => d.data().opt_group === gid).map((d) => d.data().opt_code)).filter(Boolean).sort();
 
   for (let i = 0; i < p.items.length; i++) {
     const it = p.items[i];
-    let target = null;
+    let target = null, add = it.qty;
     if (it.opt) {
-      const hit = products.filter((d) => d.data().opt_code === it.opt);
+      const hit = products.filter((d) => d.data().opt_code === it.opt || !!bundleOf(d, it.opt));
       if (hit.length === 1) target = hit[0];
       else if (!hit.length) {   // 不猜：客人標了編號，通常是在喊已截單的多規格團，記到別檔會出錯
         const opts = groups.length === 1 ? optList(groups[0]) : [];
@@ -430,7 +433,7 @@ async function handleEvent(ev) {
         out.push(`收到 ${who} 的 ${it.opt}+${it.qty}！目前有好幾檔團購，請點連結選商品下單 🙏${await link()}`);
         continue;
       }
-    } else if (products.length === 1) target = products[0];
+    } else if (products.length === 1 && !(products[0].data().bundles || []).length) target = products[0];
     else if (groups.length === 1) {
       // 只有一檔、但分好幾個規格：請客人標編號
       const opts = optList(groups[0]);
@@ -443,8 +446,10 @@ async function handleEvent(ev) {
       continue;
     }
     const cid = target.id;
+    const bd = it.opt ? bundleOf(target, it.opt) : null;
+    if (bd) add = it.qty * (bd.mult || 1);   // B+1＝3 份
     try {
-      const r = await placeOrderTx({ cid, store, userId, name: who, picture: prof.pictureUrl || null, add: it.qty, source: "group_text", sourceMessageId: msgId });
+      const r = await placeOrderTx({ cid, store, userId, name: who, picture: prof.pictureUrl || null, add, source: "group_text", sourceMessageId: msgId });
       // 達標成團：每次 +N 都回覆成團倒數（2026-10-11 使用者要求；回覆免費）；保證成團照「成單回覆」開關
       if (r.rule === "threshold") out.push(`已登記 ${who}：${r.title} 共 ${r.qty} 份 👍\n` + countdownText(r.ordered, r.minQty));
       else {
@@ -454,8 +459,8 @@ async function handleEvent(ev) {
     } catch (e) {
       const kind = (e && e.details && e.details.kind) || "";
       if (kind === "closed") { out.push("本團已截單，有再次開團再通知您 🙏"); continue; }
-      if (kind === "limit") { await pend(e.message, { campaign_id: cid, parsed_qty: it.qty }, i); out.push(`${who} ${e.message}，超過的部分沒有登記喔`); continue; }
-      await pend(e.message || "建單失敗", { campaign_id: cid, parsed_qty: it.qty }, i);
+      if (kind === "limit") { await pend(e.message, { campaign_id: cid, parsed_qty: add }, i); out.push(`${who} ${e.message}，超過的部分沒有登記喔`); continue; }
+      await pend(e.message || "建單失敗", { campaign_id: cid, parsed_qty: add }, i);
     }
   }
   if (out.length) await reply(ev.replyToken, [...new Set(out)].join("\n\n"));

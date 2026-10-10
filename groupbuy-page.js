@@ -112,6 +112,7 @@ function campCard(c) {
     '<div class="camp-body">' +
       '<span class="st st-' + c.status + '">' + (GB_STATUS[c.status] || c.status) + '</span>' + (isDue(c) ? ' <span class="st st-due">待結算</span>' : '') + (c.is_test ? ' <span class="st" style="background:#ede9fe;color:#6d28d9;">🧪 測試團</span>' : '') +
       '<div class="camp-title">' + gbEsc(c.title) + '</div>' +
+      ((c.bundles || []).length ? '<div class="camp-meta">' + c.bundles.map(function (b) { return gbEsc(b.code + ' ' + b.label) + ' $' + b.mult * c.price + (b.mult > 1 ? '（' + b.mult + ' 份）' : ''); }).join('・') + '</div>' : '') +
       '<div class="camp-meta"><b>$' + (c.price || 0) + '</b>・' + (gbNoLimit(c) ? '每人不限' : '每人上限 ' + c.per_user_limit) + '・' + rule + '・' + stock + '</div>' +
       '<div class="camp-meta">截單 ' + gbFmt(c.end_time) + (c.status === 'open' ? '（' + gbCountdown(c.end_time) + '）' : '') +
         (c.arrival_date ? '・到貨 ' + gbFmt(c.arrival_date, false) : '') + (c.pickup_deadline ? '・取貨到 ' + gbFmt(c.pickup_deadline, false) : '') + '</div>' +
@@ -188,12 +189,15 @@ function openCampaignForm(cid) {
   document.getElementById('campFormLead').textContent = owner ? '新團購先存成「草稿」，確認後用「切換狀態」改為開放中。'
     : '店長只能開「只開放本店」的團購；跨店共用庫存的團請加盟主開。新團購先存成「草稿」。';
   // 多規格（2026-10-11）：編輯其中一種＝整組一起編輯；共同欄位存到每一種，品名存 base_title
-  gbOptRows = c && c.opt_group ? optMembers(c.opt_group).map(function (m) { return { id: m.id, code: m.opt_code, label: m.opt_label || '', price: m.price || '' }; }) : [];
+  gbOptRows = c && c.opt_group ? optMembers(c.opt_group).map(function (m) { return { id: m.id, code: m.opt_code, label: m.opt_label || '', price: m.price || '' }; })
+    : c && (c.bundles || []).length ? c.bundles.map(function (b) { return { code: b.code, label: b.label, price: b.mult * c.price, kept: true }; }) : [];
+  setOptMode(c && c.opt_group ? 'split' : 'merge');
+  document.querySelectorAll('input[name=cfOptMode]').forEach(function (r) { r.disabled = !!c; });   // 已建立的團不能切換計算方式
   document.getElementById('cfMulti').checked = gbOptRows.length > 0;
   document.getElementById('cfMulti').disabled = !!c;
   document.getElementById('cfPasteWrap').hidden = !!c;   // 只在開新團時用
   document.getElementById('cfPaste').value = ''; document.getElementById('cfPasteMsg').textContent = '';   // 已建立的團不能切換單一／多規格
-  document.getElementById('cfTitle').value = c ? (c.opt_group ? c.base_title || '' : c.title || '') : '';
+  document.getElementById('cfTitle').value = c ? (c.opt_group || (c.bundles || []).length ? c.base_title || '' : c.title || '') : '';
   document.getElementById('cfDesc').value = c ? c.description || '' : '';
   document.getElementById('cfPrice').value = c ? c.price || '' : '';
   document.getElementById('cfLimit').value = c && !gbNoLimit(c) ? c.per_user_limit : '';
@@ -279,7 +283,10 @@ function applyHqPaste() {
   if (r.options.length >= 2) {
     document.getElementById('cfMulti').checked = true;
     gbOptRows = r.options.slice(0, GB_OPT_CODES.length).map(function (o, i) { return { code: GB_OPT_CODES[i], label: o.label || '', price: o.price || '' }; });
-    syncMulti(); got.push(r.options.length + ' 種規格');
+    syncMulti();
+    var bs = gbBundlesOf(gbOptRows);   // 價格成比例 → 預設合併成一檔
+    setOptMode(typeof bs === 'string' ? 'split' : 'merge');
+    got.push(r.options.length + ' 種規格（' + (typeof bs === 'string' ? '價格不成比例，分開計算' : '價格成比例，合併成一檔') + '）');
   } else {
     var p0 = r.options.length ? r.options[0].price : r.price;
     document.getElementById('cfMulti').checked = false; gbOptRows = []; syncMulti();
@@ -295,6 +302,24 @@ var GB_OPT_CODES = 'ABCDEFGHIJ';
 function optMembers(group) {
   return gbCamps.filter(function (x) { return x.opt_group === group && !(x.round > 1); })
     .sort(function (a, b) { return String(a.opt_code).localeCompare(String(b.opt_code)); });
+}
+function optMode() { var r = document.querySelector('input[name=cfOptMode]:checked'); return r ? r.value : 'merge'; }
+function setOptMode(m) { document.querySelectorAll('input[name=cfOptMode]').forEach(function (r) { r.checked = r.value === m; }); syncOptHint(); }
+function syncOptHint() {
+  document.getElementById('cfOptHint').textContent = optMode() === 'merge'
+    ? '價格成比例時用（例：10包 $175、30包 $525）：最便宜的那種算 1 份，B+1 自動記成 3 份；名單、成團數、庫存都看總份數'
+    : '每一種各開一檔，庫存、每人上限、成團數各自計算（價格不成比例時用，例如買多有折扣）';
+}
+/** 合併成一檔：最便宜的規格＝1 份，其他規格的價格要是它的整數倍 → 回傳 { unit, bundles } 或錯誤字串 */
+function gbBundlesOf(rows) {
+  var base = rows.reduce(function (m, o) { return Number(o.price) < Number(m.price) ? o : m; }, rows[0]);
+  var unit = Number(base.price), out = [];
+  for (var i = 0; i < rows.length; i++) {
+    var p = Number(rows[i].price);
+    if (p % unit) return '規格 ' + rows[i].code + ' 的價格 $' + p + ' 不是 $' + unit + ' 的整數倍，不能合併成一檔，請改用「分開計算」';
+    out.push({ code: rows[i].code, label: rows[i].label, mult: p / unit });
+  }
+  return { unit: unit, unitLabel: base.label, bundles: out };
 }
 function syncMulti() {
   var on = document.getElementById('cfMulti').checked;
@@ -328,8 +353,8 @@ function addOptRow() {
 function removeOptRow(i) {
   readOptRows(); gbOptRows.splice(i, 1);
   // 還沒建立的規格重新依序編號（已建立的代號不動，客人可能已經喊過）
-  var used = gbOptRows.filter(function (o) { return o.id; }).map(function (o) { return o.code; });
-  gbOptRows.forEach(function (o) { if (!o.id) { o.code = GB_OPT_CODES.split('').find(function (x) { return used.indexOf(x) < 0; }); used.push(o.code); } });
+  var used = gbOptRows.filter(function (o) { return o.id || o.kept; }).map(function (o) { return o.code; });
+  gbOptRows.forEach(function (o) { if (!o.id && !o.kept) { o.code = GB_OPT_CODES.split('').find(function (x) { return used.indexOf(x) < 0; }); used.push(o.code); } });
   renderOptRows();
 }
 function syncRule() {
@@ -380,7 +405,12 @@ async function saveCampaign() {
     success_rule: rule, min_qty: rule === 'threshold' ? min : null, is_test: document.getElementById('cfTest').checked, auto_next: autoNext,
     updated_at: firebase.firestore.FieldValue.serverTimestamp(),
   };
-  if (multi) return saveMultiCampaign(c, data, stock, err);
+  if (multi && optMode() === 'split') return saveMultiCampaign(c, data, stock, err);
+  if (multi) {
+    var bs = gbBundlesOf(gbOptRows);
+    if (typeof bs === 'string') return err.textContent = bs;
+    Object.assign(data, { base_title: title, title: title + '（每份 ' + bs.unitLabel + '）', price: bs.unit, bundles: bs.bundles, unit_label: bs.unitLabel });
+  }
   var btn = document.getElementById('cfSave'); btn.disabled = true;
   try {
     if (c) {
@@ -668,7 +698,15 @@ async function buildCopy() {
     var infoFrom = lines.length;   // 從這裡往下是「團購資訊」：自己發圖文時只複製這段貼在下方（2026-10-11）
     // 多規格：一段文案列出所有規格，客人打編號 +1
     var opts = c.opt_group ? optMembers(c.opt_group).filter(function (m) { return m.status === 'open' || m.status === 'draft'; }) : [];
-    if (opts.length) {
+    var bds = c.bundles || [];
+    if (bds.length) {
+      // 合併成一檔：A＝1 份、B＝3 份…
+      lines.push('🛒 ' + c.base_title);
+      bds.forEach(function (b) { lines.push('(' + b.code + ') ' + b.label + '　$' + b.mult * c.price); });
+      if (gbLimitTxt(c)) lines.push(gbLimitTxt(c) + '（每份 ' + c.unit_label + '）');
+      lines.push(c.success_rule === 'threshold' ? '🎯 滿 ' + c.min_qty + ' 份（每份 ' + c.unit_label + '）成團（三店合計）' : '✅ 保證成團');
+      opts = bds.map(function (b) { return { opt_code: b.code }; });   // 下面「編號＋數量」說明共用
+    } else if (opts.length) {
       lines.push('🛒 ' + c.base_title);
       opts.forEach(function (m) { lines.push('(' + m.opt_code + ') ' + m.opt_label + '　$' + m.price); });
       if (gbLimitTxt(c, true)) lines.push(gbLimitTxt(c, true));

@@ -124,6 +124,7 @@ function lfRender() {
   // 多規格（2026-10-11）：同一組的規格合成一張卡片，依編號排
   var seen = {}, cards = [];
   shown.forEach(function (c) {
+    if ((c.bundles || []).length) { cards.push(lfBundleCard(c)); return; }
     if (!c.opt_group) { cards.push(lfCard(c)); return; }
     if (seen[c.opt_group]) return;
     seen[c.opt_group] = 1;
@@ -185,6 +186,27 @@ function lfGroupCard(ms) {
     (guaranteed ? '<div class="lf-meta" style="margin-top:6px;"><span style="background:#e6f4ea;color:#137333;font-weight:800;border-radius:7px;padding:2px 9px;">✅ 保證成團</span>　截單後一定出貨</div>' : '') +
     '<div style="margin-top:10px;">' + rows + '</div></div></div>';
 }
+// 合併成一檔的規格（2026-10-11）：A＝1 份、B＝3 份…；按鈕選的是「組」，送出換算成份數
+function lfBundleCard(c) {
+  var img = (c.images || [])[0], mine = lfMine[c.id], had = mine ? mine.qty : 0;
+  var room = Math.min((c.per_user_limit || 0) - had, lfRemain(c));
+  if (c.auto_next && lfRemain(c) <= 0) room = (c.per_user_limit || 0) - had;
+  var rows = c.bundles.map(function (b) {
+    var ok = room >= b.mult;
+    return '<div class="lf-opt"><div class="lf-opt-t"><b>(' + gbEsc(b.code) + ') ' + gbEsc(b.label) + '</b> <span class="lf-opt-p">$' + b.mult * c.price + '</span></div>' +
+      (ok ? '<button class="lf-go lf-go-s" onclick="lfOpen(\'' + c.id + '\',\'' + b.code + '\')">＋1</button>'
+        : '<button class="lf-go lf-go-s" disabled>' + (lfRemain(c) < b.mult && !c.auto_next ? '數量不足' : '已達上限') + '</button>') + '</div>';
+  }).join('');
+  var prog = c.success_rule === 'threshold' ? (c.min_qty ? '<div class="lf-meta" style="margin-top:6px;">' + (Math.max(0, c.min_qty - (c.ordered_qty || 0)) ? '還差 <b>' + Math.max(0, c.min_qty - (c.ordered_qty || 0)) + '</b> 份成團（三店合計）' : '✅ 已達成團門檻') + '</div>' : '')
+    : '<div class="lf-meta" style="margin-top:6px;"><span style="background:#e6f4ea;color:#137333;font-weight:800;border-radius:7px;padding:2px 9px;">✅ 保證成團</span>　截單後一定出貨</div>';
+  return '<div class="lf-card">' + (img && /^https:\/\//.test(img) ? '<div class="lf-img" style="background-image:url(\'' + gbEsc(img).replace(/'/g, '%27') + '\')"></div>' : '') +
+    '<div class="lf-body"><div class="lf-title">' + gbEsc(c.base_title || c.title) + '</div>' +
+    (c.description ? '<div class="lf-desc">' + gbEsc(c.description) + '</div>' : '') +
+    '<div class="lf-meta">⏰ ' + gbFmt(c.end_time) + ' 截單（' + gbCountdown(c.end_time) + '）' + (gbLimitTxt(c) ? '<br>' + gbLimitTxt(c) + '（每份 ' + gbEsc(c.unit_label || '') + '）' : '') +
+      (c.arrival_date ? (gbLimitTxt(c) ? '・' : '<br>') + '預計 ' + gbFmt(c.arrival_date, false) + ' 到貨' : '') + '</div>' + prog +
+    (had ? '<div class="lf-mine">✅ 你已訂 ' + had + ' 份（每份 ' + gbEsc(c.unit_label || '') + '・' + gbStoreName(mine.store) + '取貨）</div>' : '') +
+    '<div style="margin-top:10px;">' + rows + '</div></div></div>';
+}
 function lfMineCard(o) {
   var st = o.status === 'picked_up' ? '✅ 已取貨' : o.status === 'no_show' ? '未取貨' :
     o.campaignStatus === 'open' ? '訂購中' : o.campaignStatus === 'success' ? '已成團・等到貨' : o.campaignStatus === 'arrived' ? '📦 已到貨，可以取貨了' :
@@ -196,14 +218,22 @@ function lfMineCard(o) {
 }
 
 // ---- 選數量 ----
-function lfOpen(cid) {
+var lfBundle = null;   // 合併規格：這次選的是哪一種（{code,label,mult}）
+function lfOpen(cid, code) {
   var c = lfCamps.find(function (x) { return x.id === cid; }); if (!c) return;
-  if (!lfPhone) { lfAskPhone(function () { lfOpen(cid); }); return; }   // 第一次下單先留手機
+  if (!lfPhone) { lfAskPhone(function () { lfOpen(cid, code); }); return; }   // 第一次下單先留手機
   var had = lfMine[cid] ? lfMine[cid].qty : 0;
   lfPick = c; lfEdit = false; lfQty = 1;
-  lfMax = (c.auto_next && lfRemain(c) <= 0) ? (c.per_user_limit || 0) : Math.min((c.per_user_limit || 0) - had, lfRemain(c));
-  document.getElementById('qmTitle').textContent = c.title;
-  document.getElementById('qmLead').textContent = '$' + c.price + '／份・' + (had ? '你已訂 ' + had + ' 份，這次再加' : '要訂幾份？') + '（最多 ' + lfMax + ' 份）';
+  lfMax = (c.auto_next && lfRemain(c) <= 0) ? (c.per_user_limit || 0) - had : Math.min((c.per_user_limit || 0) - had, lfRemain(c));
+  lfBundle = code ? (c.bundles || []).find(function (b) { return b.code === code; }) || null : null;
+  if (lfBundle) {
+    lfMax = Math.floor(lfMax / lfBundle.mult);   // 以「組」計算
+    document.getElementById('qmTitle').textContent = (c.base_title || c.title) + '（' + lfBundle.code + ' ' + lfBundle.label + '）';
+    document.getElementById('qmLead').textContent = '$' + lfBundle.mult * c.price + '／組・要訂幾組？（最多 ' + lfMax + ' 組）' + (had ? '　你已訂 ' + had + ' 份' : '');
+  } else {
+    document.getElementById('qmTitle').textContent = c.title;
+    document.getElementById('qmLead').textContent = '$' + c.price + '／份・' + (had ? '你已訂 ' + had + ' 份，這次再加' : '要訂幾份？') + '（最多 ' + lfMax + ' 份）';
+  }
   lfShowQty();
 }
 function lfOpenEdit(cid) {
@@ -226,10 +256,12 @@ async function lfConfirm() {
       gbToast('✅ 已改為 ' + lfQty + ' 份');
     } else {
       if (!lfPhone) { document.getElementById('qtyModal').hidden = true; lfAskPhone(lfConfirm); btn.disabled = false; return; }
-      var r = await gbTimeout(lfFn('gbPlaceOrder')({ idToken: lfToken, campaignId: c.id, store: lfStore, qty: lfQty }));
+      var units = lfBundle ? lfQty * lfBundle.mult : lfQty;   // 合併規格：B 一組＝3 份
+      var r = await gbTimeout(lfFn('gbPlaceOrder')({ idToken: lfToken, campaignId: c.id, store: lfStore, qty: units }));
       var rt = (r.data && r.data.title) || c.title;
-      gbToast('✅ 登記成功：' + rt + ' 共 ' + ((r.data && r.data.qty) || lfQty) + ' 份');
-      lfPostToGroup(rt, lfQty);
+      gbToast('✅ 登記成功：' + rt + ' 共 ' + ((r.data && r.data.qty) || units) + ' 份');
+      // 代發到群組：合併規格寫「A 10包 +2」讓群組看得懂（開頭「✅ 已登記」機器人會攔下，不會重複建單）
+      if (lfBundle) lfPostToGroup((c.base_title || rt) + ' ' + lfBundle.code + ' ' + lfBundle.label, lfQty); else lfPostToGroup(rt, lfQty);
     }
     document.getElementById('qtyModal').hidden = true;
     await Promise.all([lfLoadCamps(), lfLoadMine()]); lfRender();
