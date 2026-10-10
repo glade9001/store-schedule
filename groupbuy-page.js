@@ -90,10 +90,60 @@ function render() {
   });
   var el = document.getElementById('list');
   if (!list.length) { el.innerHTML = '<div class="empty">' + (gbCamps.length ? '這個狀態沒有團購' : '還沒有團購' + (document.getElementById('newBtn').hidden ? '' : '，按右上角「＋ 開團」建立第一檔')) + '</div>'; return; }
-  el.innerHTML = list.map(campCard).join('');
+  // 多規格（分開計算）同一組合成一張卡片（2026-10-10 使用者：一個商品一個介面），各規格在卡片裡分列
+  var items = [], at = {};
+  list.forEach(function (c) {
+    if (!c.opt_group) { items.push([c]); return; }
+    if (at[c.opt_group] == null) { at[c.opt_group] = items.length; items.push([]); }
+    items[at[c.opt_group]].push(c);
+  });
+  el.innerHTML = items.map(function (ms) {
+    if (ms.length === 1 && !ms[0].opt_group) return campCard(ms[0]);
+    ms.sort(function (a, b) { return String(a.opt_code).localeCompare(String(b.opt_code)) || (a.round || 1) - (b.round || 1); });
+    return campGroupCard(ms);
+  }).join('');
 }
 
-function campCard(c) {
+/** 多規格一組一張卡：上面是共同資訊與整組操作（文案、置頂、編輯、草稿／開放／截單），下面每個規格一列（數量、訂單、補單、結算） */
+function campGroupCard(ms) {
+  var c = ms[0], img = (c.images || [])[0], imgOk = img && /^https:\/\//.test(img);
+  var sts = []; ms.forEach(function (m) { if (sts.indexOf(m.status) < 0) sts.push(m.status); });
+  var prices = ms.map(function (m) { return m.price || 0; }), lo = Math.min.apply(null, prices), hi = Math.max.apply(null, prices);
+  var rule = (c.success_rule === 'threshold' ? '每種各滿 ' + (c.min_qty || 0) + ' 份成團' : '保證成團') + (c.auto_next ? '・額滿自動開下一團' : '');
+  var tot = {}, sum = 0;
+  ms.forEach(function (m) { var o = m.ordered_by_store || {}; (m.available_stores || []).forEach(function (st) { tot[st] = (tot[st] || 0) + (o[st] || 0); }); sum += m.ordered_qty || 0; });
+  var stores = Object.keys(tot).map(function (st) { return '<span class="store-qty">' + gbStoreName(st) + '<b>' + tot[st] + '</b></span>'; }).join('');
+  var btns = '';
+  if (ms.some(function (m) { return m.status === 'open'; }) && (canEdit(c) || gbIsManager(gbUser))) btns += '<button class="btn btn-g" onclick="openCopy(\'' + c.id + '\',\'open\')">📝 開團文案</button>';
+  if (canEdit(c) && ms.some(function (m) { return m.status === 'open' || m.status === 'draft'; })) {
+    btns += '<button class="btn btn-g" onclick="togglePin(\'' + c.id + '\')">' + (gbIsPinned(c, gbCamps) ? '取消置頂' : '📌 置頂') + '</button>';
+  }
+  if (canEdit(c)) {
+    btns += '<button class="btn btn-o" onclick="openCampaignForm(\'' + c.id + '\')">編輯</button>';
+    // 整組一起改只限草稿／開放中／截單（changeStatus 會帶同狀態的整組）；成團、流局等結果每種各自在下面改
+    if (sts.length === 1 && ['draft', 'open', 'closed'].indexOf(c.status) >= 0) {
+      btns += '<select class="inline" aria-label="整組切換狀態" onchange="changeStatus(\'' + c.id + '\',this.value);this.value=\'\'"><option value="">整組切換狀態…</option>' +
+        ['draft', 'open', 'closed'].filter(function (s2) { return s2 !== c.status; }).map(function (s2) { return '<option value="' + s2 + '">改為「' + GB_STATUS[s2] + '」</option>'; }).join('') + '</select>';
+    }
+  }
+  return '<div class="card"><div class="camp">' +
+    (imgOk ? '<div class="camp-img" style="background-image:url(\'' + gbEsc(img).replace(/'/g, '%27') + '\')"></div>' : '<div class="camp-img" aria-hidden="true"></div>') +
+    '<div class="camp-body">' +
+      sts.map(function (st) { return '<span class="st st-' + st + '">' + (GB_STATUS[st] || st) + '</span>'; }).join(' ') +
+        (ms.some(isDue) ? ' <span class="st st-due">待結算</span>' : '') + (c.is_test ? ' <span class="st" style="background:#ede9fe;color:#6d28d9;">🧪 測試團</span>' : '') +
+        (gbIsPinned(c, gbCamps) && sts.some(function (st) { return st === 'open' || st === 'draft'; }) ? ' <span class="st" style="background:#fff3e0;color:#b45309;">📌 置頂</span>' : '') +
+      '<div class="camp-title">' + gbEsc(c.base_title || c.title) + '</div>' +
+      '<div class="camp-meta"><b>' + ms.filter(function (m) { return !(m.round > 1); }).length + ' 種規格</b>・<b>$' + lo + (hi > lo ? '～' + hi : '') + '</b>・' + (gbNoLimit(c) ? '每人不限' : '每種每人上限 ' + c.per_user_limit) + '・' + rule + '</div>' +
+      '<div class="camp-meta">截單 ' + gbFmt(c.end_time) + (c.status === 'open' ? '（' + gbCountdown(c.end_time) + '）' : '') +
+        (c.arrival_date ? '・到貨 ' + gbFmt(c.arrival_date, false) : '') + (c.pickup_deadline ? '・取貨到 ' + gbFmt(c.pickup_deadline, false) : '') + '</div>' +
+      '<div class="stores">' + stores + '<span class="store-qty">合計<b>' + sum + '</b></span></div>' +
+    '</div></div>' +
+    (btns ? '<div class="actions">' + btns + '</div>' : '') +
+    '<div class="opt-subs">' + ms.map(function (m) { return campCard(m, true); }).join('') + '</div>' +
+  '</div>';
+}
+
+function campCard(c, sub) {
   var img = (c.images || [])[0];
   var imgOk = img && /^https:\/\//.test(img);
   var stock = c.stock == null ? '不限量' : '剩 <b>' + Math.max(0, c.stock - (c.ordered_qty || 0)) + '</b> / ' + c.stock;
@@ -111,12 +161,25 @@ function campCard(c) {
   if (c.status === 'failed' && (c.ordered_qty || 0) > 0 && (canEdit(c) || gbIsManager(gbUser))) {
     btns += '<button class="btn btn-g" onclick="openCopy(\'' + c.id + '\',\'failed\')">📝 流局文案</button>';
   }
-  if (['open', 'success', 'arrived'].indexOf(c.status) >= 0 && (canEdit(c) || gbIsManager(gbUser))) {
+  if (['open', 'success', 'arrived'].indexOf(c.status) >= 0 && (canEdit(c) || gbIsManager(gbUser)) && !(sub && c.status === 'open')) {
     btns += '<button class="btn btn-g" onclick="openCopy(\'' + c.id + '\',\'' + (c.status === 'open' ? 'open' : c.status === 'success' ? 'success' : 'arrived') + '\')">📝 ' + (c.status === 'open' ? '開團文案' : c.status === 'success' ? '成團文案' : '取貨通知') + '</button>';
   }
   if (gbIsOwner(gbUser) && c.status !== 'open') btns += '<button class="btn btn-g" style="color:#d93025;" onclick="deleteCampaign(\'' + c.id + '\')">🗑 刪除</button>';
-  if (canEdit(c) && (c.status === 'open' || c.status === 'draft')) {
+  if (!sub && canEdit(c) && (c.status === 'open' || c.status === 'draft')) {
     btns += '<button class="btn btn-g" onclick="togglePin(\'' + c.id + '\')">' + (gbIsPinned(c, gbCamps) ? '取消置頂' : '📌 置頂') + '</button>';
+  }
+  if (sub) {
+    // 規格列：只有成團／流局之後各自改狀態（草稿／開放／截單在上面整組改）
+    if (canEdit(c) && ['draft', 'open', 'closed'].indexOf(c.status) < 0) btns += '<select class="inline" aria-label="切換狀態" onchange="changeStatus(\'' + c.id + '\',this.value);this.value=\'\'"><option value="">切換狀態…</option>' +
+      GB_STATUS_ORDER.filter(function (s) { return s !== c.status; }).map(function (s) { return '<option value="' + s + '">改為「' + GB_STATUS[s] + '」</option>'; }).join('') + '</select>';
+    return '<div class="opt-sub" id="camp-' + c.id + '">' +
+      '<div class="opt-sub-h"><b>' + gbEsc((c.opt_code ? '(' + c.opt_code + ') ' : '') + (c.opt_label || c.title)) + (c.round > 1 ? '・第 ' + c.round + ' 團' : '') + '</b>' +
+        '<span class="st st-' + c.status + '">' + (GB_STATUS[c.status] || c.status) + '</span>' + (isDue(c) ? ' <span class="st st-due">待結算</span>' : '') + '</div>' +
+      '<div class="camp-meta"><b>$' + (c.price || 0) + '</b>・' + stock + '</div>' +
+      '<div class="stores">' + stores + '<span class="store-qty">合計<b>' + (c.ordered_qty || 0) + '</b></span></div>' + prog +
+      '<div class="actions">' + btns + '</div>' +
+      (gbOpen[c.id] ? '<div class="orders" id="orders-' + c.id + '">' + ordersHtml(c) + '</div>' : '') +
+    '</div>';
   }
   if (canEdit(c)) {
     btns += '<button class="btn btn-o" onclick="openCampaignForm(\'' + c.id + '\')">編輯</button>';
