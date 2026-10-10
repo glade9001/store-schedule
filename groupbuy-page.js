@@ -395,7 +395,6 @@ async function saveCampaign() {
   if (rule === 'threshold' && !(min >= 1)) return err.textContent = '達標成團要填最低成團數';
   var autoNext = document.getElementById('cfAutoNext').checked;
   if (autoNext && stock === null) return err.textContent = '勾「額滿自動開下一團」要先填總庫存（每一團的份數）';
-  if (img && !/^https:\/\//.test(img)) return err.textContent = '圖片網址要以 https:// 開頭';
   var c = gbEditId ? gbCamps.find(function (x) { return x.id === gbEditId; }) : null;
   if (c && stock !== null && stock < (c.ordered_qty || 0)) return err.textContent = '總庫存不能少於已訂的 ' + (c.ordered_qty || 0) + ' 份';
   if (c) {
