@@ -462,10 +462,10 @@ async function handleEvent(ev) {
 }
 
 // ---- 後台：核准／拒絕群組（加盟主／admin）----
-async function requireOwner(request) {
+async function requireOwner(request, what) {
   if (!request.auth) throw new HttpsError("unauthenticated", "請先登入");
   const u = (await admin.firestore().collection("users").doc(request.auth.uid).get()).data() || {};
-  if (!["owner", "admin"].includes(u.permission) || u.disabled === true) throw new HttpsError("permission-denied", "只有加盟主／管理者可以設定機器人");
+  if (!["owner", "admin"].includes(u.permission) || u.disabled === true) throw new HttpsError("permission-denied", `只有加盟主／管理者可以${what || "設定機器人"}`);
   return u;
 }
 async function requireStaff(request) {
@@ -529,6 +529,80 @@ exports.gbSetupRichMenu = onCall({ region: REGION, secrets: [GB_TOKEN] }, async 
 });
 
 // 待核准超過 24 小時自動退出（防止被陌生人拉進群組）
+// ===== 個資保存期限（2026-10-11 使用者決定：結案滿 2 個月自動刪除）＋管理員手動刪除 =====
+// 刪的是含個資的資料：訂單（暱稱、頭像、LINE ID、手機）、群組 +1 待確認、貼文對應表。
+// 團購本身保留（品名、各店份數，不含個資），標 purged_at；客人手機與棄單次數（gb_customers）保留——
+// 隱私權政策：手機保存到客人要求刪除為止。
+// 「結束」起算：已結案＝ended_at（沒有就 updated_at）、流局＝settled_at、已到貨＝取貨期限（沒填就到貨日＋3 天）。
+const PURGE_DAYS = 60;
+const { Timestamp } = require("firebase-admin/firestore");
+const msOf = (x) => (x && typeof x.toMillis === "function" ? x.toMillis() : null);
+function campaignEndMs(c) {
+  if (c.status === "done") return msOf(c.ended_at) || msOf(c.updated_at);
+  if (c.status === "failed") return msOf(c.settled_at) || msOf(c.updated_at);
+  if (c.status === "arrived") return msOf(c.pickup_deadline) || (msOf(c.arrival_date) ? msOf(c.arrival_date) + 3 * 86400000 : null) || msOf(c.updated_at);
+  return null;
+}
+async function deleteDocs(db, docs) {
+  for (let i = 0; i < docs.length; i += 400) {
+    const b = db.batch();
+    docs.slice(i, i + 400).forEach((d) => b.delete(d.ref));
+    await b.commit();
+  }
+}
+/** 刪除一檔團購的訂單與相關 +1 紀錄；whole=true 時連團購本身一起刪（手動刪除） */
+async function purgeCampaign(db, cid, { dry, whole, by }) {
+  const os = (await db.collection("gb_orders").where("campaign_id", "==", cid).get()).docs;
+  const ps = (await db.collection("gb_pending_plus").where("campaign_id", "==", cid).get()).docs;
+  const ms = (await db.collection("gb_post_map").where("campaign_id", "==", cid).get()).docs;
+  if (!dry) {
+    await deleteDocs(db, [...os, ...ps, ...ms]);
+    const ref = db.collection("gb_campaigns").doc(cid);
+    if (whole) await ref.delete();
+    else await ref.update({ purged_at: FieldValue.serverTimestamp(), purged_orders: os.length, purged_by: by || "system" });
+  }
+  return { orders: os.length, pending: ps.length, postMap: ms.length };
+}
+async function purgeOldGb(db, { dry }) {
+  const cutoff = Date.now() - PURGE_DAYS * 86400000;
+  const rep = { cutoff: new Date(cutoff).toISOString(), campaigns: [], orders: 0, pending: 0, postMap: 0 };
+  const cs = await db.collection("gb_campaigns").where("status", "in", ["done", "failed", "arrived"]).get();
+  for (const d of cs.docs) {
+    const c = d.data();
+    if (c.purged_at) continue;
+    const end = campaignEndMs(c);
+    if (!end || end > cutoff) continue;
+    const r = await purgeCampaign(db, d.id, { dry });
+    rep.campaigns.push({ id: d.id, title: c.title, status: c.status, end: new Date(end).toISOString(), ...r });
+    rep.orders += r.orders; rep.pending += r.pending; rep.postMap += r.postMap;
+  }
+  // 沒對到團購的 +1 待確認、貼文對應表：收到滿 2 個月一律刪
+  const old = Timestamp.fromMillis(cutoff);
+  const ps = (await db.collection("gb_pending_plus").where("received_at", "<", old).get()).docs;
+  const ms = (await db.collection("gb_post_map").where("posted_at", "<", old).get()).docs;
+  rep.pending += ps.length; rep.postMap += ms.length;
+  if (!dry) await deleteDocs(db, [...ps, ...ms]);
+  return rep;
+}
+exports.scheduledGbPurge = onSchedule({ schedule: "every day 04:30", timeZone: "Asia/Taipei", region: REGION }, async () => {
+  const rep = await purgeOldGb(admin.firestore(), { dry: false });
+  console.log("[gbPurge]", JSON.stringify({ campaigns: rep.campaigns.length, orders: rep.orders, pending: rep.pending, postMap: rep.postMap }));
+});
+// 手動刪除整檔團購（加盟主／admin）：連訂單一起刪，不能復原
+exports.gbDeleteCampaign = onCall({ region: REGION }, async (request) => {
+  await requireOwner(request, "刪除團購");
+  const cid = String((request.data || {}).campaignId || "");
+  if (!/^[A-Za-z0-9_-]{1,80}$/.test(cid)) throw new HttpsError("invalid-argument", "團購不存在");
+  const db = admin.firestore(), ref = db.collection("gb_campaigns").doc(cid);
+  const sn = await ref.get();
+  if (!sn.exists) throw new HttpsError("not-found", "團購不存在");
+  if (sn.data().status === "open") throw new HttpsError("failed-precondition", "開放中的團購不能刪，請先改成截單");
+  const r = await purgeCampaign(db, cid, { dry: false, whole: true, by: request.auth.uid });
+  console.log("[gbDeleteCampaign]", cid, request.auth.uid, JSON.stringify(r));
+  return { ok: true, ...r };
+});
+if (process.env.GB_TEST_HOOKS === "1") module.exports.__purge = { purgeOldGb, campaignEndMs };   // 只給本機預覽／測試用
+
 exports.scheduledGbBotAutoLeave = onSchedule({ schedule: "every 60 minutes", timeZone: "Asia/Taipei", region: REGION, secrets: [GB_TOKEN] }, async () => {
   const db = admin.firestore();
   const sn = await db.collection("gb_bot_groups").where("status", "==", "pending").get();

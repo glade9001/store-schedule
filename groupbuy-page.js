@@ -101,6 +101,7 @@ function campCard(c) {
   if (['open', 'success', 'arrived'].indexOf(c.status) >= 0 && (canEdit(c) || gbIsManager(gbUser))) {
     btns += '<button class="btn btn-g" onclick="openCopy(\'' + c.id + '\',\'' + (c.status === 'open' ? 'open' : c.status === 'success' ? 'success' : 'arrived') + '\')">📝 ' + (c.status === 'open' ? '開團文案' : c.status === 'success' ? '成團文案' : '取貨通知') + '</button>';
   }
+  if (gbIsOwner(gbUser) && c.status !== 'open') btns += '<button class="btn btn-g" style="color:#d93025;" onclick="deleteCampaign(\'' + c.id + '\')">🗑 刪除</button>';
   if (canEdit(c)) {
     btns += '<button class="btn btn-o" onclick="openCampaignForm(\'' + c.id + '\')">編輯</button>';
     btns += '<select class="inline" aria-label="切換狀態" onchange="changeStatus(\'' + c.id + '\',this.value);this.value=\'\'"><option value="">切換狀態…</option>' +
@@ -114,6 +115,7 @@ function campCard(c) {
       '<div class="camp-meta"><b>$' + (c.price || 0) + '</b>・' + (gbNoLimit(c) ? '每人不限' : '每人上限 ' + c.per_user_limit) + '・' + rule + '・' + stock + '</div>' +
       '<div class="camp-meta">截單 ' + gbFmt(c.end_time) + (c.status === 'open' ? '（' + gbCountdown(c.end_time) + '）' : '') +
         (c.arrival_date ? '・到貨 ' + gbFmt(c.arrival_date, false) : '') + (c.pickup_deadline ? '・取貨到 ' + gbFmt(c.pickup_deadline, false) : '') + '</div>' +
+      (c.purged_at ? '<div class="camp-meta" style="color:#94a3b8;">🔒 訂單已於 ' + gbFmt(c.purged_at, false) + ' 依隱私權政策刪除（結案滿 2 個月）</div>' : '') +
       '<div class="stores">' + stores + '<span class="store-qty">合計<b>' + (c.ordered_qty || 0) + '</b></span></div>' + prog +
     '</div></div>' +
     '<div class="actions">' + btns + '</div>' +
@@ -424,6 +426,17 @@ async function saveMultiCampaign(c, data, stock, err) {
   } catch (e) { err.textContent = '儲存失敗：' + e.message; }
   btn.disabled = false;
 }
+// 手動刪除整檔團購（加盟主／admin，2026-10-11）：訂單一起刪、不能復原；開放中的不能刪
+async function deleteCampaign(cid) {
+  var c = gbCamps.find(function (x) { return x.id === cid; }); if (!c) return;
+  var n = c.ordered_qty || 0;
+  if (!await gbConfirm('🗑 刪除團購', '刪除「' + c.title + '」？' + (n ? '\n⚠️ 這檔有 ' + n + ' 份訂單，會一起刪除。' : '') + '\n刪除後無法復原。', '刪除')) return;
+  if (n && !await gbConfirm('再確認一次', '「' + c.title + '」的 ' + n + ' 份訂單會永久刪除，取貨名單也會不見。確定？', '確定刪除')) return;
+  gbLoading(true, '刪除中…');
+  try { var r = await gbTimeout(gbFn('gbDeleteCampaign')({ campaignId: cid }), 60000); gbToast('✅ 已刪除（訂單 ' + ((r.data && r.data.orders) || 0) + ' 筆）'); await loadCampaigns(); }
+  catch (e) { gbToast('刪除失敗：' + friendly(e)); }
+  gbLoading(false);
+}
 async function changeStatus(cid, st) {
   if (!st) return;
   var c = gbCamps.find(function (x) { return x.id === cid; });
@@ -437,6 +450,7 @@ async function changeStatus(cid, st) {
   if (!ok) return;
   var upd = { status: st, updated_at: firebase.firestore.FieldValue.serverTimestamp() };
   if (st === 'success' || st === 'failed') { upd.settled_by = gbUser.uid; upd.settled_at = firebase.firestore.FieldValue.serverTimestamp(); }
+  if (st === 'done') upd.ended_at = firebase.firestore.FieldValue.serverTimestamp();   // 結案滿 2 個月自動刪訂單從這天算
   gbLoading(true, '更新中…');
   var batch = window.db.batch();
   targets.forEach(function (m) { batch.update(window.db.collection('gb_campaigns').doc(m.id), upd); });
@@ -616,8 +630,14 @@ async function openCopy(cid, kind) {
   var stores = owner ? (c.available_stores || []) : [gbMyCode];
   gbCopyCtx = { c: c, kind: kind, stores: stores };
   var sel = document.getElementById('cpStore');
-  // 加盟主可選「三店合併」或單店；店長只有本店
-  sel.innerHTML = (owner && stores.length > 1 ? '<option value="">三店合併</option>' : '') + stores.map(function (s) { return '<option value="' + s + '">' + gbStoreName(s) + '</option>'; }).join('');
+  // 加盟主先選門市（2026-10-11 使用者）：單店或最後的「三店合併」；記住上次選的。店長只有本店
+  var multi = owner && stores.length > 1;
+  sel.innerHTML = (multi ? '<option value="-">— 請先選門市 —</option>' : '') + stores.map(function (s) { return '<option value="' + s + '">' + gbStoreName(s) + '</option>'; }).join('') +
+    (multi ? '<option value="">三店合併</option>' : '');
+  if (multi) {
+    var last = null; try { last = localStorage.getItem('gbCopyStore'); } catch (e) {}
+    sel.value = last !== null && (last === '' || stores.indexOf(last) >= 0) ? last : '-';
+  }
   document.getElementById('cpTitle').textContent = { open: '📝 開團文案', success: '🎉 成團文案', arrived: '📦 取貨通知' }[kind];
   document.getElementById('cpNamesWrap').hidden = kind === 'open';
   document.getElementById('cpInfoBtn').hidden = document.getElementById('cpInfoHint').hidden = kind !== 'open';
@@ -633,6 +653,10 @@ async function gbLiffLinks() {
 async function buildCopy() {
   var x = gbCopyCtx; if (!x) return;
   var c = x.c, st = document.getElementById('cpStore').value, obs = c.ordered_by_store || {};
+  var ta = document.getElementById('cpText');
+  if (st === '-') { x.info = ''; ta.value = ''; ta.placeholder = '👆 請先選門市，文案裡的下單連結是各店分開的'; return; }
+  ta.placeholder = '';
+  try { localStorage.setItem('gbCopyStore', st); } catch (e) {}
   var qty = st ? (obs[st] || 0) : (c.ordered_qty || 0);
   var where = st ? gbStoreName(st) : x.stores.map(gbStoreName).join('・');
   var lines = [];
@@ -688,12 +712,13 @@ async function buildCopy() {
 }
 async function copyText() {
   var t = document.getElementById('cpText');
+  if (!t.value) return gbToast('請先選門市');
   try { await navigator.clipboard.writeText(t.value); gbToast('✅ 已複製，貼到門市群組就好'); }
   catch (e) { t.focus(); t.select(); try { document.execCommand('copy'); gbToast('✅ 已複製'); } catch (e2) { gbToast('請長按文字框自行複製'); } }
 }
 // 只複製團購資訊（不含總部原文）：自己發的圖文貼完，再把這段貼在下方
 async function copyInfo() {
-  var info = gbCopyCtx && gbCopyCtx.info; if (!info) return;
+  var info = gbCopyCtx && gbCopyCtx.info; if (!info) return gbToast('請先選門市');
   try { await navigator.clipboard.writeText(info); gbToast('✅ 已複製團購資訊，貼在你的文案下方'); }
   catch (e) {
     var t = document.getElementById('cpText'), i = t.value.indexOf(info);
