@@ -152,8 +152,8 @@ function lfCard(c) {
     '<div class="lf-body"><div class="lf-title">' + gbEsc(c.title) + '</div><div class="lf-price">$' + (c.price || 0) + '</div>' +
     (c.description ? '<div class="lf-desc">' + gbEsc(c.description) + '</div>' : '') +
     '<div class="lf-meta">⏰ ' + gbFmt(c.end_time) + ' 截單（' + gbCountdown(c.end_time) + '）' +
-      (c.stock != null ? '<br>📦 剩 ' + remain + ' 份' : '') + '<br>每人限 ' + c.per_user_limit + ' 份' +
-      (c.arrival_date ? '・預計 ' + gbFmt(c.arrival_date, false) + ' 到貨' : '') + '</div>' + prog +
+      (c.stock != null ? '<br>📦 剩 ' + remain + ' 份' : '') + (gbLimitTxt(c) ? '<br>' + gbLimitTxt(c) : '') +
+      (c.arrival_date ? (gbLimitTxt(c) ? '・' : '<br>') + '預計 ' + gbFmt(c.arrival_date, false) + ' 到貨' : '') + '</div>' + prog +
     (had ? '<div class="lf-mine">✅ 你已訂 ' + had + ' 份（' + gbStoreName(mine.store) + '取貨）</div>' : '') + btn + '</div></div>';
 }
 function lfBtn(c, small) {
@@ -180,8 +180,8 @@ function lfGroupCard(ms) {
   return '<div class="lf-card">' + (img && /^https:\/\//.test(img) ? '<div class="lf-img" style="background-image:url(\'' + gbEsc(img).replace(/'/g, '%27') + '\')"></div>' : '') +
     '<div class="lf-body"><div class="lf-title">' + gbEsc(c.base_title || c.title) + '</div>' +
     (c.description ? '<div class="lf-desc">' + gbEsc(c.description) + '</div>' : '') +
-    '<div class="lf-meta">⏰ ' + gbFmt(c.end_time) + ' 截單（' + gbCountdown(c.end_time) + '）<br>每種每人限 ' + c.per_user_limit + ' 份' +
-      (c.arrival_date ? '・預計 ' + gbFmt(c.arrival_date, false) + ' 到貨' : '') + '</div>' +
+    '<div class="lf-meta">⏰ ' + gbFmt(c.end_time) + ' 截單（' + gbCountdown(c.end_time) + '）' + (gbLimitTxt(c, true) ? '<br>' + gbLimitTxt(c, true) : '') +
+      (c.arrival_date ? (gbLimitTxt(c, true) ? '・' : '<br>') + '預計 ' + gbFmt(c.arrival_date, false) + ' 到貨' : '') + '</div>' +
     (guaranteed ? '<div class="lf-meta" style="margin-top:6px;"><span style="background:#e6f4ea;color:#137333;font-weight:800;border-radius:7px;padding:2px 9px;">✅ 保證成團</span>　截單後一定出貨</div>' : '') +
     '<div style="margin-top:10px;">' + rows + '</div></div></div>';
 }

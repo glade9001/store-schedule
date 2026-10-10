@@ -20,6 +20,10 @@ function gbShowDevNotice() {
   var w = document.querySelector('.wrap'); if (w) w.innerHTML = '<div class="card" style="text-align:center;padding:40px 16px;"><div style="font-size:44px;">🚧</div><div style="font-size:18px;font-weight:900;margin:10px 0 6px;">團購功能開發中</div><div style="font-size:13.5px;color:#64748b;line-height:1.7;">目前還在測試，開放後會再通知大家。</div><button class="btn btn-p" style="margin-top:16px;" onclick="location.href=\'home.html\'">回首頁</button></div>';
   var nb = document.getElementById('newBtn'); if (nb) nb.hidden = true;
 }
+// 每人上限「不限」（2026-10-11 使用者：沒填就是無上限）：存成 999，伺服器、規則、下單頁照數字檢查不用改，畫面一律顯示「不限」
+var GB_NO_LIMIT = 999;
+function gbNoLimit(c) { return !(c && c.per_user_limit > 0) || c.per_user_limit >= GB_NO_LIMIT; }
+function gbLimitTxt(c, each) { return gbNoLimit(c) ? '' : (each ? '每種每人限 ' : '每人限 ') + c.per_user_limit + ' 份'; }
 var GB_ORDER_STATUS = { active: '訂購中', cancelled: '已取消', picked_up: '已取貨', no_show: '棄單' };
 var GB_SOURCE = { manual: '手動補單', liff: 'LINE 下單', group_text: '群組 +1' };
 

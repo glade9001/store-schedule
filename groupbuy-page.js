@@ -111,7 +111,7 @@ function campCard(c) {
     '<div class="camp-body">' +
       '<span class="st st-' + c.status + '">' + (GB_STATUS[c.status] || c.status) + '</span>' + (isDue(c) ? ' <span class="st st-due">待結算</span>' : '') + (c.is_test ? ' <span class="st" style="background:#ede9fe;color:#6d28d9;">🧪 測試團</span>' : '') +
       '<div class="camp-title">' + gbEsc(c.title) + '</div>' +
-      '<div class="camp-meta"><b>$' + (c.price || 0) + '</b>・每人上限 ' + (c.per_user_limit || '—') + '・' + rule + '・' + stock + '</div>' +
+      '<div class="camp-meta"><b>$' + (c.price || 0) + '</b>・' + (gbNoLimit(c) ? '每人不限' : '每人上限 ' + c.per_user_limit) + '・' + rule + '・' + stock + '</div>' +
       '<div class="camp-meta">截單 ' + gbFmt(c.end_time) + (c.status === 'open' ? '（' + gbCountdown(c.end_time) + '）' : '') +
         (c.arrival_date ? '・到貨 ' + gbFmt(c.arrival_date, false) : '') + (c.pickup_deadline ? '・取貨到 ' + gbFmt(c.pickup_deadline, false) : '') + '</div>' +
       '<div class="stores">' + stores + '<span class="store-qty">合計<b>' + (c.ordered_qty || 0) + '</b></span></div>' + prog +
@@ -194,7 +194,7 @@ function openCampaignForm(cid) {
   document.getElementById('cfTitle').value = c ? (c.opt_group ? c.base_title || '' : c.title || '') : '';
   document.getElementById('cfDesc').value = c ? c.description || '' : '';
   document.getElementById('cfPrice').value = c ? c.price || '' : '';
-  document.getElementById('cfLimit').value = c ? c.per_user_limit || 5 : 5;
+  document.getElementById('cfLimit').value = c && !gbNoLimit(c) ? c.per_user_limit : '';
   document.getElementById('cfImage').value = c ? (c.images || [])[0] || '' : '';
   document.getElementById('cfFile').value = ''; document.getElementById('cfUpMsg').textContent = ''; syncPreview();
   document.getElementById('cfStock').value = c && c.stock != null ? c.stock : '';
@@ -355,7 +355,8 @@ async function saveCampaign() {
       if (!(Number.isInteger(op) && op > 0)) return err.textContent = '規格 ' + o.code + ' 的價格要是大於 0 的整數';
     }
   }
-  if (!(limit >= 1)) return err.textContent = '每人上限至少 1';
+  if (limit !== null && !(limit >= 1 && limit < GB_NO_LIMIT)) return err.textContent = '每人上限要是 1～' + (GB_NO_LIMIT - 1) + ' 的整數，或留空表示不限';
+  if (limit === null) limit = GB_NO_LIMIT;
   if (stock !== null && !(stock >= 1)) return err.textContent = '總庫存要是正整數，或留空表示不限量';
   if (!stores.length) return err.textContent = '請至少勾選一家開放門市';
   if (!end) return err.textContent = '請填截單時間';
@@ -453,7 +454,7 @@ function openOrderForm(cid) {
   var sel = document.getElementById('ofStore');
   sel.innerHTML = stores.map(function (s) { return '<option value="' + s + '">' + gbStoreName(s) + '</option>'; }).join('');
   sel.disabled = stores.length <= 1;
-  document.getElementById('ofLead').textContent = '「' + c.title + '」每人上限 ' + c.per_user_limit + '・' + (c.stock == null ? '不限量' : '剩 ' + Math.max(0, c.stock - (c.ordered_qty || 0)) + ' 份') + (c.status !== 'open' ? '・⚠️ 已截單（加盟主補單）' : '');
+  document.getElementById('ofLead').textContent = '「' + c.title + '」' + (gbNoLimit(c) ? '每人不限' : '每人上限 ' + c.per_user_limit) + '・' + (c.stock == null ? '不限量' : '剩 ' + Math.max(0, c.stock - (c.ordered_qty || 0)) + ' 份') + (c.status !== 'open' ? '・⚠️ 已截單（加盟主補單）' : '');
   document.getElementById('ofName').value = '';
   document.getElementById('ofQty').value = 1;
   document.getElementById('ofNote').value = '';
@@ -524,7 +525,7 @@ function openQtyForm(cid, oid) {
   var c = gbCamps.find(function (x) { return x.id === cid; }), o = findOrder(cid, oid);
   if (!c || !o) return;
   gbQtyOrder = { c: c, o: o };
-  document.getElementById('qfLead').textContent = o.display_name + '・' + c.title + '（每人上限 ' + c.per_user_limit + '）';
+  document.getElementById('qfLead').textContent = o.display_name + '・' + c.title + (gbNoLimit(c) ? '' : '（每人上限 ' + c.per_user_limit + '）');
   document.getElementById('qfQty').value = o.qty;
   document.getElementById('qfErr').textContent = '';
   openModal('qtyModal');
@@ -646,10 +647,10 @@ async function buildCopy() {
     if (opts.length) {
       lines.push('🛒 ' + c.base_title);
       opts.forEach(function (m) { lines.push('(' + m.opt_code + ') ' + m.opt_label + '　$' + m.price); });
-      if (c.per_user_limit) lines.push('每種每人限 ' + c.per_user_limit + ' 份');
+      if (gbLimitTxt(c, true)) lines.push(gbLimitTxt(c, true));
       lines.push(c.success_rule === 'threshold' ? '🎯 每種各滿 ' + c.min_qty + ' 份成團（三店合計）' : '✅ 保證成團');
     } else {
-      lines.push('🛒 ' + c.title, '💰 $' + c.price + '／份' + (c.per_user_limit ? '・每人限 ' + c.per_user_limit + ' 份' : ''));
+      lines.push('🛒 ' + c.title, '💰 $' + c.price + '／份' + (gbLimitTxt(c) ? '・' + gbLimitTxt(c) : ''));
       lines.push(c.success_rule === 'threshold' ? '🎯 滿 ' + c.min_qty + ' 份成團（三店合計）' : '✅ 保證成團');
     }
     if (c.auto_next) lines.push('🔁 額滿會自動開下一團，不用擔心搶不到');
