@@ -357,17 +357,9 @@ async function handleEvent(ev) {
   if (!g || g.status !== "approved" || g.mode !== "store_listen" || !STORES[g.store]) return;   // 白名單外一律丟棄
   const store = g.store;
 
-  // 下單頁（LIFF）代發的「✅ 已登記 商品 +N」：訂單已經成立，不可再當 +1 建單；達標成團的團回覆成團倒數
-  if (/^✅\s*已登記/.test(text)) {
-    if (!src.userId) return;
-    const os = await db.collection("gb_orders").where("line_user_id", "==", src.userId).get();
-    const last = os.docs.map((d) => d.data()).filter((o) => o.status === "active" && o.store === store)
-      .sort((a, b) => ((b.updated_at && b.updated_at.toMillis()) || 0) - ((a.updated_at && a.updated_at.toMillis()) || 0))[0];
-    if (!last) return;
-    const lc = await db.collection("gb_campaigns").doc(last.campaign_id).get();
-    if (lc.exists && lc.data().success_rule === "threshold") await reply(ev.replyToken, countdownText(lc.data().ordered_qty || 0, lc.data().min_qty || 0));
-    return;
-  }
+  // 下單頁（LIFF）代發的「✅ 已登記 商品 +N」：訂單已經成立，不可再當 +1 建單。
+  // 代發文字本身已經帶成團倒數／已訂份數（2026-10-11），機器人不用再回
+  if (/^✅\s*已登記/.test(text)) return;
   const p = parsePlus(text);
   if (!p) return;                                              // 不是 +1：不存檔、不回應
   const userId = src.userId || "";
@@ -425,6 +417,7 @@ async function handleEvent(ev) {
   // 合併成一檔的規格（bundles，2026-10-11）：一檔團購裡 A＝1 份、B＝3 份…，價格成比例
   const bundleOf = (d, code) => (d.data().bundles || []).find((b) => b.code === code);
 
+  const okReply = {};
   for (let i = 0; i < p.items.length; i++) {
     const it = p.items[i];
     let target = null, add = it.qty;
@@ -454,11 +447,9 @@ async function handleEvent(ev) {
     try {
       const r = await placeOrderTx({ cid, store, userId, name: who, picture: prof.pictureUrl || null, add, source: "group_text", sourceMessageId: msgId });
       // 達標成團：每次 +N 都回覆成團倒數（2026-10-11 使用者要求；回覆免費）；保證成團照「成單回覆」開關
-      if (r.rule === "threshold") out.push(`已登記 ${who}：${r.title} 共 ${r.qty} 份 👍\n` + countdownText(r.ordered, r.minQty));
-      else {
-        const cfg = await db.collection("gb_settings").doc("bot").get().catch(() => null);
-        if (cfg && cfg.exists && cfg.data().reply_on_success === true) out.push(`已登記 ${who}：${r.title} 共 ${r.qty} 份`);
-      }
+      // 同一檔一則訊息裡加了好幾次（C+2 A+1）只回最後結果
+      if (r.rule === "threshold") okReply[cid] = `已登記 ${who}：${r.title} 共 ${r.qty} 份 👍\n` + countdownText(r.ordered, r.minQty);
+      else okReply[cid] = (`已登記 ${who}：${r.title} 共 ${r.qty} 份 👍\n🔥 目前已訂 ${r.ordered} 份（三店合計）`);   // 保證成團也回（2026-10-11 使用者：增加 +1 慾望）
     } catch (e) {
       const kind = (e && e.details && e.details.kind) || "";
       if (kind === "closed") { out.push("本團已截單，有再次開團再通知您 🙏"); continue; }
@@ -466,7 +457,8 @@ async function handleEvent(ev) {
       await pend(e.message || "建單失敗", { campaign_id: cid, parsed_qty: add }, i);
     }
   }
-  if (out.length) await reply(ev.replyToken, [...new Set(out)].join("\n\n"));
+  const all = Object.values(okReply).concat(out);
+  if (all.length) await reply(ev.replyToken, [...new Set(all)].join("\n\n"));
 }
 
 // ---- 後台：核准／拒絕群組（加盟主／admin）----

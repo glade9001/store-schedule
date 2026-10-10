@@ -310,7 +310,11 @@ async function lfConfirm() {
       var rt = (r.data && r.data.title) || c.title;
       gbToast('✅ 登記成功：' + rt + ' 共 ' + ((r.data && r.data.qty) || units) + ' 份');
       // 代發到群組：合併規格寫「A 10包 +2」讓群組看得懂（開頭「✅ 已登記」機器人會攔下，不會重複建單）
-      if (lfBundle) lfPostToGroup((c.base_title || rt) + ' ' + lfBundle.code + ' ' + lfBundle.label, lfQty); else lfPostToGroup(rt, lfQty);
+      // 代發訊息帶成團倒數／已訂份數（三店合計，2026-10-11 使用者：增加 +1 慾望）
+      var d = r.data || {}, lack = Math.max(0, (d.minQty || 0) - (d.ordered || 0));
+      var extra = d.rule === 'threshold' ? (lack ? '🎯 目前 ' + d.ordered + ' 份，還差 ' + lack + ' 份成團（三店合計）' : '🎉 已達成團門檻，確定成團！')
+        : (d.ordered ? '🔥 目前已訂 ' + d.ordered + ' 份（三店合計）' : '');
+      if (lfBundle) lfPostToGroup((c.base_title || rt) + ' ' + lfBundle.code + ' ' + lfBundle.label, lfQty, extra); else lfPostToGroup(rt, lfQty, extra);
     }
     document.getElementById('qtyModal').hidden = true;
     await Promise.all([lfLoadCamps(), lfLoadMine()]); lfRender();
@@ -342,13 +346,13 @@ function lfResetModal() {
 document.addEventListener('click', function (e) { if (e.target && e.target.matches && e.target.matches('#qtyModal .btn-g')) lfResetModal(); });
 
 // 在群組聊天室裡開啟時，代客人發「商品名 +數量」；失敗（外部瀏覽器、權限）直接略過，不影響訂單
-function lfPostToGroup(title, qty) {
+function lfPostToGroup(title, qty, extra) {
   try {
     if (!liff.isInClient()) return;
     var ctx = liff.getContext() || {};
     if (['group', 'room', 'square_chat'].indexOf(ctx.type) < 0) return;
     // ⚠️ 開頭固定「✅ 已登記」：機器人看到就知道是下單頁代發的，不會再當成 +1 重複建單（2026-10-11 修）
-    liff.sendMessages([{ type: 'text', text: '✅ 已登記 ' + title + ' +' + qty }]).catch(function () {});
+    liff.sendMessages([{ type: 'text', text: '✅ 已登記 ' + title + ' +' + qty + (extra ? '\n' + extra : '') }]).catch(function () {});
   } catch (e) {}
 }
 
