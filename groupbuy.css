@@ -58,6 +58,14 @@ select.inline{padding:8px 10px;border:1.5px solid var(--border);border-radius:10
 .f small{font-weight:600;color:#94a3b8;}
 .f2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 .f2>.f{min-width:0;}
+/* 2026-10-10 格子重疊：上面 .f input 的 width:100% 連勾選框／圓形選項一起套用，把旁邊的字擠成直排 */
+.f input[type=checkbox],.f input[type=radio]{width:auto;padding:0;margin:0;flex:none;}
+.f .checks input{width:18px;height:18px;}
+label.f{flex-wrap:wrap;}
+label.f small{flex-basis:100%;font-weight:600;}
+/* iPhone Safari 的日期格有最小寬度、不吃 width:100%，兩欄並排時會互相壓到 */
+.f input[type=date],.f input[type=datetime-local]{-webkit-appearance:none;appearance:none;min-width:0;max-width:100%;min-height:44px;display:block;}
+.f input::-webkit-date-and-time-value{text-align:left;}
 .checks{display:flex;gap:8px;flex-wrap:wrap;}
 .checks label{display:flex;align-items:center;gap:6px;border:1.5px solid var(--border);border-radius:10px;padding:8px 12px;font-size:14px;font-weight:800;color:var(--text);cursor:pointer;}
 .checks input{width:18px;height:18px;}
