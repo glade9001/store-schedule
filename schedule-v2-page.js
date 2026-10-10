@@ -1787,6 +1787,7 @@ function lbRenderBar() {
   if(!lt || sc.days < lbDaysIn(ym)) lines.push(`整個月上限約 ${fmt(p.cap)}h`); // 整月都排完時跟上面同一個數，不重複
   const wan1 = v => (Math.round(v / 1000) / 10) + ' 萬';
   if(ev.projCost != null) lines.push(`照目前排法，整月人事約 ${wan1(ev.projCost)}／上限 ${wan1(p.budget)}`);
+  if(ev.targetPds != null) lines.push(`每天要做到 ${wan1(ev.targetPds)}（含稅）才達標，近 3 個月平均 ${wan1(ev.salesPds)}`);
   if(ev.minH && ev.minH > p.capLo) lines.push(`<span style="color:#c5221f;font-weight:700;">⚠️ 基本人力就要 ${fmt(ev.minH)}h，少排班省不下來，要從業績或盤損改善</span>`);
   const det = `<div class="lb-detail">${lines.join('<br>')}<div class="lb-note">依過去 ${lbLoaded.model.months.length} 個月營收推算，僅供參考</div></div>`;
   bar.style.background = col[0]; bar.style.color = col[1];

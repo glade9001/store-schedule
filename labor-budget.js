@@ -17,6 +17,9 @@ var LB_PERF_EXCLUDE = { '2026-04': 1 }; // 同 performance-page.js：系統剛�
 var LB_SALES_ERR = 0.04;                // 營收預估誤差（回測 7～9 月平均約 3.5～4.6%）
 var LB_MIN_MONTHS = 8;                  // 損益少於 8 個月不做回歸
 var LB_TAX = 0;                         // 營業稅由總部隨發票付、加盟主轉繳 → 不影響（見檔頭）
+// PDS（平均每日營業額）用含稅表示，跟日結單、每日營業頁一致（使用者 2026-10-11）。
+// 損益表營業淨額推測是未稅 → 先 ×1.05；等每日營業（含稅）累積滿一個月，改成「每日加總 ÷ 損益表營業淨額」的實際比例。
+var LB_PDS_RATIO = 1.05;
 var LB_OFF = ['排休', '指休', '特休', '補休', '清空', ''];
 
 function lbYm(y, m) { return y + '-' + String(m).padStart(2, '0'); }
@@ -91,7 +94,9 @@ function lbPlan(model, ym) {
     ym: ym, salesFrom: prev, sales: sales, elec: elec, ownerTake: poolAt(sales) * model.ownerPct,
     budget: budgetAt(sales),
     cap: capAt(sales), capLo: capAt(sales * (1 - LB_SALES_ERR)), capHi: capAt(sales * (1 + LB_SALES_ERR)),
-    beSales: ((model.L0 + model.other) / (1 - LB_TAX) - model.a + elec - model.invAvg) / model.b
+    beSales: ((model.L0 + model.other) / (1 - LB_TAX) - model.a + elec - model.invAvg) / model.b,
+    // 人事為 L、加盟主留 pct 時，營業淨額要做到多少（budgetAt 的反函式）
+    salesFor: function (L, pct) { return ((L + model.other) / ((1 - LB_TAX) * (1 - (pct || 0))) - model.a + elec - model.invAvg) / model.b; }
   };
 }
 
@@ -198,7 +203,16 @@ function lbProjectedCost(model, sched, ym) {
 function lbEvaluate(loaded, records, ym) {
   var plan = lbPlan(loaded.model, ym);
   var m = loaded.model, sched = lbScheduledHours(records, ym, m && !m.err ? m.H0 / 30 : 0);
-  return { ym: ym, plan: plan, sched: sched, light: lbLight(plan, sched, ym), minH: lbMinHours(loaded.asCfg, ym), projCost: lbProjectedCost(m, sched, ym), err: loaded.model.err || (plan ? '' : '資料不足') };
+  var proj = lbProjectedCost(m, sched, ym), days = lbDaysIn(ym);
+  var pds = function (S) { return S / days * LB_PDS_RATIO; };
+  return {
+    ym: ym, plan: plan, sched: sched, light: lbLight(plan, sched, ym), minH: lbMinHours(loaded.asCfg, ym), projCost: proj,
+    // 兩平 PDS：近 3 月人事、不留加盟主比例；達標 PDS：照目前排法的人事、扣掉加盟主比例（還沒排班就用近 3 月人事）
+    bePds: plan ? pds(plan.beSales) : null,
+    targetPds: plan ? pds(plan.salesFor(proj != null ? proj : m.L0, m.ownerPct)) : null,
+    salesPds: plan ? pds(plan.sales) : null,
+    err: loaded.model.err || (plan ? '' : '資料不足')
+  };
 }
 
 var LB_COLORS = { green: ['#e6f4ea', '#137333', '🟢'], yellow: ['#fef7e0', '#a15c00', '🟡'], red: ['#fce8e6', '#c5221f', '🔴'] };
