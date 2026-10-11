@@ -817,8 +817,9 @@ async function loadLaborBudget(){
   const weeks=weeksForMonth(ym), out={_ym:ym};
   await Promise.all(STORES.map(async s=>{
     const ref=window.db.collection('stores').doc(s);
-    const [daily,es,ac,lc,...ws]=await Promise.all([
+    const [daily,burden,es,ac,lc,...ws]=await Promise.all([
       lbLoadDaily(window.db,s),
+      lbPtBurden(window.db,s),
       ref.collection('employees').get().catch(()=>null),
       ref.collection('config').doc('autoSchedule').get().catch(()=>null),
       ref.collection('config').doc('laborBudget').get().catch(()=>null),
@@ -827,7 +828,7 @@ async function loadLaborBudget(){
     const emps=[]; if(es) es.forEach(d=>emps.push({name:d.id,...d.data()}));
     const other=lc&&lc.exists?n(lc.data().otherMonthly):0;
     const pct=lbOwnerPct(lc&&lc.exists?lc.data():null);
-    const loaded={store:s, model:lbBuildModel(DATA[s].pnl,DATA[s].perf,{ptWage:lbPartTimeWage(emps),other,ownerPct:pct}), pds:lbPdsRatio(daily,DATA[s].pnl), daily, asCfg:ac&&ac.exists?ac.data():null, otherMonthly:other, ownerPct:pct};
+    const loaded={store:s, model:lbBuildModel(DATA[s].pnl,DATA[s].perf,{ptWage:lbPartTimeWage(emps,burden),other,ownerPct:pct}), pds:lbPdsRatio(daily,DATA[s].pnl), daily, asCfg:ac&&ac.exists?ac.data():null, otherMonthly:other, ownerPct:pct};
     const recs=[]; ws.forEach((snap,i)=>{ if(snap&&snap.exists) (snap.data().records||[]).forEach(r=>recs.push({...r,week:weeks[i]})); });
     out[s]={loaded, ev:lbEvaluate(loaded,recs,ym)};
     // 本月每日營業（有輸入的店才讀去年同期：364 天前對齊星期幾，同每日營業頁）

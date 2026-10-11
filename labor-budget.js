@@ -18,7 +18,8 @@ var LB_SALES_ERR = 0.04;                // 營收預估誤差（回測 7～9 月
 // 月中用本月實際營業額重估（2026-10-11 回測美德 12 個月）：近 3 月平均誤差 4.2%；本月目前日均×天數
 // 第 5 天 4.8%（反而較差）、第 10 天 2.7%、第 15 天 2.2%、第 20 天 1.9% → 滿 10 天才換。
 var LB_LIVE_MIN_DAYS = 10;
-// 工讀的公司負擔（勞保、健保、勞退）÷（時薪×時數）：三店 2026-07～09 薪資實測合計 16.5%、中位數 17.2%
+// 工讀的公司負擔（勞保、健保、勞退）÷（時薪×時數）：各店用自己近 3 個月的工讀薪資算（lbPtBurden，使用者 2026-10-11）；
+// 讀不到薪資時才用這個預設（三店 2026-07～09 實測：美德 15.1%、聯鑫 17.1%、錦花 17.7%，合計 16.5%）
 var LB_PT_BURDEN = 0.16;
 var LB_SALES_ERR_LIVE = 0.03;
 var LB_MIN_MONTHS = 8;                  // 損益少於 8 個月不做回歸
@@ -55,13 +56,13 @@ function lbFit(xs, ys) {
 }
 
 /** 工讀平均時薪（在職、有填時薪）；沒有就回 null */
-function lbPartTimeWage(employees) {
+function lbPartTimeWage(employees, burden) {
   var ws = (employees || []).filter(function (e) {
     return e && !['離職', '調走'].includes(e.status) && (e.payAsPartTime || String(e.role || '').includes('工讀')) && +e.wage > 0;
   }).map(function (e) { return +e.wage; });
   // 要加上公司負擔（勞保、健保、勞退）（2026-10-11 使用者確認修正）。只影響「比近 3 月多／少的人事」換算成的時數，
   // 10 月實際差：美德 −17h、聯鑫 −6h、錦花 +19h（人事上限低於近 3 月時，貴的時薪換算出的減少時數變少）
-  return ws.length ? ws.reduce(function (s, x) { return s + x; }, 0) / ws.length * (1 + LB_PT_BURDEN) : null;
+  return ws.length ? ws.reduce(function (s, x) { return s + x; }, 0) / ws.length * (1 + (burden != null ? burden : LB_PT_BURDEN)) : null;
 }
 
 /**
@@ -258,6 +259,26 @@ function lbLiveSales(daily, ym, ratio) {
   return { days: ds.length, n: n, last: ds.sort()[ds.length - 1], psd: cum, sales: cum / ds.length * n / ratio };
 }
 
+/**
+ * 本店工讀的公司負擔比例：近 3 個月薪資記錄（stores/{店}/salary/{YYYY-MM}）中 role＝工讀 的
+ * Σ(laborEr＋healthEr＋pensionEr) ÷ Σ(時薪×時數)。讀不到或時數太少回 null（用 LB_PT_BURDEN）。
+ */
+function lbPtBurden(db, store) {
+  var d = new Date(), ref = db.collection('stores').doc(store).collection('salary'), yms = [];
+  for (var k = 1; k <= 3; k++) { var x = new Date(d.getFullYear(), d.getMonth() - k, 1); yms.push(lbYm(x.getFullYear(), x.getMonth() + 1)); }
+  return Promise.all(yms.map(function (ym) { return ref.doc(ym).get().catch(function () { return null; }); })).then(function (snaps) {
+    var er = 0, base = 0;
+    snaps.forEach(function (sn) {
+      if (!sn || !sn.exists) return;
+      (sn.data().records || []).forEach(function (r) {
+        if (!r || r.role !== '工讀' || !(+r.hours > 0) || !(+r.wage > 0)) return;
+        er += (+r.laborEr || 0) + (+r.healthEr || 0) + (+r.pensionEr || 0); base += +r.wage * +r.hours;
+      });
+    });
+    return base >= 20000 ? er / base : null; // 至少約 100 小時才算數
+  });
+}
+
 /** 讀最近 6 個月的每日營業（夠找出 3 個完整月；損益表晚一個月才輸入） */
 function lbLoadDaily(db, store) {
   var d = new Date(), from = new Date(d.getFullYear(), d.getMonth() - 6, 1);
@@ -278,14 +299,15 @@ function lbLoadStore(db, store, employees) {
     ref.collection('config').doc('autoSchedule').get().catch(function () { return null; }),
     ref.collection('config').doc('laborBudget').get().catch(function () { return null; }),
     employees ? Promise.resolve(null) : ref.collection('employees').get().catch(function () { return null; }),
-    lbLoadDaily(db, store)
+    lbLoadDaily(db, store),
+    lbPtBurden(db, store)
   ]).then(function (r) {
     var emps = employees || [];
     if (r[4]) r[4].forEach(function (d) { emps.push(Object.assign({ name: d.id }, d.data())); });
     var lbc = r[3] && r[3].exists ? r[3].data() : {};
     var pnl = toMap(r[0]);
-    var model = lbBuildModel(pnl, toMap(r[1]), { ptWage: lbPartTimeWage(emps), other: +lbc.otherMonthly || 0, ownerPct: lbOwnerPct(lbc) });
-    return { store: store, model: model, pds: lbPdsRatio(r[5], pnl), daily: r[5], asCfg: r[2] && r[2].exists ? r[2].data() : null, otherMonthly: +lbc.otherMonthly || 0, ownerPct: lbOwnerPct(lbc) };
+    var model = lbBuildModel(pnl, toMap(r[1]), { ptWage: lbPartTimeWage(emps, r[6]), other: +lbc.otherMonthly || 0, ownerPct: lbOwnerPct(lbc) });
+    return { store: store, model: model, pds: lbPdsRatio(r[5], pnl), daily: r[5], burden: r[6], asCfg: r[2] && r[2].exists ? r[2].data() : null, otherMonthly: +lbc.otherMonthly || 0, ownerPct: lbOwnerPct(lbc) };
   });
 }
 
