@@ -1787,9 +1787,11 @@ function lbRenderBar() {
   if(!lt || sc.days < lbDaysIn(ym)) lines.push(`整個月上限約 ${fmt(p.cap)}h`); // 整月都排完時跟上面同一個數，不重複
   const wan1 = v => (Math.round(v / 1000) / 10) + ' 萬';
   if(ev.projCost != null) lines.push(`照目前排法，整月人事約 ${wan1(ev.projCost)}／上限 ${wan1(p.budget)}`);
-  if(ev.targetPds != null) lines.push(`每天要做到 ${wan1(ev.targetPds)}（含稅）才達標，近 3 個月平均 ${wan1(ev.salesPds)}`);
+  if(ev.targetPds != null) lines.push(`每天要做到 ${wan1(ev.targetPds)}（含稅）才達標，${p.live ? '這個月目前平均' : '近 3 個月平均'} ${wan1(ev.salesPds)}`);
   if(ev.minH && ev.minH > p.capLo) lines.push(`<span style="color:#c5221f;font-weight:700;">⚠️ 基本人力就要 ${fmt(ev.minH)}h，少排班省不下來，要從業績或盤損改善</span>`);
-  const det = `<div class="lb-detail">${lines.join('<br>')}<div class="lb-note">依過去 ${lbLoaded.model.months.length} 個月營收推算，僅供參考</div></div>`;
+  // 月中有 10 天以上每日營業額 → 上限改用本月實際業績推算（會隨業績變動，使用者 2026-10-11 選雙向調整）
+  const basis = p.live ? `上限依這個月前 ${p.live.days} 天的實際營業額推算，業績好會放寬、變差會收緊` : `依過去 ${lbLoaded.model.months.length} 個月營收推算`;
+  const det = `<div class="lb-detail">${lines.join('<br>')}<div class="lb-note">${basis}，僅供參考</div></div>`;
   bar.style.background = col[0]; bar.style.color = col[1];
   bar.innerHTML = `<div class="lb-head" onclick="lbToggleBar()"><span class="lb-sum">${sum}</span><span class="lb-caret">${open ? '▴' : '▾'}</span></div>${open ? det : ''}`;
   bar.style.display = 'block';

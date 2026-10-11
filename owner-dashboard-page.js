@@ -814,7 +814,7 @@ async function loadLaborBudget(){
     const emps=[]; if(es) es.forEach(d=>emps.push({name:d.id,...d.data()}));
     const other=lc&&lc.exists?n(lc.data().otherMonthly):0;
     const pct=lbOwnerPct(lc&&lc.exists?lc.data():null);
-    const loaded={store:s, model:lbBuildModel(DATA[s].pnl,DATA[s].perf,{ptWage:lbPartTimeWage(emps),other,ownerPct:pct}), pds:lbPdsRatio(daily,DATA[s].pnl), asCfg:ac&&ac.exists?ac.data():null, otherMonthly:other, ownerPct:pct};
+    const loaded={store:s, model:lbBuildModel(DATA[s].pnl,DATA[s].perf,{ptWage:lbPartTimeWage(emps),other,ownerPct:pct}), pds:lbPdsRatio(daily,DATA[s].pnl), daily, asCfg:ac&&ac.exists?ac.data():null, otherMonthly:other, ownerPct:pct};
     const recs=[]; ws.forEach((snap,i)=>{ if(snap&&snap.exists) (snap.data().records||[]).forEach(r=>recs.push({...r,week:weeks[i]})); });
     out[s]={loaded, ev:lbEvaluate(loaded,recs,ym)};
   }));
@@ -840,13 +840,14 @@ function renderLaborBudget(only){
     const sched=ev.sched.lastDate?`${h(ev.sched.hours)}${sub(`排到 ${md(ev.sched.lastDate)}<br>應 ≤${h(lt.capP)}`)}${ev.projCost!=null?sub(`整月人事約 ${wan(ev.projCost)}`):''}`:'未排';
     const minH=ev.minH?sub(ev.minH>p.capLo?`<span style="color:#c5221f;">最低人力 ${h(ev.minH)} ⚠️</span>`:`最低人力 ${h(ev.minH)}`):'';
     const take=x.loaded.ownerPct?sub(`加盟主留 ${Math.round(x.loaded.ownerPct*100)}%（約 ${wan(p.ownerTake)}）`):sub('打平（未設加盟主比例）');
-    return `<tr><td>${lt?c[2]+' ':''}${esc(s)}</td><td>${sched}</td><td>${h(p.cap)}${sub(`人事上限 ${wan(p.budget)}`)}${take}${minH}</td><td>${wan(ev.bePds)}${sub(`達標 ${wan(ev.targetPds)}`)}${sub(`預估 ${wan(ev.salesPds)}`)}</td></tr>`;
+    return `<tr><td>${lt?c[2]+' ':''}${esc(s)}</td><td>${sched}</td><td>${h(p.cap)}${sub(`人事上限 ${wan(p.budget)}`)}${take}${minH}</td><td>${wan(ev.bePds)}${sub(`達標 ${wan(ev.targetPds)}`)}${sub(`${p.live?`本月實際（${p.live.days} 天）`:'預估'} ${wan(ev.salesPds)}`)}</td></tr>`;
   }).join('');
   const inp=(id,v,w)=>`<input type="number" inputmode="decimal" id="${id}" value="${v}" style="width:${w}px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;text-align:right;">`;
   const edit=only.map(s=>{ const x=lbDash[s]; if(!x) return ''; return `<div class="todo-line" style="flex-wrap:wrap;gap:6px;"><span>${esc(s)}</span><span style="white-space:nowrap;">加盟主留 ${inp('lbPct_'+esc(s),Math.round((x.loaded.ownerPct||0)*1000)/10,52)}%　其他支出 ${inp('lbOther_'+esc(s),x.loaded.otherMonthly||0,78)} <button onclick="saveLbOther('${esc(s)}')" style="padding:4px 10px;border:none;border-radius:6px;background:#1a73e8;color:#fff;font-weight:700;">存</button></span></div>`; }).join('');
   return `<div class="scroll"><table class="tbl" style="white-space:normal;"><thead><tr><th>門市</th><th>已排</th><th>整月上限</th><th>兩平 PDS</th></tr></thead><tbody>${rows}</tbody></table></div>
   <div style="font-size:11.5px;color:var(--muted);line-height:1.7;margin:8px 2px;">
     整月上限＝扣掉加盟主要留的比例後，人事還能用多少，換算成工讀時數。「應 ≤」是按已排天數攤的上限。<br>
+    營收預估：月初用近 3 個月平均；這個月每日營業輸入滿 10 天後，改用本月實際業績推算（業績好上限放寬、變差收緊）。<br>
     PDS＝平均每日營業額（含稅，同後台 PSD）＝損益表營業淨額 × 換算比例：${only.map(s=>{ const pi=lbDash[s]&&lbDash[s].ev.pdsInfo; if(!pi) return ''; return `${esc(s)} ${pi.ratio.toFixed(3)}（${pi.auto?pi.months.map(x=>+x.ym.slice(5)).join('、')+' 月實測':'預設，還沒有每天都輸入的完整月份'}）`; }).filter(Boolean).join('、')}。兩平＝近 3 月人事打平；達標＝照目前排法、扣掉加盟主比例。<br>
     ⚠️ 基本人力已超過上限：少排班達不到，要靠業績或盤損。店長在排班頁看得到時數、燈號與人事成本，看不到經營報酬與加盟主比例。
   </div>
