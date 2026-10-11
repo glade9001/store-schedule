@@ -20,8 +20,12 @@ var LB_TAX = 0;                         // 營業稅由總部隨發票付、加�
 // PDS（平均每日營業額）用含稅表示，跟日結單、每日營業頁一致（使用者 2026-10-11）。
 // PDS＝後台三班帳務分析表的「PSD 含代銷隨取」（＝日結單 111 本日實際銷貨收入）。
 // 實測（2026-10-11，美德 7/8/9 月每日加總 ÷ 損益表營業淨額）：0.9795／0.9749／0.9792 → 0.978。
-// 營業淨額並不是「PSD 未稅」（原本假設 ×1.05 會高估約 7%）。聯鑫、錦花尚未對過，先共用。
+// 營業淨額並不是「PSD 未稅」（原本假設 ×1.05 會高估約 7%）。
+// 差 2% 的來源（美德 9 月損益表營業收入明細）：營業淨額 ≈ PSD − 營業稅（內含稅，約 4.4%）＋ 代收售／受託代銷手續費（約 6.4%）。
+// 比例會隨代收量變動 → 每店每月自動校正（lbPdsRatio），還沒有完整月份的店才用這個預設值。
 var LB_PDS_RATIO = 0.978;
+var LB_PDS_MONTHS = 3;     // 用最近 3 個完整月份（金額加權）
+var LB_PDS_DRIFT = 0.01;   // 最新一個月跟前幾個月差超過 1% → 儀表板提醒
 var LB_OFF = ['排休', '指休', '特休', '補休', '清空', ''];
 
 function lbYm(y, m) { return y + '-' + String(m).padStart(2, '0'); }
@@ -172,6 +176,42 @@ function lbLight(plan, sched, ym) {
 /** config/laborBudget.ownerPct 存的是百分比數字（5＝5%），沒設定＝0（打平） */
 function lbOwnerPct(c) { var v = +(c && c.ownerPct); return v > 0 && v < 100 ? v / 100 : 0; }
 
+/**
+ * PDS 換算比例（每日營業額加總 ÷ 損益表營業淨額），每月自動校正（使用者 2026-10-11）
+ * 完整月＝那個月每天都有輸入 dailySales.sales，而且損益表 netSales 已輸入。
+ * @param daily { 'YYYY-MM-DD': dailySales 文件 }
+ * @returns { ratio, auto（是否實測）, months:[{ym,psd,net,r}], drift（最新月偏離 >1% 時 {ym,r,prev}） }
+ */
+function lbPdsRatio(daily, pnl) {
+  var byM = {};
+  Object.keys(daily || {}).forEach(function (d) {
+    var x = daily[d]; if (!x || x.sales == null || x.sales === '') return;
+    var b = byM[d.slice(0, 7)] = byM[d.slice(0, 7)] || { s: 0, n: 0 };
+    b.s += +x.sales; b.n++;
+  });
+  var full = Object.keys(byM).filter(function (m) { return byM[m].n >= lbDaysIn(m) && pnl && pnl[m] && +pnl[m].netSales > 0; }).sort();
+  var months = full.slice(-LB_PDS_MONTHS).map(function (m) { return { ym: m, psd: byM[m].s, net: +pnl[m].netSales, r: byM[m].s / +pnl[m].netSales }; });
+  if (!months.length) return { ratio: LB_PDS_RATIO, auto: false, months: [], drift: null };
+  var sum = function (a, k) { return a.reduce(function (t, x) { return t + x[k]; }, 0); };
+  var drift = null;
+  if (months.length >= 2) {
+    var last = months[months.length - 1], prev = months.slice(0, -1), pr = sum(prev, 'psd') / sum(prev, 'net');
+    if (Math.abs(last.r - pr) > LB_PDS_DRIFT) drift = { ym: last.ym, r: last.r, prev: pr };
+  }
+  // 偏掉的那個月先不算進比例（多半是某天營業額打錯，一天多打一位數就會把比例拉到 1.09）；改正後自動恢復
+  var use = drift ? months.slice(0, -1) : months;
+  return { ratio: sum(use, 'psd') / sum(use, 'net'), auto: true, months: use, drift: drift };
+}
+/** 讀最近 6 個月的每日營業（夠找出 3 個完整月；損益表晚一個月才輸入） */
+function lbLoadDaily(db, store) {
+  var d = new Date(), from = new Date(d.getFullYear(), d.getMonth() - 6, 1);
+  var id = lbYm(from.getFullYear(), from.getMonth() + 1) + '-01';
+  return db.collection('stores').doc(store).collection('dailySales')
+    .where(firebase.firestore.FieldPath.documentId(), '>=', id).get()
+    .then(function (snap) { var o = {}; snap.forEach(function (x) { o[x.id] = x.data(); }); return o; })
+    .catch(function () { return {}; });
+}
+
 /** 讀一家店算燈號需要的資料（employees 已有就傳進來省一次讀取） */
 function lbLoadStore(db, store, employees) {
   var ref = db.collection('stores').doc(store);
@@ -181,13 +221,15 @@ function lbLoadStore(db, store, employees) {
     ref.collection('perfSnapshot').get().catch(function () { return null; }),
     ref.collection('config').doc('autoSchedule').get().catch(function () { return null; }),
     ref.collection('config').doc('laborBudget').get().catch(function () { return null; }),
-    employees ? Promise.resolve(null) : ref.collection('employees').get().catch(function () { return null; })
+    employees ? Promise.resolve(null) : ref.collection('employees').get().catch(function () { return null; }),
+    lbLoadDaily(db, store)
   ]).then(function (r) {
     var emps = employees || [];
     if (r[4]) r[4].forEach(function (d) { emps.push(Object.assign({ name: d.id }, d.data())); });
     var lbc = r[3] && r[3].exists ? r[3].data() : {};
-    var model = lbBuildModel(toMap(r[0]), toMap(r[1]), { ptWage: lbPartTimeWage(emps), other: +lbc.otherMonthly || 0, ownerPct: lbOwnerPct(lbc) });
-    return { store: store, model: model, asCfg: r[2] && r[2].exists ? r[2].data() : null, otherMonthly: +lbc.otherMonthly || 0, ownerPct: lbOwnerPct(lbc) };
+    var pnl = toMap(r[0]);
+    var model = lbBuildModel(pnl, toMap(r[1]), { ptWage: lbPartTimeWage(emps), other: +lbc.otherMonthly || 0, ownerPct: lbOwnerPct(lbc) });
+    return { store: store, model: model, pds: lbPdsRatio(r[5], pnl), asCfg: r[2] && r[2].exists ? r[2].data() : null, otherMonthly: +lbc.otherMonthly || 0, ownerPct: lbOwnerPct(lbc) };
   });
 }
 
@@ -206,13 +248,15 @@ function lbEvaluate(loaded, records, ym) {
   var plan = lbPlan(loaded.model, ym);
   var m = loaded.model, sched = lbScheduledHours(records, ym, m && !m.err ? m.H0 / 30 : 0);
   var proj = lbProjectedCost(m, sched, ym), days = lbDaysIn(ym);
-  var pds = function (S) { return S / days * LB_PDS_RATIO; };
+  var R = loaded.pds ? loaded.pds.ratio : LB_PDS_RATIO;
+  var pds = function (S) { return S / days * R; };
   return {
     ym: ym, plan: plan, sched: sched, light: lbLight(plan, sched, ym), minH: lbMinHours(loaded.asCfg, ym), projCost: proj,
     // 兩平 PDS：近 3 月人事、不留加盟主比例；達標 PDS：照目前排法的人事、扣掉加盟主比例（還沒排班就用近 3 月人事）
     bePds: plan ? pds(plan.beSales) : null,
     targetPds: plan ? pds(plan.salesFor(proj != null ? proj : m.L0, m.ownerPct)) : null,
     salesPds: plan ? pds(plan.sales) : null,
+    pdsInfo: loaded.pds || { ratio: LB_PDS_RATIO, auto: false, months: [], drift: null },
     err: loaded.model.err || (plan ? '' : '資料不足')
   };
 }
