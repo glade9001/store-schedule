@@ -18,6 +18,8 @@ var LB_SALES_ERR = 0.04;                // 營收預估誤差（回測 7～9 月
 // 月中用本月實際營業額重估（2026-10-11 回測美德 12 個月）：近 3 月平均誤差 4.2%；本月目前日均×天數
 // 第 5 天 4.8%（反而較差）、第 10 天 2.7%、第 15 天 2.2%、第 20 天 1.9% → 滿 10 天才換。
 var LB_LIVE_MIN_DAYS = 10;
+// 工讀的公司負擔（勞保、健保、勞退）÷（時薪×時數）：三店 2026-07～09 薪資實測合計 16.5%、中位數 17.2%
+var LB_PT_BURDEN = 0.16;
 var LB_SALES_ERR_LIVE = 0.03;
 var LB_MIN_MONTHS = 8;                  // 損益少於 8 個月不做回歸
 var LB_TAX = 0;                         // 營業稅由總部隨發票付、加盟主轉繳 → 不影響（見檔頭）
@@ -57,7 +59,9 @@ function lbPartTimeWage(employees) {
   var ws = (employees || []).filter(function (e) {
     return e && !['離職', '調走'].includes(e.status) && (e.payAsPartTime || String(e.role || '').includes('工讀')) && +e.wage > 0;
   }).map(function (e) { return +e.wage; });
-  return ws.length ? ws.reduce(function (s, x) { return s + x; }, 0) / ws.length : null;
+  // 要加上公司負擔（勞保、健保、勞退）（2026-10-11 使用者確認修正）。只影響「比近 3 月多／少的人事」換算成的時數，
+  // 10 月實際差：美德 −17h、聯鑫 −6h、錦花 +19h（人事上限低於近 3 月時，貴的時薪換算出的減少時數變少）
+  return ws.length ? ws.reduce(function (s, x) { return s + x; }, 0) / ws.length * (1 + LB_PT_BURDEN) : null;
 }
 
 /**
