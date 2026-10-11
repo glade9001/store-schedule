@@ -192,10 +192,13 @@ async function dsRenderTab() {
     .map(([k, l]) => `<button class="${dsTab === k ? 'on' : ''}" onclick="dsSetTab('${k}')">${l}</button>`).join('');
   const el = document.getElementById('dsMain');
   if (dsTab === 'who') { await dsRenderWho(el); return; }
+  if (dsRole !== 'lead') dsMonth = dsToday().slice(0, 7);
   if (dsTab === 'ana') { el.innerHTML = await dsRenderAna(dsStoreName, dsMonth); return; }
   el.innerHTML = dsRenderList(await dsLoadMonth(dsStoreName, dsMonth));
 }
 function dsMonthSel() {
+  // 作帳人員（店長有勾「看得到分析」時）只看當月，不能切其他月份（使用者 2026-10-11）
+  if (dsRole !== 'lead') return `<span class="month-fixed">${+dsMonth.slice(0, 4)}年${+dsMonth.slice(5)}月</span>`;
   const now = new Date(), opts = [];
   for (let i = 0; i < 12; i++) { const d = new Date(now.getFullYear(), now.getMonth() - i, 1); opts.push(`${d.getFullYear()}-${dsPad(d.getMonth() + 1)}`); }
   return `<select class="month-sel" onchange="dsMonth=this.value;dsRenderTab()">${opts.map(m => `<option value="${m}"${m === dsMonth ? ' selected' : ''}>${+m.slice(0, 4)}年${+m.slice(5)}月</option>`).join('')}</select>`;
@@ -530,7 +533,7 @@ async function dsRenderWho(el) {
   const gone = dsInputters.filter(n => !names.has(n)); // 已離職／調走但還在名單上的人，列出來讓店長取消
   el.innerHTML = `<div class="card"><div class="card-title">👤 作帳人員<span class="sub">${dsEsc(dsStoreName)}</span></div>
     <div class="chk-list">${dsEmps.concat(gone.map(n => ({ name: n, gone: true }))).map(e => `<label><input type="checkbox" value="${dsEsc(e.name)}"${dsInputters.includes(e.name) ? ' checked' : ''}>${dsEsc(e.name)}${e.gone ? '（已不在本店）' : ''}</label>`).join('')}</div>
-    <label class="see-ana"><input type="checkbox" id="dsSeeAna"${dsShowAna ? ' checked' : ''}>作帳人員也看得到「📊 分析」</label>
+    <label class="see-ana"><input type="checkbox" id="dsSeeAna"${dsShowAna ? ' checked' : ''}>作帳人員也看得到「📊 分析」（只有當月）</label>
     <button class="btn-primary" style="margin-top:12px;" onclick="dsSaveWho()">儲存</button>
     <div class="note">勾選的人在首頁選單會出現「輸入營業額」，只能輸入、修改最近 ${DS_EDIT_DAYS} 天。明細與指派只有店長看得到；分析（含業績進度、達標營業額）看上面的開關。</div></div>`;
 }
