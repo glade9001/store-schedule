@@ -369,6 +369,12 @@ function dsAnaProgress(cur, lb, ym, W, ctx) {
     done ? '' : (() => { const rem = n - last, need = tgt * n - cum;
       return need <= 0 ? `<div class="say"><b class="hi">這個月的達標已經做到了</b>。</div>`
         : `<div class="say">月底要達標，剩下 ${rem} 天每天要做到 <b>${dsWan(need / rem)}</b>。</div>`; })(),
+    // 要比去年同期成長（使用者 2026-10-11）：去年同期整月（364 天前對齊、扣大單）− 目前累計，平均到剩下的天數
+    done ? '' : (() => {
+      const ly = []; for (let d = 1; d <= n; d++) { const day = `${ym}-${dsPad(d)}`, l = ctx.ly(day); if (!l) return ''; ly.push(ctx.adj(l, ctx.lyBig(day))); }
+      const rem = n - last, need = ly.reduce((a, b) => a + b, 0) - cum;
+      return need <= 0 ? `<div class="say"><b class="hi">已經超過去年同期整月</b>。</div>`
+        : `<div class="say">要比去年同期成長，剩下 ${rem} 天每天要做到 <b>${dsWan(need / rem)}</b>。</div>`; })(),
   ];
   return `<div class="card">${title}${lines.join('')}
     ${dsLegend([['#1a73e8', '累計超前（線在 0 以上）／落後（0 以下）'], ['#94a3b8', '剛好達標', 'dash']])}
