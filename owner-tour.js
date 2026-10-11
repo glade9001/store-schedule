@@ -57,7 +57,21 @@ function otTourSteps() {
       text: '假設員工到期前都沒休，公司到期要把特休、補休折成現金付出去，這是最多要付的金額。要在意「必須結算」和「已過期未處理」。提早安排休假，就能少付這筆。' },
     { target: function () { return otFold('工時上限'); },
       title: '⏱️ 這個月最多能排幾小時',
-      text: '先扣掉加盟主要留的比例，剩下的才是人事預算，換算成工讀時數。月中每日營業輸入滿 10 天後會改用實際業績重算。要在意紅燈，以及「基本人力已超過上限」——那代表少排班也省不下來，要靠業績或盤損。比例在裡面的「⚙️ 設定」調。' },
+      text: '經營報酬先扣掉目標利潤（下一步說明），剩下的是人事預算，換算成工讀時數就是上限。月中每日營業輸入滿 10 天後，會改用實際業績重算。要在意紅燈，以及「基本人力已超過上限」——那代表少排班也省不下來，要靠業績或盤損。' },
+    { // 打開工時上限與裡面的「⚙️ 設定」讓加盟主看到在哪裡改；離開這一步恢復原本的收合狀態
+      before: function () {
+        var f = otFold('工時上限'); if (!f) return;
+        var g = f.querySelector('.fold-b details');
+        this._was = [f.open, g && g.open]; f.open = true; if (g) g.open = true;
+      },
+      after: function () {
+        var f = otFold('工時上限'); if (!f || !this._was) return;
+        var g = f.querySelector('.fold-b details');
+        if (g) g.open = this._was[1]; f.open = this._was[0]; this._was = null;
+      },
+      target: function () { var f = otFold('工時上限'); return f && f.open ? f.querySelector('.fold-b details') : null; },
+      title: '🎯 目標利潤率',
+      text: '經營報酬裡要先留下來當利潤的比例，剩下的才給人事。設越高，排班上限越緊；設 0% 就是打平。建議設在「努力一下做得到」的位置：太高會一直亮紅燈，店長反而麻痺。每家店分開設，改完馬上重算。' },
     { target: function () { return otFold('每日營業'); },
       title: '🧾 這個月到今天的生意',
       text: '只有輸入每日營業額的店才會出現。看這個月到今天比去年同期多少，以及剩下每天要做到多少才達標、才比去年成長。點「看分析」到每日營業頁看細節。' },
@@ -126,8 +140,9 @@ async function startOwnerTour() {
 }
 
 function otShow(dir) {
-  while (otIdx >= 0 && otIdx < otSteps.length && !otRect(otSteps[otIdx])) otIdx += dir; // 看不到的區塊（例如還在計算）略過
-  if (otIdx < 0) { otIdx = 0; while (otIdx < otSteps.length && !otRect(otSteps[otIdx])) otIdx++; }
+  var ok = function (i) { var st = otSteps[i]; if (st.before) st.before(); if (otRect(st)) return true; if (st.after) st.after(); return false; };
+  while (otIdx >= 0 && otIdx < otSteps.length && !ok(otIdx)) otIdx += dir; // 看不到的區塊（例如還在計算）略過
+  if (otIdx < 0) { otIdx = 0; while (otIdx < otSteps.length && !ok(otIdx)) otIdx++; }
   if (otIdx >= otSteps.length) { closeOwnerTour(); return; }
   var s = otSteps[otIdx], hit = otRect(s);
   if (s.fixed) window.scrollTo(0, 0);
@@ -164,9 +179,11 @@ function otPlace() {
   coach.style.setProperty('--ax', ax + 'px');
 }
 
-function otGo(d) { otIdx += d; if (otIdx >= otSteps.length) { closeOwnerTour(); return; } otShow(d); }
+function otLeave() { var st = otSteps[otIdx]; if (st && st.after) st.after(); }
+function otGo(d) { otLeave(); otIdx += d; if (otIdx >= otSteps.length) { closeOwnerTour(); return; } otShow(d); }
 
 function closeOwnerTour() {
+  otLeave();
   var layer = document.getElementById('otLayer'); if (layer) layer.classList.remove('active');
   window.scrollTo(0, 0);
   if (otPrevScope) { var s = otPrevScope; otPrevScope = null; OwnerScope.set(s, STORES); }
