@@ -46,8 +46,10 @@ function canvasDrawWrappedText(ctx, text, cx, startY, maxWidth, lineHeight) {
   }
 }
 
-function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, allStoresRecs) {
+function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, allStoresRecs, opts) {
   // allStoresRecs: 全部門市的記錄，用來查跨店支援
+  // opts.changes（選填，班表分享頁用）：{ '姓名|週一': '10/12 14:30 某某' } → 該格黃底＋底部小字標出異動
+  const changes = (opts && opts.changes) || null;
   const allRecs = allStoresRecs || records;
   const ctx = canvas.getContext('2d');
   const font = '"Microsoft JhengHei", "PingFang TC", sans-serif';
@@ -220,8 +222,16 @@ function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, al
       if (alsoSupport) subs.push({ t:`支援${supportOut._store} ${supportOut.shift || ''}`.trim(), c:'#0369a1', s:16 });
       if (effNote) subs.push({ t: effNote, c:'#0077aa', s:16 });
 
+      // 發布後有異動：整格黃底（內縮 2px 不蓋到格線），底部留一行給異動時間
+      const chg = changes && changes[`${emp.name}|${day}`];
+      if (chg) {
+        const cellX = margin + nameColW + i * dataColW;
+        ctx.fillStyle = '#fff3b0';
+        ctx.fillRect(cellX + 2, rowY + 2, dataColW - 4, rowH - 4);
+      }
+
       // 班別主文字 Y：有附加行時整體往上挪
-      const shiftY = subs.length ? midY - 6 - (subs.length - 1) * 6 : midY;
+      const shiftY = (subs.length ? midY - 6 - (subs.length - 1) * 6 : midY) - (chg ? 10 : 0);
 
       if (effShift === '指休') {
         ctx.strokeStyle = '#d93025'; ctx.lineWidth = 2.5;
@@ -268,6 +278,11 @@ function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, al
         ctx.fillText(sub.t, cx, subY);
         subY += sub.s + 6;
       });
+      if (chg) {
+        ctx.fillStyle = '#9a6700';
+        ctx.font = `bold 15px ${font}`;
+        ctx.fillText(chg, cx, rowY + rowH - 13);
+      }
     });
     rowY += rowH;
   });

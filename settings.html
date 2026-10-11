@@ -151,6 +151,20 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
       <div id="clockGeoGrid"></div>
       <button class="save-btn" style="margin-top:10px;" onclick="saveClockConfig()">💾 儲存打卡設定</button>
     </div>
+    <div id="itemShare" class="set-item" style="display:none;">
+      <div class="card-title set-head" onclick="toggleSet(this)" style="padding:0 0 8px;">📤 班表分享連結
+        <span class="perm-badge perm-admin">管理者</span><span class="set-chev">▸</span>
+      </div>
+      <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px; line-height:1.6;">
+        拿到連結的人<b>不用登入</b>就能看三店的<b>本週＋下週</b>班表（下週要發布後才看得到）。發布後被改過的格子會標黃底和異動時間。<br>
+        連結<b>永久有效</b>，不用了請按「撤銷」，撤銷後立刻打不開。
+      </div>
+      <div style="display:flex; gap:8px;">
+        <input id="shareLabel" type="text" maxlength="30" placeholder="給誰看（例：總部）" style="flex:1; min-width:0; padding:10px 12px; border:1.5px solid var(--border); border-radius:10px; font-size:14px;">
+        <button onclick="createScheduleShare()" style="padding:10px 14px; background:var(--primary); color:#fff; border:none; border-radius:10px; font-size:14px; font-weight:800; cursor:pointer; white-space:nowrap;">產生連結</button>
+      </div>
+      <div id="shareList" style="margin-top:12px; font-size:13px;">載入中...</div>
+    </div>
       <div class="menu-list" style="margin-bottom:16px;">
         <div id="itemShift" class="menu-item" onclick="openStoreConfigModal()">
           <div class="menu-item-icon" style="background:#e8f0fe;">🔧</div>

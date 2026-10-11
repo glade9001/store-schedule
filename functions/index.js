@@ -449,7 +449,7 @@ exports.lineWebhook = onRequest(
 );
 
 // ===== LINE 通知：事件推播（步驟3、4）=====
-const { onDocumentWritten, onDocumentCreated } = require("firebase-functions/v2/firestore");
+const { onDocumentWritten, onDocumentCreated, onDocumentWrittenWithAuthContext } = require("firebase-functions/v2/firestore");
 
 // 特休候補協商：員工寫 leaveNego 文件 → LINE 通知全體(排除候補者本人)＋店長協助換假(措辭方案A)
 exports.onLeaveNego = onDocumentCreated(
@@ -755,6 +755,225 @@ exports.onScheduleChanged = onDocumentWritten(
     }
   }
 );
+
+// ===== 班表分享連結（2026-10-11）=====
+// 管理員在設定頁產生 scheduleShares/{token}，拿連結的人（加盟主／總部）免登入看三店「本週＋下週」班表。
+// ・班表要登入才讀得到，所以分享頁不直接讀 Firestore，一律經 getScheduleShare 驗代碼後由後端交資料；
+//   只交畫圖用得到的欄位（班別／備註／地點／支援），工號、時薪、員工檔其他欄位一律不出去。
+// ・週次以「打開當下」計算，同一條連結每週自動換成新的本週＋下週。
+// ・未發布（且未過週五 18:00 自動發布）的週只回「尚未發布」，不露草稿。
+// ・連結永久有效，管理員撤銷（revoked=true）後立即失效（使用者 2026-10-11 定案）。
+// 規則：scheduleShares 只有 admin 能讀寫；scheduleChanges 前端完全不能碰（catch-all 已排除兩者）。
+
+// 一格的「顯示內容」指紋：只看產圖會畫出來的欄位。劃休申請(requestOff)等不影響畫面的不算異動。
+function shareCellSig(r) {
+  if (!r) return "";
+  const sup = r.approvalStatus === "approved" ? (r.supportEmp || "") : "";
+  return [r.shift || "", r.note || "", r.location || "", r.isOT === true ? 1 : 0, sup].join("|");
+}
+function shareCellMap(records) {
+  const m = new Map(); // `${name}|${day}` → 第一筆（與產圖 records.find 相同取法）
+  for (const r of (records || [])) {
+    if (!r || !r.name || !r.day || r.name === "門市備註") continue;
+    const k = `${r.name}|${r.day}`;
+    if (!m.has(k)) m.set(k, r);
+  }
+  return m;
+}
+function shareCellText(r) {
+  if (!r || !r.shift) return "空白";
+  const sh = ["排休", "指休"].includes(r.shift) ? "休" : r.shift;
+  return sh + (r.location && r.location !== "本店" ? `（${r.location}）` : "");
+}
+// 週一（UTC 午夜＝台北該日）——與 weekStrOfTp 同一套週次定義
+function shareWeekMondayUTC(wStr) {
+  const [y, w] = String(wStr).split("-W");
+  const d = week1MondayUTC(parseInt(y));
+  d.setUTCDate(d.getUTCDate() + (parseInt(w) - 1) * 7);
+  return d;
+}
+// 前端 isAutoPublished：該週週一往前推到上週五 18:00（台北）之後視為已發布
+function shareAutoPublished(wStr, nowMs) {
+  return nowMs >= shareWeekMondayUTC(wStr).getTime() - 3 * 86400000 + 10 * 3600000;
+}
+
+// 發布後的班表被改 → 逐格記下「誰、哪一天、原本→改成、什麼時間、誰改的」
+// ⚠️ 用 WithAuthContext 才拿得到修改者；Cloud Functions 自己寫的（Admin SDK）記成「系統」。
+// ⚠️ 店名從 event.params 來會是 latin1 亂碼，一定要 fixStoreName（見 reference_cjk_encoding_traps）。
+// ⚠️ arrayUnion 會吃掉完全相同的元素 → 每筆帶 at（毫秒）＋序號。
+exports.onScheduleCellLog = onDocumentWrittenWithAuthContext(
+  { document: "stores/{store}/weeks/{weekStr}", region: "asia-east1" },
+  async (event) => {
+    if (!event.data.before.exists || !event.data.after.exists) return;
+    const before = event.data.before.data() || {};
+    const after = event.data.after.data() || {};
+    const weekStr = event.params.weekStr;
+    const now = Date.now();
+    const auto = shareAutoPublished(weekStr, now);
+    // 改之前、改之後都已經是「看得到的班表」才算異動（發布那一下本身不算）
+    if (!((before.published === true || auto) && (after.published === true || auto))) return;
+    const bm = shareCellMap(before.records), am = shareCellMap(after.records);
+    const keys = new Set([...bm.keys(), ...am.keys()]);
+    const changed = [];
+    for (const k of keys) {
+      if (shareCellSig(bm.get(k)) === shareCellSig(am.get(k))) continue;
+      const [name, day] = k.split("|");
+      changed.push({ name, day, from: shareCellSig(bm.get(k)), to: shareCellSig(am.get(k)),
+        fromText: shareCellText(bm.get(k)), toText: shareCellText(am.get(k)) });
+    }
+    if (!changed.length) return;
+    const db = admin.firestore();
+    let by = "系統";
+    if (event.authType === "app_user" && event.authId) {
+      const u = await db.collection("users").doc(event.authId).get().catch(() => null);
+      const ud = u && u.exists ? u.data() : {};
+      by = ud.displayName || ud.empName || "未知使用者";
+    }
+    const store = fixStoreName(event.params.store);
+    const items = changed.map((c, i) => ({ ...c, at: now, seq: i, by }));
+    await db.collection("scheduleChanges").doc(`${store}__${weekStr}`).set({
+      store, weekStr, updatedAt: now,
+      items: admin.firestore.FieldValue.arrayUnion(...items),
+    }, { merge: true });
+  }
+);
+
+// 分享頁讀資料：GET ?t=<token>
+exports.getScheduleShare = onRequest({ region: "asia-east1" }, async (req, res) => {
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Cache-Control", "no-store");
+  if (req.method === "OPTIONS") { res.set("Access-Control-Allow-Methods", "GET"); res.status(204).send(""); return; }
+  if (req.method !== "GET") { res.status(405).json({ error: "method" }); return; }
+  const token = String(req.query.t || "");
+  if (!/^[A-Za-z0-9_-]{24,64}$/.test(token)) { res.status(404).json({ error: "invalid" }); return; }
+  const db = admin.firestore();
+  const shareRef = db.collection("scheduleShares").doc(token);
+  const share = await shareRef.get();
+  if (!share.exists || share.data().revoked === true) { res.status(404).json({ error: "invalid" }); return; }
+  shareRef.update({ lastViewedAt: Date.now(), views: admin.firestore.FieldValue.increment(1) }).catch(() => {});
+
+  const cfg = await db.collection("settings").doc("globalConfig").get().catch(() => null);
+  const stores = ((cfg && cfg.exists ? cfg.data().stores : []) || []).filter((s) => s && s !== "人力支援");
+  const now = Date.now();
+  const tpNow = new Date(now + 8 * 3600000);
+  const weekStrs = [weekStrOfTp(tpNow), weekStrOfTp(new Date(tpNow.getTime() + 7 * 86400000))];
+
+  // 顯示名（account.displayName）：所有門市一次讀
+  const accSnap = await db.collection("account").get().catch(() => null);
+  const nameMapAll = {};
+  if (accSnap) accSnap.forEach((d) => { const a = d.data(); if (a.empName && a.displayName) nameMapAll[a.empName] = a.displayName; });
+  const empSnaps = await Promise.all(stores.map((s) => db.collection("stores").doc(s).collection("employees").get().catch(() => null)));
+  const usedNames = new Set();
+
+  const pick = (r) => ({
+    name: r.name, day: r.day, shift: r.shift || "", note: r.note || "", location: r.location || "",
+    supportEmp: r.supportEmp || "", approvalStatus: r.approvalStatus || "",
+    actualHours: r.actualHours || 0, isOT: r.isOT === true,
+  });
+
+  const weeks = [];
+  for (const wk of weekStrs) {
+    const mon = shareWeekMondayUTC(wk);
+    const dates = [], iso = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(mon.getTime() + i * 86400000);
+      dates.push(`${d.getUTCMonth() + 1}/${d.getUTCDate()}`);
+      iso.push(d.toISOString().slice(0, 10));
+    }
+    const monStr = iso[0], sunStr = iso[6];
+    const [wkSnaps, chSnaps] = await Promise.all([
+      Promise.all(stores.map((s) => db.collection("stores").doc(s).collection("weeks").doc(wk).get().catch(() => null))),
+      Promise.all(stores.map((s) => db.collection("scheduleChanges").doc(`${s}__${wk}`).get().catch(() => null))),
+    ]);
+    const wkData = wkSnaps.map((s) => (s && s.exists ? s.data() : {}));
+    const visible = wkData.map((d) => d.published === true || shareAutoPublished(wk, now));
+
+    // 每店「淨異動」：同一格取最早的 from 與最後一次的時間／修改者；最後結果與原本相同（改回去）就不算
+    // 待補格被認領／取消時，被派去支援的人在「他自己店」的那一格也要標（crossMarks，最後套上）
+    const crossMarks = [];
+    const netByStore = stores.map((s, si) => {
+      const out = {};
+      const items = (chSnaps[si] && chSnaps[si].exists ? chSnaps[si].data().items : []) || [];
+      const cur = shareCellMap(wkData[si].records);
+      const byKey = {};
+      items.slice().sort((a, b) => (a.at - b.at) || (a.seq - b.seq)).forEach((it) => {
+        const k = `${it.name}|${it.day}`;
+        if (!byKey[k]) byKey[k] = { day: it.day, from: it.from, at: it.at, by: it.by };
+        else { byKey[k].at = it.at; byKey[k].by = it.by; }
+      });
+      for (const k in byKey) {
+        const c = byKey[k];
+        const curRec = cur.get(k);
+        if (c.from === shareCellSig(curRec)) continue;
+        out[k] = { at: c.at, by: c.by };
+        const oldSup = String(c.from).split("|")[4] || "";
+        const newSup = curRec && curRec.approvalStatus === "approved" ? (curRec.supportEmp || "") : "";
+        if (oldSup === newSup) continue;
+        for (const sup of [oldSup, newSup]) {
+          const dash = sup.indexOf("-");
+          const hi = dash > 0 ? stores.indexOf(sup.slice(0, dash)) : -1;
+          if (hi >= 0) crossMarks.push({ hi, key: `${sup.slice(dash + 1)}|${c.day}`, at: c.at, by: c.by });
+        }
+      }
+      return out;
+    });
+    crossMarks.forEach(({ hi, key, at, by }) => {
+      const prev = netByStore[hi][key];
+      if (!prev || prev.at < at) netByStore[hi][key] = { at, by };
+    });
+
+    const storeOut = stores.map((s, si) => {
+      const d = wkData[si];
+      if (!visible[si]) return { store: s, visible: false };
+      const records = (d.records || []).filter((r) => r && r.name && r.day).map(pick);
+      // 他店記錄只留「派本店員工去支援且已核准」的格子——產圖只用它判斷 supportOut
+      const cross = [];
+      stores.forEach((os, oi) => {
+        if (oi === si) return;
+        (wkData[oi].records || []).forEach((r) => {
+          if (r && r.approvalStatus === "approved" && typeof r.supportEmp === "string" && r.supportEmp.startsWith(`${s}-`)) {
+            cross.push({ ...pick(r), _store: os, week: wk });
+          }
+        });
+      });
+      // 員工列：與排班頁「查閱班表」(loadEmpView) 同一套在職／調職判斷
+      const emps = [];
+      const published = d.published === true;
+      if (empSnaps[si]) empSnaps[si].forEach((doc) => {
+        const e = doc.data();
+        const row = { name: doc.id, sortKey: e.sortKey || 0 };
+        const status = e.status;
+        if (!["離職", "調走"].includes(status)) {
+          const dep = e.departDate, st = e.startDate;
+          if (dep && st && dep < st) {
+            if (monStr >= st || sunStr < dep || (dep >= monStr && dep <= sunStr)) emps.push(row);
+            return;
+          }
+          if (st && sunStr < st) return;
+          emps.push(row); return;
+        }
+        if (status === "離職") return;
+        const eff = e.transferDate;
+        if (!eff) return;
+        if ((published && eff >= monStr) || eff > sunStr || (eff >= monStr && eff <= sunStr)) emps.push(row);
+      });
+      emps.sort((a, b) => a.sortKey - b.sortKey);
+      records.forEach((r) => usedNames.add(r.name));
+      cross.forEach((r) => { if (r.supportEmp) usedNames.add(r.supportEmp.split("-")[1] || ""); });
+      emps.forEach((e) => usedNames.add(e.name));
+      const changes = netByStore[si];
+      const lastChangeAt = Object.values(changes).reduce((m, c) => Math.max(m, c.at), 0) || null;
+      return {
+        store: s, visible: true, published, publishedAt: d.publishedAt || null, publishedBy: d.publishedBy || "",
+        records, cross, emps: emps.map((e) => ({ name: e.name })), changes, lastChangeAt,
+      };
+    });
+    weeks.push({ weekStr: wk, dates, stores: storeOut });
+  }
+  const names = {};
+  usedNames.forEach((n) => { if (nameMapAll[n]) names[n] = nameMapAll[n]; });
+  res.json({ title: share.data().label || "", now, weeks, names });
+});
 
 // 彙整某週佇列 → 比對 baseRecs vs 目前班表，只通知「班次有淨變動」的在職員工
 // force=true 是店長在班表頁按「立即通知」＝明示要發，不受每日上限限制。

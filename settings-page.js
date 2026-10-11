@@ -53,15 +53,15 @@ window.onload = async () => {
   // ⚠️ 顯示時要還原成 ''（讓 CSS 決定），不能寫死 'block'——設定項現在有些是 flex 版面的 menu-item
   const showEl=(id,ok)=>{const el=document.getElementById(id);if(el)el.style.display=ok?'':'none';};
   // 各設定項依權限顯示（分類分組）
-  showEl('itemClock', canAdmin()); showEl('itemStoreMgmt', canAdmin()); showEl('itemCity', canAdmin()); showEl('itemMaint', canAdmin()); showEl('itemLineKw', canAdmin()); showEl('itemStats', canAdmin());
+  showEl('itemClock', canAdmin()); showEl('itemShare', canAdmin()); showEl('itemStoreMgmt', canAdmin()); showEl('itemCity', canAdmin()); showEl('itemMaint', canAdmin()); showEl('itemLineKw', canAdmin()); showEl('itemStats', canAdmin());
   showEl('itemShift', canManager());
   showEl('itemInsurance', canOwner()); showEl('itemHoliday', canOwner());
   showEl('itemChangelog', true);
   // 👤 我的：所有人都有；「加入主畫面」只對還沒裝成 App 的人顯示（同 ☰ 的判斷）
   showEl('itemA2hs', typeof hpStandalone === 'function' ? !hpStandalone() : false);
-  if(canAdmin()){ loadLineKeywords(); loadMaintenanceState(); loadClockConfig(); loadCitySummary(); loadNoticeStats(); loadTourStats(); loadAppUsageStats(); }
+  if(canAdmin()){ loadScheduleShares(); loadLineKeywords(); loadMaintenanceState(); loadClockConfig(); loadCitySummary(); loadNoticeStats(); loadTourStats(); loadAppUsageStats(); }
   // 群組標題：該類任一項可見才顯示整組
-  [['grpOps',['itemClock','itemShift','itemStoreMgmt','itemCity']],['grpPayLaw',['itemInsurance','itemHoliday']],['grpSystem',['itemMaint','itemLineKw','itemStats']]]
+  [['grpOps',['itemClock','itemShare','itemShift','itemStoreMgmt','itemCity']],['grpPayLaw',['itemInsurance','itemHoliday']],['grpSystem',['itemMaint','itemLineKw','itemStats']]]
     .forEach(([g,items])=>{ const any=items.some(id=>{const el=document.getElementById(id);return el&&el.style.display!=='none';}); showEl(g,any); });
 
   hideLoading();
@@ -273,6 +273,65 @@ async function stopNotice(id) {
     await window.db.collection('notices').doc(id).update({ active: false, stoppedAt: new Date().toISOString(), stoppedBy: currentUser.empName || '' });
     showToast('已停止跳出');
     loadNoticeStats();
+  } catch(e) { showToast('失敗：' + e.message); }
+}
+
+// ===== 班表分享連結（admin）=====
+// 代碼＝文件 id，就是通行證：32 字元亂數（crypto），規則只讓 admin 讀寫 scheduleShares。
+// 分享頁經 getScheduleShare 函式驗證，連結永久有效，撤銷＝revoked:true（不刪，留紀錄）。
+function scheduleShareUrl(token) { return new URL('schedule-share.html?t=' + token, location.href).href; }
+async function loadScheduleShares() {
+  const box = document.getElementById('shareList');
+  if(!box) return;
+  try {
+    const snap = await window.db.collection('scheduleShares').orderBy('createdAt', 'desc').get();
+    if(snap.empty) { box.innerHTML = '<div style="color:var(--text-muted);">還沒有分享連結</div>'; return; }
+    const fmt = (ms) => { const d = new Date(ms); return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
+    const esc = (t) => String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    let html = '';
+    snap.forEach(d => {
+      const x = d.data();
+      const seen = x.lastViewedAt ? `最後開啟 ${fmt(x.lastViewedAt)}（共 ${x.views||0} 次）` : '還沒有人開過';
+      html += `<div style="border:1.5px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:8px; ${x.revoked?'opacity:.5;':''}">
+        <div style="font-weight:800;">${esc(x.label || '（未命名）')}${x.revoked?' <span style="color:var(--danger); font-size:12px;">已撤銷</span>':''}</div>
+        <div style="font-size:12px; color:var(--text-muted);">${esc(x.createdBy||'')} 於 ${fmt(x.createdAt)} 產生・${seen}</div>
+        ${x.revoked ? '' : `<div style="display:flex; gap:8px; margin-top:8px;">
+          <button onclick="copyScheduleShare('${d.id}')" style="flex:1; padding:8px; background:#eef4ff; color:var(--primary); border:none; border-radius:8px; font-weight:800; cursor:pointer;">📋 複製連結</button>
+          <button onclick="revokeScheduleShare('${d.id}')" style="padding:8px 12px; background:#fdecea; color:var(--danger); border:none; border-radius:8px; font-weight:800; cursor:pointer;">撤銷</button>
+        </div>`}
+      </div>`;
+    });
+    box.innerHTML = html;
+  } catch(e) { box.innerHTML = '<div style="color:var(--danger);">載入失敗：' + e.message + '</div>'; }
+}
+async function createScheduleShare() {
+  const label = (document.getElementById('shareLabel').value || '').trim();
+  if(!label) { showToast('請先填「給誰看」，之後才分得出是哪一條'); return; }
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  const token = btoa(String.fromCharCode(...bytes)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  try {
+    await window.db.collection('scheduleShares').doc(token).set({
+      label, revoked: false, createdAt: Date.now(), createdBy: currentUser.displayName || currentUser.empName || ''
+    });
+    document.getElementById('shareLabel').value = '';
+    await copyScheduleShare(token);
+    loadScheduleShares();
+  } catch(e) { showToast('失敗：' + e.message); }
+}
+async function copyScheduleShare(token) {
+  const url = scheduleShareUrl(token);
+  try { await navigator.clipboard.writeText(url); showToast('✅ 已複製連結'); }
+  catch(e) { prompt('請複製這個連結', url); }
+}
+async function revokeScheduleShare(token) {
+  if(!confirm('確定撤銷這條連結？\n\n撤銷後立刻打不開，無法恢復（要再分享請重新產生）。')) return;
+  try {
+    await window.db.collection('scheduleShares').doc(token).update({
+      revoked: true, revokedAt: Date.now(), revokedBy: currentUser.displayName || currentUser.empName || ''
+    });
+    showToast('已撤銷');
+    loadScheduleShares();
   } catch(e) { showToast('失敗：' + e.message); }
 }
 
