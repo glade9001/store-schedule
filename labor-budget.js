@@ -25,7 +25,11 @@ var LB_TAX = 0;                         // 營業稅由總部隨發票付、加�
 // 比例會隨代收量變動 → 每店每月自動校正（lbPdsRatio），還沒有完整月份的店才用這個預設值。
 var LB_PDS_RATIO = 0.978;
 var LB_PDS_MONTHS = 3;     // 用最近 3 個完整月份（金額加權）
-var LB_PDS_DRIFT = 0.01;   // 最新一個月跟前幾個月差超過 1% → 儀表板提醒
+var LB_PDS_DRIFT = 0.03;   // 最新一個月跟前幾個月差超過 3% → 儀表板提醒（扣掉大單後正常月份仍會差到 ±1.5%，1% 會一直響；漏打一位數、少輸入幾天都會超過 3%）
+// 大單日：客單 > 期間客單中位數 × 1.35（2026-10-11 美德 15 個月實測）。偶爾有幾天客單 150～260 的大單，
+// 多出的金額幾乎不會反映在損益表營業淨額 → 比例會跳到 1.05～1.09；扣掉後只剩 0.968～1.013。
+// 使用者不知道大單是什麼，所以只按資料處理：校正、業績進度都扣掉「比平常多出的金額」。
+var LB_BIG_TICKET = 1.35;
 var LB_OFF = ['排休', '指休', '特休', '補休', '清空', ''];
 
 function lbYm(y, m) { return y + '-' + String(m).padStart(2, '0'); }
@@ -177,7 +181,25 @@ function lbLight(plan, sched, ym) {
 function lbOwnerPct(c) { var v = +(c && c.ownerPct); return v > 0 && v < 100 ? v / 100 : 0; }
 
 /**
+ * 找出大單日。days：{ 'YYYY-MM-DD': {sales, customers} }（傳整段當基準，至少 7 天有來客才判斷）
+ * @returns { base（平常日均營業額）, big: { date: { excess（比平常多出的金額）, ticket } } }
+ */
+function lbBigDays(days) {
+  var ds = Object.keys(days || {}).filter(function (d) { var x = days[d]; return x && x.sales != null && +x.customers > 0; });
+  if (ds.length < 7) return { base: null, big: {} };
+  var tk = ds.map(function (d) { return +days[d].sales / +days[d].customers; }).sort(function (a, b) { return a - b; });
+  var k = tk.length >> 1, med = tk.length % 2 ? tk[k] : (tk[k - 1] + tk[k]) / 2;
+  var bigD = ds.filter(function (d) { return +days[d].sales / +days[d].customers > med * LB_BIG_TICKET; });
+  var normal = ds.filter(function (d) { return bigD.indexOf(d) < 0; });
+  var base = normal.reduce(function (t, d) { return t + +days[d].sales; }, 0) / normal.length;
+  var big = {};
+  bigD.forEach(function (d) { var ex = +days[d].sales - base; if (ex > 0) big[d] = { excess: ex, ticket: +days[d].sales / +days[d].customers }; });
+  return { base: base, big: big };
+}
+
+/**
  * PDS 換算比例（每日營業額加總 ÷ 損益表營業淨額），每月自動校正（使用者 2026-10-11）
+ * 每日加總先扣掉大單多出的金額（lbBigDays）。
  * 完整月＝那個月每天都有輸入 dailySales.sales，而且損益表 netSales 已輸入。
  * @param daily { 'YYYY-MM-DD': dailySales 文件 }
  * @returns { ratio, auto（是否實測）, months:[{ym,psd,net,r}], drift（最新月偏離 >1% 時 {ym,r,prev}） }
@@ -186,11 +208,16 @@ function lbPdsRatio(daily, pnl) {
   var byM = {};
   Object.keys(daily || {}).forEach(function (d) {
     var x = daily[d]; if (!x || x.sales == null || x.sales === '') return;
-    var b = byM[d.slice(0, 7)] = byM[d.slice(0, 7)] || { s: 0, n: 0 };
-    b.s += +x.sales; b.n++;
+    var b = byM[d.slice(0, 7)] = byM[d.slice(0, 7)] || { s: 0, n: 0, days: {} };
+    b.s += +x.sales; b.n++; b.days[d] = x;
+  });
+  Object.keys(byM).forEach(function (m) {
+    var bg = lbBigDays(byM[m].days).big, ex = 0;
+    Object.keys(bg).forEach(function (d) { ex += bg[d].excess; });
+    byM[m].big = ex; byM[m].s -= ex;
   });
   var full = Object.keys(byM).filter(function (m) { return byM[m].n >= lbDaysIn(m) && pnl && pnl[m] && +pnl[m].netSales > 0; }).sort();
-  var months = full.slice(-LB_PDS_MONTHS).map(function (m) { return { ym: m, psd: byM[m].s, net: +pnl[m].netSales, r: byM[m].s / +pnl[m].netSales }; });
+  var months = full.slice(-LB_PDS_MONTHS).map(function (m) { return { ym: m, psd: byM[m].s, big: byM[m].big, net: +pnl[m].netSales, r: byM[m].s / +pnl[m].netSales }; });
   if (!months.length) return { ratio: LB_PDS_RATIO, auto: false, months: [], drift: null };
   var sum = function (a, k) { return a.reduce(function (t, x) { return t + x[k]; }, 0); };
   var drift = null;

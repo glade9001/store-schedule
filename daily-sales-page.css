@@ -102,3 +102,6 @@ details.where ul{margin:4px 0;padding-left:20px;}
 .seg{display:inline-flex;background:#e8edf5;border-radius:8px;padding:2px;gap:2px;}
 .seg button{border:none;background:none;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:800;color:var(--muted);cursor:pointer;}
 .seg button.on{background:#fff;color:var(--primary);box-shadow:0 1px 2px rgba(0,0,0,.08);}
+.chart .mk.bg{fill:#a15c00;}
+.small-note{font-size:12px;color:var(--muted);}
+.bg-dot{display:inline-block;width:9px;height:9px;border:2px solid #a15c00;border-radius:50%;margin:0 4px -1px 2px;}
