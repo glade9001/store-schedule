@@ -94,7 +94,7 @@ function dsRenderInput() {
     <div class="f-row"><label>111 本日實際銷貨收入</label><input type="number" inputmode="numeric" id="dsSales" min="0" step="1" placeholder="${dsHint('sales', '例：65000')}"></div>
     <div class="f-grid">
       <div class="f-row"><label>101 本日來客數</label><input type="number" inputmode="numeric" id="dsCust" min="0" step="1" placeholder="${dsHint('customers', '例：600')}"></div>
-      <div class="f-row"><label>報廢金額<small>（日報表上沒有）</small></label><input type="number" inputmode="numeric" id="dsWaste" min="0" placeholder="例：1200"></div>
+      <div class="f-row"><label>報廢金額<small>（零售價）</small></label><input type="number" inputmode="numeric" id="dsWaste" min="0" placeholder="例：1200"></div>
     </div>
     <details class="where"><summary>📄 數字在現金日報表哪裡？</summary>
       <div>看「現金日報表」最右邊<b>「收銀機合計」</b>那一欄（⚠️ 這欄印歪了，往上錯一格，不要照左邊的項目名稱對）：</div>
@@ -255,7 +255,7 @@ function dsRenderAna(data) {
     ${kpi('日均來客', Cn ? dsMoney(C / Cn) + ' 人' : '—', Cn ? `客單價 ${dsMoney(sCust / C)} 元` : '')}
     ${kpi('報廢率', Wn && sWaste ? (W / sWaste * 100).toFixed(2) + '%' : '—', Wn ? `報廢 ${dsWan(W)}` : '')}
     ${kpi('每工時營業額', H ? dsMoney(SH / H) + ' 元' : '—', H ? `班表 ${dsMoney(H)} 小時` : '班表沒有對應的班')}
-  </div><div class="note">營業額為含稅金額。每工時營業額用班表排定時數（晚班、大夜算到隔天的營業日）。</div></div>`;
+  </div><div class="note">營業額為含稅金額。報廢率＝報廢（零售價）÷ 有填報廢那幾天的 111 本日實際銷貨收入；損益表的報廢是成本，兩者不能直接比。每工時營業額用班表排定時數（晚班、大夜算到隔天的營業日）。</div></div>`;
   // 星期幾平均（每個星期幾至少要有資料才列；整體資料滿 7 天才顯示，太少會被單日帶偏）
   if (ds.length >= 7) {
     const by = {};
