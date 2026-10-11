@@ -78,6 +78,7 @@ async function dsOnStore(first) {
   if (!dsRole) { dsDeny(); return; }
   await dsLoadRecent();
   dsRenderInput();
+  dsRenderMiss();
   await dsPickDate(document.getElementById('dsDate').value);
   if (dsRole === 'lead' || dsShowAna) { if (dsRole !== 'lead') dsTab = 'ana'; document.getElementById('dsTabs').style.display = dsRole === 'lead' ? '' : 'none'; await dsRenderTab(); }
   else { document.getElementById('dsTabs').style.display = 'none'; document.getElementById('dsMain').innerHTML = ''; }
@@ -92,6 +93,7 @@ function dsRenderInput() {
     <div class="card-title">✏️ 輸入營業數字<span class="sub">${dsEsc(dsStoreName)}</span></div>
     <div class="f-row"><label>營業日（晚＋夜＋早算一天，早班日結後輸入）</label>
       <input type="date" id="dsDate" value="${today}" max="${today}" ${min ? `min="${min}"` : ''} onchange="dsPickDate(this.value)"></div>
+    <div id="dsMiss"></div>
     <div id="dsSavedTag" class="saved-tag"></div>
     <div class="f-row"><label>111 本日實際銷貨收入</label><input type="number" inputmode="numeric" id="dsSales" min="0" step="1" placeholder="${dsHint('sales', '例：65000')}"></div>
     <div class="f-row"><label>101 本日來客數</label><input type="number" inputmode="numeric" id="dsCust" min="0" step="1" placeholder="${dsHint('customers', '例：600')}"></div>
@@ -119,6 +121,17 @@ function dsRefAvg(key, exclude) {
   return v.length >= 5 ? v.reduce((a, b) => a + b, 0) / v.length : null;
 }
 function dsHint(key, dflt) { const a = dsRefAvg(key); return a ? '近 4 週平均 ' + dsMoney(a) : dflt; }
+
+// 漏輸入提醒（使用者 2026-10-11：只放在這一頁，不上首頁——測試功能，別店不一定想用）
+// 最近 7 天（作帳人員能改的範圍）到昨天為止沒輸入的日子；本店最近 14 天完全沒輸入過就不顯示（還沒開始用）。
+// 為什麼要提醒：工時上限的換算比例只用「每天都有輸入」的月份，漏一天整個月就不能用。
+function dsRenderMiss() {
+  const el = document.getElementById('dsMiss'); if (!el) return;
+  const t = dsToday(), has = d => dsRecent[d] && dsRecent[d].sales != null;
+  const active = Object.keys(dsRecent).some(d => d >= shiftDateAdd(t, -14) && d < t && has(d));
+  const miss = []; for (let k = 7; k >= 1; k--) { const d = shiftDateAdd(t, -k); if (!has(d)) miss.push(d); }
+  el.innerHTML = active && miss.length ? `<div class="miss">⚠️ 最近 7 天有 ${miss.length} 天還沒輸入：${miss.map(d => `<a onclick="dsEditDay('${d}')">${dsMd(d)}（${dsWdOf(d)}）</a>`).join('、')}<small>點日期直接補；漏一天，那個月就不能拿來校正工時上限。</small></div>` : '';
+}
 
 async function dsPickDate(date) {
   const tag = document.getElementById('dsSavedTag');
@@ -177,6 +190,7 @@ async function dsSave() {
     });
     dsCache = {};
     dsRecent[date] = { date, sales, customers: cust, updatedBy: who, updatedByName: whoName };
+    dsRenderMiss();
     dsToast('✅ 已儲存 ' + dsMd(date));
     await dsPickDate(date);
     if (dsRole === 'lead') await dsRenderTab();
