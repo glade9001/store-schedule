@@ -11,7 +11,7 @@
 
 let dsUser = null, dsConfig = { stores: [] }, dsStoreName = '', dsRole = '', dsTab = 'ana', dsMonth = '';
 let dsCache = {};        // 'store|YYYY-MM' -> { days:{date:doc}, hours:{bizDate:h} }
-let dsEmps = [], dsInputters = [];
+let dsEmps = [], dsInputters = [], dsShowAna = false; // dsShowAna：店長決定作帳人員看不看得到「分析」（config/dailySales.inputterSeeAna，2026-10-11 使用者要求）
 let dsRecent = {}, dsPicked = null; // dsPicked：輸入框目前那天已存的資料（覆蓋確認用）       // 本店最近 DS_REF_DAYS 天的每日資料（防呆比對用）
 
 const DS_DAY_CUT = 14;   // 班別 14:00 以後開始（晚班、大夜）算隔天的營業日：晚＋夜＋早＝一天
@@ -72,13 +72,14 @@ async function dsOnStore(first) {
   try {
     const c = await dsRef().collection('config').doc('dailySales').get().catch(() => null);
     dsInputters = (c && c.exists && c.data().inputters) || [];
-  } catch (e) { dsInputters = []; }
+    dsShowAna = !!(c && c.exists && c.data().inputterSeeAna);
+  } catch (e) { dsInputters = []; dsShowAna = false; }
   dsRole = dsIsLeadOf(dsStoreName) ? 'lead' : (dsUser.store === dsStoreName && dsInputters.includes(dsUser.empName)) ? 'input' : '';
   if (!dsRole) { dsDeny(); return; }
   await dsLoadRecent();
   dsRenderInput();
   await dsPickDate(document.getElementById('dsDate').value);
-  if (dsRole === 'lead') { document.getElementById('dsTabs').style.display = ''; await dsRenderTab(); }
+  if (dsRole === 'lead' || dsShowAna) { if (dsRole !== 'lead') dsTab = 'ana'; document.getElementById('dsTabs').style.display = dsRole === 'lead' ? '' : 'none'; await dsRenderTab(); }
   else { document.getElementById('dsTabs').style.display = 'none'; document.getElementById('dsMain').innerHTML = ''; }
   dsLoaded();
   if (first) dsMaybeIntro();
@@ -186,12 +187,13 @@ async function dsSave() {
 // ───────── 店長：分頁 ─────────
 function dsSetTab(t) { dsTab = t; dsRenderTab(); }
 async function dsRenderTab() {
-  document.getElementById('dsTabs').innerHTML = [['ana', '📊 分析'], ['list', '📋 明細'], ['who', '👤 作帳人員']]
+  // 作帳人員（店長開放時）只有「分析」，沒有明細與指派
+  document.getElementById('dsTabs').innerHTML = (dsRole === 'lead' ? [['ana', '📊 分析'], ['list', '📋 明細'], ['who', '👤 作帳人員']] : [['ana', '📊 分析']])
     .map(([k, l]) => `<button class="${dsTab === k ? 'on' : ''}" onclick="dsSetTab('${k}')">${l}</button>`).join('');
   const el = document.getElementById('dsMain');
   if (dsTab === 'who') { await dsRenderWho(el); return; }
-  const data = await dsLoadMonth(dsStoreName, dsMonth);
-  el.innerHTML = dsTab === 'ana' ? dsRenderAna(data) : dsRenderList(data);
+  if (dsTab === 'ana') { el.innerHTML = await dsRenderAna(dsStoreName, dsMonth); return; }
+  el.innerHTML = dsRenderList(await dsLoadMonth(dsStoreName, dsMonth));
 }
 function dsMonthSel() {
   const now = new Date(), opts = [];
@@ -213,10 +215,11 @@ async function dsLoadMonth(store, ym) {
   for (let dt = shiftDateAdd(first, -1); dt <= last; dt = shiftDateAdd(dt, 1)) slot[shiftWeekStr(dt) + '|' + shiftDayName(dt)] = dt;
   const weeks = [...new Set(Object.keys(slot).map(k => k.split('|')[0]))];
   const snaps = await Promise.all(weeks.map(w => dsRef(store).collection('weeks').doc(w).get().catch(() => null)));
-  const hours = {};
+  const hours = {}, recs = []; // recs：帶 week 的原始班表，給 lbEvaluate 算這個月的排班人事
   snaps.forEach((s, i) => {
     if (!s || !s.exists) return;
     (s.data().records || []).forEach(r => {
+      if (r) recs.push(Object.assign({}, r, { week: weeks[i] }));
       if (!r || r.name === '門市備註' || DS_OFF.includes(String(r.shift || '').trim())) return;
       const loc = r.location || ''; if (loc && loc !== '本店') return; // 外派別店的不算本店人力
       const dt = slot[weeks[i] + '|' + r.day]; if (!dt) return;
@@ -227,50 +230,200 @@ async function dsLoadMonth(store, ym) {
       hours[biz] = (hours[biz] || 0) + h;
     });
   });
-  return (dsCache[key] = { ym, days, hours });
+  return (dsCache[key] = { ym, days, hours, recs });
 }
 
-function dsRenderAna(data) {
-  const ds = Object.keys(data.days).sort().filter(d => data.days[d].sales != null);
-  const head = `<div class="card-title">📊 ${+data.ym.slice(5)}月分析<span class="sub">${dsMonthSel()}</span></div>`;
+// ───────── 店長：分析（2026-10-11 使用者選這四項）─────────
+// ① 業績進度：累計營業額 vs「達標 PDS × 天數」（labor-budget.js lbEvaluate，跟排班頁工時上限同一個數字）
+// ② 星期幾 × 人力：近 3 個月「每工時來客數」。
+//    ⚠️ 用來客、不用營業額：美德 7~10 月週六營業額最高（+7%），但來客反而偏少、是客單拉高的；
+//    店員忙不忙看的是結帳筆數，用營業額會誤判週六要多排人。
+// ③ 每日走勢：營業額＋7 天平均＋上月日均
+// ④ 跟上月比：日均營業額的變化拆成「來客」「客單」兩部分（來客效果＝Δ來客×上月客單；客單效果＝Δ客單×本月來客，兩者相加剛好等於總變化）
+let dsLbCache = {}; // store -> Promise<lbLoadStore 結果>
+function dsLb(store) {
+  if (typeof lbLoadStore !== 'function') return Promise.resolve(null);
+  if (!dsLbCache[store]) dsLbCache[store] = lbLoadStore(window.db, store).catch(e => { console.warn('[ds lb]', e); delete dsLbCache[store]; return null; });
+  return dsLbCache[store];
+}
+const dsAddMonth = (ym, k) => { const d = new Date(+ym.slice(0, 4), +ym.slice(5) - 1 + k, 1); return `${d.getFullYear()}-${dsPad(d.getMonth() + 1)}`; };
+const dsDaysIn = ym => new Date(+ym.slice(0, 4), +ym.slice(5), 0).getDate();
+const dsSalesDays = data => Object.keys(data.days).sort().filter(d => data.days[d].sales != null);
+const dsSigned = (v, f) => (v >= 0 ? '+' : '−') + f(Math.abs(v));
+const dsAxis = v => Math.abs(v) >= 10000 ? (Math.round(v / 1000) / 10) + '萬' : Math.round(v).toLocaleString('en-US');
+
+async function dsRenderAna(store, ym) {
+  const [cur, p1, p2, lb] = await Promise.all([dsLoadMonth(store, ym), dsLoadMonth(store, dsAddMonth(ym, -1)), dsLoadMonth(store, dsAddMonth(ym, -2)), dsLb(store)]);
+  const head = `<div class="card-title">📊 ${+ym.slice(5)}月分析<span class="sub">${dsMonthSel()}</span></div>`;
+  const ds = dsSalesDays(cur);
   if (!ds.length) return `<div class="card">${head}<div class="empty">這個月還沒有輸入資料</div></div>`;
+  const W = Math.max(280, (document.getElementById('dsMain').clientWidth || 360) - 28);
   let S = 0, C = 0, Cn = 0, SH = 0, H = 0;
   ds.forEach(d => {
-    const x = data.days[d]; S += +x.sales;
+    const x = cur.days[d]; S += +x.sales;
     if (x.customers != null) { C += +x.customers; Cn++; }
-    if (data.hours[d]) { SH += +x.sales; H += data.hours[d]; }
+    if (cur.hours[d]) { SH += +x.sales; H += cur.hours[d]; }
   });
-  const custDays = ds.filter(d => data.days[d].customers != null);
-  const sCust = custDays.reduce((t, d) => t + +data.days[d].sales, 0);
+  const sCust = ds.filter(d => cur.days[d].customers != null).reduce((t, d) => t + +cur.days[d].sales, 0);
   const kpi = (l, v, s) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div>${s ? `<div class="s">${s}</div>` : ''}</div>`;
-  let html = `<div class="card">${head}<div class="kpis">
+  return `<div class="card">${head}<div class="kpis">
     ${kpi('營業額合計', dsWan(S), `${ds.length} 天有資料`)}
     ${kpi('日均營業額', dsWan(S / ds.length), '')}
     ${kpi('日均來客', Cn ? dsMoney(C / Cn) + ' 人' : '—', Cn ? `客單價 ${dsMoney(sCust / C)} 元` : '')}
     ${kpi('每工時營業額', H ? dsMoney(SH / H) + ' 元' : '—', H ? `班表 ${dsMoney(H)} 小時` : '班表沒有對應的班')}
-  </div><div class="note">營業額為含稅金額。每工時營業額用班表排定時數（晚班、大夜算到隔天的營業日）。</div></div>`;
-  // 星期幾平均（每個星期幾至少要有資料才列；整體資料滿 7 天才顯示，太少會被單日帶偏）
-  if (ds.length >= 7) {
-    const by = {};
-    ds.forEach(d => {
-      const w = new Date(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8)).getDay(), x = data.days[d];
-      const b = by[w] = by[w] || { n: 0, s: 0, c: 0, cn: 0, sc: 0, sh: 0, h: 0 };
-      b.n++; b.s += +x.sales;
-      if (x.customers != null) { b.c += +x.customers; b.cn++; b.sc += +x.sales; }
-      if (data.hours[d]) { b.sh += +x.sales; b.h += data.hours[d]; }
-    });
-    const order = [1, 2, 3, 4, 5, 6, 0].filter(w => by[w]);
-    const sph = w => by[w].h ? by[w].sh / by[w].h : null;
-    const vals = order.map(sph).filter(v => v != null), mx = Math.max(...vals), mn = Math.min(...vals);
-    const rows = order.map(w => { const b = by[w], v = sph(w);
-      return `<tr><td>週${DS_WD[w]}<small>${b.n} 天</small></td><td>${dsWan(b.s / b.n)}</td><td>${b.cn ? dsMoney(b.c / b.cn) : '—'}</td><td>${b.c ? dsMoney(b.sc / b.c) : '—'}</td><td class="${vals.length > 1 && v === mx ? 'hi' : vals.length > 1 && v === mn ? 'lo' : ''}">${v != null ? dsMoney(v) : '—'}</td></tr>`; }).join('');
-    html += `<div class="card"><div class="card-title">📅 星期幾平均</div>
-      <table class="tbl"><thead><tr><th>星期</th><th>營業額</th><th>來客</th><th>客單</th><th>每工時</th></tr></thead><tbody>${rows}</tbody></table>
-      <div class="note">每工時營業額<span class="hi">綠色最高</span>、<span class="lo">紅色最低</span>：最低的那天，人力可能排得比生意需要的多。</div></div>`;
-  } else {
-    html += `<div class="card empty">再輸入 ${7 - ds.length} 天，就會顯示「星期幾平均」</div>`;
+  </div><div class="note">營業額＝111 本日實際銷貨收入（含稅、含代銷隨取）。工時用班表排定時數，晚班、大夜算到隔天的營業日。</div></div>`
+    + dsAnaProgress(cur, lb, ym, W) + dsAnaWeekday([p2, p1, cur]) + dsAnaTrend(cur, p1, ym, W) + dsAnaChange(cur, p1, ym);
+}
+
+// ── ① 業績進度 ──
+function dsAnaProgress(cur, lb, ym, W) {
+  const title = `<div class="card-title">🎯 ${+ym.slice(5)}月業績進度</div>`;
+  if (!lb || !lb.model || lb.model.err || typeof lbEvaluate !== 'function') return `<div class="card">${title}<div class="empty">損益或人事資料不足，算不出達標營業額</div></div>`;
+  const ev = lbEvaluate(lb, cur.recs || [], ym);
+  if (ev.err || ev.targetPds == null) return `<div class="card">${title}<div class="empty">損益或人事資料不足，算不出達標營業額</div></div>`;
+  const tgt = ev.targetPds, n = dsDaysIn(ym), ds = dsSalesDays(cur), lastD = ds[ds.length - 1], last = +lastD.slice(8);
+  // 圖畫「累計超前／落後」而不是累計金額：累計線從 0 爬到 200 萬，幾萬塊的差距在圖上看不出來
+  const gapV = Array(n).fill(null), tips = Array(n).fill(null);
+  let cum = 0, k = 0;
+  for (let d = 1; d <= last; d++) {
+    const x = cur.days[`${ym}-${dsPad(d)}`];
+    if (x && x.sales != null) { cum += +x.sales; k++; }
+    gapV[d - 1] = cum - tgt * k;
+    tips[d - 1] = `${+ym.slice(5)}/${d}　累計 ${dsMoney(cum)}｜達標 ${dsMoney(tgt * k)}｜${gapV[d - 1] >= 0 ? '超前' : '落後'} ${dsMoney(Math.abs(gapV[d - 1]))}`;
   }
-  return html;
+  const diff = cum - tgt * k, avg = cum / k;
+  const ahead = diff >= 0, gap = k < last ? `（有 ${last - k} 天沒輸入，只比有輸入的 ${k} 天）` : '';
+  const done = last >= n;
+  const lines = [
+    `<div class="big ${ahead ? 'hi' : 'lo'}">${ahead ? '▲ 超前' : '▼ 落後'} ${dsWan(Math.abs(diff))}</div>`,
+    `<div class="say">到 ${dsMd(lastD)} 累計 <b>${dsWan(cum)}</b>，達標進度是 ${dsWan(tgt * k)}${gap}。</div>`,
+    done ? '' : `<div class="say">照目前日均 ${dsWan(avg)}，整月約 <b>${dsWan(avg * n)}</b>；達標要 ${dsWan(tgt * n)}。</div>`,
+  ];
+  return `<div class="card">${title}${lines.join('')}
+    ${dsLegend([['#1a73e8', '累計超前（線在 0 以上）／落後（0 以下）'], ['#94a3b8', '剛好達標', 'dash']])}
+    ${dsLineChart({ W, n, xl: i => String(i + 1), tips, dots: true, refs: [{ v: 0 }], series: [{ vals: gapV, color: '#1a73e8' }] })}
+    <div class="note">達標＝每天 ${dsWan(tgt)}，跟排班頁「工時上限」同一個算法（依過去損益與這個月的排班推算），僅供參考。</div></div>`;
+}
+
+// ── ② 星期幾 × 人力（近 3 個月）──
+function dsAnaWeekday(months) {
+  const by = {}; let from = null, to = null;
+  months.forEach(m => Object.keys(m.days).forEach(d => {
+    const x = m.days[d], h = m.hours[d];
+    if (x.sales == null || x.customers == null || !(h > 0)) return;
+    const w = new Date(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8)).getDay();
+    const b = by[w] = by[w] || { n: 0, s: 0, c: 0, h: 0 };
+    b.n++; b.s += +x.sales; b.c += +x.customers; b.h += h;
+    if (!from || d < from) from = d; if (!to || d > to) to = d;
+  }));
+  const title = '<div class="card-title">👥 星期幾 × 人力</div>';
+  const order = [1, 2, 3, 4, 5, 6, 0].filter(w => by[w]);
+  const total = order.reduce((t, w) => t + by[w].n, 0);
+  if (total < 14) return `<div class="card">${title}<div class="empty">要有 14 天以上「營業額＋來客＋班表」都齊的資料才會顯示（目前 ${total} 天）</div></div>`;
+  const v = w => by[w].c / by[w].h;
+  const vals = order.map(v), mx = Math.max(...vals), mn = Math.min(...vals);
+  const bars = order.map(w => {
+    const x = v(w), cls = x === mn ? 'lo' : x === mx ? 'hi' : '';
+    return `<div class="wbar"><span class="wl">週${DS_WD[w]}</span><span class="wt"><span class="wf ${cls}" style="width:${(x / mx * 100).toFixed(1)}%"></span></span><span class="wv">${x.toFixed(1)}${cls === 'lo' ? '<small>最低</small>' : cls === 'hi' ? '<small>最高</small>' : ''}</span></div>`;
+  }).join('');
+  const rows = order.map(w => { const b = by[w];
+    return `<tr><td>週${DS_WD[w]}<small>${b.n} 天</small></td><td>${dsMoney(b.c / b.n)}</td><td>${dsMoney(b.h / b.n)}</td><td>${dsMoney(b.s / b.c)}</td><td>${dsMoney(b.s / b.h)}</td></tr>`; }).join('');
+  return `<div class="card">${title}
+    <div class="say">每排 1 小時班，平均接幾位客人（${dsMd(from)}～${dsMd(to)}，${total} 天）</div>
+    <div class="wbars">${bars}</div>
+    <div class="note"><span class="lo">最低</span>的那天，人力相對生意最多，可以優先考慮少排；<span class="hi">最高</span>的那天最忙。看來客不看營業額：客單高的日子營業額會偏高，但結帳筆數不一定多。</div>
+    <details class="fold sub-fold"><summary>看各星期明細</summary>
+      <table class="tbl"><thead><tr><th>星期</th><th>來客</th><th>工時</th><th>客單</th><th>每工時營業額</th></tr></thead><tbody>${rows}</tbody></table>
+    </details></div>`;
+}
+
+// ── ③ 每日走勢 ──
+function dsAnaTrend(cur, p1, ym, W) {
+  const n = dsDaysIn(ym), all = Object.assign({}, p1.days, cur.days);
+  const val = d => all[d] && all[d].sales != null ? +all[d].sales : null;
+  const day = i => `${ym}-${dsPad(i + 1)}`;
+  const sales = Array.from({ length: n }, (_, i) => val(day(i)));
+  const lastI = sales.reduce((t, v, i) => v != null ? i : t, -1);
+  // 7 天平均：含當天往前 7 個日曆天，至少 4 天有資料才畫
+  const ma = sales.map((_, i) => {
+    if (i > lastI) return null;
+    const vs = []; for (let k = 0; k < 7; k++) { const v = val(shiftDateAdd(day(i), -k)); if (v != null) vs.push(v); }
+    return vs.length >= 4 ? vs.reduce((a, b) => a + b, 0) / vs.length : null;
+  });
+  const pds = dsSalesDays(p1), pAvg = pds.length >= 7 ? pds.reduce((t, d) => t + +p1.days[d].sales, 0) / pds.length : null;
+  const have = sales.map((v, i) => [v, i]).filter(x => x[0] != null);
+  const hiP = have.reduce((a, b) => b[0] > a[0] ? b : a), loP = have.reduce((a, b) => b[0] < a[0] ? b : a);
+  const tips = sales.map((v, i) => { const x = all[day(i)];
+    return v == null ? null : `${dsMd(day(i))}（${dsWdOf(day(i))}）${dsMoney(v)} 元` + (x.customers != null ? `・來客 ${dsMoney(x.customers)}` : '') + (ma[i] != null ? `｜7 天平均 ${dsMoney(ma[i])}` : ''); });
+  return `<div class="card"><div class="card-title">📈 每日走勢</div>
+    ${dsLegend([['#1a73e8', '每日營業額'], ['#e8710a', '7 天平均'], ...(pAvg ? [['#94a3b8', `${+dsAddMonth(ym, -1).slice(5)}月日均`, 'dash']] : [])])}
+    ${dsLineChart({ W, n, xl: i => String(i + 1), tips, dots: true,
+      refs: pAvg ? [{ v: pAvg }] : [],
+      marks: have.length > 1 ? [{ i: hiP[1], v: hiP[0], t: '最高 ' + dsAxis(hiP[0]) }, { i: loP[1], v: loP[0], t: '最低 ' + dsAxis(loP[0]), below: true }] : [],
+      series: [{ vals: sales, color: '#1a73e8', w: 1.5 }, { vals: ma, color: '#e8710a', w: 2.5 }] })}
+    <div class="note">點圖上的點看當天數字。7 天平均線可以看出趨勢是往上還是往下，不會被單一天帶偏。</div></div>`;
+}
+
+// ── ④ 跟上月比：來客 vs 客單 ──
+function dsAnaChange(cur, p1, ym) {
+  const agg = m => { let s = 0, c = 0, k = 0;
+    Object.keys(m.days).forEach(d => { const x = m.days[d]; if (x.sales != null && x.customers != null && +x.customers > 0) { s += +x.sales; c += +x.customers; k++; } });
+    return k >= 5 ? { C: c / k, T: s / c, S: s / k, k } : null; };
+  const a = agg(p1), b = agg(cur), pm = +dsAddMonth(ym, -1).slice(5);
+  const title = `<div class="card-title">🔍 跟${pm}月比</div>`;
+  if (!a || !b) return `<div class="card">${title}<div class="empty">兩個月都要有 5 天以上「營業額＋來客」才能比</div></div>`;
+  const dS = b.S - a.S, eC = (b.C - a.C) * a.T, eT = (b.T - a.T) * b.C;
+  const main = Math.abs(eC) >= Math.abs(eT) ? (eC >= 0 ? '來客變多' : '來客變少') : (eT >= 0 ? '客單變高' : '客單變低');
+  const row = (l, from, to, unit, eff) => `<div class="chg"><span class="cl">${l}</span><span class="cv">${from} → <b>${to}</b> ${unit}</span><span class="ce ${eff >= 0 ? 'hi' : 'lo'}">${eff >= 0 ? '▲' : '▼'} ${dsSigned(eff, dsMoney)} 元</span></div>`;
+  return `<div class="card">${title}
+    <div class="say">日均營業額 <b>${dsMoney(b.S)}</b>，比 ${pm} 月 <b class="${dS >= 0 ? 'hi' : 'lo'}">${dsSigned(dS, dsMoney)} 元（${dsSigned(dS / a.S * 100, v => v.toFixed(1))}%）</b>，主要是<b>${main}</b>：</div>
+    ${row('每天來客', dsMoney(a.C), dsMoney(b.C), '人', eC)}
+    ${row('客單價', dsMoney(a.T), dsMoney(b.T), '元', eT)}
+    <div class="note">兩項加起來等於日均營業額的變化。來客少要看外部（天氣、假日、附近競爭）；客單低要看商品與促銷。${b.k < dsDaysIn(ym) && ym === dsToday().slice(0, 7) ? `本月只有 ${b.k} 天資料，比的是日均。` : ''}</div></div>`;
+}
+
+// ── 圖表元件 ──
+// 折線圖直接用卡片寬度畫（不靠 viewBox 縮放）：手機上字才不會被縮小（見專案記憶 project_pnl ③）
+function dsLegend(items) {
+  return `<div class="lgd">${items.map(([c, l, s]) => `<span><i style="border-top:${s === 'dot' ? '2px dotted' : s === 'dash' ? '2px dashed' : '2.5px solid'} ${c}"></i>${l}</span>`).join('')}</div>`;
+}
+function dsNiceStep(raw) { const p = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / p; return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p; }
+function dsLineChart(o) {
+  const W = o.W, H = 190, L = 40, R = 12, T = 14, B = 22, n = o.n;
+  const all = [];
+  o.series.forEach(s => s.vals.forEach(v => { if (v != null) all.push(v); }));
+  (o.refs || []).forEach(r => all.push(r.v));
+  let lo = o.zero ? 0 : Math.min(...all), hi = Math.max(...all);
+  if (!o.zero) { const pad = (hi - lo) * 0.12 || hi * 0.05 || 1; lo -= pad; hi += pad; }
+  const step = dsNiceStep((hi - lo) / 4 || 1);
+  lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;
+  const x = i => L + (n <= 1 ? 0 : i * (W - L - R) / (n - 1));
+  const y = v => T + (hi - v) / (hi - lo) * (H - T - B);
+  let g = '';
+  for (let v = lo; v <= hi + step / 2; v += step) g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="#eef2f7"/><text x="${L - 6}" y="${y(v) + 3.5}" text-anchor="end" class="ax">${dsAxis(v)}</text>`;
+  const every = Math.ceil(n * 22 / (W - L - R));
+  for (let i = 0; i < n; i++) if (i % every === 0 || i === n - 1) g += `<text x="${x(i)}" y="${H - 6}" text-anchor="middle" class="ax">${o.xl(i)}</text>`;
+  (o.refs || []).forEach(r => { g += `<line x1="${L}" x2="${W - R}" y1="${y(r.v)}" y2="${y(r.v)}" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5 4"/>`; });
+  o.series.forEach(s => {
+    let d = '', pen = false;
+    s.vals.forEach((v, i) => { if (v == null) { pen = false; return; } d += (pen ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1); pen = true; });
+    if (d) g += `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.w || 2}" stroke-linejoin="round" stroke-linecap="round"${s.dash ? ` stroke-dasharray="${s.dash}"` : ''}/>`;
+    if (o.dots && s === o.series[0]) s.vals.forEach((v, i) => { if (v != null) g += `<circle cx="${x(i)}" cy="${y(v)}" r="2.5" fill="${s.color}"/>`; });
+  });
+  (o.marks || []).forEach(m => {
+    const tx = Math.min(Math.max(x(m.i), L + 28), W - R - 28);
+    g += `<circle cx="${x(m.i)}" cy="${y(m.v)}" r="4.5" fill="#fff" stroke="#1a73e8" stroke-width="2"/><text x="${tx}" y="${m.below ? y(m.v) + 16 : y(m.v) - 8}" text-anchor="middle" class="mk">${m.t}</text>`;
+  });
+  // 點擊熱區：每天一條直欄，比點本身大很多
+  const cw = n <= 1 ? W - L - R : (W - L - R) / (n - 1);
+  let hit = '';
+  for (let i = 0; i < n; i++) if (o.tips[i]) hit += `<rect x="${x(i) - cw / 2}" y="${T}" width="${cw}" height="${H - T - B}" fill="transparent" data-tip="${dsEsc(o.tips[i])}" data-x="${x(i)}" onclick="dsTip(this)"/>`;
+  return `<div class="chart"><svg width="${W}" height="${H}" role="img">${g}<line class="hl" x1="0" x2="0" y1="${T}" y2="${H - B}" stroke="#334155" stroke-width="1" stroke-dasharray="3 3" style="display:none"/>${hit}</svg><div class="chart-tip">點圖看每天的數字</div></div>`;
+}
+function dsTip(el) {
+  const box = el.closest('.chart'), hl = box.querySelector('.hl'), xx = el.getAttribute('data-x');
+  hl.setAttribute('x1', xx); hl.setAttribute('x2', xx); hl.style.display = '';
+  const tip = box.querySelector('.chart-tip'); tip.textContent = el.getAttribute('data-tip'); tip.classList.add('on');
 }
 
 function dsRenderList(data) {
@@ -298,14 +451,16 @@ async function dsRenderWho(el) {
   const gone = dsInputters.filter(n => !names.has(n)); // 已離職／調走但還在名單上的人，列出來讓店長取消
   el.innerHTML = `<div class="card"><div class="card-title">👤 作帳人員<span class="sub">${dsEsc(dsStoreName)}</span></div>
     <div class="chk-list">${dsEmps.concat(gone.map(n => ({ name: n, gone: true }))).map(e => `<label><input type="checkbox" value="${dsEsc(e.name)}"${dsInputters.includes(e.name) ? ' checked' : ''}>${dsEsc(e.name)}${e.gone ? '（已不在本店）' : ''}</label>`).join('')}</div>
+    <label class="see-ana"><input type="checkbox" id="dsSeeAna"${dsShowAna ? ' checked' : ''}>作帳人員也看得到「📊 分析」</label>
     <button class="btn-primary" style="margin-top:12px;" onclick="dsSaveWho()">儲存</button>
-    <div class="note">勾選的人在首頁選單會出現「輸入營業額」，只能輸入、修改最近 ${DS_EDIT_DAYS} 天，看不到分析與明細。</div></div>`;
+    <div class="note">勾選的人在首頁選單會出現「輸入營業額」，只能輸入、修改最近 ${DS_EDIT_DAYS} 天。明細與指派只有店長看得到；分析（含業績進度、達標營業額）看上面的開關。</div></div>`;
 }
 async function dsSaveWho() {
   const list = [...document.querySelectorAll('.chk-list input:checked')].map(i => i.value);
   try {
-    await dsRef().collection('config').doc('dailySales').set({ inputters: list, updatedBy: dsUser.empName || '', updatedAt: new Date().toISOString() }, { merge: true });
-    dsInputters = list;
+    const see = !!document.getElementById('dsSeeAna')?.checked;
+    await dsRef().collection('config').doc('dailySales').set({ inputters: list, inputterSeeAna: see, updatedBy: dsUser.empName || '', updatedAt: new Date().toISOString() }, { merge: true });
+    dsInputters = list; dsShowAna = see;
     dsToast(`✅ 已儲存（${list.length} 人）`);
   } catch (e) { dsToast('❌ 儲存失敗：' + e.message); }
 }

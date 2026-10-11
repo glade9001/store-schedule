@@ -73,3 +73,29 @@ details.where{background:#fffbeb;border:1px solid #fde68a;border-radius:10px;pad
 details.where>summary{cursor:pointer;font-weight:800;}
 details.where ul{margin:4px 0;padding-left:20px;}
 .f-row label small{font-weight:600;font-size:11px;}
+
+/* ===== 分析（業績進度／星期幾×人力／每日走勢／跟上月比） ===== */
+.big{font-size:22px;font-weight:900;margin:2px 0 4px;}
+.say{font-size:13.5px;line-height:1.7;margin-bottom:6px;}
+.lgd{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:11.5px;color:var(--muted);font-weight:700;margin:8px 0 4px;}
+.lgd i{display:inline-block;width:18px;vertical-align:middle;margin-right:5px;}
+.chart svg{display:block;}
+.chart .ax{font-size:10.5px;fill:#64748b;}
+.chart .mk{font-size:11px;font-weight:800;fill:#1e293b;}
+.chart-tip{font-size:12px;color:var(--muted);text-align:center;min-height:18px;margin-top:2px;}
+.chart-tip.on{color:var(--text);font-weight:800;}
+.wbars{display:flex;flex-direction:column;gap:7px;margin:10px 0 4px;}
+.wbar{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;}
+.wl{flex:0 0 34px;color:var(--muted);}
+.wt{flex:1;height:14px;background:#f1f5f9;border-radius:0 4px 4px 0;overflow:hidden;}
+.wf{display:block;height:100%;background:#8ab4f8;border-radius:0 4px 4px 0;}
+.wf.hi{background:#137333;} .wf.lo{background:#d93025;}
+.wv{flex:0 0 66px;text-align:right;}
+.wv small{display:block;font-size:10.5px;color:var(--muted);font-weight:600;line-height:1.1;}
+.sub-fold{margin-top:8px;} .sub-fold>summary{font-size:13px;color:var(--primary);}
+.chg{display:flex;align-items:center;gap:8px;padding:9px 0;border-top:1px solid #f1f5f9;font-size:13.5px;}
+.cl{flex:0 0 64px;color:var(--muted);font-weight:800;}
+.cv{flex:1;}
+.ce{font-weight:900;}
+.see-ana{display:flex;align-items:center;gap:10px;margin-top:12px;padding:10px;background:#f8fafc;border-radius:10px;font-size:14px;font-weight:800;}
+.see-ana input{width:18px;height:18px;flex:0 0 auto;}
