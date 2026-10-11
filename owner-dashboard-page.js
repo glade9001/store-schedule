@@ -139,6 +139,8 @@ async function renderAll(m){
   html+= scope ? renderStoreCharts(m,scope,c.extra) : renderGroupCharts(m);
   html+=renderLeaveEstimate(scope);
   html+=fold('lb','⏱️',`${lbDash?+lbDash._ym.slice(5)+'月':'本月'}工時上限`,lbSummary(only),renderLaborBudget(only));
+  const dsRows=odDailyRows(only); // 沒有店輸入每日營業就整區不出現
+  if(dsRows.length) html+=fold('ds','🧾',`${+lbDash._ym.slice(5)}月每日營業`,dsDashSummary(dsRows),renderDailyDash(dsRows));
   html+=fold('score','👔','店長計分卡',scoreSummary(m,c.extra,scope),scope?renderScorecard(m,c.extra,'store',scope):renderScorecard(m,c.extra,'body'));
   html+=fold('health','🩺','成本體檢',hs,renderHealthSection(!!scope));
   html+=fold('disc','🕐','出勤紀律',discSum,renderDiscipline(m,c.extra,only,true));
@@ -819,8 +821,53 @@ async function loadLaborBudget(){
     const loaded={store:s, model:lbBuildModel(DATA[s].pnl,DATA[s].perf,{ptWage:lbPartTimeWage(emps),other,ownerPct:pct}), pds:lbPdsRatio(daily,DATA[s].pnl), daily, asCfg:ac&&ac.exists?ac.data():null, otherMonthly:other, ownerPct:pct};
     const recs=[]; ws.forEach((snap,i)=>{ if(snap&&snap.exists) (snap.data().records||[]).forEach(r=>recs.push({...r,week:weeks[i]})); });
     out[s]={loaded, ev:lbEvaluate(loaded,recs,ym)};
+    // 本月每日營業（有輸入的店才讀去年同期：364 天前對齊星期幾，同每日營業頁）
+    if(Object.keys(daily||{}).some(d=>d.startsWith(ym)&&daily[d]&&daily[d].sales!=null)){
+      const last=ym+'-'+String(lbDaysIn(ym)).padStart(2,'0');
+      const ly=await window.db.collection('stores').doc(s).collection('dailySales')
+        .where(firebase.firestore.FieldPath.documentId(),'>=',odShiftDay(ym+'-01',-364)).where(firebase.firestore.FieldPath.documentId(),'<=',odShiftDay(last,-364)).get().catch(()=>null);
+      out[s].ly={}; if(ly) ly.forEach(d=>{ out[s].ly[d.id]=d.data(); });
+    }
   }));
   lbDash=out;
+}
+function odShiftDay(d,k){ const x=new Date(d+'T00:00:00'); x.setDate(x.getDate()+k); return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`; }
+
+// ===== 本月每日營業（2026-10-11）：只列有輸入每日營業額的店；口徑同每日營業頁（daily-sales-page.js 業績進度）=====
+// 營業額扣掉大單多出的金額（lbBigDays，比例校正也扣了）；去年同期＝364 天前（同星期幾）。
+function odDailyRows(only){
+  if(!lbDash) return [];
+  const ym=lbDash._ym, n=lbDaysIn(ym), rows=[];
+  only.forEach(s=>{
+    const x=lbDash[s]; if(!x||!x.ly) return;
+    const daily=x.loaded.daily||{}, pm=lbAddMonth(ym,-1);
+    const ds=Object.keys(daily).filter(d=>d.startsWith(ym)&&daily[d]&&daily[d].sales!=null).sort(); if(!ds.length) return;
+    const win={}; Object.keys(daily).forEach(d=>{ if(d.startsWith(ym)||d.startsWith(pm)) win[d]=daily[d]; });
+    const big=lbBigDays(win).big, lyBig=lbBigDays(x.ly).big;
+    const adj=(v,b)=>+v.sales-(b?b.excess:0);
+    let cum=0, s1=0, s0=0, pk=0;
+    ds.forEach(d=>{ const a=adj(daily[d],big[d]); cum+=a; const l=x.ly[odShiftDay(d,-364)]; if(l&&l.sales!=null){ s1+=a; s0+=adj(l,lyBig[odShiftDay(d,-364)]); pk++; } });
+    const lastD=ds[ds.length-1], last=+lastD.slice(8), rem=n-last;
+    const tgt=x.ev&&x.ev.targetPds;
+    let lyAll=0, lyOk=true; for(let i=1;i<=n;i++){ const d=odShiftDay(`${ym}-${String(i).padStart(2,'0')}`,-364), l=x.ly[d]; if(!l||l.sales==null){ lyOk=false; break; } lyAll+=adj(l,lyBig[d]); }
+    rows.push({ s, lastD, cum, days:ds.length, yoy:pk>=5?s1/s0-1:null, rem,
+      needTgt: rem>0&&tgt!=null ? (tgt*n-cum)/rem : null, needLy: rem>0&&lyOk ? (lyAll-cum)/rem : null });
+  });
+  return rows;
+}
+function dsDashSummary(rows){
+  const pct=v=>`${v>=0?'+':''}${(v*100).toFixed(1)}%`;
+  return rows.map(r=>`${r.s} ${r.yoy!=null?'比去年 '+pct(r.yoy):'累計 '+wan(r.cum)}`).join('・');
+}
+function renderDailyDash(rows){
+  const md=d=>(+d.slice(5,7))+'/'+(+d.slice(8)), pct=v=>`${v>=0?'+':''}${(v*100).toFixed(1)}%`;
+  const need=(v,txt)=>v==null?'':v<=0?`<span style="color:#137333;font-weight:800;white-space:nowrap;">${txt}已做到</span>`:`<span style="white-space:nowrap;">${txt} <b>${money(Math.round(v))}</b></span>`;
+  return rows.map(r=>`<div class="todo-line" style="flex-direction:column;align-items:stretch;gap:4px;">
+    <div style="display:flex;align-items:baseline;gap:8px;"><b style="font-size:14.5px;">${esc(r.s)}</b>
+      <span style="font-size:12.5px;color:var(--muted);font-weight:700;">到 ${md(r.lastD)} 累計 ${wan(r.cum)}${r.yoy!=null?`・比去年同期 <span style="color:${r.yoy>=0?'#137333':'#c5221f'}">${pct(r.yoy)}</span>`:''}</span>
+      <a href="daily-sales.html?store=${encodeURIComponent(r.s)}&ref=owner-dashboard.html" style="margin-left:auto;font-size:12px;font-weight:800;color:#1a73e8;text-decoration:none;white-space:nowrap;">看分析 ›</a></div>
+    ${r.rem>0&&(r.needTgt!=null||r.needLy!=null)?`<div style="font-size:13px;display:flex;flex-wrap:wrap;gap:2px 14px;"><span>剩下 ${r.rem} 天每天要做到：</span>${[need(r.needTgt,'達標'),need(r.needLy,'比去年成長')].filter(Boolean).join('')}</div>`:''}
+  </div>`).join('')+`<div style="font-size:11px;color:var(--muted);line-height:1.6;margin-top:8px;">只列有輸入每日營業額的店。金額＝後台 PSD（含稅），已扣掉客單特別高的大單多出的部分；去年同期對齊星期幾。</div>`;
 }
 function lbSummary(only){
   if(!lbDash) return '計算中…';
