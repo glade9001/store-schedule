@@ -253,6 +253,9 @@
         <div id="announceBanner" style="display:flex; gap:10px; overflow-x:auto; padding-bottom:4px; -webkit-overflow-scrolling:touch; scrollbar-width:none;"></div>
       </div>
 
+      <!-- 每日營業（home-ds.js）：店長本店有輸入才出現；加盟主三店固定列、沒輸入留白 -->
+      <div class="card" id="dsHomeCard" style="display:none;"></div>
+
       <!-- 常用功能 3＋3：內容由 home-nav.js renderQuickBtns() 依 users/{uid}.homeFavs 或角色預設畫出 -->
       <div class="card fav-card" id="favPersonalCard">
         <div class="fav-h"><span class="fav-t">常用功能</span><button class="fav-edit" onclick="openFavEditor()">編輯</button></div>
@@ -471,6 +474,8 @@
 <script src="store-memo.js?v=20261010gd"></script>
 <script src="owner-scope.js"></script>
 <script src="home-gb.js?v=20261010f"></script>
+<script src="labor-budget.js"></script>
+<script src="home-ds.js"></script>
 <script src="home-page.js"></script>
 <script src="home-nav.js"></script>
 <script src="home-tour.js"></script>
