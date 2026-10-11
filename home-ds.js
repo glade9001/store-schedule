@@ -7,7 +7,7 @@
 // 每日營業頁存檔時會清掉該店快取（daily-sales-page.js），輸入完回首頁馬上看到新數字。
 // 比照 shift-utils.js：只有 function 與 var（前綴 hd），掛在首頁不會撞名。
 var HD_TTL = 30 * 60 * 1000;
-var HD_KEY = 'hdc3:';   // 快取鍵（資料格式改版就換名字，舊快取自然失效）
+var HD_KEY = 'hdc4:';   // 快取鍵（資料格式改版就換名字，舊快取自然失效）
 var HD_COLORS = ['#c0841f', '#2f8fcc', '#d9628e'];   // 三店在深藍底上的顏色（dataviz 驗證：亮度帶、色盲分辨、對比都過）
 var hdBusy = false;
 
@@ -88,7 +88,7 @@ async function hdCompute(store, ym) {
     yoy: pk >= 5 ? s1 / s0 - 1 : null,
     needTgt: rem > 0 && tgt != null ? (tgt * n - cum) / rem : null,
     needLy: rem > 0 && lyOk ? (lyAll - cum) / rem : null,
-    proj: proj, tgtMonth: tgt != null ? tgt * n : null,
+    proj: proj, tgtMonth: tgt != null ? tgt * n : null, beMonth: ev && ev.beSchedPds != null ? ev.beSchedPds * n : null,
     light: lt ? { level: lt.level, hours: ev.sched.hours, capP: lt.capP, lastDate: ev.sched.lastDate } : null,
     tip: hdTip(lt, ev, days, lb.daily || {}, ly7, recs, lastD, winFrom),
     chart: chart,
@@ -163,8 +163,12 @@ function hdMetrics(x) {
   var m = [];
   // 💰 月底會不會達標（使用者 2026-10-11：要看了能行動）＝月底推估 ÷ 達標；算不出達標才退回本月營業額
   var yo = x.yoy == null ? '' : '・比去年 ' + (x.yoy >= 0 ? '+' : '−') + Math.abs(x.yoy * 100).toFixed(1) + '%';
-  if (x.tgtMonth && x.proj != null) m.push({ k: 'money', name: x.rem > 0 ? '月底會不會達標' : '本月達標率', v: (x.proj / x.tgtMonth * 100).toFixed(0), u: '%', tone: x.proj >= x.tgtMonth ? 'up' : 'down',
-    sub: '累計 ' + hdW1(x.raw) + ' 萬' + yo });
+  // 三段色（使用者 2026-10-11）：綠＝推估 ≥ 達標（賺到目標利潤率）、黃＝兩平～達標（有賺但不到目標）、紅＝推估 < 兩平（照現在排班會虧）
+  if (x.tgtMonth && x.proj != null) {
+    var lv = x.proj >= x.tgtMonth ? 'up' : x.beMonth != null && x.proj >= x.beMonth ? 'warn' : 'down';
+    m.push({ k: 'money', name: x.rem > 0 ? '月底會不會達標' : '本月達標率', v: (x.proj / x.tgtMonth * 100).toFixed(0), u: '%', tone: lv, valTone: lv,
+      sub: lv === 'up' ? '累計 ' + hdW1(x.raw) + ' 萬' + yo : lv === 'warn' ? '有賺，未到目標利潤' : '照現在排班會虧錢' });
+  }
   else m.push({ k: 'money', name: '本月營業額', v: hdW1(x.raw), u: '萬', tone: x.yoy == null ? '' : x.yoy >= 0 ? 'up' : 'down', sub: '已填 ' + x.days + ' 天' + yo });
   if (x.rem > 0 && x.needTgt != null) m.push({ k: 'target', name: '每天要做到', v: x.needTgt <= 0 ? '已達標' : hdMoney(x.needTgt), u: x.needTgt <= 0 ? '' : '元', tone: x.needTgt <= 0 ? 'up' : '', sub: '達標・剩 ' + x.rem + ' 天' });
   else m.push({ k: 'target', name: '本月營業額', v: hdW1(x.raw), u: '萬', sub: '整月已結束' + yo });
@@ -178,7 +182,7 @@ function hdMetrics(x) {
 function hdVal(m) { return m.v == null ? '—' : hdEsc(m.v) + (m.u ? '<small> ' + hdEsc(m.u) + '</small>' : ''); }
 function hdCard(m) {
   return '<div class="hbCard ' + m.k + '"><span class="hbHead">' + hdIc(m.k) + '<span>' + hdEsc(m.name) + '</span></span>' +
-    '<b class="hbVal">' + hdVal(m) + '</b><small class="hbSub ' + (m.tone || '') + '">' + hdEsc(m.sub) + '</small></div>';
+    '<b class="hbVal' + (m.valTone ? ' v-' + m.valTone : '') + '">' + hdVal(m) + '</b><small class="hbSub ' + (m.tone || '') + '">' + hdEsc(m.sub) + '</small></div>';
 }
 // 加盟主：同一個數字、每店一行；沒輸入的店整行留白
 function hdMultiCard(i, stores, out) {
@@ -273,6 +277,7 @@ function hdRender(card, u, stores, ym, out) {
     '.hbVal small{font-size:10.5px;font-weight:600;color:#b8c7dc}' +
     '.hbSub{font-size:10px;color:#b8c7dc;line-height:1.35}' +
     '.hbSub.up{color:#8fd6a1}.hbSub.down{color:#ff9d8a}.hbSub.warn{color:#f4c06a}' +
+    '.hbVal.v-up{color:#8fd6a1}.hbVal.v-warn{color:#f4c06a}.hbVal.v-down{color:#ff9d8a}' +
     '.hbCard.money{background:#2b2a24;border-color:#5c4a30}.hbCard.money .hbIc{background:#c0841f}' +
     '.hbCard.target{background:#17324f;border-color:#2a5578}.hbCard.target .hbIc{background:#2f8fcc}' +
     '.hbCard.clock{background:#1c3329;border-color:#2f5a44}.hbCard.clock .hbIc{background:#3f8f5a}' +

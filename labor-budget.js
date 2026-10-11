@@ -334,6 +334,8 @@ function lbEvaluate(loaded, records, ym) {
     // 兩平 PDS：近 3 月人事、不留加盟主比例；達標 PDS：照目前排法的人事、扣掉加盟主比例（還沒排班就用近 3 月人事）
     bePds: plan ? pds(plan.beSales) : null,
     targetPds: plan ? pds(plan.salesFor(proj != null ? proj : m.L0, m.ownerPct)) : null,
+    // 照目前排法的兩平（目標利潤率 0%）：首頁看板三段色用，跟達標同一個人事口徑（bePds 用的是近 3 月人事）
+    beSchedPds: plan ? pds(plan.salesFor(proj != null ? proj : m.L0, 0)) : null,
     salesPds: plan ? pds(plan.sales) : null,
     pdsInfo: loaded.pds || { ratio: LB_PDS_RATIO, auto: false, months: [], drift: null },
     err: loaded.model.err || (plan ? '' : '資料不足')
