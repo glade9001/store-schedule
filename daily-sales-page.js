@@ -252,8 +252,38 @@ const dsSalesDays = data => Object.keys(data.days).sort().filter(d => data.days[
 const dsSigned = (v, f) => (v >= 0 ? '+' : '−') + f(Math.abs(v));
 const dsAxis = v => Math.abs(v) >= 10000 ? (Math.round(v / 1000) / 10) + '萬' : Math.round(v).toLocaleString('en-US');
 
+// ── 去年同期（2026-10-11 使用者選 1＋3＋4）──
+// ⚠️ 一律跟 364 天前比（同一個星期幾），不比同日期：便利商店週六／週日跟平日差 ±7%，
+//    同日期比會把「星期幾不同」誤當成生意變化。中秋、春節等每年日期不同的節日另外標出來。
+const DS_LY = 364;
+const dsLyDate = d => shiftDateAdd(d, -DS_LY);
+// 2025 年國定假日（holidays.js 內建表只有 2026 起、Firestore 也只維護當年度）：只拿來標「節日錯開」，不影響薪資
+const DS_HOL_2025 = { '2025-01-01': '元旦', '2025-01-28': '除夕', '2025-01-29': '春節', '2025-01-30': '春節', '2025-01-31': '春節',
+  '2025-02-28': '和平紀念日', '2025-04-04': '兒童節／清明', '2025-05-31': '端午', '2025-10-06': '中秋', '2025-10-10': '國慶' };
+let dsHolCache = {};
+async function dsHolidays(ym) {
+  const y = +ym.slice(0, 4);
+  if (dsHolCache[y]) return dsHolCache[y];
+  let map = {};
+  try { if (typeof loadHolidayMap === 'function') map = (await loadHolidayMap([y, y - 1])).map || {}; } catch (e) {}
+  if (!Object.keys(map).some(d => d.startsWith('2025'))) Object.assign(map, DS_HOL_2025);
+  return (dsHolCache[y] = map);
+}
+// 依文件 id 範圍讀每日營業（去年同期用）
+async function dsLoadRange(store, from, to) {
+  const key = store + '|' + from + '|' + to;
+  if (dsCache[key]) return dsCache[key];
+  const FP = firebase.firestore.FieldPath.documentId();
+  const snap = await dsRef(store).collection('dailySales').where(FP, '>=', from).where(FP, '<=', to).get().catch(() => null);
+  const days = {}; if (snap) snap.forEach(d => { days[d.id] = d.data(); });
+  return (dsCache[key] = days);
+}
+
 async function dsRenderAna(store, ym) {
-  const [cur, p1, p2, lb] = await Promise.all([dsLoadMonth(store, ym), dsLoadMonth(store, dsAddMonth(ym, -1)), dsLoadMonth(store, dsAddMonth(ym, -2)), dsLb(store)]);
+  const first = ym + '-01', lastDay = ym + '-' + dsPad(dsDaysIn(ym));
+  const [cur, p1, p2, lb, lyDays, hol] = await Promise.all([dsLoadMonth(store, ym), dsLoadMonth(store, dsAddMonth(ym, -1)), dsLoadMonth(store, dsAddMonth(ym, -2)), dsLb(store),
+    dsLoadRange(store, dsLyDate(first), dsLyDate(lastDay)), dsHolidays(ym)]);
+  const ctx = { ly: d => { const x = lyDays[dsLyDate(d)]; return x && x.sales != null ? x : null; }, hol };
   const head = `<div class="card-title">📊 ${+ym.slice(5)}月分析<span class="sub">${dsMonthSel()}</span></div>`;
   const ds = dsSalesDays(cur);
   if (!ds.length) return `<div class="card">${head}<div class="empty">這個月還沒有輸入資料</div></div>`;
@@ -272,11 +302,11 @@ async function dsRenderAna(store, ym) {
     ${kpi('日均來客', Cn ? dsMoney(C / Cn) + ' 人' : '—', Cn ? `客單價 ${dsMoney(sCust / C)} 元` : '')}
     ${kpi('每工時營業額', H ? dsMoney(SH / H) + ' 元' : '—', H ? `班表 ${dsMoney(H)} 小時` : '班表沒有對應的班')}
   </div><div class="note">營業額＝111 本日實際銷貨收入（含稅、含代銷隨取）。工時用班表排定時數，晚班、大夜算到隔天的營業日。</div></div>`
-    + dsAnaProgress(cur, lb, ym, W) + dsAnaWeekday([p2, p1, cur]) + dsAnaTrend(cur, p1, ym, W) + dsAnaChange(cur, p1, ym);
+    + dsAnaProgress(cur, lb, ym, W, ctx) + dsAnaWeekday([p2, p1, cur]) + dsAnaTrend(cur, p1, ym, W, ctx) + dsAnaChange(cur, p1, ym, ctx);
 }
 
 // ── ① 業績進度 ──
-function dsAnaProgress(cur, lb, ym, W) {
+function dsAnaProgress(cur, lb, ym, W, ctx) {
   const title = `<div class="card-title">🎯 ${+ym.slice(5)}月業績進度</div>`;
   if (!lb || !lb.model || lb.model.err || typeof lbEvaluate !== 'function') return `<div class="card">${title}<div class="empty">損益或人事資料不足，算不出達標營業額</div></div>`;
   const ev = lbEvaluate(lb, cur.recs || [], ym);
@@ -294,10 +324,24 @@ function dsAnaProgress(cur, lb, ym, W) {
   const diff = cum - tgt * k, avg = cum / k;
   const ahead = diff >= 0, gap = k < last ? `（有 ${last - k} 天沒輸入，只比有輸入的 ${k} 天）` : '';
   const done = last >= n;
+  // 去年同期：只比「今年有輸入、364 天前也有資料」的日子
+  let s1 = 0, s0 = 0, pk = 0;
+  ds.forEach(d => { const l = ctx.ly(d); if (l) { s1 += +cur.days[d].sales; s0 += +l.sales; pk++; } });
+  const yoy = pk >= 5 ? s1 / s0 - 1 : null;
+  // 整月推估：去年同期剩下的日子都有資料 → 去年的走勢 × 今年的成長；否則用目前日均
+  let projTxt = '';
+  if (!done) {
+    const rest = []; for (let d = last + 1; d <= n; d++) rest.push(ctx.ly(`${ym}-${dsPad(d)}`));
+    if (yoy != null && rest.every(Boolean)) {
+      const p = cum + rest.reduce((t, x) => t + +x.sales, 0) * (1 + yoy);
+      projTxt = `照去年同期走勢，整月約 <b>${dsWan(p)}</b>；達標要 ${dsWan(tgt * n)}。`;
+    } else projTxt = `照目前日均 ${dsWan(avg)}，整月約 <b>${dsWan(avg * n)}</b>；達標要 ${dsWan(tgt * n)}。`;
+  }
   const lines = [
     `<div class="big ${ahead ? 'hi' : 'lo'}">${ahead ? '▲ 超前' : '▼ 落後'} ${dsWan(Math.abs(diff))}</div>`,
     `<div class="say">到 ${dsMd(lastD)} 累計 <b>${dsWan(cum)}</b>，達標進度是 ${dsWan(tgt * k)}${gap}。</div>`,
-    done ? '' : `<div class="say">照目前日均 ${dsWan(avg)}，整月約 <b>${dsWan(avg * n)}</b>；達標要 ${dsWan(tgt * n)}。</div>`,
+    yoy != null ? `<div class="say">比去年同期 <b class="${yoy >= 0 ? 'hi' : 'lo'}">${dsSigned(yoy * 100, v => v.toFixed(1))}%</b>（對齊星期幾，${pk} 天）。</div>` : '',
+    projTxt ? `<div class="say">${projTxt}</div>` : '',
   ];
   return `<div class="card">${title}${lines.join('')}
     ${dsLegend([['#1a73e8', '累計超前（線在 0 以上）／落後（0 以下）'], ['#94a3b8', '剛好達標', 'dash']])}
@@ -338,7 +382,7 @@ function dsAnaWeekday(months) {
 }
 
 // ── ③ 每日走勢 ──
-function dsAnaTrend(cur, p1, ym, W) {
+function dsAnaTrend(cur, p1, ym, W, ctx) {
   const n = dsDaysIn(ym), all = Object.assign({}, p1.days, cur.days);
   const val = d => all[d] && all[d].sales != null ? +all[d].sales : null;
   const day = i => `${ym}-${dsPad(i + 1)}`;
@@ -350,36 +394,62 @@ function dsAnaTrend(cur, p1, ym, W) {
     const vs = []; for (let k = 0; k < 7; k++) { const v = val(shiftDateAdd(day(i), -k)); if (v != null) vs.push(v); }
     return vs.length >= 4 ? vs.reduce((a, b) => a + b, 0) / vs.length : null;
   });
-  const pds = dsSalesDays(p1), pAvg = pds.length >= 7 ? pds.reduce((t, d) => t + +p1.days[d].sales, 0) / pds.length : null;
+  // 去年同星期（364 天前）：整個月都畫，還沒到的日子也看得到去年的走法；有去年資料時不畫上月日均（線太多）
+  const lyv = Array.from({ length: n }, (_, i) => { const l = ctx.ly(day(i)); return l ? +l.sales : null; });
+  const hasLy = lyv.filter(v => v != null).length >= 7;
+  const pds = dsSalesDays(p1), pAvg = !hasLy && pds.length >= 7 ? pds.reduce((t, d) => t + +p1.days[d].sales, 0) / pds.length : null;
+  // 節日錯開：今年那天跟去年同星期那天，只有一邊是國定假日（或節日不同）→ 那天不能直接比
+  const holTag = i => { const a = ctx.hol[day(i)], b = ctx.hol[dsLyDate(day(i))]; return (a || b) && a !== b ? [a ? '今年' + a : '', b ? '去年同星期是' + b : ''].filter(Boolean).join('、') : ''; };
+  const holDays = hasLy ? Array.from({ length: n }, (_, i) => holTag(i) ? `${dsMd(day(i))}（${holTag(i)}）` : '').filter(Boolean) : [];
   const have = sales.map((v, i) => [v, i]).filter(x => x[0] != null);
   const hiP = have.reduce((a, b) => b[0] > a[0] ? b : a), loP = have.reduce((a, b) => b[0] < a[0] ? b : a);
   const tips = sales.map((v, i) => { const x = all[day(i)];
-    return v == null ? null : `${dsMd(day(i))}（${dsWdOf(day(i))}）${dsMoney(v)} 元` + (x.customers != null ? `・來客 ${dsMoney(x.customers)}` : '') + (ma[i] != null ? `｜7 天平均 ${dsMoney(ma[i])}` : ''); });
+    const lyT = lyv[i] != null ? `｜去年同星期 ${dsMoney(lyv[i])}` + (v != null ? `（${dsSigned((v / lyv[i] - 1) * 100, z => z.toFixed(1))}%）` : '') : '';
+    const h = hasLy && holTag(i) ? `｜⚠️${holTag(i)}` : '';
+    if (v == null) return lyT ? `${dsMd(day(i))}（${dsWdOf(day(i))}）還沒有資料` + lyT + h : null;
+    return `${dsMd(day(i))}（${dsWdOf(day(i))}）${dsMoney(v)} 元` + (x.customers != null ? `・來客 ${dsMoney(x.customers)}` : '') + (ma[i] != null ? `｜7 天平均 ${dsMoney(ma[i])}` : '') + lyT + h; });
   return `<div class="card"><div class="card-title">📈 每日走勢</div>
-    ${dsLegend([['#1a73e8', '每日營業額'], ['#e8710a', '7 天平均'], ...(pAvg ? [['#94a3b8', `${+dsAddMonth(ym, -1).slice(5)}月日均`, 'dash']] : [])])}
+    ${dsLegend([['#1a73e8', '每日營業額'], ['#e8710a', '7 天平均'], ...(hasLy ? [['#b0b8c4', '去年同星期']] : []), ...(pAvg ? [['#94a3b8', `${+dsAddMonth(ym, -1).slice(5)}月日均`, 'dash']] : [])])}
     ${dsLineChart({ W, n, xl: i => String(i + 1), tips, dots: true,
       refs: pAvg ? [{ v: pAvg }] : [],
       marks: have.length > 1 ? [{ i: hiP[1], v: hiP[0], t: '最高 ' + dsAxis(hiP[0]) }, { i: loP[1], v: loP[0], t: '最低 ' + dsAxis(loP[0]), below: true }] : [],
-      series: [{ vals: sales, color: '#1a73e8', w: 1.5 }, { vals: ma, color: '#e8710a', w: 2.5 }] })}
-    <div class="note">點圖上的點看當天數字。7 天平均線可以看出趨勢是往上還是往下，不會被單一天帶偏。</div></div>`;
+      series: [...(hasLy ? [{ vals: lyv, color: '#b0b8c4', w: 1.5 }] : []), { vals: sales, color: '#1a73e8', w: 1.5, dots: true }, { vals: ma, color: '#e8710a', w: 2.5 }] })}
+    <div class="note">點圖上的點看當天數字。7 天平均線可以看出趨勢是往上還是往下，不會被單一天帶偏。${hasLy ? '去年線是 364 天前（同一個星期幾），不是同日期。' : ''}</div>
+    ${holDays.length ? `<div class="note">⚠️ 節日錯開、不能直接跟去年比：${holDays.join('、')}</div>` : ''}</div>`;
 }
 
-// ── ④ 跟上月比：來客 vs 客單 ──
-function dsAnaChange(cur, p1, ym) {
-  const agg = m => { let s = 0, c = 0, k = 0;
-    Object.keys(m.days).forEach(d => { const x = m.days[d]; if (x.sales != null && x.customers != null && +x.customers > 0) { s += +x.sales; c += +x.customers; k++; } });
-    return k >= 5 ? { C: c / k, T: s / c, S: s / k, k } : null; };
-  const a = agg(p1), b = agg(cur), pm = +dsAddMonth(ym, -1).slice(5);
-  const title = `<div class="card-title">🔍 跟${pm}月比</div>`;
-  if (!a || !b) return `<div class="card">${title}<div class="empty">兩個月都要有 5 天以上「營業額＋來客」才能比</div></div>`;
+// ── ④ 跟上月比／跟去年比：來客 vs 客單 ──
+// 跟去年比只用「今年、364 天前都有營業額＋來客」的日子成對比較。
+// 經營意義：來客比去年少＝客人在流失（要處理）；只有客單變高＝可能只是漲價，不代表生意變好。
+let dsCmp = 'mom';
+function dsSetCmp(v) { dsCmp = v; dsRenderTab(); }
+function dsAnaChange(cur, p1, ym, ctx) {
+  const ok = x => x && x.sales != null && x.customers != null && +x.customers > 0;
+  const agg = list => { let s = 0, c = 0; list.forEach(x => { s += +x.sales; c += +x.customers; });
+    return list.length >= 5 ? { C: c / list.length, T: s / c, S: s / list.length, k: list.length } : null; };
+  const curDays = Object.keys(cur.days).sort().filter(d => ok(cur.days[d]));
+  const pairs = curDays.filter(d => ok(ctx.ly(d)));
+  const canYoy = pairs.length >= 5, mode = canYoy ? dsCmp : 'mom';
+  const pm = +dsAddMonth(ym, -1).slice(5);
+  const a = mode === 'yoy' ? agg(pairs.map(d => ctx.ly(d))) : agg(Object.keys(p1.days).filter(d => ok(p1.days[d])).map(d => p1.days[d]));
+  const b = mode === 'yoy' ? agg(pairs.map(d => cur.days[d])) : agg(curDays.map(d => cur.days[d]));
+  const lbl = mode === 'yoy' ? '去年同期' : `${pm} 月`;
+  const tog = canYoy ? `<span class="sub seg"><button class="${mode === 'mom' ? 'on' : ''}" onclick="dsSetCmp('mom')">上月</button><button class="${mode === 'yoy' ? 'on' : ''}" onclick="dsSetCmp('yoy')">去年</button></span>` : '';
+  const title = `<div class="card-title">🔍 跟${mode === 'yoy' ? '去年' : pm + '月'}比${tog}</div>`;
+  if (!a || !b) return `<div class="card">${title}<div class="empty">兩邊都要有 5 天以上「營業額＋來客」才能比</div></div>`;
   const dS = b.S - a.S, eC = (b.C - a.C) * a.T, eT = (b.T - a.T) * b.C;
   const main = Math.abs(eC) >= Math.abs(eT) ? (eC >= 0 ? '來客變多' : '來客變少') : (eT >= 0 ? '客單變高' : '客單變低');
   const row = (l, from, to, unit, eff) => `<div class="chg"><span class="cl">${l}</span><span class="cv">${from} → <b>${to}</b> ${unit}</span><span class="ce ${eff >= 0 ? 'hi' : 'lo'}">${eff >= 0 ? '▲' : '▼'} ${dsSigned(eff, dsMoney)} 元</span></div>`;
+  const hint = mode === 'yoy'
+    ? (eC < 0 ? '⚠️ 來客比去年少：客人可能在流失（附近新店、商圈變化），比單月起伏更值得注意。' : '')
+      + (eT > 0 && Math.abs(eT) > Math.abs(eC) ? '客單變高有一部分可能是商品漲價，不一定代表生意變好。' : '')
+      + `只比今年和去年同一個星期幾都有資料的 ${b.k} 天。`
+    : `來客少要看外部（天氣、假日、附近競爭）；客單低要看商品與促銷。${b.k < dsDaysIn(ym) && ym === dsToday().slice(0, 7) ? `本月只有 ${b.k} 天資料，比的是日均。` : ''}`;
   return `<div class="card">${title}
-    <div class="say">日均營業額 <b>${dsMoney(b.S)}</b>，比 ${pm} 月 <b class="${dS >= 0 ? 'hi' : 'lo'}">${dsSigned(dS, dsMoney)} 元（${dsSigned(dS / a.S * 100, v => v.toFixed(1))}%）</b>，主要是<b>${main}</b>：</div>
+    <div class="say">日均營業額 <b>${dsMoney(b.S)}</b>，比${lbl} <b class="${dS >= 0 ? 'hi' : 'lo'}">${dsSigned(dS, dsMoney)} 元（${dsSigned(dS / a.S * 100, v => v.toFixed(1))}%）</b>，主要是<b>${main}</b>：</div>
     ${row('每天來客', dsMoney(a.C), dsMoney(b.C), '人', eC)}
     ${row('客單價', dsMoney(a.T), dsMoney(b.T), '元', eT)}
-    <div class="note">兩項加起來等於日均營業額的變化。來客少要看外部（天氣、假日、附近競爭）；客單低要看商品與促銷。${b.k < dsDaysIn(ym) && ym === dsToday().slice(0, 7) ? `本月只有 ${b.k} 天資料，比的是日均。` : ''}</div></div>`;
+    <div class="note">兩項加起來等於日均營業額的變化。${hint}</div></div>`;
 }
 
 // ── 圖表元件 ──
@@ -408,7 +478,7 @@ function dsLineChart(o) {
     let d = '', pen = false;
     s.vals.forEach((v, i) => { if (v == null) { pen = false; return; } d += (pen ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1); pen = true; });
     if (d) g += `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.w || 2}" stroke-linejoin="round" stroke-linecap="round"${s.dash ? ` stroke-dasharray="${s.dash}"` : ''}/>`;
-    if (o.dots && s === o.series[0]) s.vals.forEach((v, i) => { if (v != null) g += `<circle cx="${x(i)}" cy="${y(v)}" r="2.5" fill="${s.color}"/>`; });
+    if (o.dots && (s.dots || (s === o.series[0] && !o.series.some(z => z.dots)))) s.vals.forEach((v, i) => { if (v != null) g += `<circle cx="${x(i)}" cy="${y(v)}" r="2.5" fill="${s.color}"/>`; });
   });
   (o.marks || []).forEach(m => {
     const tx = Math.min(Math.max(x(m.i), L + 28), W - R - 28);
