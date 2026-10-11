@@ -1,5 +1,6 @@
 // ===== 每日營業（2026-10-11）=====
-// 每天輸入營業額（含稅，PSD＝日結單 111「本日實際銷貨收入」，含代銷隨取）、來客數、報廢。不強制輸入。
+// 每天輸入營業額（含稅，PSD＝日結單 111「本日實際銷貨收入」，含代銷隨取）、來客數。不強制輸入。
+// 報廢：使用者 2026-10-11 決定先不記錄（欄位、報廢率都拿掉；儲存不寫 waste，既有資料不動）。
 // 使用者定案：
 //   - 一個營業日＝晚班＋夜班＋早班，早班日結後才有數字 → 日期預設「今天」。
 //   - 店長：輸入／修改（不限天數）、看本店分析、指派「作帳人員」。加盟主／admin：看三店。
@@ -92,10 +93,7 @@ function dsRenderInput() {
       <input type="date" id="dsDate" value="${today}" max="${today}" ${min ? `min="${min}"` : ''} onchange="dsPickDate(this.value)"></div>
     <div id="dsSavedTag" class="saved-tag"></div>
     <div class="f-row"><label>111 本日實際銷貨收入</label><input type="number" inputmode="numeric" id="dsSales" min="0" step="1" placeholder="${dsHint('sales', '例：65000')}"></div>
-    <div class="f-grid">
-      <div class="f-row"><label>101 本日來客數</label><input type="number" inputmode="numeric" id="dsCust" min="0" step="1" placeholder="${dsHint('customers', '例：600')}"></div>
-      <div class="f-row"><label>報廢金額<small>（零售價）</small></label><input type="number" inputmode="numeric" id="dsWaste" min="0" placeholder="例：1200"></div>
-    </div>
+    <div class="f-row"><label>101 本日來客數</label><input type="number" inputmode="numeric" id="dsCust" min="0" step="1" placeholder="${dsHint('customers', '例：600')}"></div>
     <details class="where"><summary>📄 數字在現金日報表哪裡？</summary>
       <div>看「現金日報表」最右邊<b>「收銀機合計」</b>那一欄（⚠️ 這欄印歪了，往上錯一格，不要照左邊的項目名稱對）：</div>
       <ul><li><b>101 本日來客數</b>＝這欄<b>最上面</b>第一個數字</li>
@@ -123,7 +121,7 @@ function dsHint(key, dflt) { const a = dsRefAvg(key); return a ? '近 4 週平�
 
 async function dsPickDate(date) {
   const tag = document.getElementById('dsSavedTag');
-  ['dsSales', 'dsCust', 'dsWaste'].forEach(id => { document.getElementById(id).value = ''; });
+  ['dsSales', 'dsCust'].forEach(id => { document.getElementById(id).value = ''; });
   tag.textContent = ''; dsPicked = null;
   if (!date) return;
   const snap = await dsRef().collection('dailySales').doc(date).get().catch(() => null);
@@ -131,7 +129,6 @@ async function dsPickDate(date) {
     const d = dsPicked = snap.data();
     document.getElementById('dsSales').value = d.sales ?? '';
     document.getElementById('dsCust').value = d.customers ?? '';
-    document.getElementById('dsWaste').value = d.waste ?? '';
     tag.textContent = `✓ 已輸入（${dsEsc(d.updatedByName || d.updatedBy || '')}${d.updatedAt ? ' · ' + dsMd(d.updatedAt.slice(0, 10)) + ' ' + d.updatedAt.slice(11, 16) : ''}），修改後再按儲存`;
   }
 }
@@ -145,9 +142,9 @@ async function dsSave() {
   const date = document.getElementById('dsDate').value;
   if (!dsCanEdit(date)) { dsToast(date > dsToday() ? '不能輸入未來的日期' : `只能修改最近 ${DS_EDIT_DAYS} 天，請找店長`); return; }
   const num = id => { const v = document.getElementById(id).value.trim(); return v === '' ? null : Number(v); };
-  const sales = num('dsSales'), cust = num('dsCust'), waste = num('dsWaste');
+  const sales = num('dsSales'), cust = num('dsCust');
   if (sales == null) { dsToast('請輸入 111 本日實際銷貨收入'); return; }
-  for (const [v, n] of [[sales, '銷貨收入'], [cust, '來客數'], [waste, '報廢']]) {
+  for (const [v, n] of [[sales, '銷貨收入'], [cust, '來客數']]) {
     if (v != null && (!isFinite(v) || v < 0)) { dsToast(n + '請填 0 以上的數字'); return; }
   }
   if (cust != null && !Number.isInteger(cust)) { dsToast('來客數請填整數'); return; }
@@ -160,13 +157,12 @@ async function dsSave() {
   const warns = [];
   const chk = (v, key, label) => { const a = dsRefAvg(key, date); if (v && a && Math.abs(v / a - 1) > DS_DEV) warns.push(`${label} ${dsMoney(v)}，近 4 週平均 ${dsMoney(a)}（${v > a ? '多' : '少'} ${Math.round(Math.abs(v / a - 1) * 100)}%）`); };
   chk(sales, 'sales', '銷貨收入'); chk(cust, 'customers', '來客數');
-  if (sales && waste != null && waste > sales * 0.1) warns.push(`報廢 ${dsMoney(waste)} 超過銷貨收入的 10%`);
   const prev = dsRecent[shiftDateAdd(date, -1)];
   if (prev && prev.sales === sales) warns.push(`銷貨收入跟前一天（${dsMd(shiftDateAdd(date, -1))}）一模一樣，是不是看到前一天的日報表？`);
   if (warns.length && !confirm('請再看一次現金日報表：\n\n・' + warns.join('\n・') + '\n\n「111 本日實際銷貨收入」是「收銀機合計」欄倒數第二個數字。\n數字確定沒錯就按「確定」儲存。')) return;
   // 覆蓋已輸入的數字先確認
   const old = dsPicked && dsPicked.date === date ? dsPicked : dsRecent[date];
-  if (old && (old.sales !== sales || (old.customers ?? null) !== cust || (old.waste ?? null) !== waste)
+  if (old && (old.sales !== sales || (old.customers ?? null) !== cust)
       && !confirm(`${dsMd(date)} 已經輸入過（銷貨收入 ${dsMoney(old.sales)}、來客 ${old.customers != null ? dsMoney(old.customers) : '—'}，${old.updatedByName || old.updatedBy || ''}），要改成新的數字嗎？`)) return;
   const btn = document.getElementById('dsSaveBtn'); btn.disabled = true;
   try {
@@ -174,12 +170,12 @@ async function dsSave() {
     const now = new Date().toISOString(), who = dsUser.empName || '', whoName = dsUser.displayName || who;
     await window.db.runTransaction(async tx => {
       const s = await tx.get(ref);
-      const base = { date, sales, customers: cust, waste, updatedBy: who, updatedByName: whoName, updatedAt: now };
+      const base = { date, sales, customers: cust, updatedBy: who, updatedByName: whoName, updatedAt: now };
       if (!s.exists) Object.assign(base, { createdBy: who, createdAt: now });
       tx.set(ref, base, { merge: true });
     });
     dsCache = {};
-    dsRecent[date] = { date, sales, customers: cust, waste, updatedBy: who, updatedByName: whoName };
+    dsRecent[date] = { date, sales, customers: cust, updatedBy: who, updatedByName: whoName };
     dsToast('✅ 已儲存 ' + dsMd(date));
     await dsPickDate(date);
     if (dsRole === 'lead') await dsRenderTab();
@@ -238,24 +234,21 @@ function dsRenderAna(data) {
   const ds = Object.keys(data.days).sort().filter(d => data.days[d].sales != null);
   const head = `<div class="card-title">📊 ${+data.ym.slice(5)}月分析<span class="sub">${dsMonthSel()}</span></div>`;
   if (!ds.length) return `<div class="card">${head}<div class="empty">這個月還沒有輸入資料</div></div>`;
-  let S = 0, C = 0, Cn = 0, W = 0, Wn = 0, SH = 0, H = 0;
+  let S = 0, C = 0, Cn = 0, SH = 0, H = 0;
   ds.forEach(d => {
     const x = data.days[d]; S += +x.sales;
     if (x.customers != null) { C += +x.customers; Cn++; }
-    if (x.waste != null) { W += +x.waste; Wn++; }
     if (data.hours[d]) { SH += +x.sales; H += data.hours[d]; }
   });
   const custDays = ds.filter(d => data.days[d].customers != null);
   const sCust = custDays.reduce((t, d) => t + +data.days[d].sales, 0);
-  const sWaste = ds.filter(d => data.days[d].waste != null).reduce((t, d) => t + +data.days[d].sales, 0);
   const kpi = (l, v, s) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div>${s ? `<div class="s">${s}</div>` : ''}</div>`;
   let html = `<div class="card">${head}<div class="kpis">
     ${kpi('營業額合計', dsWan(S), `${ds.length} 天有資料`)}
     ${kpi('日均營業額', dsWan(S / ds.length), '')}
     ${kpi('日均來客', Cn ? dsMoney(C / Cn) + ' 人' : '—', Cn ? `客單價 ${dsMoney(sCust / C)} 元` : '')}
-    ${kpi('報廢率', Wn && sWaste ? (W / sWaste * 100).toFixed(2) + '%' : '—', Wn ? `報廢 ${dsWan(W)}` : '')}
     ${kpi('每工時營業額', H ? dsMoney(SH / H) + ' 元' : '—', H ? `班表 ${dsMoney(H)} 小時` : '班表沒有對應的班')}
-  </div><div class="note">營業額為含稅金額。報廢率＝報廢（零售價）÷ 有填報廢那幾天的 111 本日實際銷貨收入；損益表的報廢是成本，兩者不能直接比。每工時營業額用班表排定時數（晚班、大夜算到隔天的營業日）。</div></div>`;
+  </div><div class="note">營業額為含稅金額。每工時營業額用班表排定時數（晚班、大夜算到隔天的營業日）。</div></div>`;
   // 星期幾平均（每個星期幾至少要有資料才列；整體資料滿 7 天才顯示，太少會被單日帶偏）
   if (ds.length >= 7) {
     const by = {};
@@ -285,8 +278,8 @@ function dsRenderList(data) {
   const head = `<div class="card-title">📋 ${+data.ym.slice(5)}月明細<span class="sub">${dsMonthSel()}</span></div>`;
   if (!ds.length) return `<div class="card">${head}<div class="empty">這個月還沒有輸入資料</div></div>`;
   const rows = ds.map(d => { const x = data.days[d], h = data.hours[d];
-    return `<tr class="click" onclick="dsEditDay('${d}')"><td>${dsMd(d)}（${dsWdOf(d)}）<small>${dsEsc(x.updatedByName || x.updatedBy || '')}</small></td><td>${dsMoney(x.sales)}</td><td>${x.customers != null ? dsMoney(x.customers) : '—'}<small>${x.customers ? '客單 ' + dsMoney(x.sales / x.customers) : ''}</small></td><td>${x.waste != null ? dsMoney(x.waste) : '—'}</td><td>${h ? dsMoney(x.sales / h) : '—'}</td></tr>`; }).join('');
-  return `<div class="card">${head}<table class="tbl"><thead><tr><th>日期</th><th>營業額</th><th>來客</th><th>報廢</th><th>每工時</th></tr></thead><tbody>${rows}</tbody></table>
+    return `<tr class="click" onclick="dsEditDay('${d}')"><td>${dsMd(d)}（${dsWdOf(d)}）<small>${dsEsc(x.updatedByName || x.updatedBy || '')}</small></td><td>${dsMoney(x.sales)}</td><td>${x.customers != null ? dsMoney(x.customers) : '—'}<small>${x.customers ? '客單 ' + dsMoney(x.sales / x.customers) : ''}</small></td><td>${h ? dsMoney(x.sales / h) : '—'}</td></tr>`; }).join('');
+  return `<div class="card">${head}<table class="tbl"><thead><tr><th>日期</th><th>營業額</th><th>來客</th><th>每工時</th></tr></thead><tbody>${rows}</tbody></table>
     <div class="note">點一列可以修改那天的資料。</div></div>`;
 }
 async function dsEditDay(d) {
@@ -335,16 +328,16 @@ function dsShowIntro() {
   const item = (ic, t, d) => `<div class="intro-item"><span class="ic">${ic}</span><div><b>${t}</b>${d}</div></div>`;
   const items = lead ? [
     item('📅', '看出星期幾生意好、哪天人排太多', '每工時營業額按星期比，最低的那天就是可以調整人力的地方。'),
-    item('🧮', '客單價、報廢率每天看得到', '不用等下個月的損益表，月中就知道走勢。'),
+    item('🧮', '客單價每天看得到', '不用等下個月的損益表，月中就知道走勢。'),
     item('⏱️', '之後讓工時上限跟著實際業績調整', '資料累積一兩個月、確認跟損益表對得上後，排班頁的上限會改用這個月的實際營業額。'),
   ] : [
-    item('🧾', '早班日結後，輸入當天三個數字', '照現金日報表填 111 本日實際銷貨收入、101 本日來客數，再加報廢，大約 30 秒；數字在哪裡，輸入框下方有說明。'),
+    item('🧾', '早班日結後，輸入當天兩個數字', '照現金日報表填 111 本日實際銷貨收入、101 本日來客數，大約 30 秒；數字在哪裡，輸入框下方有說明。'),
     item('🙌', '幫門市排出剛好的人力', '店長會用這些數字看哪天生意好、哪天人排太多。'),
   ];
   document.getElementById('dsIntro').innerHTML = `<div class="intro-box">
     <span class="intro-tag">🧪 實驗性功能</span>
     <div class="intro-title">每日營業記錄</div>
-    <div class="intro-lead">${lead ? '每天記下營業額、來客數、報廢，累積越多天，分析越準。' : '店長指派你負責記錄每天的營業數字。'}</div>
+    <div class="intro-lead">${lead ? '每天記下營業額、來客數，累積越多天，分析越準。' : '店長指派你負責記錄每天的營業數字。'}</div>
     ${items.join('')}
     <div class="intro-foot">${lead ? '不強制輸入，有記錄才看得到分析；可以在「作帳人員」指派日結的人代為輸入。功能還在試用，有覺得不好用的地方歡迎回饋。' : '可以修改最近 7 天的資料。功能還在試用，有覺得不好用的地方請跟店長說。'}</div>
     <button class="btn-primary" onclick="dsCloseIntro()">開始記錄</button>

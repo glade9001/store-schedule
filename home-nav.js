@@ -34,7 +34,7 @@ var HOME_FEATURES = [
   { id: 'mySalary',  group: 'me', icon: '💰', label: '薪水',       sub: '薪資明細與簽收',           go: 'my-salary.html', show: function () { return !!currentUser?.empName; }, kw: '薪資 簽收' },
   { id: 'myAttend',  group: 'me', icon: '🕐', label: '我的出勤',   sub: '打卡紀錄、遲到早退、補登', go: 'my-attendance.html', kw: '打卡 補登 缺卡' },
   // 作帳人員（店長在每日營業頁指派，2026-10-11）：獨立一區「作帳人員限定」；店長以上走「營運」那一項
-  { id: 'dailySalesInput', group: 'acct', icon: '🧾', label: '輸入營業額', sub: '早班日結後輸入營業額、來客、報廢', go: 'daily-sales.html', show: function () { return !hnIsLead() && HN_DS_INPUTTER; }, kw: '營業額 來客 報廢 日結' },
+  { id: 'dailySalesInput', group: 'acct', icon: '🧾', label: '輸入營業額', sub: '早班日結後輸入營業額、來客數', go: 'daily-sales.html', show: function () { return !hnIsLead() && HN_DS_INPUTTER; }, kw: '營業額 來客 日結' },
   { id: 'todo',      group: 'me', icon: '✅', label: '代辦清單',   sub: '待辦事項與公告',           go: 'todo.html', kw: '待辦 公告' },
   // ── 管理（店長以上）──
   { id: 'adminSchedule', group: 'sched',  icon: '📋', label: '排班',       sub: '排班、發布班表',             go: 'schedule-V2.html?mode=admin', show: hnIsLead },
@@ -46,7 +46,7 @@ var HOME_FEATURES = [
   { id: 'employees',     group: 'people', icon: '👥', label: '員工資料',   sub: '帳號、職位、調店、離職',     go: 'employee-mgmt.html', show: hnIsLead, kw: '員工 帳號 密碼 離職' },
   { id: 'leaveMgmt',     group: 'people', icon: '📆', label: '員工特補休', sub: '假別管理、紀錄查詢',         go: 'leave.html?mode=mgmt', show: hnIsLead, kw: '特休 補休' },
   { id: 'performance',   group: 'ops',    icon: '📊', label: '經營績效',   sub: '每月門市損益輸入、同期比較', go: 'performance.html', show: hnIsLead, kw: '損益 營業額 盤損' },
-  { id: 'dailySales',    group: 'ops',    icon: '🧾', label: '每日營業',   sub: '營業額、來客數、報廢輸入與分析', go: 'daily-sales.html', show: hnIsLead, kw: '營業額 來客 報廢 日結 客單價' },
+  { id: 'dailySales',    group: 'ops',    icon: '🧾', label: '每日營業',   sub: '營業額、來客數輸入與分析', go: 'daily-sales.html', show: hnIsLead, kw: '營業額 來客 日結 客單價' },
   { id: 'owner',         group: 'ops',    tier: 'owner', icon: '👑', label: '決策儀表板', sub: '三店總覽、人事分析、店長管理力',       go: 'owner-dashboard.html', show: hnIsOwner, kw: '加盟主 人事分析 人事成本 加班 跨店支援' },  // 人事分析 2026-10-10 併入儀表板〔人事〕分頁
   { id: 'cityAdmin',     group: 'tools',  tier: 'admin', icon: '🧾', label: 'CITY手順管理', sub: '確認每週同步的變動後發佈', go: 'city-admin.html', show: hnIsAdmin },
   { id: 'audit',         group: 'tools',  tier: 'admin', icon: '🩺', label: '資料健檢',   sub: '假別／到職日／跨店一致性',   go: 'data-audit.html', show: hnIsAdmin },
