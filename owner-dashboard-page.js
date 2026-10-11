@@ -439,14 +439,14 @@ function renderScorecard(m,extra,mode){
   });
   // 每維度：val 取值、sc benchmark 0-100 分數、w 權重（獲益優先）
   const dims=[
-    {key:'surplusRate', w:1.3, ic:'💰', name:'獲利貢獻（餘裕率×金額）', val:r=>r.surplusRate, sc:surplusSc, fmt:v=>`餘裕率 ${v>=0?'+':''}${v.toFixed(1)}%`, sub:r=>`餘裕 $${r.surplusAbs!=null?money(r.surplusAbs):'—'}（稅前：營業稅代收代付不影響、所得稅未扣）· 率分 ${Math.round(clamp(50+r.surplusRate*(50/SURPLUS_RATE_FULL)))}×0.7 ＋ 額分 ${r.surplusAbs!=null?Math.round(clamp(r.surplusAbs/SURPLUS_FULL*100)):'—'}×0.3`},
-    {key:'lossRate', w:1.0, ic:'🛡️', name:'損耗控制（淨損耗率）', val:r=>r.lossRate, sc:v=>clamp(100-Math.max(0,v-1)/0.5*15), fmt:v=>`淨損耗率 ${v.toFixed(2)}%`, sub:r=>`壞品＋盤損＋現金短少 ÷ 營收（越低越好）· ${window.PnlLoss?window.PnlLoss.note(r.amort):''}`},
-    {key:'salesYoY', w:1.0, ic:'📈', name:'業績成長（營收YoY）', val:r=>r.salesYoY, sc:v=>clamp(50+v*5), fmt:v=>`營收 YoY ${v>0?'+':''}${v.toFixed(1)}%`, sub:r=>`本月營收 $${r.net!=null?money(r.net):'—'}`},
-    {key:'laborRate', w:0.6, ic:'📐', name:'人事費率水準', val:r=>r.laborRate, sc:v=>clamp(100-Math.max(0,v-9)*10), fmt:v=>`人事費率 ${v.toFixed(1)}%`, sub:r=>'含公司負擔÷營業淨額（越低越好）'},
-    {key:'law', w:0.3, ic:'⚖️', name:'合規紀律', val:r=>r.law, sc:v=>clamp(100-v*15), fmt:v=>`知情放行 ${v} 次`, sub:r=>'越少越守法'},
-    {key:'lateRate', w:0.3, ic:'⏰', name:'團隊出勤紀律（每人）', val:r=>r.lateRate, sc:v=>clamp(100-v/0.5*20), fmt:v=>`出勤異常 ${v.toFixed(2)} 次/人`, sub:r=>`遲到/早退/缺卡 ${r.late!=null?r.late:'—'} 次 · ${r.head||'—'} 人`},
-    {key:'perHr', w:0.3, ic:'🏭', name:'坪效（每工時營收）', val:r=>r.perHr, sc:v=>clamp(50+(v-1500)/100*4), fmt:v=>`每工時營收 $${money(v)}`, sub:r=>'營業淨額÷總工時'},
-    {key:'laborImprove', w:0.6, ic:'📉', name:'人事費率改善（同期）', val:r=>r.laborImprove, sc:v=>clamp(50+v*15), fmt:v=>`費率同期 ${v>=0?'↓改善 '+v.toFixed(1):'↑惡化 '+Math.abs(v).toFixed(1)}pt`, sub:r=>'需去年同期人事資料'},
+    {key:'surplusRate', w:1.3, plain:'替加盟主賺多少：門市餘裕佔營收的比例，加上金額大小。虧錢就低分', ic:'💰', name:'獲利貢獻（餘裕率×金額）', val:r=>r.surplusRate, sc:surplusSc, fmt:v=>`餘裕率 ${v>=0?'+':''}${v.toFixed(1)}%`, sub:r=>`餘裕 $${r.surplusAbs!=null?money(r.surplusAbs):'—'}（稅前：營業稅代收代付不影響、所得稅未扣）· 率分 ${Math.round(clamp(50+r.surplusRate*(50/SURPLUS_RATE_FULL)))}×0.7 ＋ 額分 ${r.surplusAbs!=null?Math.round(clamp(r.surplusAbs/SURPLUS_FULL*100)):'—'}×0.3`},
+    {key:'lossRate', w:1.0, plain:'壞品＋盤損＋現金短少佔營收，越低越好。店長最能直接控制的一項', ic:'🛡️', name:'損耗控制（淨損耗率）', val:r=>r.lossRate, sc:v=>clamp(100-Math.max(0,v-1)/0.5*15), fmt:v=>`淨損耗率 ${v.toFixed(2)}%`, sub:r=>`壞品＋盤損＋現金短少 ÷ 營收（越低越好）· ${window.PnlLoss?window.PnlLoss.note(r.amort):''}`},
+    {key:'salesYoY', w:1.0, plain:'營收比去年同月成長多少，同月比同月不受淡旺季影響', ic:'📈', name:'業績成長（營收YoY）', val:r=>r.salesYoY, sc:v=>clamp(50+v*5), fmt:v=>`營收 YoY ${v>0?'+':''}${v.toFixed(1)}%`, sub:r=>`本月營收 $${r.net!=null?money(r.net):'—'}`},
+    {key:'laborRate', w:0.6, plain:'人事成本佔營收，越低代表人力用得越有效率', ic:'📐', name:'人事費率水準', val:r=>r.laborRate, sc:v=>clamp(100-Math.max(0,v-9)*10), fmt:v=>`人事費率 ${v.toFixed(1)}%`, sub:r=>'含公司負擔÷營業淨額（越低越好）'},
+    {key:'law', w:0.3, plain:'排班時系統提醒違反勞基法、店長仍然照排的次數，越少越好', ic:'⚖️', name:'合規紀律', val:r=>r.law, sc:v=>clamp(100-v*15), fmt:v=>`知情放行 ${v} 次`, sub:r=>'越少越守法'},
+    {key:'lateRate', w:0.3, plain:'平均每位員工遲到、早退、缺卡幾次，看店長帶人的紀律', ic:'⏰', name:'團隊出勤紀律（每人）', val:r=>r.lateRate, sc:v=>clamp(100-v/0.5*20), fmt:v=>`出勤異常 ${v.toFixed(2)} 次/人`, sub:r=>`遲到/早退/缺卡 ${r.late!=null?r.late:'—'} 次 · ${r.head||'—'} 人`},
+    {key:'perHr', w:0.3, plain:'每排 1 小時班做出多少營收，看人力的生產力', ic:'🏭', name:'坪效（每工時營收）', val:r=>r.perHr, sc:v=>clamp(50+(v-1500)/100*4), fmt:v=>`每工時營收 $${money(v)}`, sub:r=>'營業淨額÷總工時'},
+    {key:'laborImprove', w:0.6, plain:'人事費率比去年同月降了多少；要有去年同期的人事資料才會計分', ic:'📉', name:'人事費率改善（同期）', val:r=>r.laborImprove, sc:v=>clamp(50+v*15), fmt:v=>`費率同期 ${v>=0?'↓改善 '+v.toFixed(1):'↑惡化 '+Math.abs(v).toFixed(1)}pt`, sub:r=>'需去年同期人事資料'},
   ];
   // 計分：benchmark 分數 × 權重 加總
   const total={}, scMap={}; STORES.forEach(s=>{total[s]=0;scMap[s]={};});
@@ -493,7 +493,16 @@ function renderScorecard(m,extra,mode){
     dims.forEach(d=>{ const sc=scMap[s][d.key]; tbl+=`<td style="font-weight:800;color:${scColor(sc)}">${sc!=null?Math.round(sc):'—'}</td>`; });
     tbl+=`<td style="font-weight:900;">${Math.round(total[s])}</td><td>${pl===1?'🏆':pl}</td></tr>`;
   });
-  tbl+=`</tbody></table><div style="font-size:10.5px;color:var(--muted);margin-top:6px;">格內為該指標 0–100 對標分數（非名次）；總分＝各分數×權重加總。</div></div>`;
+  tbl+=`</tbody></table></div>`;
+  // 怎麼看（2026-10-11 使用者：計分卡頁要說明數據的意義）：表頭只有圖示，對照表放表格下方、分數規則放上方
+  const how=`<div class="card" style="font-size:12.5px;line-height:1.7;color:#334155;margin-bottom:10px;">
+    <b>怎麼看分數</b>：每一格是 0–100 分，對的是<b>固定標準</b>（不是三店互相比名次）。
+    <span style="color:#137333;font-weight:800;">綠色 75 分以上＝好</span>、<span style="color:#c5221f;font-weight:800;">紅色 40 分以下＝要改善</span>、「—」＝資料還不夠。
+    總分＝每格分數 × 權重加總；獲利貢獻權重最高，因為<b>以加盟主賺錢為優先</b>。</div>`;
+  const legend=`<div class="card" style="margin-top:-2px;margin-bottom:10px;"><div style="font-size:13px;font-weight:900;margin-bottom:4px;">📖 每一欄代表什麼</div>
+    ${dims.map(d=>`<div style="display:flex;gap:9px;padding:7px 0;border-top:1px solid #f1f5f9;font-size:12.5px;line-height:1.6;">
+      <div style="font-size:16px;line-height:1.4;">${d.ic}</div><div style="flex:1;"><b>${d.name.replace(/（.*）/,'')}</b> <span style="color:#4338ca;font-weight:800;font-size:11px;">權重 ×${d.w}</span><div style="color:#475569;">${d.plain}</div></div></div>`).join('')}
+    <div style="font-size:11px;color:var(--muted);margin-top:6px;">想看每一項的滿分標準，點上面「ℹ️ 指標說明」。</div></div>`;
 
   let detail='';
   ranked.forEach((s)=>{
@@ -507,7 +516,7 @@ function renderScorecard(m,extra,mode){
     });
     detail+=`</details>`;
   });
-  return head+tbl+`<div class="note" style="margin-bottom:10px;">點門市可以展開，看每個指標的分數是怎麼來的。</div>`+detail;
+  return head+how+tbl+legend+`<div class="note" style="margin-bottom:10px;">點門市可以展開，看每個指標的實際數字和分數是怎麼來的。</div>`+detail;
 }
 // ===== 未休假獎金估算（2026-10-10）=====
 // 使用者定案：特休＋補休一起算；顯示「到期月份結算」的金額，可遞延的標註；過期沒處理的列進「要處理」；排除加盟主本人。
