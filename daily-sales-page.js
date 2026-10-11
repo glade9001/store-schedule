@@ -91,16 +91,16 @@ function dsRenderInput() {
     <div class="f-row"><label>營業日（晚＋夜＋早算一天，早班日結後輸入）</label>
       <input type="date" id="dsDate" value="${today}" max="${today}" ${min ? `min="${min}"` : ''} onchange="dsPickDate(this.value)"></div>
     <div id="dsSavedTag" class="saved-tag"></div>
-    <div class="f-row"><label>營業額 PSD（含代銷隨取）</label><input type="number" inputmode="numeric" id="dsSales" min="0" step="1" placeholder="${dsHint('sales', '例：65000')}"></div>
+    <div class="f-row"><label>111 本日實際銷貨收入</label><input type="number" inputmode="numeric" id="dsSales" min="0" step="1" placeholder="${dsHint('sales', '例：65000')}"></div>
     <div class="f-grid">
-      <div class="f-row"><label>來客數</label><input type="number" inputmode="numeric" id="dsCust" min="0" step="1" placeholder="${dsHint('customers', '例：600')}"></div>
-      <div class="f-row"><label>報廢金額</label><input type="number" inputmode="numeric" id="dsWaste" min="0" placeholder="例：1200"></div>
+      <div class="f-row"><label>101 本日來客數</label><input type="number" inputmode="numeric" id="dsCust" min="0" step="1" placeholder="${dsHint('customers', '例：600')}"></div>
+      <div class="f-row"><label>報廢金額<small>（日報表上沒有）</small></label><input type="number" inputmode="numeric" id="dsWaste" min="0" placeholder="例：1200"></div>
     </div>
-    <details class="where"><summary>📄 數字在日結單哪裡？</summary>
+    <details class="where"><summary>📄 數字在現金日報表哪裡？</summary>
       <div>看「現金日報表」最右邊<b>「收銀機合計」</b>那一欄（⚠️ 這欄印歪了，往上錯一格，不要照左邊的項目名稱對）：</div>
-      <ul><li><b>來客數</b>＝這欄<b>最上面</b>第一個數字</li>
-      <li><b>營業額</b>＝這欄<b>倒數第二個</b>數字（比最後一個大；最後一個是扣掉代銷隨取的，不要填）</li></ul>
-      <div>也可以看後台「情報分析 → 三班帳務分析表」的 <b>PSD 含代銷隨取</b>、<b>來客數</b>，兩邊數字一樣。</div>
+      <ul><li><b>101 本日來客數</b>＝這欄<b>最上面</b>第一個數字</li>
+      <li><b>111 本日實際銷貨收入</b>＝這欄<b>倒數第二個</b>數字（比最後一個大；最後一個是 120 實際營業額，扣掉了代銷隨取，不要填）</li></ul>
+      <div>也可以看後台「情報分析 → 三班帳務分析表」的 <b>PSD 含代銷隨取</b>（＝111）、<b>來客數</b>（＝101），兩邊數字一樣。</div>
     </details>
     <button class="btn-primary" id="dsSaveBtn" onclick="dsSave()">儲存</button>
     ${dsRole === 'input' ? `<div class="note">可以修改最近 ${DS_EDIT_DAYS} 天的資料；更早的請找店長。</div>` : ''}
@@ -146,28 +146,28 @@ async function dsSave() {
   if (!dsCanEdit(date)) { dsToast(date > dsToday() ? '不能輸入未來的日期' : `只能修改最近 ${DS_EDIT_DAYS} 天，請找店長`); return; }
   const num = id => { const v = document.getElementById(id).value.trim(); return v === '' ? null : Number(v); };
   const sales = num('dsSales'), cust = num('dsCust'), waste = num('dsWaste');
-  if (sales == null) { dsToast('請輸入營業額'); return; }
-  for (const [v, n] of [[sales, '營業額'], [cust, '來客數'], [waste, '報廢']]) {
+  if (sales == null) { dsToast('請輸入 111 本日實際銷貨收入'); return; }
+  for (const [v, n] of [[sales, '銷貨收入'], [cust, '來客數'], [waste, '報廢']]) {
     if (v != null && (!isFinite(v) || v < 0)) { dsToast(n + '請填 0 以上的數字'); return; }
   }
   if (cust != null && !Number.isInteger(cust)) { dsToast('來客數請填整數'); return; }
-  if (!Number.isInteger(sales)) { dsToast('營業額請填整數（日結單上沒有小數）'); return; }
-  if (sales > DS_SALES_MAX) { dsToast(`營業額 ${dsMoney(sales)} 太大了，是不是多打了一位數？`); return; }
-  if (sales === 0 && !confirm('營業額是 0，確定這天沒有營業嗎？')) return;
-  // 防手誤：營業額跟來客數差太多（客單價 < 20 或 > 2000）先確認一次
+  if (!Number.isInteger(sales)) { dsToast('銷貨收入請填整數（日報表上沒有小數）'); return; }
+  if (sales > DS_SALES_MAX) { dsToast(`銷貨收入 ${dsMoney(sales)} 太大了，是不是多打了一位數？`); return; }
+  if (sales === 0 && !confirm('銷貨收入是 0，確定這天沒有營業嗎？')) return;
+  // 防手誤：銷貨收入跟來客數差太多（客單價 < 20 或 > 2000）先確認一次
   if (cust && (sales / cust < 20 || sales / cust > 2000) && !confirm(`客單價算出來是 ${Math.round(sales / cust)} 元，數字確定沒打錯嗎？`)) return;
   // 防抄錯列：跟近 4 週平均差太多
   const warns = [];
   const chk = (v, key, label) => { const a = dsRefAvg(key, date); if (v && a && Math.abs(v / a - 1) > DS_DEV) warns.push(`${label} ${dsMoney(v)}，近 4 週平均 ${dsMoney(a)}（${v > a ? '多' : '少'} ${Math.round(Math.abs(v / a - 1) * 100)}%）`); };
-  chk(sales, 'sales', '營業額'); chk(cust, 'customers', '來客數');
-  if (sales && waste != null && waste > sales * 0.1) warns.push(`報廢 ${dsMoney(waste)} 超過營業額的 10%`);
+  chk(sales, 'sales', '銷貨收入'); chk(cust, 'customers', '來客數');
+  if (sales && waste != null && waste > sales * 0.1) warns.push(`報廢 ${dsMoney(waste)} 超過銷貨收入的 10%`);
   const prev = dsRecent[shiftDateAdd(date, -1)];
-  if (prev && prev.sales === sales) warns.push(`營業額跟前一天（${dsMd(shiftDateAdd(date, -1))}）一模一樣，是不是看到前一天的日結單？`);
-  if (warns.length && !confirm('請再看一次日結單：\n\n・' + warns.join('\n・') + '\n\n營業額要填「收銀機合計」欄倒數第二個數字（含代銷隨取）。\n數字確定沒錯就按「確定」儲存。')) return;
+  if (prev && prev.sales === sales) warns.push(`銷貨收入跟前一天（${dsMd(shiftDateAdd(date, -1))}）一模一樣，是不是看到前一天的日報表？`);
+  if (warns.length && !confirm('請再看一次現金日報表：\n\n・' + warns.join('\n・') + '\n\n「111 本日實際銷貨收入」是「收銀機合計」欄倒數第二個數字。\n數字確定沒錯就按「確定」儲存。')) return;
   // 覆蓋已輸入的數字先確認
   const old = dsPicked && dsPicked.date === date ? dsPicked : dsRecent[date];
   if (old && (old.sales !== sales || (old.customers ?? null) !== cust || (old.waste ?? null) !== waste)
-      && !confirm(`${dsMd(date)} 已經輸入過（營業額 ${dsMoney(old.sales)}、來客 ${old.customers != null ? dsMoney(old.customers) : '—'}，${old.updatedByName || old.updatedBy || ''}），要改成新的數字嗎？`)) return;
+      && !confirm(`${dsMd(date)} 已經輸入過（銷貨收入 ${dsMoney(old.sales)}、來客 ${old.customers != null ? dsMoney(old.customers) : '—'}，${old.updatedByName || old.updatedBy || ''}），要改成新的數字嗎？`)) return;
   const btn = document.getElementById('dsSaveBtn'); btn.disabled = true;
   try {
     const ref = dsRef().collection('dailySales').doc(date);
@@ -338,7 +338,7 @@ function dsShowIntro() {
     item('🧮', '客單價、報廢率每天看得到', '不用等下個月的損益表，月中就知道走勢。'),
     item('⏱️', '之後讓工時上限跟著實際業績調整', '資料累積一兩個月、確認跟損益表對得上後，排班頁的上限會改用這個月的實際營業額。'),
   ] : [
-    item('🧾', '早班日結後，輸入當天三個數字', '營業額（PSD）、來客數、報廢，大約 30 秒；數字在日結單哪裡，輸入框下方有說明。'),
+    item('🧾', '早班日結後，輸入當天三個數字', '照現金日報表填 111 本日實際銷貨收入、101 本日來客數，再加報廢，大約 30 秒；數字在哪裡，輸入框下方有說明。'),
     item('🙌', '幫門市排出剛好的人力', '店長會用這些數字看哪天生意好、哪天人排太多。'),
   ];
   document.getElementById('dsIntro').innerHTML = `<div class="intro-box">
