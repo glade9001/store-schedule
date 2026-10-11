@@ -158,6 +158,23 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
 .review-body th{color:var(--muted);font-weight:800;font-size:11.5px;}
 .review-body th:first-child,.review-body td:first-child{text-align:left;font-weight:800;}
 .review-body blockquote{border-left:3px solid #c7dafc;background:#f5f8ff;padding:7px 10px;margin:6px 0;font-size:12.5px;color:#334155;line-height:1.7;border-radius:0 8px 8px 0;}
+/* 儀表板導覽（owner-tour.js；同首頁教學 ht-* 的外觀） */
+#otLayer{display:none;position:fixed;inset:0;z-index:9700;}
+#otLayer.active{display:block;}
+.ot-block{position:fixed;inset:0;}
+.ot-spot{position:fixed;border-radius:14px;pointer-events:none;box-shadow:0 0 0 3px #fff,0 0 0 9999px rgba(8,16,32,.72);transition:top .2s,left .2s,width .2s,height .2s;}
+.ot-coach{position:fixed;left:14px;right:14px;max-width:420px;margin:0 auto;background:#fff;border-radius:16px;padding:14px 16px;box-shadow:0 12px 34px rgba(0,0,0,.3);}
+.ot-coach::before{content:"";position:absolute;left:var(--ax,24px);bottom:-6px;width:12px;height:12px;background:#fff;transform:rotate(45deg);}
+.ot-coach.up::before{top:-6px;bottom:auto;}
+.ot-coach.noarrow::before{display:none;}
+.ot-step{font-size:11px;font-weight:800;color:#1a73e8;letter-spacing:.06em;}
+.ot-title{font-size:17px;font-weight:900;color:#0e2140;margin:2px 0 4px;}
+.ot-text{font-size:14px;color:#475569;line-height:1.65;}
+.ot-acts{display:flex;align-items:center;gap:8px;margin-top:12px;}
+.ot-skip{background:none;border:none;color:#64748b;font-size:13.5px;font-weight:700;padding:6px 0;cursor:pointer;font-family:inherit;}
+.ot-dots{margin-left:auto;}
+.ot-prev{background:#f1f5f9;color:#334155;border:none;border-radius:10px;padding:9px 12px;font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;}
+.ot-next{background:#1a73e8;color:#fff;border:none;border-radius:10px;padding:9px 16px;font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;}
 .mini-btn{background:#eef2ff;color:#4338ca;border:none;border-radius:8px;padding:5px 10px;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;}
 </style>
 </head>
@@ -166,6 +183,7 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
 <div class="header">
   <button class="header-back" onclick="window.location.href='home.html'">← 首頁</button>
   <div class="header-title">👑 加盟主決策儀表板</div>
+  <button class="header-back" onclick="startOwnerTour()" aria-label="儀表板導覽">導覽</button>
   <select class="msel" id="monthSel" onchange="renderAll(this.value)"></select>
 </div>
 <div class="content"><div id="scopeBar"></div><div id="mainTabs" class="main-tabs" role="tablist"></div><div id="content"><div class="empty">載入中…</div></div></div>
@@ -177,5 +195,6 @@ html,body{height:100%;background:var(--bg);font-family:"Noto Sans TC","PingFang 
 <script src="auto-schedule-core.js"></script>
 <script src="labor-budget.js"></script>
 <script src="owner-dashboard-page.js"></script>
+<script src="owner-tour.js"></script>
 </body>
 </html>

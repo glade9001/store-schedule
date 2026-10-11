@@ -68,9 +68,11 @@ window.onload=async()=>{
   OwnerScope.onChange(()=>{ OwnerScope.render(document.getElementById('scopeBar'), STORES); renderAll(dashMonth); window.scrollTo(0,0); });
   renderAll(sel.value);
   // 未休假獎金估算：每人要讀特休批次與補休帳本，放背景載入，好了再重畫（不擋第一屏）
-  loadLeaveEstimate().then(()=>{ if(dashView==='main') renderAll(dashMonth); }).catch(e=>console.warn('未休假獎金估算失敗',e));
+  const bgLeave=loadLeaveEstimate().then(()=>{ if(dashView==='main') renderAll(dashMonth); }).catch(e=>console.warn('未休假獎金估算失敗',e));
   // 本月工時 vs 工時上限：要讀各店本月班表與設定，同樣放背景
-  loadLaborBudget().then(()=>{ if(dashView==='main') renderAll(dashMonth); }).catch(e=>console.warn('工時上限計算失敗',e));
+  const bgLb=loadLaborBudget().then(()=>{ if(dashView==='main') renderAll(dashMonth); }).catch(e=>console.warn('工時上限計算失敗',e));
+  // 第一次進來自動跳儀表板導覽（owner-tour.js）：等背景兩項算完再跳，免得導覽途中整頁重畫、亮框位置跑掉
+  Promise.all([bgLeave,bgLb]).then(()=>setTimeout(()=>{ if(typeof maybeStartOwnerTour==='function') maybeStartOwnerTour(); },600));
 };
 
 async function loadAll(){
