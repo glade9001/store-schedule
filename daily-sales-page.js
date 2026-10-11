@@ -191,7 +191,7 @@ async function dsSave() {
     dsCache = {};
     dsRecent[date] = { date, sales, customers: cust, updatedBy: who, updatedByName: whoName };
     dsRenderMiss();
-    try { localStorage.removeItem('hdc2:' + dsStoreName); } catch (e) {} // 首頁每日營業卡（home-ds.js）回去馬上重算
+    try { localStorage.removeItem('hdc3:' + dsStoreName); } catch (e) {} // 首頁每日營業卡（home-ds.js）回去馬上重算
     dsToast('✅ 已儲存 ' + dsMd(date));
     await dsPickDate(date);
     if (dsRole === 'lead') await dsRenderTab();

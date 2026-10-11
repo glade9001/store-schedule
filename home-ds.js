@@ -7,7 +7,7 @@
 // 每日營業頁存檔時會清掉該店快取（daily-sales-page.js），輸入完回首頁馬上看到新數字。
 // 比照 shift-utils.js：只有 function 與 var（前綴 hd），掛在首頁不會撞名。
 var HD_TTL = 30 * 60 * 1000;
-var HD_KEY = 'hdc2:';   // 快取鍵（資料格式改版就換名字，舊快取自然失效）
+var HD_KEY = 'hdc3:';   // 快取鍵（資料格式改版就換名字，舊快取自然失效）
 var HD_COLORS = ['#c0841f', '#2f8fcc', '#d9628e'];   // 三店在深藍底上的顏色（dataviz 驗證：亮度帶、色盲分辨、對比都過）
 var hdBusy = false;
 
@@ -41,7 +41,8 @@ async function hdCompute(store, ym) {
   var days = {}; if (cur) cur.forEach(function (d) { if (d.data().sales != null) days[d.id] = d.data(); });
   var ds = Object.keys(days).sort(); if (!ds.length) return null;
   // 工時上限（同排班頁）：班表週次＝這個月每一天所在的週
-  var weeks = {}; for (var dt = first; dt <= lastDay; dt = shiftDateAdd(dt, 1)) weeks[shiftWeekStr(dt)] = 1;
+  var winFrom = shiftDateAdd(ds[ds.length - 1], -55); // 本週提醒：近 8 週星期幾人力
+  var weeks = {}; for (var dt = winFrom < first ? winFrom : first; dt <= lastDay; dt = shiftDateAdd(dt, 1)) weeks[shiftWeekStr(dt)] = 1;
   weeks = Object.keys(weeks);
   var res = await Promise.all([
     lbLoadStore(db, store),
@@ -89,8 +90,43 @@ async function hdCompute(store, ym) {
     needLy: rem > 0 && lyOk ? (lyAll - cum) / rem : null,
     proj: proj, tgtMonth: tgt != null ? tgt * n : null,
     light: lt ? { level: lt.level, hours: ev.sched.hours, capP: lt.capP, lastDate: ev.sched.lastDate } : null,
+    tip: hdTip(lt, ev, days, lb.daily || {}, ly7, recs, lastD, winFrom),
     chart: chart,
   };
+}
+
+// 本週提醒（2026-10-11 使用者選）：一次只挑一件最值得做的事
+//   ① 排班超過上限 → 要調班　② 來客連續 5 天以上低於去年同星期 → 留意流失　③ 近 8 週每排 1 小時接客最少的星期 → 排班可優先減
+var HD_OFF = ['排休', '指休', '特休', '補休', '清空', ''];
+function hdTip(lt, ev, days, daily, ly, recs, lastD, from) {
+  if (lt && lt.level === 'red') return '排班已超過上限 ' + hdMoney(ev.sched.hours - lt.capP) + ' 小時，請調整班表';
+  var all = Object.assign({}, daily, days), streak = 0;
+  for (var d = lastD; ; d = shiftDateAdd(d, -1)) {
+    var c = all[d], l = ly[shiftDateAdd(d, -364)];
+    if (!c || !l || !(+c.customers > 0) || !(+l.customers > 0) || +c.customers >= +l.customers) break;
+    streak++;
+  }
+  if (streak >= 5) return '來客已連續 ' + streak + ' 天低於去年同星期，留意客人是否流失';
+  // 營業日＝晚班、大夜算到隔天（同每日營業頁 DS_DAY_CUT）
+  var hrs = {};
+  recs.forEach(function (r) {
+    if (!r || r.name === '門市備註' || HD_OFF.indexOf(String(r.shift || '').trim()) >= 0) return;
+    if (r.location && r.location !== '本店') return;
+    var dt = lbRecDate(r.week, r.day), h = parseFloat(r.actualHours || 0), sp = shiftSpan(r.shift);
+    if (!dt || !(h > 0) || !sp) return;
+    var biz = sp.startH >= 14 ? shiftDateAdd(dt, 1) : dt;
+    hrs[biz] = (hrs[biz] || 0) + h;
+  });
+  var by = {}, n = 0, WD = ['日', '一', '二', '三', '四', '五', '六'];
+  for (var e = from; e <= lastD; e = shiftDateAdd(e, 1)) {
+    var x = all[e]; if (!x || !(+x.customers > 0) || !(hrs[e] > 0)) continue;
+    var w = new Date(e + 'T00:00:00').getDay(), b = by[w] = by[w] || { c: 0, h: 0 };
+    b.c += +x.customers; b.h += hrs[e]; n++;
+  }
+  if (n < 14) return '';
+  var ws = Object.keys(by), lo = ws.reduce(function (a, k) { return by[k].c / by[k].h < by[a].c / by[a].h ? k : a; }, ws[0]);
+  var avg = ws.reduce(function (t, k) { return t + by[k].c; }, 0) / ws.reduce(function (t, k) { return t + by[k].h; }, 0);
+  return '近 8 週週' + WD[lo] + '每排 1 小時只接 ' + (by[lo].c / by[lo].h).toFixed(1) + ' 位客人（平均 ' + avg.toFixed(1) + '），排班可優先減這天';
 }
 
 async function hdLoad() {
@@ -125,14 +161,18 @@ var HD_LT = { green: 'up', yellow: 'warn', red: 'down' };
 // 一家店的 4 個數字：{k, name, v, u, sub, tone}；v＝null 顯示「—」
 function hdMetrics(x) {
   var m = [];
-  m.push({ k: 'money', name: '本月營業額', v: hdW1(x.raw), u: '萬', tone: x.yoy == null ? '' : x.yoy >= 0 ? 'up' : 'down',
-    sub: x.yoy == null ? '已填 ' + x.days + ' 天' : (x.yoy >= 0 ? '▲ ' : '▼ ') + Math.abs(x.yoy * 100).toFixed(1) + '% 較去年同期' });
+  // 💰 月底會不會達標（使用者 2026-10-11：要看了能行動）＝月底推估 ÷ 達標；算不出達標才退回本月營業額
+  var yo = x.yoy == null ? '' : '・比去年 ' + (x.yoy >= 0 ? '+' : '−') + Math.abs(x.yoy * 100).toFixed(1) + '%';
+  if (x.tgtMonth && x.proj != null) m.push({ k: 'money', name: x.rem > 0 ? '月底會不會達標' : '本月達標率', v: (x.proj / x.tgtMonth * 100).toFixed(0), u: '%', tone: x.proj >= x.tgtMonth ? 'up' : 'down',
+    sub: '累計 ' + hdW1(x.raw) + ' 萬' + yo });
+  else m.push({ k: 'money', name: '本月營業額', v: hdW1(x.raw), u: '萬', tone: x.yoy == null ? '' : x.yoy >= 0 ? 'up' : 'down', sub: '已填 ' + x.days + ' 天' + yo });
   if (x.rem > 0 && x.needTgt != null) m.push({ k: 'target', name: '每天要做到', v: x.needTgt <= 0 ? '已達標' : hdMoney(x.needTgt), u: x.needTgt <= 0 ? '' : '元', tone: x.needTgt <= 0 ? 'up' : '', sub: '達標・剩 ' + x.rem + ' 天' });
-  else m.push({ k: 'target', name: '月底 vs 達標', v: x.tgtMonth ? (x.proj / x.tgtMonth * 100).toFixed(0) : null, u: '%', tone: x.tgtMonth ? (x.proj >= x.tgtMonth ? 'up' : 'down') : '', sub: x.tgtMonth ? '達標 ' + hdW1(x.tgtMonth) + ' 萬' : '算不出達標' });
+  else m.push({ k: 'target', name: '本月營業額', v: hdW1(x.raw), u: '萬', sub: '整月已結束' + yo });
   m.push(x.light ? { k: 'clock', name: '本月工時', v: hdMoney(x.light.hours), u: 'h', tone: HD_LT[x.light.level] || '', sub: '排到 ' + hdMd(x.light.lastDate) + '・上限 ' + hdMoney(x.light.capP) + 'h' }
     : { k: 'clock', name: '本月工時', v: null, sub: '還沒排班' });
-  m.push({ k: 'people', name: '客單價', v: x.ticket ? hdMoney(x.ticket) : null, u: '元', tone: x.custYoy == null ? '' : x.custYoy >= 0 ? 'up' : 'down',
-    sub: x.cust ? '來客 ' + hdMoney(x.cust) + '/天' + (x.custYoy == null ? '' : (x.custYoy >= 0 ? ' ▲' : ' ▼') + Math.abs(x.custYoy * 100).toFixed(0) + '%') : '沒有來客資料' });
+  // 👥 每天來客（使用者 2026-10-11：來客流失是最要處理的訊號，客單放小字）
+  m.push({ k: 'people', name: '每天來客', v: x.cust ? hdMoney(x.cust) : null, u: '人', tone: x.custYoy == null ? '' : x.custYoy >= 0 ? 'up' : 'down',
+    sub: !x.cust ? '沒有來客資料' : x.custYoy == null ? '去年沒有資料' : (x.custYoy >= 0 ? '▲ ' : '▼ ') + Math.abs(x.custYoy * 100).toFixed(1) + '% 較去年' }); // 客單價放到走勢下方那行（卡片太窄）
   return m;
 }
 function hdVal(m) { return m.v == null ? '—' : hdEsc(m.v) + (m.u ? '<small> ' + hdEsc(m.u) + '</small>' : ''); }
@@ -197,12 +237,14 @@ function hdRender(card, u, stores, ym, out) {
     if (x.rem > 0 && x.needLy != null) bits.push('<span>比去年成長每天要 <b>' + (x.needLy <= 0 ? '已超過' : hdMoney(x.needLy)) + '</b></span>');
     if (x.proj != null) bits.push('<span>月底推估 <b>' + hdW1(x.proj) + ' 萬</b></span>');
     if (x.tgtMonth) bits.push('<span>達標 <b>' + hdW1(x.tgtMonth) + ' 萬</b></span>');
+    if (x.ticket) bits.push('<span>客單 <b>' + hdMoney(x.ticket) + ' 元</b></span>');
     return bits.length ? '<div class="hbFoot">' + (multi ? '<span class="hbSt"><i style="background:' + x.color + '"></i>' + hdEsc(shown[j]) + '</span>' : '') + bits.join('') + '</div>' : '';
   }).join('');
+  var tips = xs.map(function (x, j) { return x.tip ? '<div class="hbTip">💡 ' + (multi ? '<b>' + hdEsc(shown[j]) + '</b> ' : '') + hdEsc(x.tip) + '</div>' : ''; }).join('');
   card.className = 'hBoard';
   card.innerHTML = '<div class="hbTitle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 20V11M10 20V6M15 20V9M20 20V4"/></svg><h2>門市經營看板</h2><span>' + hdEsc(sub) + '</span></div>' +
     '<div class="hbCards' + (multi ? ' multi' : '') + '">' + cards + '</div>' +
-    '<div class="hbTrend"><div class="hbTrendH"><h3>營業額走勢 <small>近 7 日・含稅</small></h3><span class="hbLeg">' + legend + '</span></div><div class="hbSvg"></div>' + foot + '</div>' +
+    '<div class="hbTrend"><div class="hbTrendH"><h3>營業額走勢 <small>近 7 日・含稅</small></h3><span class="hbLeg">' + legend + '</span></div><div class="hbSvg"></div>' + foot + '</div>' + tips +
     '<button type="button" class="hbMore">看完整分析<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>';
   card.style.display = '';
   card.onclick = function (e) { var r = e.target.closest('[data-st]'), st = r ? r.getAttribute('data-st') : shown[0]; if (r && !out[st]) return; location.href = 'daily-sales.html?store=' + encodeURIComponent(st); };
@@ -250,6 +292,7 @@ function hdRender(card, u, stores, ym, out) {
     '.hbNum{font-size:10px;fill:#dce6f5}.hbBar{fill:#c0841f}.hbBar.now{fill:#e0a640}' +
     '.hbLine{stroke:#8ec5ff;stroke-width:2}.hbDot{fill:#13294b;stroke:#8ec5ff;stroke-width:2}' +
     '.hbFoot{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:11.5px;color:#a9bad3;padding:0 2px}.hbFoot b{color:#fff}' +
+    '.hbTip{background:#0f2240;border:1px solid #2a4675;border-radius:12px;padding:9px 12px;font-size:12.5px;line-height:1.6;color:#f4d58a}.hbTip b{color:#fff}' +
     '.hbEmpty{margin:0;font-size:13px;color:#a9bad3}' +
     '.hbMore{font:inherit;font-size:14.5px;font-weight:800;color:#8ec5ff;background:#0f2240;border:1.5px solid #2f8fcc;border-radius:14px;min-height:44px;display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer}.hbMore svg{width:16px;height:16px}' +
     '@media (min-width:700px){.hBoard{padding:18px 20px}.hbCard{text-align:left;padding:14px 16px}.hbHead{flex-direction:row;font-size:13px}.hbVal{font-size:24px}.hbSub{font-size:12px}}';
