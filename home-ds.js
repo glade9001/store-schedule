@@ -146,7 +146,7 @@ function hdMultiCard(i, stores, out) {
   return '<div class="hbCard multi ' + h.k + '"><span class="hbHead">' + hdIc(h.k) + '<span>' + hdEsc(h.name) + '</span></span>' +
     stores.map(function (s, j) {
       var m = ms[j];
-      return '<span class="hbRow" data-st="' + hdEsc(s) + '"><span class="hbSt"><i style="background:' + HD_COLORS[j % HD_COLORS.length] + '"></i>' + hdEsc(s) + '</span>' +
+      return '<span class="hbRow" data-st="' + hdEsc(s) + '"><span class="hbSt"><i style="background:' + out[s].color + '"></i>' + hdEsc(s) + '</span>' +
         (m ? '<b class="hbVal">' + hdVal(m) + '</b><small class="hbSub ' + (m.tone || '') + '">' + hdEsc(m.sub) + '</small>' : '<b class="hbVal"></b>') + '</span>';
     }).join('') + '</div>';
 }
@@ -181,14 +181,15 @@ function hdChart(xs, names, W) {
 }
 
 function hdRender(card, u, stores, ym, out) {
-  var owner = ['owner', 'admin'].indexOf(u.permission) >= 0, mo = +ym.slice(5);
+  var mo = +ym.slice(5);
   var shown = stores.filter(function (s) { return out[s]; });
   if (!shown.length) { card.style.display = 'none'; return; }   // 店長沒填 → 不出現；加盟主三店都沒填也不出現
-  var multi = owner && stores.length > 1;
+  // 店長、加盟主同一種版面，只差在幾家店有資料（使用者 2026-10-11）：一家＝單店版；兩家以上＝每張卡每店一行，只列有資料的店
+  var multi = shown.length > 1;
   var xs = shown.map(function (s) { var x = out[s]; x.color = HD_COLORS[stores.indexOf(s) % HD_COLORS.length]; return x; });
-  var sub = multi ? mo + ' 月・' + stores.map(function (s) { return s + (out[s] ? ' 填到 ' + hdMd(out[s].lastD) : ' 還沒填'); }).join('・')
+  var sub = multi ? mo + ' 月・' + shown.map(function (s) { return s + ' 填到 ' + hdMd(out[s].lastD); }).join('・')
     : shown[0] + '・' + mo + ' 月・填到 ' + hdMd(xs[0].lastD);
-  var cards = multi ? [0, 1, 2, 3].map(function (i) { return hdMultiCard(i, stores, out); }).join('') : hdMetrics(xs[0]).map(hdCard).join('');
+  var cards = multi ? [0, 1, 2, 3].map(function (i) { return hdMultiCard(i, shown, out); }).join('') : hdMetrics(xs[0]).map(hdCard).join('');
   var legend = shown.length > 1 ? shown.map(function (s, j) { return '<span><i class="bar" style="background:' + xs[j].color + '"></i>' + hdEsc(s) + '</span>'; }).join('')
     : '<span><i class="bar"></i>營業額</span><span><i class="line"></i>去年同星期</span>';
   var foot = xs.map(function (x, j) {
