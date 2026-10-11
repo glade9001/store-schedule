@@ -359,27 +359,31 @@ function dsAnaProgress(cur, lb, ym, W, ctx) {
       projTxt = `照去年同期走勢，整月約 <b>${dsWan(p)}</b>；達標要 ${dsWan(tgt * n)}。`;
     } else projTxt = `照目前日均 ${dsWan(avg)}，整月約 <b>${dsWan(avg * n)}</b>；達標要 ${dsWan(tgt * n)}。`;
   }
-  const lines = [
+  // 卡片只露「剩下每天要做到」兩個數字（使用者 2026-10-11：其餘收起來）；超前／落後、去年比較、圖都放進「看進度明細」
+  const rem = n - last;
+  const needTgt = (() => { const need = tgt * n - cum;
+    return need <= 0 ? `<div class="need"><span>要達標</span><b class="hi">這個月已經做到了</b></div>`
+      : `<div class="need"><span>要達標</span><b>${dsMoney(need / rem)}</b><small>元／天</small></div>`; })();
+  const needLy = (() => { // 去年同期整月（364 天前對齊、扣大單）− 目前累計，平均到剩下的天數；去年資料不齊就不顯示
+    const ly = []; for (let d = 1; d <= n; d++) { const day = `${ym}-${dsPad(d)}`, l = ctx.ly(day); if (!l) return ''; ly.push(ctx.adj(l, ctx.lyBig(day))); }
+    const need = ly.reduce((a, b) => a + b, 0) - cum;
+    return need <= 0 ? `<div class="need"><span>要比去年同期成長</span><b class="hi">已經超過去年整月</b></div>`
+      : `<div class="need"><span>要比去年同期成長</span><b>${dsMoney(need / rem)}</b><small>元／天</small></div>`; })();
+  const head = done ? '' : `<div class="say">剩下 ${rem} 天，每天要做到：</div>${needTgt}${needLy}`;
+  const detail = [
     `<div class="big ${ahead ? 'hi' : 'lo'}">${ahead ? '▲ 超前' : '▼ 落後'} ${dsWan(Math.abs(diff))}</div>`,
     `<div class="say">到 ${dsMd(lastD)} 累計 <b>${dsWan(cum)}</b>，達標進度是 ${dsWan(tgt * k)}${gap}。</div>`,
     bigN ? `<div class="say small-note">另有 ${bigN} 天大單（客單特別高），多出約 ${dsWan(bigSum)} 沒算進去：這部分通常不會出現在損益表。</div>` : '',
     yoy != null ? `<div class="say">比去年同期 <b class="${yoy >= 0 ? 'hi' : 'lo'}">${dsSigned(yoy * 100, v => v.toFixed(1))}%</b>（對齊星期幾，${pk} 天）。</div>` : '',
     projTxt ? `<div class="say">${projTxt}</div>` : '',
-    // 剩下每天要做多少（使用者 2026-10-11 選）：達標整月目標 − 目前累計，平均分到剩下的天數；口徑同 cum（已扣大單）
-    done ? '' : (() => { const rem = n - last, need = tgt * n - cum;
-      return need <= 0 ? `<div class="say"><b class="hi">這個月的達標已經做到了</b>。</div>`
-        : `<div class="say">月底要達標，剩下 ${rem} 天每天要做到 <b>${dsWan(need / rem)}</b>。</div>`; })(),
-    // 要比去年同期成長（使用者 2026-10-11）：去年同期整月（364 天前對齊、扣大單）− 目前累計，平均到剩下的天數
-    done ? '' : (() => {
-      const ly = []; for (let d = 1; d <= n; d++) { const day = `${ym}-${dsPad(d)}`, l = ctx.ly(day); if (!l) return ''; ly.push(ctx.adj(l, ctx.lyBig(day))); }
-      const rem = n - last, need = ly.reduce((a, b) => a + b, 0) - cum;
-      return need <= 0 ? `<div class="say"><b class="hi">已經超過去年同期整月</b>。</div>`
-        : `<div class="say">要比去年同期成長，剩下 ${rem} 天每天要做到 <b>${dsWan(need / rem)}</b>。</div>`; })(),
-  ];
-  return `<div class="card">${title}${lines.join('')}
+  ].join('');
+  // 整月已過完：沒有「剩下每天」可說 → 直接露出超前／落後
+  return `<div class="card">${title}${head}
+    ${done ? detail : ''}
+    <details class="fold sub-fold"${done ? ' open' : ''}><summary>${done ? '看圖' : '看進度明細'}</summary>${done ? '' : detail}
     ${dsLegend([['#1a73e8', '累計超前（線在 0 以上）／落後（0 以下）'], ['#94a3b8', '剛好達標', 'dash']])}
     ${dsLineChart({ W, n, xl: i => String(i + 1), tips, dots: true, refs: [{ v: 0 }], series: [{ vals: gapV, color: '#1a73e8' }] })}
-    <div class="note">達標＝每天 ${dsWan(tgt)}，跟排班頁「工時上限」同一個算法（依過去損益與這個月的排班推算），僅供參考。</div></div>`;
+    <div class="note">達標＝每天 ${dsWan(tgt)}，跟排班頁「工時上限」同一個算法（依過去損益與這個月的排班推算），僅供參考。</div></details></div>`;
 }
 
 // ── ② 星期幾 × 人力（近 3 個月）──
