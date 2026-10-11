@@ -439,7 +439,7 @@ function renderScorecard(m,extra,mode){
   });
   // 每維度：val 取值、sc benchmark 0-100 分數、w 權重（獲益優先）
   const dims=[
-    {key:'surplusRate', w:1.3, ic:'💰', name:'獲利貢獻（餘裕率×金額）', val:r=>r.surplusRate, sc:surplusSc, fmt:v=>`餘裕率 ${v>=0?'+':''}${v.toFixed(1)}%`, sub:r=>`餘裕 $${r.surplusAbs!=null?money(r.surplusAbs):'—'}（未扣稅/水電/租金）· 率分 ${Math.round(clamp(50+r.surplusRate*(50/SURPLUS_RATE_FULL)))}×0.7 ＋ 額分 ${r.surplusAbs!=null?Math.round(clamp(r.surplusAbs/SURPLUS_FULL*100)):'—'}×0.3`},
+    {key:'surplusRate', w:1.3, ic:'💰', name:'獲利貢獻（餘裕率×金額）', val:r=>r.surplusRate, sc:surplusSc, fmt:v=>`餘裕率 ${v>=0?'+':''}${v.toFixed(1)}%`, sub:r=>`餘裕 $${r.surplusAbs!=null?money(r.surplusAbs):'—'}（稅前：營業稅代收代付不影響、所得稅未扣）· 率分 ${Math.round(clamp(50+r.surplusRate*(50/SURPLUS_RATE_FULL)))}×0.7 ＋ 額分 ${r.surplusAbs!=null?Math.round(clamp(r.surplusAbs/SURPLUS_FULL*100)):'—'}×0.3`},
     {key:'lossRate', w:1.0, ic:'🛡️', name:'損耗控制（淨損耗率）', val:r=>r.lossRate, sc:v=>clamp(100-Math.max(0,v-1)/0.5*15), fmt:v=>`淨損耗率 ${v.toFixed(2)}%`, sub:r=>`壞品＋盤損＋現金短少 ÷ 營收（越低越好）· ${window.PnlLoss?window.PnlLoss.note(r.amort):''}`},
     {key:'salesYoY', w:1.0, ic:'📈', name:'業績成長（營收YoY）', val:r=>r.salesYoY, sc:v=>clamp(50+v*5), fmt:v=>`營收 YoY ${v>0?'+':''}${v.toFixed(1)}%`, sub:r=>`本月營收 $${r.net!=null?money(r.net):'—'}`},
     {key:'laborRate', w:0.6, ic:'📐', name:'人事費率水準', val:r=>r.laborRate, sc:v=>clamp(100-Math.max(0,v-9)*10), fmt:v=>`人事費率 ${v.toFixed(1)}%`, sub:r=>'含公司負擔÷營業淨額（越低越好）'},
@@ -648,7 +648,7 @@ function openScoreHelp(){
   <div style="font-size:12px;color:#64748b;margin-bottom:12px;line-height:1.6;"><b>計分方式</b>：每個指標對「<b>固定標準</b>」打 <b>0–100 分</b>（不是跟另兩家比名次），再 <b>× 權重</b> 加總排名。好處：分數直接反映「多好/多差」，又不會被單一離群值或單月異常扭曲。整體<b>以加盟主獲益為優先</b>。</div>
 
   <div style="font-weight:900;font-size:13px;color:#4338ca;margin:6px 0 2px;">📌 各指標代表什麼</div>
-  ${item('💰','獲利貢獻（餘裕率×金額）','（經營報酬 − 含支援人事成本）÷ 營收＝門市替加盟主留下的貢獻率。<b>正＝賺、負＝虧</b>，虧損自然低分。⚠️此為「門市貢獻率」，<b>未扣稅/水電/租金，非最終淨利</b>——這些非店長可控，排除較公平。')}
+  ${item('💰','獲利貢獻（餘裕率×金額）','（經營報酬 − 含支援人事成本）÷ 營收＝門市替加盟主留下的貢獻率。<b>正＝賺、負＝虧</b>，虧損自然低分。電費、雜支、壞品、盤損已在經營報酬裡扣掉；營業稅是代收代付不影響；<b>只有加盟主的所得稅沒扣</b>。')}
   ${item('🛡️','損耗控制（淨損耗率）','（壞品＋盤損＋現金短少）÷ 營收。店長最可控、最直接侵蝕獲利的破口（越低越好）。盤點約 60~90 天一次，盤損會平均攤到它涵蓋的每個月（整筆記在盤點當月的話，該月店長要背整個區間、其他月份又虛高）；還沒盤點的區間先沿用上次的月均估算，所以無盤點的月份一樣有分數、也能跟盤點月互相比較。')}
   ${item('📈','業績成長（營收 YoY）','本月營收 vs <b>去年同月</b>成長率。同月比同月，消除規模與淡旺季，衡量把生意做大的能力。')}
   ${item('📐','人事費率水準','人事成本 ÷ 營收。超商最關鍵的成本指標，越低越有效率（可直接跨店比）。')}
