@@ -351,6 +351,10 @@ function dsAnaProgress(cur, lb, ym, W, ctx) {
     bigN ? `<div class="say small-note">另有 ${bigN} 天大單（客單特別高），多出約 ${dsWan(bigSum)} 沒算進去：這部分通常不會出現在損益表。</div>` : '',
     yoy != null ? `<div class="say">比去年同期 <b class="${yoy >= 0 ? 'hi' : 'lo'}">${dsSigned(yoy * 100, v => v.toFixed(1))}%</b>（對齊星期幾，${pk} 天）。</div>` : '',
     projTxt ? `<div class="say">${projTxt}</div>` : '',
+    // 剩下每天要做多少（使用者 2026-10-11 選）：達標整月目標 − 目前累計，平均分到剩下的天數；口徑同 cum（已扣大單）
+    done ? '' : (() => { const rem = n - last, need = tgt * n - cum;
+      return need <= 0 ? `<div class="say"><b class="hi">這個月的達標已經做到了</b>。</div>`
+        : `<div class="say">月底要達標，剩下 ${rem} 天每天要做到 <b>${dsWan(need / rem)}</b>。</div>`; })(),
   ];
   return `<div class="card">${title}${lines.join('')}
     ${dsLegend([['#1a73e8', '累計超前（線在 0 以上）／落後（0 以下）'], ['#94a3b8', '剛好達標', 'dash']])}
