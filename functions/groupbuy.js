@@ -28,6 +28,28 @@ function maskName(n) {
 }
 function recentKey(userId) { return require("crypto").createHash("sha256").update("gbr:" + userId).digest("hex").slice(0, 10); }
 function pushRecent(list, e) { return [e].concat((list || []).filter((x) => x && x.k !== e.k)).slice(0, RECENT_MAX); }
+// 店長在團購頁取消／改數量／刪單（前端 transaction 直寫，不經過這支檔案）→ 觸發器同步「最近 +1」（2026-10-13 使用者：取消的不要顯示）
+// 只「拿掉」或「更新份數」，不新增（店長補單不算客人的 +1）；結果一樣就不寫，所以 placeOrderTx 自己寫過的不會重複寫。
+const { onDocumentWritten } = require("firebase-functions/v2/firestore");
+exports.onGbOrderRecentSync = onDocumentWritten({ document: "gb_orders/{oid}", region: REGION }, async (event) => {
+  const before = event.data.before.exists ? event.data.before.data() : null;
+  const after = event.data.after.exists ? event.data.after.data() : null;
+  const o = after || before;
+  if (!o || !o.campaign_id) return;
+  const gone = !after || after.status === "cancelled";
+  if (!gone && before && before.qty === after.qty) return;   // 份數沒變（付款、備註、取貨…）不用管
+  const k = recentKey(o.line_user_id || "manual:" + event.params.oid);
+  const db = admin.firestore(), ref = db.collection("gb_campaigns").doc(String(o.campaign_id));
+  await db.runTransaction(async (t) => {
+    const cs = await t.get(ref);
+    if (!cs.exists) return;
+    const list = cs.data().recent || [];
+    if (!list.some((x) => x && x.k === k)) return;
+    const next = gone ? list.filter((x) => x && x.k !== k) : list.map((x) => (x && x.k === k ? Object.assign({}, x, { q: after.qty || 0 }) : x));
+    if (JSON.stringify(next) === JSON.stringify(list)) return;
+    t.update(ref, { recent: next });
+  });
+});
 
 async function verifyLineToken(idToken) {
   if (typeof idToken !== "string" || idToken.length < 10 || idToken.length > 4096) {
