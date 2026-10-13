@@ -404,7 +404,11 @@ function lfTileEnd(ms) {
 }
 function lfHint(ms) {
   var c = ms[0], ordered = ms.reduce(function (a, m) { return a + (m.ordered_qty || 0); }, 0), t;
-  if (c.success_rule === 'threshold' && c.min_qty) {
+  if (gbBatchOn(c)) {   // 每 N 份成一團：多規格取最接近下一團的那種
+    var bb = ms.map(gbBatch), got = bb.some(function (b) { return b.groups > 0; });
+    var nl = Math.min.apply(null, bb.map(function (b) { return b.lack || Infinity; }));
+    t = ms.length > 1 ? (got ? '🎉 已成團' + (nl !== Infinity ? '・下一團還差 ' + nl + ' 份' : '') : '🔥 還差 ' + nl + ' 份成團') : (gbBatch(c).groups ? '' : '🔥 ') + gbProgTxt(c);
+  } else if (c.success_rule === 'threshold' && c.min_qty) {
     var lack = ms.length > 1 ? Math.min.apply(null, ms.map(function (m) { return Math.max(0, m.min_qty - (m.ordered_qty || 0)); })) : Math.max(0, c.min_qty - ordered);
     t = lack ? '🔥 還差 ' + lack + ' 份成團' : '🎉 已成團・' + ordered + ' 份';
   } else t = ordered ? '🔥 已訂 ' + ordered + ' 份' : '✅ 保證成團';
@@ -455,7 +459,10 @@ function lfCard(c) {
   if (toNext) { canAdd = c.per_user_limit || 0; remain = Infinity; }
   // 保證成團也要讓客人看得到（2026-10-11 使用者）
   var prog = c.success_rule === 'threshold' ? '' : '<div class="lf-meta" style="margin-top:6px;"><span style="background:#e6f4ea;color:#137333;font-weight:800;border-radius:7px;padding:2px 9px;">✅ 保證成團</span>　截單後一定出貨</div>';
-  if (c.success_rule === 'threshold' && c.min_qty) {
+  if (gbBatchOn(c)) {
+    var bt = gbBatch(c), done = (c.ordered_qty || 0) - bt.groups * c.min_qty;
+    prog = '<div class="lf-meta" style="margin-top:6px;">' + gbProgTxt(c) + '（每 ' + c.min_qty + ' 份成一團・三店合計）</div><div class="bar"><i style="width:' + Math.round(done / c.min_qty * 100) + '%;background:#06c755;"></i></div>';
+  } else if (c.success_rule === 'threshold' && c.min_qty) {
     var p = Math.min(100, Math.round((c.ordered_qty || 0) / c.min_qty * 100)), lack = Math.max(0, c.min_qty - (c.ordered_qty || 0));
     prog = '<div class="lf-meta" style="margin-top:6px;">' + (lack ? '還差 <b>' + lack + '</b> 份成團（三店合計）' : '✅ 已達成團門檻') + '</div><div class="bar"><i style="width:' + p + '%;background:#06c755;"></i></div>';
   }
@@ -485,7 +492,7 @@ function lfGroupCard(ms) {
     return '<div class="lf-opt"><div class="lf-opt-t"><b>(' + gbEsc(m.opt_code) + ') ' + gbEsc(m.opt_label || '') + '</b> <span class="lf-opt-p">$' + (m.price || 0) + '</span>' +
       (m.round > 1 ? ' <small>第' + m.round + '團</small>' : '') + (m.stock != null ? '<small>剩 ' + lfRemain(m) + ' 份</small>' : '') +
       (mine ? '<span class="lf-opt-mine">✅ 已訂 ' + mine.qty + ' 份</span>' : '') +
-      (m.success_rule === 'threshold' && m.min_qty ? '<small>' + (Math.max(0, m.min_qty - (m.ordered_qty || 0)) ? '還差 ' + Math.max(0, m.min_qty - (m.ordered_qty || 0)) + ' 份成團' : '✅ 已成團門檻') + '</small>' : '') +
+      (gbBatchOn(m) ? '<small>' + gbProgTxt(m) + '</small>' : m.success_rule === 'threshold' && m.min_qty ? '<small>' + (Math.max(0, m.min_qty - (m.ordered_qty || 0)) ? '還差 ' + Math.max(0, m.min_qty - (m.ordered_qty || 0)) + ' 份成團' : '✅ 已成團門檻') + '</small>' : '') +
       '</div>' + lfBtn(m, true) + '</div>';
   }).join('');
   var guaranteed = ms.every(function (m) { return m.success_rule !== 'threshold'; });
@@ -508,7 +515,7 @@ function lfBundleCard(c) {
       (ok ? '<button class="lf-go lf-go-s" onclick="lfOpen(\'' + c.id + '\',\'' + b.code + '\')">＋1</button>'
         : '<button class="lf-go lf-go-s" disabled>' + (lfRemain(c) < b.mult && !c.auto_next ? '數量不足' : '已達上限') + '</button>') + '</div>';
   }).join('');
-  var prog = c.success_rule === 'threshold' ? (c.min_qty ? '<div class="lf-meta" style="margin-top:6px;">' + (Math.max(0, c.min_qty - (c.ordered_qty || 0)) ? '還差 <b>' + Math.max(0, c.min_qty - (c.ordered_qty || 0)) + '</b> 份成團（三店合計）' : '✅ 已達成團門檻') + '</div>' : '')
+  var prog = gbBatchOn(c) ? '<div class="lf-meta" style="margin-top:6px;">' + gbProgTxt(c) + '（每 ' + c.min_qty + ' 份成一團・三店合計）</div>' : c.success_rule === 'threshold' ? (c.min_qty ? '<div class="lf-meta" style="margin-top:6px;">' + (Math.max(0, c.min_qty - (c.ordered_qty || 0)) ? '還差 <b>' + Math.max(0, c.min_qty - (c.ordered_qty || 0)) + '</b> 份成團（三店合計）' : '✅ 已達成團門檻') + '</div>' : '')
     : '<div class="lf-meta" style="margin-top:6px;"><span style="background:#e6f4ea;color:#137333;font-weight:800;border-radius:7px;padding:2px 9px;">✅ 保證成團</span>　截單後一定出貨</div>';
   return '<div class="lf-card">' + lfGallery(c) +
     '<div class="lf-body"><div class="lf-title">' + gbEsc(c.base_title || c.title) + '</div>' +
@@ -575,7 +582,8 @@ async function lfConfirm() {
       // 代發到群組：合併規格寫「A 10包 +2」讓群組看得懂（開頭「✅ 已登記」機器人會攔下，不會重複建單）
       // 代發訊息帶成團倒數／已訂份數（三店合計，2026-10-11 使用者：增加 +1 慾望）
       var d = r.data || {}, lack = Math.max(0, (d.minQty || 0) - (d.ordered || 0));
-      var extra = d.rule === 'threshold' ? (lack ? '🎯 目前 ' + d.ordered + ' 份，還差 ' + lack + ' 份成團（三店合計）' : '🎉 已達成團門檻，確定成團！')
+      var extra = d.rule === 'threshold' && d.perBatch ? '🎯 目前 ' + d.ordered + ' 份（三店合計）・' + gbProgTxt({ success_rule: 'threshold', per_batch: true, min_qty: d.minQty, ordered_qty: d.ordered })
+        : d.rule === 'threshold' ? (lack ? '🎯 目前 ' + d.ordered + ' 份，還差 ' + lack + ' 份成團（三店合計）' : '🎉 已達成團門檻，確定成團！')
         : (d.ordered ? '🔥 目前已訂 ' + d.ordered + ' 份（三店合計）' : '');
       if (lfBundle) lfPostToGroup((c.base_title || rt) + ' ' + lfBundle.code + ' ' + lfBundle.label, lfQty, extra); else lfPostToGroup(rt, lfQty, extra);
     }

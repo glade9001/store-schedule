@@ -3078,7 +3078,9 @@ exports.scheduledGbDueReminder = onSchedule(
       const uids = users.filter((u) => ["owner", "admin"].includes(u.permission)
         || (u.permission === "manager" && stores.length === 1 && CODE[u.store] === stores[0])).map((u) => u.uid);
       const total = c.ordered_qty || 0;
-      const rule = c.success_rule === "threshold"
+      const rule = c.success_rule === "threshold" && c.per_batch && c.min_qty > 0
+        ? `三店合計 ${total} 份，每 ${c.min_qty} 份成一團→成 ${Math.floor(total / c.min_qty)} 團` + (total >= c.min_qty && total % c.min_qty ? `、零頭 ${total % c.min_qty} 份要處理` : "")
+        : c.success_rule === "threshold"
         ? `三店合計 ${total} 份，最低 ${c.min_qty} 份，${total >= (c.min_qty || 0) ? "已達標" : "未達標"}`
         : `三店合計 ${total} 份`;
       await sendOrQueuePush(db, uids, { title: "🛒 團購已截單，請結算", body: `「${c.title}」截單了（${rule}），到團購頁按「結算」`, url: "groupbuy.html", tag: `gb-due-${d.id}` },

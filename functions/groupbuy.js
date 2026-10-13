@@ -109,7 +109,7 @@ function nextRoundDoc(c, curId, n) {
       title: roundTitle(c, n), description: c.description || "", price: c.price || 0, images: c.images || [],
       available_stores: c.available_stores || [], stock: c.stock, per_user_limit: c.per_user_limit || 0,
       end_time: c.end_time, arrival_date: c.arrival_date || null, pickup_deadline: c.pickup_deadline || null,
-      success_rule: c.success_rule || "guaranteed", min_qty: c.min_qty || null, is_test: c.is_test === true,
+      success_rule: c.success_rule || "guaranteed", min_qty: c.min_qty || null, per_batch: c.per_batch === true, is_test: c.is_test === true,
       auto_next: true, series_id: seriesId, round: n, status: "open", ordered_qty: 0, ordered_by_store: {},
       // 多規格（2026-10-11）：下一團沿用同一組規格
       opt_group: c.opt_group || null, opt_code: c.opt_code || null, opt_label: c.opt_label || null, base_title: c.base_title || null,
@@ -176,7 +176,7 @@ async function placeOrderTx({ cid, store, userId, name, picture, add, source, so
       });
     }
     t.set(db.collection("gb_customers").doc(userId), { display_name: name || "", picture_url: picture || null, last_order_at: ts }, { merge: true });
-    return { qty: after, title: c.title || "", campaignId: tid, round: c.round || 1, ordered: now + add, rule: c.success_rule || "guaranteed", minQty: c.min_qty || 0 };
+    return { qty: after, title: c.title || "", campaignId: tid, round: c.round || 1, ordered: now + add, rule: c.success_rule || "guaranteed", minQty: c.min_qty || 0, perBatch: !!c.per_batch };
   });
 }
 
@@ -320,7 +320,12 @@ function sigOk(raw, sig) {
   let got; try { got = Buffer.from(sig, "base64"); } catch (e) { return false; }
   return got.length === mac.length && crypto.timingSafeEqual(got, mac);
 }
-function countdownText(ordered, min) {
+function countdownText(ordered, min, perBatch) {
+  if (perBatch && min > 0) {   // 每 N 份成一團（2026-10-13）：跟前端 gb-common.js gbProgTxt 同一套說法
+    const g = Math.floor((ordered || 0) / min), r = (ordered || 0) % min;
+    const p = !g ? `還差 ${min - r} 份成團` : `🎉 已成 ${g} 團` + (r ? `・第 ${g + 1} 團還差 ${min - r} 份` : "");
+    return `🎯 目前 ${ordered} 份（三店合計）・${p}`;
+  }
   const lack = Math.max(0, (min || 0) - (ordered || 0));
   return lack > 0 ? `🎯 目前 ${ordered} 份，還差 ${lack} 份成團（三店合計）` : `🎉 已達成團門檻 ${min} 份，確定成團！`;
 }
@@ -513,7 +518,7 @@ async function handleEvent(ev) {
       const r = await placeOrderTx({ cid, store, userId, name: who, picture: prof.pictureUrl || null, add, source: "group_text", sourceMessageId: msgId });
       // 達標成團：每次 +N 都回覆成團倒數（2026-10-11 使用者要求；回覆免費）；保證成團照「成單回覆」開關
       // 同一檔一則訊息裡加了好幾次（C+2 A+1）只回最後結果
-      if (r.rule === "threshold") okReply[cid] = `已登記 ${who}：${r.title} 共 ${r.qty} 份 👍\n` + countdownText(r.ordered, r.minQty);
+      if (r.rule === "threshold") okReply[cid] = `已登記 ${who}：${r.title} 共 ${r.qty} 份 👍\n` + countdownText(r.ordered, r.minQty, r.perBatch);
       else okReply[cid] = (`已登記 ${who}：${r.title} 共 ${r.qty} 份 👍\n🔥 目前已訂 ${r.ordered} 份（三店合計）`);   // 保證成團也回（2026-10-11 使用者：增加 +1 慾望）
     } catch (e) {
       const kind = (e && e.details && e.details.kind) || "";

@@ -72,9 +72,12 @@ function hgRender() {
     }).join('・');
     var th = c.success_rule === 'threshold' && c.min_qty;
     // 多規格各自成團：取「最接近成團」那種的差額
-    var lack = th ? Math.min.apply(null, ms.map(function (m) { return Math.max(0, (m.min_qty || 0) - (m.ordered_qty || 0)); })) : 0;
+    // 每 N 份成一團（per_batch，2026-10-13）：差額＝到下一個 N 的倍數還差幾份；已成幾團另外記
+    var bat = th && c.per_batch, lackOf = function (m) { var o = m.ordered_qty || 0, n = m.min_qty || 0; return bat ? (o % n ? n - o % n : (o ? 0 : n)) : Math.max(0, n - o); };
+    var lack = th ? Math.min.apply(null, ms.map(lackOf)) : 0;
+    var groups = bat ? Math.max.apply(null, ms.map(function (m) { return Math.floor((m.ordered_qty || 0) / (m.min_qty || 1)); })) : 0;
     var minQ = th ? (c.min_qty || 0) : 0;
-    return { c: c, pin: ms.some(function (m) { return m.pinned === true; }), end: Math.min.apply(null, ms.map(function (m) { return hgMs(m.end_time); })), ordered: ordered, mine: mine, by: by, th: th, lack: lack, minQ: minQ,
+    return { c: c, pin: ms.some(function (m) { return m.pinned === true; }), end: Math.min.apply(null, ms.map(function (m) { return hgMs(m.end_time); })), ordered: ordered, mine: mine, by: by, th: th, lack: lack, minQ: minQ, groups: groups,
       title: c.base_title || String(c.title || '').replace(/（第\d+團）$/, '') };
   }).sort(function (a, b) { return (b.pin ? 1 : 0) - (a.pin ? 1 : 0) || a.end - b.end; });   // 置頂的在前
 
@@ -84,7 +87,7 @@ function hgRender() {
   var show = rows.slice(0, 4);
   body.innerHTML = show.map(function (r) {
     var lf = hgLeft(r.end);
-    var status = r.th ? (r.lack ? '還差 <b>' + r.lack + '</b> 份成團' : '🎉 已達成團') : '保證成團';
+    var status = r.groups ? '🎉 已成 ' + r.groups + ' 團' + (r.lack ? '・下一團還差 <b>' + r.lack + '</b> 份' : '') : r.th ? (r.lack ? '還差 <b>' + r.lack + '</b> 份成團' : '🎉 已達成團') : '保證成團';
     var pct = r.th ? Math.min(100, Math.round((r.minQ - r.lack) / (r.minQ || 1) * 100)) : 100;
     return '<div class="hg-row" onclick="location.href=\'groupbuy.html\'">' +
       '<div class="hg-top"><span class="hg-t">' + (r.pin ? '📌 ' : '') + hgEsc(r.title) + '</span><span class="hg-left' + (lf.urgent ? ' urgent' : '') + '">⏰ ' + lf.t + '</span></div>' +

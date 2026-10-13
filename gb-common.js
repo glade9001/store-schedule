@@ -23,6 +23,24 @@ function gbShowDevNotice() {
 // 每人上限「不限」（2026-10-11 使用者：沒填就是無上限）：存成 999，伺服器、規則、下單頁照數字檢查不用改，畫面一律顯示「不限」
 var GB_NO_LIMIT = 999;
 function gbNoLimit(c) { return !(c && c.per_user_limit > 0) || c.per_user_limit >= GB_NO_LIMIT; }
+// 每 N 份成一團（2026-10-13 使用者，例：蘋果原箱 9 粒、每 5 人成一箱）：success_rule＝threshold＋per_batch＝true，N＝min_qty。
+// 三店合計 12 份 → 成 2 團（10 份），零頭 2 份由店長結算時決定（取消、改數量，或照常出貨＝batch_extra_ok）。
+function gbBatchOn(c) { return !!(c && c.success_rule === 'threshold' && c.per_batch && c.min_qty > 0); }
+function gbBatch(c) {
+  var o = c.ordered_qty || 0, n = c.min_qty || 0;
+  if (!gbBatchOn(c)) return { groups: o >= n ? 1 : 0, lack: Math.max(0, n - o), extra: 0 };
+  var g = Math.floor(o / n), r = o % n;
+  return { groups: g, lack: r ? n - r : (g ? 0 : n), extra: g ? r : 0 };
+}
+/** 成團進度一句話：還差 3 份成團／🎉 已成 2 團・第 3 團還差 4 份 */
+function gbProgTxt(c) {
+  var b = gbBatch(c);
+  if (!gbBatchOn(c)) return b.lack ? '還差 ' + b.lack + ' 份成團' : '🎉 已成團';
+  if (!b.groups) return '還差 ' + b.lack + ' 份成團';
+  return '🎉 已成 ' + b.groups + ' 團' + (b.lack && b.extra ? '・第 ' + (b.groups + 1) + ' 團還差 ' + b.lack + ' 份' : '');
+}
+/** 開團文案／卡片的規則字：滿 5 份成團／每 5 份成一團 */
+function gbRuleTxt(c, each) { return (each ? '每種各' : '') + (gbBatchOn(c) ? '每 ' + c.min_qty + ' 份成一團' : '滿 ' + c.min_qty + ' 份成團'); }
 function gbLimitTxt(c, each) { return gbNoLimit(c) ? '' : (each ? '每種每人限 ' : '每人限 ') + c.per_user_limit + ' 份'; }
 var GB_ORDER_STATUS = { active: '訂購中', cancelled: '已取消', picked_up: '已取貨', no_show: '棄單' };
 var GB_SOURCE = { manual: '手動補單', liff: 'LINE 下單', group_text: '群組 +1' };
