@@ -205,7 +205,8 @@ function lfRender() {
     lfItems[item.key] = item; keys.push(item.key);
   });
   // 置頂的排最前面，其餘維持截單時間先後（sort 是穩定排序）
-  keys.sort(function (a, b) { return (lfItems[b].pinned ? 1 : 0) - (lfItems[a].pinned ? 1 : 0); });
+  // 已售完一律放最下面（2026-10-13 使用者），其次置頂在前
+  keys.sort(function (a, b) { var A = lfItems[a], B = lfItems[b]; return (A.sold ? 1 : 0) - (B.sold ? 1 : 0) || (B.pinned ? 1 : 0) - (A.pinned ? 1 : 0); });
   var dbg = (lfParam('debug') === '1' || lfDebug) ? '<div class="card" style="font-size:13px;"><b>分享測試</b>（分享到自己的聊天室，看哪幾則有收到）<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">' +
     [5, 7].map(function (n) { return '<button class="btn btn-o" onclick="lfShareTest(' + n + ')">' + { 5: 'A 輪播', 7: 'B 一張列出全部' }[n] + '</button>'; }).join('') +
     '</div><pre id="lfDbgOut" style="white-space:pre-wrap;font-size:11.5px;margin:6px 0 0;"></pre></div>' : '';

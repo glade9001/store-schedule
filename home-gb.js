@@ -78,8 +78,9 @@ function hgRender() {
     var groups = bat ? Math.max.apply(null, ms.map(function (m) { return Math.floor((m.ordered_qty || 0) / (m.min_qty || 1)); })) : 0;
     var minQ = th ? (c.min_qty || 0) : 0;
     return { c: c, pin: ms.some(function (m) { return m.pinned === true; }), end: Math.min.apply(null, ms.map(function (m) { return hgMs(m.end_time); })), ordered: ordered, mine: mine, by: by, th: th, lack: lack, minQ: minQ, groups: groups,
+      sold: ms.every(function (m) { return m.stock != null && !m.auto_next && (m.ordered_qty || 0) >= m.stock; }),
       title: c.base_title || String(c.title || '').replace(/（第\d+團）$/, '') };
-  }).sort(function (a, b) { return (b.pin ? 1 : 0) - (a.pin ? 1 : 0) || a.end - b.end; });   // 置頂的在前
+  }).sort(function (a, b) { return (a.sold ? 1 : 0) - (b.sold ? 1 : 0) || (b.pin ? 1 : 0) - (a.pin ? 1 : 0) || a.end - b.end; });   // 已售完最後（2026-10-13）、置頂的在前
 
   var body = document.getElementById('hgBody'), cnt = document.getElementById('hgCount');
   cnt.textContent = rows.length ? rows.length + ' 檔' : '';
