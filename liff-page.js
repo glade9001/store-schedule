@@ -358,8 +358,8 @@ async function lfShareSelected() {
 }
 // ===== 單品「剩最後幾份」分享（2026-10-13 使用者）=====
 // 三店共用庫存：A 店群組下單看得到剩幾份，B、C 店群組不知道 → 快賣完時把單一商品分享到其他群組，強調「最後 N 份」催下單。
-// 只在「有限量、不會自動開下一團、剩 1～LF_LOW_MAX 份、開放 2 家以上門市」時出現按鈕（只開本店的團，別店客人點進來也看不到）。
-var LF_LOW_MAX = 10;
+// 只在「有限量、不會自動開下一團、剩 1～LF_LOW_MAX(3) 份、開放 2 家以上門市」時出現按鈕（只開本店的團，別店客人點進來也看不到）。
+var LF_LOW_MAX = 3;   // 2026-10-13 使用者：剩 3 份以下才出現（原 10）
 function lfLowLeft(it) {
   var ms = it.ms || [it.c];
   if ((it.c.available_stores || []).length < 2) return 0;
