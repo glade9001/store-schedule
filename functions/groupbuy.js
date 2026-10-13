@@ -29,7 +29,8 @@ function maskName(n) {
 function recentKey(userId) { return require("crypto").createHash("sha256").update("gbr:" + userId).digest("hex").slice(0, 10); }
 function pushRecent(list, e) { return [e].concat((list || []).filter((x) => x && x.k !== e.k)).slice(0, RECENT_MAX); }
 // 店長在團購頁取消／改數量／刪單（前端 transaction 直寫，不經過這支檔案）→ 觸發器同步「最近 +1」（2026-10-13 使用者：取消的不要顯示）
-// 只「拿掉」或「更新份數」，不新增（店長補單不算客人的 +1）；結果一樣就不寫，所以 placeOrderTx 自己寫過的不會重複寫。
+// 取消／刪單＝拿掉；新訂單或加量＝排到最前面（店長補單也算，2026-10-13 使用者）；減量＝只改份數不往前排。
+// 清單裡已經是同一份數就不寫，所以 placeOrderTx 自己寫過的不會重複寫、也不會把時間洗掉。
 const { onDocumentWritten } = require("firebase-functions/v2/firestore");
 exports.onGbOrderRecentSync = onDocumentWritten({ document: "gb_orders/{oid}", region: REGION }, async (event) => {
   const before = event.data.before.exists ? event.data.before.data() : null;
@@ -37,15 +38,20 @@ exports.onGbOrderRecentSync = onDocumentWritten({ document: "gb_orders/{oid}", r
   const o = after || before;
   if (!o || !o.campaign_id) return;
   const gone = !after || after.status === "cancelled";
-  if (!gone && before && before.qty === after.qty) return;   // 份數沒變（付款、備註、取貨…）不用管
+  if (!gone && (after.status !== "active" || (before && before.status === "active" && before.qty === after.qty))) return;   // 份數沒變（付款、備註…）或已取貨／未取不用管
   const k = recentKey(o.line_user_id || "manual:" + event.params.oid);
   const db = admin.firestore(), ref = db.collection("gb_campaigns").doc(String(o.campaign_id));
   await db.runTransaction(async (t) => {
     const cs = await t.get(ref);
     if (!cs.exists) return;
-    const list = cs.data().recent || [];
-    if (!list.some((x) => x && x.k === k)) return;
-    const next = gone ? list.filter((x) => x && x.k !== k) : list.map((x) => (x && x.k === k ? Object.assign({}, x, { q: after.qty || 0 }) : x));
+    const list = cs.data().recent || [], cur = list.find((x) => x && x.k === k);
+    const was = before && before.status === "active" ? before.qty || 0 : 0, q = after ? after.qty || 0 : 0;
+    let next;
+    if (gone) { if (!cur) return; next = list.filter((x) => x && x.k !== k); }
+    else if (cur && cur.q === q) return;
+    else if (q > was) next = pushRecent(list, { n: maskName(after.display_name), q, s: after.store || "", t: Date.now(), k });
+    else if (cur) next = list.map((x) => (x && x.k === k ? Object.assign({}, x, { q }) : x));
+    else return;
     if (JSON.stringify(next) === JSON.stringify(list)) return;
     t.update(ref, { recent: next });
   });
