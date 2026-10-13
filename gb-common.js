@@ -25,6 +25,9 @@ var GB_NO_LIMIT = 999;
 function gbNoLimit(c) { return !(c && c.per_user_limit > 0) || c.per_user_limit >= GB_NO_LIMIT; }
 // 每 N 份成一團（2026-10-13 使用者，例：蘋果原箱 9 粒、每 5 人成一箱）：success_rule＝threshold＋per_batch＝true，N＝min_qty。
 // 三店合計 12 份 → 成 2 團（10 份），零頭 2 份由店長結算時決定（取消、改數量，或照常出貨＝batch_extra_ok）。
+// 已到門市（2026-10-13 使用者）：保證成團的商品，各店店長在團購頁切換「🏪 已到門市／🚚 未到貨」，存 in_store_by.{門市}=true。
+// 已到門市＝客人 +1 後馬上可以來取（取貨頁可按取貨）；確認訊息、開團文案、商品詳情、我的訂單的說法跟著變。
+function gbInStore(c, store) { return !!(c && c.success_rule !== 'threshold' && store && (c.in_store_by || {})[store]); }
 function gbBatchOn(c) { return !!(c && c.success_rule === 'threshold' && c.per_batch && c.min_qty > 0); }
 function gbBatch(c) {
   var o = c.ordered_qty || 0, n = c.min_qty || 0;

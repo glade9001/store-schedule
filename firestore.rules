@@ -193,6 +193,13 @@ service cloud.firestore {
                         && gbMyCode() in resource.data.get('available_stores', [])
                         && request.resource.data.ordered_qty is int && request.resource.data.ordered_qty >= 0
                         && (resource.data.get('stock', null) == null || request.resource.data.ordered_qty <= resource.data.stock));
+      // 已到門市（2026-10-13）：店長可在跨店團切換「自己門市」的 in_store_by，其他欄位、其他門市都不能動
+      allow update: if myPerm() == 'manager' && gbStaff()
+                    && gbMyCode() in resource.data.get('available_stores', [])
+                    && changedKeys().hasOnly(['in_store_by', 'updated_at'])
+                    && request.resource.data.in_store_by is map
+                    && request.resource.data.in_store_by.diff(resource.data.get('in_store_by', {})).affectedKeys().hasOnly([gbMyCode()])
+                    && request.resource.data.in_store_by.get(gbMyCode(), false) is bool;
       allow delete: if isOwnerOrAdmin()
                     || (gbMgrOwnOnly(resource.data.get('available_stores', [])) && resource.data.get('status', '') == 'draft');
     }

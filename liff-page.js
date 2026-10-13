@@ -219,13 +219,14 @@ function lfRender() {
     (lfMineList.length ? lfMineList.map(lfMineCard).join('') : '<div class="card"><div class="empty" style="font-size:15px;">還沒有訂單</div></div>');
 }
 var lfItems = {}, lfDetailKey = '';
+function lfItemInStore(it) { return (it.ms || [it.c]).some(function (m) { return gbInStore(m, lfStore); }); }
 function lfTile(it) {
   var c = it.c, img = (c.images || [])[0];
   return '<button class="lf-tile" onclick="lfShowDetail(\'' + it.key + '\')">' +
     '<div class="lf-tile-img">' + (img && /^https:\/\//.test(img) ? '<img src="' + gbEsc(img) + '" alt="" loading="lazy">' : '<span>🛍️</span>') +
       (it.mine ? '<i class="lf-tile-mine">✅ 已訂 ' + it.mine + '</i>' : it.pinned ? '<i class="lf-tile-mine lf-tile-pin">📌 推薦</i>' : '') + (it.sold ? '<i class="lf-tile-sold">已售完</i>' : '') + '</div>' +
     '<div class="lf-tile-t">' + gbEsc(c.base_title || c.title) + '</div>' +
-    '<div class="lf-tile-p">' + it.price + '</div>' + lfTileEnd(it.ms || [c]) + (it.hint ? '<div class="lf-tile-h">' + it.hint + '</div>' : '') + '</button>';
+    '<div class="lf-tile-p">' + it.price + '</div>' + (lfItemInStore(it) ? '<div class="lf-tile-now">🏪 門市現貨</div>' : '') + lfTileEnd(it.ms || [c]) + (it.hint ? '<div class="lf-tile-h">' + it.hint + '</div>' : '') + '</button>';
 }
 // ===== 一鍵分享開團商品（2026-10-11）：LINE 分享卡片（Flex 輪播），客人在群組點「＋1」就用自己的名義留言 =====
 // 留言格式「+1 #短碼 品名」：機器人看到 #短碼 就知道是哪一檔（同時開好幾檔也不會搞混）；短碼放品名前面，避免品名開頭的英文字被當成規格編號。
@@ -423,7 +424,7 @@ function lfShowDetail(key, refresh) {
   var it = lfItems[key]; if (!it) return;
   var box = document.getElementById('lfDetail');
   var low = lfLowLeft(it);
-  document.getElementById('lfDetailBody').innerHTML = it.html() + lfRecentHtml(it) +
+  document.getElementById('lfDetailBody').innerHTML = (lfItemInStore(it) ? '<div class="lf-instore">🏪 ' + gbEsc(gbStoreName(lfStore)) + '門市有現貨，+1 後即可到門市取貨付款</div>' : '') + it.html() + lfRecentHtml(it) +
     (low ? '<button class="lf-share lf-share-low" onclick="lfShareLow(\'' + it.key + '\')">🔥 只剩 ' + low + ' 份！分享到其他門市群組</button>' : '');
   if (!refresh) {
     lfDetailKey = key; box.hidden = false; box.scrollTop = 0;
@@ -528,6 +529,7 @@ function lfBundleCard(c) {
 }
 function lfMineCard(o) {
   var st = o.status === 'picked_up' ? '✅ 已取貨' : o.status === 'no_show' ? '未取貨' :
+    o.status === 'active' && o.inStore && ['open', 'closed', 'success'].indexOf(o.campaignStatus) >= 0 ? '📦 門市有現貨，可以取貨了' :
     o.campaignStatus === 'open' ? '訂購中' : o.campaignStatus === 'success' ? '已成團・等到貨' : o.campaignStatus === 'arrived' ? '📦 已到貨，可以取貨了' :
     o.campaignStatus === 'failed' ? '未成團（不用取貨）' : o.campaignStatus === 'closed' ? '已截單・等結果' : (GB_STATUS[o.campaignStatus] || '');
   return '<div class="card"><div style="display:flex;gap:10px;align-items:baseline;"><b style="font-size:16px;flex:1;">' + gbEsc(o.title) + '</b><b>$' + (o.price * o.qty) + '</b></div>' +
@@ -585,7 +587,7 @@ async function lfConfirm() {
       var d = r.data || {}, lack = Math.max(0, (d.minQty || 0) - (d.ordered || 0));
       var extra = d.rule === 'threshold' && d.perBatch ? '🎯 目前 ' + d.ordered + ' 份（三店合計）・' + gbProgTxt({ success_rule: 'threshold', per_batch: true, min_qty: d.minQty, ordered_qty: d.ordered })
         : d.rule === 'threshold' ? (lack ? '🎯 目前 ' + d.ordered + ' 份，還差 ' + lack + ' 份成團（三店合計）' : '🎉 已達成團門檻，確定成團！')
-        : (d.ordered ? '🔥 目前已訂 ' + d.ordered + ' 份（三店合計）' : '');
+        : (d.ordered ? '🔥 目前已訂 ' + d.ordered + ' 份（三店合計）' : '') + (d.inStore ? '\n🏪 門市有現貨，即日起可到' + gbStoreName(lfStore) + '門市取貨付款' : '');
       if (lfBundle) lfPostToGroup((c.base_title || rt) + ' ' + lfBundle.code + ' ' + lfBundle.label, lfQty, extra); else lfPostToGroup(rt, lfQty, extra);
     }
     document.getElementById('qtyModal').hidden = true;

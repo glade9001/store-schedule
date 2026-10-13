@@ -23,9 +23,10 @@ async function loadPickup() {
   var store = document.getElementById('pkStore').value;
   document.getElementById('pkList').innerHTML = '<div class="empty">載入中…</div>';
   try {
-    var cs = await gbTimeout(window.db.collection('gb_campaigns').where('status', 'in', ['success', 'arrived']).get());
+    // 保證成團的團一有人 +1 就列出（2026-10-13 使用者），開放中／截單也算；達標成團照舊等成團
+    var cs = await gbTimeout(window.db.collection('gb_campaigns').where('status', 'in', ['open', 'closed', 'success', 'arrived']).get());
     pkCamps = cs.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); })
-      .filter(function (c) { return (c.available_stores || []).indexOf(store) >= 0; });
+      .filter(function (c) { return (c.available_stores || []).indexOf(store) >= 0 && (['success', 'arrived'].indexOf(c.status) >= 0 || c.success_rule !== 'threshold'); });
     // 每檔團購各查一次（campaign_id＋store 兩個等號條件，不需要複合索引；規則要求查詢帶門市）
     var all = await Promise.all(pkCamps.map(function (c) {
       return gbTimeout(window.db.collection('gb_orders').where('campaign_id', '==', c.id).where('store', '==', store).get())
@@ -45,6 +46,8 @@ async function loadPickup() {
   renderPickup();
 }
 
+// 可以按取貨：已成團／已到貨（跟以前一樣），或保證成團且這家門市「已到門市」
+function pkCanPick(c, o) { return ['success', 'arrived'].indexOf(c.status) >= 0 || gbInStore(c, o.store); }
 function campOf(o) { return pkCamps.find(function (c) { return c.id === o.campaign_id; }) || {}; }
 function pastDeadline(c) { var d = gbToDate(c.pickup_deadline); return !!d && d.getTime() < Date.now(); }
 
@@ -67,7 +70,7 @@ function renderPickup() {
   var list = pkView === 'todo' ? todo : pkView === 'unpaid' ? unpaid : done;
   list.sort(function (a, b) { return String(a.display_name || '').localeCompare(String(b.display_name || ''), 'zh-Hant'); });
   var el = document.getElementById('pkList');
-  if (!pkCamps.length) { el.innerHTML = '<div class="empty">目前沒有「已成團」或「已到貨」的團購</div>'; return; }
+  if (!pkCamps.length) { el.innerHTML = '<div class="empty">目前沒有要取貨的團購</div>'; return; }
   if (!list.length) { el.innerHTML = '<div class="empty">' + (kw ? '找不到「' + gbEsc(kw) + '」' : pkView === 'todo' ? '都取完了 🎉' : '沒有資料') + '</div>'; return; }
   el.innerHTML = list.map(pkCard).join('');
 }
@@ -75,9 +78,11 @@ function renderPickup() {
 function pkCard(o) {
   var c = campOf(o), picked = o.status === 'picked_up', ns = o.status === 'no_show';
   var canNs = !picked && (ns || pastDeadline(c));
+  var canPick = picked || pkCanPick(c, o);
   return '<div class="pk' + (picked || ns ? ' done' : '') + '">' +
     '<div class="pk-top"><span class="pk-name">' + gbEsc(o.display_name) + '</span>' +
       (o.source === 'manual' ? '<span class="st st-draft">手動</span>' : '') + gbNoShowTag(o) +
+      (!picked && !ns && ['success', 'arrived'].indexOf(c.status) < 0 ? (gbInStore(c, o.store) ? '<span class="st st-success">🏪 現貨</span>' : '<span class="st st-draft">🚚 未到貨</span>') : '') +
       '<span class="pk-amt">$' + ((o.qty || 0) * (c.price || 0)).toLocaleString() + '</span></div>' +
     '<div class="pk-sub">' + gbEsc(c.title || '') + ' ×<b>' + (o.qty || 0) + '</b>' +
       (c.pickup_deadline ? '・取貨到 ' + gbFmt(c.pickup_deadline, false) + (pastDeadline(c) && !picked ? ' <b style="color:var(--danger)">已過期</b>' : '') : '') +
@@ -85,7 +90,7 @@ function pkCard(o) {
       (o.note ? '<br>備註：' + gbEsc(o.note) : '') +
       (picked ? '<br>✅ ' + gbFmt(o.picked_up_at) + ' 取貨' : '') + '</div>' +
     '<div class="pk-btns">' +
-      '<button class="pk-btn' + (picked ? ' on-pick' : '') + '" ' + (ns ? 'disabled ' : '') + 'onclick="togglePicked(\'' + o.id + '\')">' + (picked ? '✅ 已取貨' : '取貨（含收款）') + '</button>' +
+      '<button class="pk-btn' + (picked ? ' on-pick' : '') + '" ' + (ns ? 'disabled ' : !canPick ? 'disabled title="還沒到貨：到團購卡片切成「已到門市」才能取貨" ' : '') + 'onclick="togglePicked(\'' + o.id + '\')">' + (picked ? '✅ 已取貨' : '取貨（含收款）') + '</button>' +
       '<button class="pk-btn' + (o.paid ? ' on-paid' : '') + '" ' + (ns || picked ? 'disabled title="取貨時已一併收款" ' : '') + 'onclick="togglePaid(\'' + o.id + '\')">' + (o.paid ? '💰 已付款' : '先付款') + '</button>' +
       '<button class="pk-btn ns' + (ns ? ' on-ns' : '') + '" ' + (canNs ? '' : 'disabled title="過了取貨期限才能標棄單" ') + 'onclick="toggleNoShow(\'' + o.id + '\')">' + (ns ? '🚫 棄單' : '棄單') + '</button>' +
     '</div></div>';

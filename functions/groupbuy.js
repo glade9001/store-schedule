@@ -176,7 +176,8 @@ async function placeOrderTx({ cid, store, userId, name, picture, add, source, so
       });
     }
     t.set(db.collection("gb_customers").doc(userId), { display_name: name || "", picture_url: picture || null, last_order_at: ts }, { merge: true });
-    return { qty: after, title: c.title || "", campaignId: tid, round: c.round || 1, ordered: now + add, rule: c.success_rule || "guaranteed", minQty: c.min_qty || 0, perBatch: !!c.per_batch };
+    return { qty: after, title: c.title || "", campaignId: tid, round: c.round || 1, ordered: now + add, rule: c.success_rule || "guaranteed", minQty: c.min_qty || 0, perBatch: !!c.per_batch,
+      inStore: c.success_rule !== "threshold" && !!(c.in_store_by || {})[store], store };
   });
 }
 
@@ -262,6 +263,7 @@ exports.gbMyOrders = onCall({ region: REGION }, async (request) => {
       store: o.store, qty: o.qty, status: o.status, paid: !!o.paid, campaignStatus: c.status,
       endTime: ms(c.end_time), arrivalDate: ms(c.arrival_date), pickupDeadline: ms(c.pickup_deadline),
       perUserLimit: c.per_user_limit || 0, editable: o.status === "active" && isOpen(c),
+      inStore: c.success_rule !== "threshold" && !!(c.in_store_by || {})[o.store],
     };
   }).sort((a, b) => (b.endTime || 0) - (a.endTime || 0));
   const cu = await db.collection("gb_customers").doc(who.sub).get();
@@ -519,7 +521,7 @@ async function handleEvent(ev) {
       // 達標成團：每次 +N 都回覆成團倒數（2026-10-11 使用者要求；回覆免費）；保證成團照「成單回覆」開關
       // 同一檔一則訊息裡加了好幾次（C+2 A+1）只回最後結果
       if (r.rule === "threshold") okReply[cid] = `已登記 ${who}：${r.title} 共 ${r.qty} 份 👍\n` + countdownText(r.ordered, r.minQty, r.perBatch);
-      else okReply[cid] = (`已登記 ${who}：${r.title} 共 ${r.qty} 份 👍\n🔥 目前已訂 ${r.ordered} 份（三店合計）`);   // 保證成團也回（2026-10-11 使用者：增加 +1 慾望）
+      else okReply[cid] = (`已登記 ${who}：${r.title} 共 ${r.qty} 份 👍\n🔥 目前已訂 ${r.ordered} 份（三店合計）` + (r.inStore ? `\n🏪 門市有現貨，即日起可到${STORES[r.store]}門市取貨付款` : ""));   // 保證成團也回（2026-10-11 使用者：增加 +1 慾望）
     } catch (e) {
       const kind = (e && e.details && e.details.kind) || "";
       if (kind === "closed") { out.push("本團已截單，有再次開團再通知您 🙏"); continue; }

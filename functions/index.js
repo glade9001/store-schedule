@@ -3090,6 +3090,45 @@ exports.scheduledGbDueReminder = onSchedule(
   }
 );
 
+// ===== 團購：非保證成團「每成一團」推播提醒訂貨（2026-10-13 使用者）=====
+// 達標成團：滿 min_qty 提醒一次；每 N 份成一團(per_batch)：每多成一團提醒一次（order_notified_groups 記到第幾團，取消掉回來不重發）。
+// 對象：單店團＝該店店長；跨店團＝開團時設的負責訂貨門市(order_store)店長；都找不到就發加盟主。還沒開放給全員時只發 admin。
+exports.onGbCampaignOrderRemind = onDocumentWritten(
+  { document: "gb_campaigns/{cid}", region: "asia-east1", secrets: [VAPID_PRIVATE] },
+  async (event) => {
+    const c = event.data.after.exists ? event.data.after.data() : null;
+    if (!c || c.success_rule !== "threshold" || !(c.min_qty > 0) || c.is_test === true) return;
+    if (["open", "closed", "success"].indexOf(c.status) < 0) return;
+    const o = c.ordered_qty || 0, n = c.min_qty;
+    const groups = c.per_batch ? Math.floor(o / n) : (o >= n ? 1 : 0);
+    if (groups <= (c.order_notified_groups || 0)) return;
+    const db = admin.firestore(), ref = event.data.after.ref;
+    // 兩個人同時下單會觸發兩次 → transaction 搶「記到第幾團」，搶輸的不發
+    const go = await db.runTransaction(async (t) => {
+      const cur = (await t.get(ref)).data() || {};
+      if (groups <= (cur.order_notified_groups || 0)) return false;
+      t.update(ref, { order_notified_groups: groups });
+      return true;
+    });
+    if (!go) return;
+    const st = await db.collection("gb_settings").doc("stores").get();
+    const opened = st.exists && st.data().open === true;
+    const us = await db.collection("users").where("permission", "in", opened ? ["owner", "admin", "manager"] : ["admin"]).get();
+    const users = us.docs.map((d) => ({ uid: d.id, ...d.data() })).filter((u) => u.disabled !== true);
+    const CODE = { "美德": "meide", "聯鑫": "lianxin", "錦花": "jinhua" };
+    const stores = c.available_stores || [];
+    const target = stores.length === 1 ? stores[0] : c.order_store || "";
+    let uids = users.filter((u) => u.permission === "manager" && target && CODE[u.store] === target).map((u) => u.uid);
+    if (!uids.length || !opened) uids = users.filter((u) => ["owner", "admin"].includes(u.permission) && (opened || u.permission === "admin")).map((u) => u.uid);
+    const title = String(c.title || "");
+    const body = c.per_batch
+      ? `「${title}」已成第 ${groups} 團（每 ${n} 份成一團，三店合計 ${o} 份），請訂貨`
+      : `「${title}」已達成團 ${n} 份（目前 ${o} 份），請訂貨；截單前可能還會增加`;
+    await sendOrQueuePush(db, uids, { title: "🛒 團購成團，請訂貨", body, url: "groupbuy.html", tag: `gb-order-${event.params.cid}-${groups}` },
+      VAPID_PRIVATE.value(), false).catch((e) => console.warn("[gbOrderRemind]", e.message));
+  }
+);
+
 // ===== 團購：取貨期限前 36 小時，還有人沒取 → 推播提醒該店店長（2026-10-10 使用者）=====
 // 只通知店員端（不發 LINE、不花額度），由店長決定要不要打電話。所有已到貨的團都算（不分保證／達標成團）。
 // 對象：已開放給全員時＝該店店長；還沒開放時只發 admin。每檔只提醒一次（pick_reminded_at）。

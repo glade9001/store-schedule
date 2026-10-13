@@ -125,6 +125,30 @@ function campRow(ms, key) {
     '<span class="chev" aria-hidden="true">▾</span></div>';
 }
 
+// 已到門市／未到貨（2026-10-13 使用者）：保證成團、還沒到貨的團，每家開放門市一顆切換鈕；
+// 加盟主／admin 每店都能切，店長只能切自己門市（firestore.rules 同步限制）。多規格整組一起切。
+function inStoreHtml(ms) {
+  var c = ms[0];
+  if (c.success_rule === 'threshold' || ['open', 'closed', 'success'].indexOf(c.status) < 0) return '';
+  var owner = gbIsOwner(gbUser);
+  return '<div class="instore-row">' + (c.available_stores || []).map(function (s) {
+    var on = ms.every(function (m) { return gbInStore(m, s); }), can = owner || (gbIsManager(gbUser) && s === gbMyCode);
+    return '<button class="instore' + (on ? ' on' : '') + '"' + (can ? ' onclick="toggleInStore(\'' + c.id + '\',\'' + s + '\')"' : ' disabled') + '>' +
+      gbStoreName(s) + ' ' + (on ? '🏪 已到門市' : '🚚 未到貨') + '</button>';
+  }).join('') + '</div>';
+}
+async function toggleInStore(cid, store) {
+  var c = gbCamps.find(function (x) { return x.id === cid; }); if (!c) return;
+  var ms = c.opt_group ? optMembers(c.opt_group) : [c];
+  var on = !ms.every(function (m) { return gbInStore(m, store); });
+  if (!await gbConfirm(on ? '設為已到門市' : '改回未到貨', '「' + (c.base_title || c.title) + '」' + gbStoreName(store) + (on ? '門市已經有貨？\n設定後客人 +1 就可以馬上來取貨，取貨頁可以直接按「取貨」。' : '改回「未到貨」？客人會看到到貨後才能取。'), on ? '已到門市' : '改回未到貨')) return;
+  try {
+    var upd = { updated_at: firebase.firestore.FieldValue.serverTimestamp() }; upd['in_store_by.' + store] = on;
+    await gbTimeout(Promise.all(ms.map(function (m) { return window.db.collection('gb_campaigns').doc(m.id).update(upd); })));
+    await loadCampaigns(); gbToast(on ? '🏪 已設為已到門市' : '已改回未到貨');
+  } catch (e) { gbToast('更新失敗：' + friendly(e)); }
+}
+
 /** 多規格一組一張卡：上面是共同資訊與整組操作（文案、置頂、編輯、草稿／開放／截單），下面每個規格一列（數量、訂單、補單、結算） */
 function campGroupCard(ms) {
   var c = ms[0], img = (c.images || [])[0], imgOk = img && /^https:\/\//.test(img);
@@ -157,7 +181,7 @@ function campGroupCard(ms) {
       '<div class="camp-meta"><b>' + ms.filter(function (m) { return !(m.round > 1); }).length + ' 種規格</b>・<b>$' + lo + (hi > lo ? '～' + hi : '') + '</b>・' + (gbNoLimit(c) ? '每人不限' : '每種每人上限 ' + c.per_user_limit) + '・' + rule + '</div>' +
       '<div class="camp-meta">截單 ' + gbFmt(c.end_time) + (c.status === 'open' ? '（' + gbCountdown(c.end_time) + '）' : '') +
         (c.arrival_date ? '・到貨 ' + gbFmt(c.arrival_date, false) : '') + (c.pickup_deadline ? '・取貨到 ' + gbFmt(c.pickup_deadline, false) : '') + '</div>' +
-      '<div class="stores">' + stores + '<span class="store-qty">合計<b>' + sum + '</b></span></div>' +
+      '<div class="stores">' + stores + '<span class="store-qty">合計<b>' + sum + '</b></span></div>' + inStoreHtml(ms) +
     '</div></div>' +
     (btns ? '<div class="actions">' + btns + '</div>' : '') +
     '<div class="opt-subs">' + ms.map(function (m) { return campCard(m, true); }).join('') + '</div>' +
@@ -170,6 +194,7 @@ function campCard(c, sub) {
   var stock = c.stock == null ? '不限量' : '剩 <b>' + Math.max(0, c.stock - (c.ordered_qty || 0)) + '</b> / ' + c.stock;
   var rule = (gbBatchOn(c) ? '每 ' + c.min_qty + ' 份成一團（' + gbProgTxt(c).replace('🎉 ', '') + '）' : c.success_rule === 'threshold' ? '達標成團（' + (c.min_qty || 0) + '）' : '保證成團') + (c.auto_next ? '・額滿自動開下一團' : '');
   var obs = c.ordered_by_store || {};
+  var inStoreRow = sub ? '' : inStoreHtml([c]);
   var stores = (c.available_stores || []).map(function (s) { return '<span class="store-qty">' + gbStoreName(s) + '<b>' + (obs[s] || 0) + '</b></span>'; }).join('');
   var prog = c.success_rule === 'threshold' && c.min_qty ? '<div class="bar" title="成團進度"><i style="width:' + Math.min(100, Math.round((gbBatchOn(c) && (c.ordered_qty || 0) >= c.min_qty ? (c.ordered_qty % c.min_qty || c.min_qty) : (c.ordered_qty || 0)) / c.min_qty * 100)) + '%"></i></div>' : '';
   var btns = '<button class="btn btn-g" onclick="toggleOrders(\'' + c.id + '\')">' + (gbOpen[c.id] ? '收起訂單' : '訂單明細') + '</button>';
@@ -216,7 +241,7 @@ function campCard(c, sub) {
         (gbIsPinned(c, gbCamps) && (c.status === 'open' || c.status === 'draft') ? ' <span class="st" style="background:#fff3e0;color:#b45309;">📌 置頂</span>' : '') +
       '<div class="camp-title">' + gbEsc(c.title) + '</div>' +
       ((c.bundles || []).length ? '<div class="camp-meta">' + c.bundles.map(function (b) { return gbEsc(b.code + ' ' + b.label) + ' $' + b.mult * c.price + (b.mult > 1 ? '（' + b.mult + ' 份）' : ''); }).join('・') + '</div>' : '') +
-      '<div class="camp-meta"><b>$' + (c.price || 0) + '</b>・' + (gbNoLimit(c) ? '每人不限' : '每人上限 ' + c.per_user_limit) + '・' + rule + '・' + stock + '</div>' +
+      '<div class="camp-meta"><b>$' + (c.price || 0) + '</b>・' + (gbNoLimit(c) ? '每人不限' : '每人上限 ' + c.per_user_limit) + '・' + rule + '・' + stock + '</div>' + inStoreRow +
       '<div class="camp-meta">截單 ' + gbFmt(c.end_time) + (c.status === 'open' ? '（' + gbCountdown(c.end_time) + '）' : '') +
         (c.arrival_date ? '・到貨 ' + gbFmt(c.arrival_date, false) : '') + (c.pickup_deadline ? '・取貨到 ' + gbFmt(c.pickup_deadline, false) : '') + '</div>' +
       (c.purged_at ? '<div class="camp-meta" style="color:#94a3b8;">🔒 訂單已於 ' + gbFmt(c.purged_at, false) + ' 依隱私權政策刪除（結案滿 2 個月）</div>' : '') +
@@ -329,6 +354,7 @@ function openCampaignForm(cid) {
   document.getElementById('cfTest').checked = !!(c && c.is_test);
   document.getElementById('cfAutoNext').checked = !!(c && c.auto_next);
   document.getElementById('cfBatch').checked = !!(c && c.per_batch);
+  document.getElementById('cfOrderStore').innerHTML = '<option value="">請選擇</option>' + GB_STORES.map(function (s) { return '<option value="' + s.code + '"' + (c && c.order_store === s.code ? ' selected' : '') + '>' + s.name + '</option>'; }).join('');
   var rule = c ? c.success_rule || 'guaranteed' : 'guaranteed';
   document.querySelectorAll('input[name=cfRule]').forEach(function (r) { r.checked = r.value === rule; });
   var sel = c ? (c.available_stores || []) : (owner ? GB_STORES.map(function (s) { return s.code; }) : [gbMyCode]);
@@ -562,6 +588,7 @@ function syncRule() {
   var th = document.querySelector('input[name=cfRule]:checked').value === 'threshold';
   document.getElementById('cfMinWrap').hidden = !th;
   document.getElementById('cfBatchWrap').hidden = !th;
+  document.getElementById('cfOrderWrap').hidden = !th || !gbIsOwner(gbUser);   // 店長只能開本店團，訂貨提醒直接給自己
 }
 async function saveCampaign() {
   var err = document.getElementById('cfErr'); err.textContent = '';
@@ -593,6 +620,9 @@ async function saveCampaign() {
   if (rule === 'threshold' && !(min >= 1)) return err.textContent = '達標成團要填最低成團數';
   var autoNext = document.getElementById('cfAutoNext').checked;
   var perBatch = rule === 'threshold' && document.getElementById('cfBatch').checked;
+  var orderStore = rule === 'threshold' && stores.length > 1 ? document.getElementById('cfOrderStore').value : (rule === 'threshold' ? stores[0] : null);
+  if (rule === 'threshold' && stores.length > 1 && !orderStore) return err.textContent = '跨店合購的達標成團，請選「負責訂貨門市」（成團時提醒那家店長訂貨）';
+  if (orderStore && stores.indexOf(orderStore) < 0) return err.textContent = '負責訂貨門市要是有開放的門市';
   if (perBatch && autoNext) return err.textContent = '「每滿這個數量就成一團」跟「額滿自動開下一團」只能選一個';
   var splitM = multi && optMode() === 'split';
   // 各規格庫存：有填用自己的，沒填用總庫存
@@ -609,7 +639,7 @@ async function saveCampaign() {
     images: gbImgs.slice(0, GB_MAX_IMGS), available_stores: stores, stock: stock, per_user_limit: limit,
     end_time: end, arrival_date: gbTsFromDate(document.getElementById('cfArrival').value, false),
     pickup_deadline: gbTsFromDate(document.getElementById('cfPickup').value, true),
-    success_rule: rule, min_qty: rule === 'threshold' ? min : null, per_batch: perBatch, is_test: document.getElementById('cfTest').checked, auto_next: autoNext,
+    success_rule: rule, min_qty: rule === 'threshold' ? min : null, per_batch: perBatch, order_store: orderStore || null, is_test: document.getElementById('cfTest').checked, auto_next: autoNext,
     updated_at: firebase.firestore.FieldValue.serverTimestamp(),
   };
   if (splitM) return saveMultiCampaign(c, data, effStock, err);
@@ -965,7 +995,8 @@ async function buildCopy() {
       lines.push('🛒 ' + c.title, '💰 $' + c.price + '／份' + (gbLimitTxt(c) ? '・' + gbLimitTxt(c) : ''));
       lines.push(c.success_rule === 'threshold' ? '🎯 ' + gbRuleTxt(c) + '（三店合計）' : '✅ 保證成團');
     }
-    lines.push('⏰ 預購至 ' + gbFmt(c.end_time), c.arrival_date ? '🚚 預計 ' + gbFmt(c.arrival_date, false) + ' 起到貨，到貨會在群組通知' : '🚚 到貨日確定後在群組通知', '💰 到店取貨付款');
+    var nowIn = (st ? [st] : x.stores).every(function (s2) { return gbInStore(c, s2); });   // 已到門市（2026-10-13）
+    lines.push('⏰ 預購至 ' + gbFmt(c.end_time), nowIn ? '🏪 門市現貨，+1 後即可到門市取貨付款' : c.arrival_date ? '🚚 預計 ' + gbFmt(c.arrival_date, false) + ' 起到貨，到貨會在群組通知' : '🚚 到貨日確定後在群組通知', '💰 到店取貨付款');
     lines.push('🌙 ' + GB_QUIET_TXT + ' 小幫手休息不回覆，+1 一樣有登記，點下單連結看「我的訂單」就能確認');   // 2026-10-10 使用者
     // 連結帶 c=團購 ID：機器人看到這則訊息會記下「訊息→團購」，客人引用這則回覆 +1 就知道是哪一檔
     var tq = c.is_test ? '&test=1' : '';   // 測試團的連結只在測試模式顯示

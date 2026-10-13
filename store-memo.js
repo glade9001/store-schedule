@@ -46,7 +46,8 @@ async function memoLoadOpen(store) {
 
 // ===== 保證成團的團購訂單也列進留貨單（2026-10-10 使用者：保證成團就是門市自己的貨，例如藍莓汁）=====
 // 不複製資料：直接讀 gb_orders 的「待取貨」，按「已取貨」寫回訂單——跟團購頁〔取貨〕分頁是同一份，不會兩邊不同步。
-// 首頁一檔一行（不算件數），代辦頁點開才逐人列出。達標成團的團不列（還不確定會不會成團）。
+// 首頁一檔一行（不算件數），代辦頁點開才逐人列出。達標成團的團「成團後」才列（2026-10-13 使用者：要提醒店長訂貨）。
+// 已到門市（in_store_by，2026-10-13）：直接算「已到貨留貨」、可以取。
 const MEMO_GB_CODE = { '美德': 'meide', '聯鑫': 'lianxin', '錦花': 'jinhua' };
 function memoGbMs(ts) { return ts && typeof ts.toMillis === 'function' ? ts.toMillis() : (ts && ts.seconds ? ts.seconds * 1000 : 0); }
 /** 本店保證成團、還有人沒取的團 → [{ c, orders(待取貨), qty, deadline(ms|0), arrived }] */
@@ -55,7 +56,8 @@ async function memoLoadGb(store) {
   if (!code) return [];
   const cs = await window.db.collection('gb_campaigns').where('status', 'in', ['open', 'closed', 'success', 'arrived']).get();
   const camps = cs.docs.map(d => ({ id: d.id, ...d.data() }))
-    .filter(c => c.success_rule !== 'threshold' && c.is_test !== true && (c.available_stores || []).indexOf(code) >= 0);
+    .filter(c => (c.success_rule !== 'threshold' || c.status === 'success' || c.status === 'arrived' || (c.min_qty > 0 && (c.ordered_qty || 0) >= c.min_qty))
+      && c.is_test !== true && (c.available_stores || []).indexOf(code) >= 0);
   // 每檔各查一次（campaign_id＋store 兩個等號條件，不需要複合索引；規則要求查詢帶門市）
   const out = await Promise.all(camps.map(async c => {
     const sn = await window.db.collection('gb_orders').where('campaign_id', '==', c.id).where('store', '==', code).get();
@@ -64,7 +66,8 @@ async function memoLoadGb(store) {
     // 已取消的也帶著（2026-10-10 使用者：客人取消要讓店員看到紀錄，不然會以為單不見了）
     const cancelled = all.filter(o => o.status === 'cancelled').sort((a, b) => memoGbMs(b.cancelled_at) - memoGbMs(a.cancelled_at));
     return { c, orders, cancelled, qty: orders.reduce((t, o) => t + (o.qty || 0), 0),
-      deadline: memoGbMs(c.pickup_deadline), arrival: memoGbMs(c.arrival_date), arrived: c.status === 'arrived' };
+      deadline: memoGbMs(c.pickup_deadline), arrival: memoGbMs(c.arrival_date),
+      arrived: c.status === 'arrived' || (c.success_rule !== 'threshold' && !!(c.in_store_by || {})[code]) };
   }));
   // 還有人沒取；或全都取消了但取消在 3 天內（讓店員看得到為什麼不見了）
   const recent = Date.now() - 3 * 86400000;
@@ -85,6 +88,7 @@ function memoGbCanPick(g) {
 function memoGbWaitText(g) {
   if (memoGbCanPick(g)) return '';
   if (g.arrival) return memoGbMd(g.arrival) + ' 起可取貨結帳';
+  if (g.c.success_rule === 'threshold' && g.c.status !== 'success') return '已成團，請訂貨（截單後結算）';
   return g.c.status === 'success' ? '到貨後才能取貨結帳' : g.c.status === 'open' ? '還在開放下單，成團後才叫貨' : '等結算，成團後才叫貨';
 }
 /** 取貨期限警示：過期 → 紅；36 小時內 → 橘；其他 null */
