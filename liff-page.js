@@ -41,10 +41,13 @@ window.onload = async function () {
   try {
     // liff.init／getProfile 本身沒有逾時，網路不穩會一直等 → 自己設上限
     await gbTimeout(liff.init({ liffId: LF_LIFF_ID }), 15000, LF_NET_MSG);
-    if (!liff.isLoggedIn()) { lfBootDone(); liff.login({ redirectUri: location.href }); return; }
-    lfToken = liff.getIDToken() || '';
-    lfProfile = await gbTimeout(liff.getProfile(), 8000).catch(function () { return null; });
-    if (lfProfile) document.getElementById('lfHello').textContent = '嗨，' + lfProfile.displayName + '・到店取貨付款';
+    // 先逛再登入（2026-10-13 使用者）：外部瀏覽器沒登入也能看團購；按「＋1」／我的訂單／分享時才跳到 LINE App（lfNeedLine）。
+    // LINE 裡打開一定是登入狀態，跟以前一樣。不用 liff.login()：外部瀏覽器會出現 LINE 帳號密碼頁（使用者不要）。
+    if (liff.isLoggedIn()) {
+      lfToken = liff.getIDToken() || '';
+      lfProfile = await gbTimeout(liff.getProfile(), 8000).catch(function () { return null; });
+      if (lfProfile) document.getElementById('lfHello').textContent = '嗨，' + lfProfile.displayName + '・到店取貨付款';
+    }
   } catch (e) { lfFatal(e && e.message === LF_NET_MSG ? LF_NET_MSG : 'LINE 連線失敗：' + lfErr(e), true); return; }
   await lfLoadMine();
   // 沒帶門市：記住的門市 → 最近一筆訂單的門市 → 請客人選（pick=1 一律重選）
@@ -124,6 +127,7 @@ async function lfLoadCamps() {
   } catch (e) { lfCamps = []; gbToast('讀取團購失敗：' + lfErr(e)); return false; }
 }
 async function lfLoadMine() {
+  if (!lfToken) { lfMineList = []; lfMine = {}; return; }   // 還沒登入（外部瀏覽器先逛）
   try {
     var r = await gbTimeout(lfFn('gbMyOrders')({ idToken: lfToken }));
     lfMineList = (r.data && r.data.orders) || [];
@@ -132,8 +136,42 @@ async function lfLoadMine() {
   } catch (e) { lfMineList = []; lfMine = {}; }
 }
 
+// 要身分的動作（下單、我的訂單、分享）：沒登入 → 跳到手機 LINE App 打開同一頁（帶著商品／規格，回到 LINE 直接跳數量視窗）
+// 回傳 true＝已攔下，呼叫端直接 return。手機用使用者自己點的連結（iPhone 用程式跳轉不一定會開 App）；電腦沒有 LINE App → 給 QR 用手機掃。
+function lfNeedLine(q) {
+  if (lfToken) return false;
+  var ps = new URLSearchParams();
+  if (lfStore) ps.set('store', lfStore);
+  Object.keys(q || {}).forEach(function (k) { if (q[k]) ps.set(k, q[k]); });
+  if (lfTest) ps.set('test', '1');
+  var url = 'https://liff.line.me/' + LF_LIFF_ID + (ps.toString() ? '?' + ps.toString() : '');
+  var ua = navigator.userAgent || '', android = /Android/i.test(ua), mobile = android || /iPhone|iPad|iPod/i.test(ua);
+  // Android：intent 直接指定 LINE App，沒裝 LINE 會退回 LIFF 網址
+  var href = android ? 'intent://app/' + LF_LIFF_ID + (ps.toString() ? '?' + ps.toString() : '') + '#Intent;scheme=line;package=jp.naver.line.android;S.browser_fallback_url=' + encodeURIComponent(url) + ';end' : url;
+  var box = document.getElementById('lnBody');
+  if (mobile) {
+    box.innerHTML = '<a class="lf-go" style="display:block;text-align:center;text-decoration:none;background:#06c755;" href="' + gbEsc(href) + '">打開 LINE 繼續</a>' +
+      '<div style="font-size:12.5px;color:var(--muted);margin-top:10px;text-align:center;">沒有跳到 LINE？<a href="#" onclick="lfCopyLineUrl();return false;">複製連結</a>，貼到 LINE 任一聊天室再點開</div>';
+  } else {
+    box.innerHTML = '<div id="lnQr" style="width:180px;height:180px;margin:0 auto;"></div><div style="font-size:13px;color:var(--muted);margin-top:8px;text-align:center;">用手機相機掃描，會在 LINE 裡打開</div>';
+    lfQr(url);
+  }
+  lfLineUrl = url;
+  document.getElementById('lineModal').hidden = false;
+  return true;
+}
+var lfLineUrl = '';
+function lfCopyLineUrl() {
+  try { navigator.clipboard.writeText(lfLineUrl).then(function () { gbToast('已複製連結'); }, function () { prompt('複製這個連結', lfLineUrl); }); } catch (e) { prompt('複製這個連結', lfLineUrl); }
+}
+function lfQr(url) {
+  var draw = function () { try { var q = qrcode(0, 'M'); q.addData(url); q.make(); document.getElementById('lnQr').innerHTML = q.createSvgTag({ cellSize: 4, margin: 2, scalable: true }); } catch (e) {} };
+  if (window.qrcode) return draw();
+  var s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js'; s.onload = draw; document.head.appendChild(s);
+}
 function lfSetTab(t) {
   var mine = t === 'mine';
+  if (mine && lfNeedLine({ tab: 'mine' })) return;
   document.getElementById('lfList').hidden = mine; document.getElementById('lfMine').hidden = !mine;
   document.getElementById('lfTabList').classList.toggle('on', !mine); document.getElementById('lfTabList').setAttribute('aria-selected', String(!mine));
   document.getElementById('lfTabMine').classList.toggle('on', mine); document.getElementById('lfTabMine').setAttribute('aria-selected', String(mine));
@@ -284,6 +322,7 @@ function lfFlexList(items) {
 // 分享：先選 1～5 檔（預設勾截單最早的 5 檔），合成一張卡片送出（2026-10-11 使用者）
 var lfShareItems = [];
 function lfShare() {
+  if (lfNeedLine({})) return;
   if (!liff.isApiAvailable('shareTargetPicker')) { gbToast('請在 LINE 裡打開這個頁面才能分享（或 LIFF 尚未開啟分享功能）'); return; }
   lfShareItems = Object.keys(lfItems).map(function (k) { return lfItems[k]; }).filter(function (it) { return !it.sold; })
     .sort(function (a, b) { return (gbToDate(a.c.end_time) || 0) - (gbToDate(b.c.end_time) || 0); });
@@ -317,6 +356,45 @@ async function lfShareSelected() {
   } catch (e) { err.textContent = '分享失敗：' + lfErr(e); }
   btn.disabled = false;
 }
+// ===== 單品「剩最後幾份」分享（2026-10-13 使用者）=====
+// 三店共用庫存：A 店群組下單看得到剩幾份，B、C 店群組不知道 → 快賣完時把單一商品分享到其他群組，強調「最後 N 份」催下單。
+// 只在「有限量、不會自動開下一團、剩 1～LF_LOW_MAX 份、開放 2 家以上門市」時出現按鈕（只開本店的團，別店客人點進來也看不到）。
+var LF_LOW_MAX = 10;
+function lfLowLeft(it) {
+  var ms = it.ms || [it.c];
+  if ((it.c.available_stores || []).length < 2) return 0;
+  var left = ms.filter(function (m) { return !m.auto_next && lfRemain(m) !== Infinity && lfRemain(m) > 0; }).map(lfRemain);
+  if (!left.length) return 0;
+  var n = Math.min.apply(null, left);
+  return n <= LF_LOW_MAX ? n : 0;
+}
+function lfFlexLow(it) {
+  var c = it.c, n = lfLowLeft(it), b = lfFlexBubble(it);
+  b.size = 'mega';
+  b.header = { type: 'box', layout: 'vertical', backgroundColor: '#c5221f', paddingAll: '12px', contents: [
+    { type: 'text', text: '🔥 只剩最後 ' + n + ' 份！', color: '#ffffff', weight: 'bold', size: 'xl' },
+    { type: 'text', text: '三家門市一起搶，賣完就沒了', color: '#ffe4e1', size: 'xs', margin: 'xs' }] };
+  // 多規格：價格那行改成每一種各剩幾份（照 lfFlexBubble 的順序）
+  if (it.ms && it.ms.length > 1) {
+    b.body.contents[1].text = it.ms.map(function (m) {
+      var r = lfRemain(m);
+      return m.opt_code + ' ' + (m.opt_label || '') + ' $' + (m.price || 0) + (r === Infinity || m.auto_next ? '' : r > 0 ? '・剩 ' + r + ' 份' : '・已售完');
+    }).join('\n');
+  }
+  return b;
+}
+async function lfShareLow(key) {
+  var it = lfItems[key]; if (!it) return;
+  if (lfNeedLine({ c: it.c.short || it.c.id })) return;
+  if (!liff.isApiAvailable('shareTargetPicker')) { gbToast('請在 LINE 裡打開這個頁面才能分享（或 LIFF 尚未開啟分享功能）'); return; }
+  var n = lfLowLeft(it); if (!n) { gbToast('這檔目前不是最後幾份了'); return; }
+  try {
+    var msg = { type: 'flex', altText: ('🔥 只剩最後 ' + n + ' 份：' + (it.c.base_title || it.c.title)).slice(0, 300), contents: lfFlexLow(it) };
+    var r = await liff.shareTargetPicker([msg], { isMultiple: true });
+    if (r && r.status === 'success') gbToast('✅ 已分享');
+    else if (!r) gbToast('已取消分享');
+  } catch (e) { gbToast('分享失敗：' + lfErr(e)); }
+}
 // 列表小字（2026-10-11 使用者：增加 +1 慾望）：成團進度／已訂份數＋快截單、快賣完
 // 格子上的截單日（2026-10-10 使用者）：同組取最早截單；今天截單才加時間
 function lfTileEnd(ms) {
@@ -340,7 +418,9 @@ function lfHint(ms) {
 function lfShowDetail(key, refresh) {
   var it = lfItems[key]; if (!it) return;
   var box = document.getElementById('lfDetail');
-  document.getElementById('lfDetailBody').innerHTML = it.html();
+  var low = lfLowLeft(it);
+  document.getElementById('lfDetailBody').innerHTML = it.html() +
+    (low ? '<button class="lf-share lf-share-low" onclick="lfShareLow(\'' + it.key + '\')">🔥 只剩 ' + low + ' 份！分享到其他門市群組</button>' : '');
   if (!refresh) {
     lfDetailKey = key; box.hidden = false; box.scrollTop = 0;
     try { history.pushState({ lfDetail: 1 }, ''); } catch (e) {}   // 手機返回鍵＝回列表
@@ -437,6 +517,7 @@ function lfMineCard(o) {
 var lfBundle = null;   // 合併規格：這次選的是哪一種（{code,label,mult}）
 function lfOpen(cid, code) {
   var c = lfCamps.find(function (x) { return x.id === cid; }); if (!c) return;
+  if (lfNeedLine({ c: c.short || c.id, add: code || c.opt_code || '1' })) return;
   if (!lfPhone) { lfAskPhone(function () { lfOpen(cid, code); }); return; }   // 第一次下單先留手機
   var had = lfMine[cid] ? lfMine[cid].qty : 0;
   lfPick = c; lfEdit = false; lfQty = 1;
