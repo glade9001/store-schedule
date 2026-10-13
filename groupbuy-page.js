@@ -126,11 +126,12 @@ function campRow(ms, key) {
 }
 
 // 負責訂貨門市（2026-10-13 使用者：店長以上都能選）：跨店的達標成團才有；沒選＝成團提醒發給加盟主
+// 這兩排放在卡片上半部（點了會收合），按鈕列要 stopPropagation（2026-10-13 使用者：選單一按卡片就收起來）
 function orderStoreHtml(ms) {
   var c = ms[0], sts = c.available_stores || [];
   if (c.success_rule !== 'threshold' || sts.length < 2 || ['open', 'closed', 'success'].indexOf(c.status) < 0) return '';
   var can = gbIsOwner(gbUser) || (gbIsManager(gbUser) && sts.indexOf(gbMyCode) >= 0);
-  return '<div class="instore-row"><span style="font-size:12.5px;font-weight:800;color:#64748b;align-self:center;">負責訂貨</span>' +
+  return '<div class="instore-row" onclick="event.stopPropagation()"><span style="font-size:12.5px;font-weight:800;color:#64748b;align-self:center;">負責訂貨</span>' +
     '<select class="inline" aria-label="負責訂貨門市"' + (can ? ' onchange="setOrderStore(\'' + c.id + '\',this.value)"' : ' disabled') + '>' +
     (c.order_store ? '' : '<option value="">未選（提醒加盟主）</option>') +
     sts.map(function (s) { return '<option value="' + s + '"' + (c.order_store === s ? ' selected' : '') + '>' + gbStoreName(s) + '</option>'; }).join('') + '</select></div>';
@@ -149,7 +150,7 @@ function inStoreHtml(ms) {
   var c = ms[0];
   if (c.success_rule === 'threshold' || ['open', 'closed', 'success'].indexOf(c.status) < 0) return '';
   var owner = gbIsOwner(gbUser);
-  return '<div class="instore-row">' + (c.available_stores || []).map(function (s) {
+  return '<div class="instore-row" onclick="event.stopPropagation()">' + (c.available_stores || []).map(function (s) {
     var on = ms.every(function (m) { return gbInStore(m, s); }), can = owner || (gbIsManager(gbUser) && s === gbMyCode);
     return '<button class="instore' + (on ? ' on' : '') + '"' + (can ? ' onclick="toggleInStore(\'' + c.id + '\',\'' + s + '\')"' : ' disabled') + '>' +
       gbStoreName(s) + ' ' + (on ? '🏪 已到門市' : '🚚 未到貨') + '</button>';
