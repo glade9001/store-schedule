@@ -125,6 +125,24 @@ function campRow(ms, key) {
     '<span class="chev" aria-hidden="true">▾</span></div>';
 }
 
+// 負責訂貨門市（2026-10-13 使用者：店長以上都能選）：跨店的達標成團才有；沒選＝成團提醒發給加盟主
+function orderStoreHtml(ms) {
+  var c = ms[0], sts = c.available_stores || [];
+  if (c.success_rule !== 'threshold' || sts.length < 2 || ['open', 'closed', 'success'].indexOf(c.status) < 0) return '';
+  var can = gbIsOwner(gbUser) || (gbIsManager(gbUser) && sts.indexOf(gbMyCode) >= 0);
+  return '<div class="instore-row"><span style="font-size:12.5px;font-weight:800;color:#64748b;align-self:center;">負責訂貨</span>' +
+    '<select class="inline" aria-label="負責訂貨門市"' + (can ? ' onchange="setOrderStore(\'' + c.id + '\',this.value)"' : ' disabled') + '>' +
+    (c.order_store ? '' : '<option value="">未選（提醒加盟主）</option>') +
+    sts.map(function (s) { return '<option value="' + s + '"' + (c.order_store === s ? ' selected' : '') + '>' + gbStoreName(s) + '</option>'; }).join('') + '</select></div>';
+}
+async function setOrderStore(cid, store) {
+  var c = gbCamps.find(function (x) { return x.id === cid; }); if (!c || !store) return;
+  var ms = c.opt_group ? optMembers(c.opt_group) : [c];
+  try {
+    await gbTimeout(Promise.all(ms.map(function (m) { return window.db.collection('gb_campaigns').doc(m.id).update({ order_store: store, updated_at: firebase.firestore.FieldValue.serverTimestamp() }); })));
+    await loadCampaigns(); gbToast('負責訂貨改成 ' + gbStoreName(store) + '，之後成團會提醒' + gbStoreName(store) + '店長');
+  } catch (e) { gbToast('更新失敗：' + friendly(e)); }
+}
 // 已到門市／未到貨（2026-10-13 使用者）：保證成團、還沒到貨的團，每家開放門市一顆切換鈕；
 // 加盟主／admin 每店都能切，店長只能切自己門市（firestore.rules 同步限制）。多規格整組一起切。
 function inStoreHtml(ms) {
@@ -181,7 +199,7 @@ function campGroupCard(ms) {
       '<div class="camp-meta"><b>' + ms.filter(function (m) { return !(m.round > 1); }).length + ' 種規格</b>・<b>$' + lo + (hi > lo ? '～' + hi : '') + '</b>・' + (gbNoLimit(c) ? '每人不限' : '每種每人上限 ' + c.per_user_limit) + '・' + rule + '</div>' +
       '<div class="camp-meta">截單 ' + gbFmt(c.end_time) + (c.status === 'open' ? '（' + gbCountdown(c.end_time) + '）' : '') +
         (c.arrival_date ? '・到貨 ' + gbFmt(c.arrival_date, false) : '') + (c.pickup_deadline ? '・取貨到 ' + gbFmt(c.pickup_deadline, false) : '') + '</div>' +
-      '<div class="stores">' + stores + '<span class="store-qty">合計<b>' + sum + '</b></span></div>' + inStoreHtml(ms) +
+      '<div class="stores">' + stores + '<span class="store-qty">合計<b>' + sum + '</b></span></div>' + inStoreHtml(ms) + orderStoreHtml(ms) +
     '</div></div>' +
     (btns ? '<div class="actions">' + btns + '</div>' : '') +
     '<div class="opt-subs">' + ms.map(function (m) { return campCard(m, true); }).join('') + '</div>' +
@@ -194,7 +212,7 @@ function campCard(c, sub) {
   var stock = c.stock == null ? '不限量' : '剩 <b>' + Math.max(0, c.stock - (c.ordered_qty || 0)) + '</b> / ' + c.stock;
   var rule = (gbBatchOn(c) ? '每 ' + c.min_qty + ' 份成一團（' + gbProgTxt(c).replace('🎉 ', '') + '）' : c.success_rule === 'threshold' ? '達標成團（' + (c.min_qty || 0) + '）' : '保證成團') + (c.auto_next ? '・額滿自動開下一團' : '');
   var obs = c.ordered_by_store || {};
-  var inStoreRow = sub ? '' : inStoreHtml([c]);
+  var inStoreRow = sub ? '' : inStoreHtml([c]) + orderStoreHtml([c]);
   var stores = (c.available_stores || []).map(function (s) { return '<span class="store-qty">' + gbStoreName(s) + '<b>' + (obs[s] || 0) + '</b></span>'; }).join('');
   var prog = c.success_rule === 'threshold' && c.min_qty ? '<div class="bar" title="成團進度"><i style="width:' + Math.min(100, Math.round((gbBatchOn(c) && (c.ordered_qty || 0) >= c.min_qty ? (c.ordered_qty % c.min_qty || c.min_qty) : (c.ordered_qty || 0)) / c.min_qty * 100)) + '%"></i></div>' : '';
   var btns = '<button class="btn btn-g" onclick="toggleOrders(\'' + c.id + '\')">' + (gbOpen[c.id] ? '收起訂單' : '訂單明細') + '</button>';
@@ -354,7 +372,7 @@ function openCampaignForm(cid) {
   document.getElementById('cfTest').checked = !!(c && c.is_test);
   document.getElementById('cfAutoNext').checked = !!(c && c.auto_next);
   document.getElementById('cfBatch').checked = !!(c && c.per_batch);
-  document.getElementById('cfOrderStore').innerHTML = '<option value="">請選擇</option>' + GB_STORES.map(function (s) { return '<option value="' + s.code + '"' + (c && c.order_store === s.code ? ' selected' : '') + '>' + s.name + '</option>'; }).join('');
+  document.getElementById('cfOrderStore').innerHTML = '<option value="">先不選（店長之後在卡片上選）</option>' + GB_STORES.map(function (s) { return '<option value="' + s.code + '"' + (c && c.order_store === s.code ? ' selected' : '') + '>' + s.name + '</option>'; }).join('');
   var rule = c ? c.success_rule || 'guaranteed' : 'guaranteed';
   document.querySelectorAll('input[name=cfRule]').forEach(function (r) { r.checked = r.value === rule; });
   var sel = c ? (c.available_stores || []) : (owner ? GB_STORES.map(function (s) { return s.code; }) : [gbMyCode]);
@@ -621,7 +639,6 @@ async function saveCampaign() {
   var autoNext = document.getElementById('cfAutoNext').checked;
   var perBatch = rule === 'threshold' && document.getElementById('cfBatch').checked;
   var orderStore = rule === 'threshold' && stores.length > 1 ? document.getElementById('cfOrderStore').value : (rule === 'threshold' ? stores[0] : null);
-  if (rule === 'threshold' && stores.length > 1 && !orderStore) return err.textContent = '跨店合購的達標成團，請選「負責訂貨門市」（成團時提醒那家店長訂貨）';
   if (orderStore && stores.indexOf(orderStore) < 0) return err.textContent = '負責訂貨門市要是有開放的門市';
   if (perBatch && autoNext) return err.textContent = '「每滿這個數量就成一團」跟「額滿自動開下一團」只能選一個';
   var splitM = multi && optMode() === 'split';
