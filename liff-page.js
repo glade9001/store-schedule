@@ -360,26 +360,34 @@ async function lfShareSelected() {
 }
 // ===== 單品「剩最後幾份」分享（2026-10-13 使用者）=====
 // 三店共用庫存：A 店群組下單看得到剩幾份，B、C 店群組不知道 → 快賣完時把單一商品分享到其他群組，強調「最後 N 份」催下單。
-// 只在「有限量、不會自動開下一團、剩 1～LF_LOW_MAX(3) 份、開放 2 家以上門市」時出現按鈕（只開本店的團，別店客人點進來也看不到）。
+// 只在「有限量（含自動開下一團的這一團）、剩 1～LF_LOW_MAX(3) 份、開放 2 家以上門市」時出現按鈕（只開本店的團，別店客人點進來也看不到）。
 var LF_LOW_MAX = 3;   // 2026-10-13 使用者：剩 3 份以下才出現（原 10）
 function lfLowLeft(it) {
   var ms = it.ms || [it.c];
   if ((it.c.available_stores || []).length < 2) return 0;
-  var left = ms.filter(function (m) { return !m.auto_next && lfRemain(m) !== Infinity && lfRemain(m) > 0; }).map(lfRemain);
+  // 額滿自動開下一團的也算（2026-10-13 使用者）：說成「第 N 團只剩最後幾份」，不說賣完就沒了
+  var left = ms.filter(function (m) { return lfRemain(m) !== Infinity && lfRemain(m) > 0; }).map(lfRemain);
   if (!left.length) return 0;
   var n = Math.min.apply(null, left);
   return n <= LF_LOW_MAX ? n : 0;
 }
+/** 剩最少的那一種是自動開下一團的 → 回傳團次（1、2…），否則 0 */
+function lfLowRound(it) {
+  var n = lfLowLeft(it); if (!n) return 0;
+  var m = (it.ms || [it.c]).find(function (x) { return lfRemain(x) === n; });
+  return m && m.auto_next ? (m.round || 1) : 0;
+}
+function lfLowTxt(it) { var n = lfLowLeft(it), r = lfLowRound(it); return (r ? '第 ' + r + ' 團只剩最後 ' : '只剩最後 ') + n + ' 份！'; }
 function lfFlexLow(it) {
   var c = it.c, n = lfLowLeft(it), b = lfFlexBubble(it);
   b.size = 'mega';
   b.header = { type: 'box', layout: 'vertical', backgroundColor: '#c5221f', paddingAll: '12px', contents: [
-    { type: 'text', text: '🔥 只剩最後 ' + n + ' 份！', color: '#ffffff', weight: 'bold', size: 'xl' }] };
+    { type: 'text', text: '🔥 ' + lfLowTxt(it), color: '#ffffff', weight: 'bold', size: 'xl', wrap: true }] };
   // 多規格：價格那行改成每一種各剩幾份（照 lfFlexBubble 的順序）
   if (it.ms && it.ms.length > 1) {
     b.body.contents[1].text = it.ms.map(function (m) {
       var r = lfRemain(m);
-      return m.opt_code + ' ' + (m.opt_label || '') + ' $' + (m.price || 0) + (r === Infinity || m.auto_next ? '' : r > 0 ? '・剩 ' + r + ' 份' : '・已售完');
+      return m.opt_code + ' ' + (m.opt_label || '') + ' $' + (m.price || 0) + (r === Infinity ? '' : r > 0 ? '・剩 ' + r + ' 份' : '・已售完');
     }).join('\n');
   }
   return b;
@@ -390,7 +398,7 @@ async function lfShareLow(key) {
   if (!liff.isApiAvailable('shareTargetPicker')) { gbToast('請在 LINE 裡打開這個頁面才能分享（或 LIFF 尚未開啟分享功能）'); return; }
   var n = lfLowLeft(it); if (!n) { gbToast('這檔目前不是最後幾份了'); return; }
   try {
-    var msg = { type: 'flex', altText: ('🔥 只剩最後 ' + n + ' 份：' + (it.c.base_title || it.c.title)).slice(0, 300), contents: lfFlexLow(it) };
+    var msg = { type: 'flex', altText: ('🔥 ' + lfLowTxt(it).replace(/！$/, '') + '：' + (it.c.base_title || it.c.title)).slice(0, 300), contents: lfFlexLow(it) };
     var r = await liff.shareTargetPicker([msg], { isMultiple: true });
     if (r && r.status === 'success') gbToast('✅ 已分享');
     else if (!r) gbToast('已取消分享');
@@ -425,7 +433,7 @@ function lfShowDetail(key, refresh) {
   var box = document.getElementById('lfDetail');
   var low = lfLowLeft(it);
   document.getElementById('lfDetailBody').innerHTML = (lfItemInStore(it) ? '<div class="lf-instore">🏪 ' + gbEsc(gbStoreName(lfStore)) + '門市有現貨，+1 後即可到門市取貨付款</div>' : '') + it.html() + lfRecentHtml(it) +
-    (low ? '<button class="lf-share lf-share-low" onclick="lfShareLow(\'' + it.key + '\')">🔥 只剩 ' + low + ' 份！分享到其他門市群組</button>' : '');
+    (low ? '<button class="lf-share lf-share-low" onclick="lfShareLow(\'' + it.key + '\')">🔥 ' + (lfLowRound(it) ? '這一團' : '') + '只剩 ' + low + ' 份！分享到其他門市群組</button>' : '');
   if (!refresh) {
     lfDetailKey = key; box.hidden = false; box.scrollTop = 0;
     try { history.pushState({ lfDetail: 1 }, ''); } catch (e) {}   // 手機返回鍵＝回列表
