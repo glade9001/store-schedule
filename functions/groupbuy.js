@@ -18,6 +18,17 @@ const { FieldValue } = require("firebase-admin/firestore");   // admin.firestore
 const REGION = "asia-east1";
 const STORES = { meide: "美德", lianxin: "聯鑫", jinhua: "錦花" };
 
+// 「最近 +1」（2026-10-13 使用者：詳細頁顯示，暱稱要遮蔽）：存在 gb_campaigns.recent，開放中的團購任何人可讀（連沒登入的外部瀏覽器）
+// → 這裡只放遮好的暱稱，不放 userId、大頭貼、手機。k＝userId 雜湊前 10 碼，只用來在客人自己取消時把那筆拿掉。
+const RECENT_MAX = 5;
+function maskName(n) {
+  const a = Array.from(String(n || "").replace(/\s+/g, ""));
+  if (!a.length) return "LINE 用戶";
+  return a.length <= 2 ? a[0] + "○" : a[0] + "○" + a[a.length - 1];   // 中間不管幾個字都只放一個 ○，不洩漏長度
+}
+function recentKey(userId) { return require("crypto").createHash("sha256").update("gbr:" + userId).digest("hex").slice(0, 10); }
+function pushRecent(list, e) { return [e].concat((list || []).filter((x) => x && x.k !== e.k)).slice(0, RECENT_MAX); }
+
 async function verifyLineToken(idToken) {
   if (typeof idToken !== "string" || idToken.length < 10 || idToken.length > 4096) {
     throw new HttpsError("unauthenticated", "請從 LINE 開啟這個頁面");
@@ -124,8 +135,9 @@ async function placeOrderTx({ cid, store, userId, name, picture, add, source, so
     if (c.stock != null && now + add > c.stock) throw E("failed-precondition", `剩餘數量不足，只剩 ${Math.max(0, c.stock - now)} 份`, "stock");
     const obs = Object.assign({}, c.ordered_by_store || {}); obs[store] = (obs[store] || 0) + add;
     const ts = FieldValue.serverTimestamp();
-    if (r.create) t.set(r.ref, Object.assign({}, r.create, { ordered_qty: add, ordered_by_store: obs }));
-    else t.update(r.ref, { ordered_qty: now + add, ordered_by_store: obs, updated_at: ts });
+    const recent = pushRecent(r.create ? [] : c.recent, { n: maskName(name), q: after, s: store, t: Date.now(), k: recentKey(userId) });   // 同一人再加量＝更新成最新、份數是他的總數
+    if (r.create) t.set(r.ref, Object.assign({}, r.create, { ordered_qty: add, ordered_by_store: obs, recent }));
+    else t.update(r.ref, { ordered_qty: now + add, ordered_by_store: obs, recent, updated_at: ts });
     if (o) {
       t.update(oRef, { qty: after, status: "active", store, display_name: name || o.display_name || "", picture_url: picture || o.picture_url || null, updated_at: ts });
     } else {
@@ -196,7 +208,10 @@ exports.gbUpdateMyOrder = onCall({ region: REGION }, async (request) => {
     const obs = Object.assign({}, c.ordered_by_store || {}); obs[o.store] = Math.max(0, (obs[o.store] || 0) + delta);
     const ts = FieldValue.serverTimestamp();
     t.update(oRef, qty === 0 ? { status: "cancelled", cancelled_by: "customer", cancelled_at: ts, updated_at: ts } : { qty, updated_at: ts });
-    t.update(cRef, { ordered_qty: Math.max(0, now + delta), ordered_by_store: obs, updated_at: ts });
+    // 最近 +1：取消就拿掉；改數量只更新份數，不往前排（不是新的 +1）
+    const k = recentKey(who.sub);
+    const recent = (c.recent || []).filter((x) => x && (x.k !== k || qty > 0)).map((x) => (x.k === k ? Object.assign({}, x, { q: qty }) : x));
+    t.update(cRef, { ordered_qty: Math.max(0, now + delta), ordered_by_store: obs, recent, updated_at: ts });
   });
   return { ok: true };
 });

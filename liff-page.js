@@ -372,8 +372,7 @@ function lfFlexLow(it) {
   var c = it.c, n = lfLowLeft(it), b = lfFlexBubble(it);
   b.size = 'mega';
   b.header = { type: 'box', layout: 'vertical', backgroundColor: '#c5221f', paddingAll: '12px', contents: [
-    { type: 'text', text: '🔥 只剩最後 ' + n + ' 份！', color: '#ffffff', weight: 'bold', size: 'xl' },
-    { type: 'text', text: '三家門市一起搶，賣完就沒了', color: '#ffe4e1', size: 'xs', margin: 'xs' }] };
+    { type: 'text', text: '🔥 只剩最後 ' + n + ' 份！', color: '#ffffff', weight: 'bold', size: 'xl' }] };
   // 多規格：價格那行改成每一種各剩幾份（照 lfFlexBubble 的順序）
   if (it.ms && it.ms.length > 1) {
     b.body.contents[1].text = it.ms.map(function (m) {
@@ -419,12 +418,28 @@ function lfShowDetail(key, refresh) {
   var it = lfItems[key]; if (!it) return;
   var box = document.getElementById('lfDetail');
   var low = lfLowLeft(it);
-  document.getElementById('lfDetailBody').innerHTML = it.html() +
+  document.getElementById('lfDetailBody').innerHTML = it.html() + lfRecentHtml(it) +
     (low ? '<button class="lf-share lf-share-low" onclick="lfShareLow(\'' + it.key + '\')">🔥 只剩 ' + low + ' 份！分享到其他門市群組</button>' : '');
   if (!refresh) {
     lfDetailKey = key; box.hidden = false; box.scrollTop = 0;
     try { history.pushState({ lfDetail: 1 }, ''); } catch (e) {}   // 手機返回鍵＝回列表
   }
+}
+// 最近 +1（2026-10-13 使用者：只放詳細頁、暱稱遮蔽）：伺服器下單時寫進 gb_campaigns.recent，名字在伺服器就遮好了
+function lfAgo(t) {
+  var m = Math.floor((Date.now() - t) / 60000);
+  return m < 1 ? '剛剛' : m < 60 ? m + ' 分鐘前' : m < 1440 ? Math.floor(m / 60) + ' 小時前' : Math.floor(m / 1440) + ' 天前';
+}
+function lfRecentHtml(it) {
+  var ms = it.ms || [it.c], multi = ms.length > 1;
+  var rows = [];
+  ms.forEach(function (m) { (m.recent || []).forEach(function (r) { if (r && r.t) rows.push({ r: r, code: multi ? m.opt_code : '' }); }); });
+  if (!rows.length) return '';
+  rows.sort(function (a, b) { return b.r.t - a.r.t; });
+  return '<div class="card lf-recent"><div class="lf-recent-h">🔥 最近 +1</div>' + rows.slice(0, 5).map(function (x) {
+    return '<div class="lf-recent-r"><b>' + gbEsc(x.r.n || '') + '</b><span>' + (x.code ? '(' + gbEsc(x.code) + ') ' : '') + '+' + (x.r.q || 1) + '</span>' +
+      '<small>' + gbEsc(gbStoreName(x.r.s) || '') + '・' + lfAgo(x.r.t) + '</small></div>';
+  }).join('') + '</div>';
 }
 function lfCloseDetail(fromPop) {
   if (!lfDetailKey) return;
