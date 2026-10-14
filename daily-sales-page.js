@@ -22,7 +22,7 @@ const DS_WD = ['日', '一', '二', '三', '四', '五', '六'];
 // 120「扣除行動隨取」（少了代銷隨取，約少 15~20%）或抄到別列 → 跟近 4 週平均比，差太多先確認。
 const DS_REF_DAYS = 28;
 const DS_DEV = 0.3;          // 跟近 4 週平均差超過 30% 先確認
-const DS_SALES_MAX = 300000; // 單店一天不可能超過 30 萬（多打一位數）
+const DS_SALES_MAX = 1000000; // 擋多打一位數；聯鑫大單日（週日）常 30～55 萬，上限不可設 30 萬
 
 function dsToast(m) { const t = document.getElementById('toast'); t.textContent = m; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2600); }
 function dsLoading(m) { document.getElementById('loadingText').textContent = m || '載入中…'; document.getElementById('loadingOverlay').classList.remove('hidden'); }
