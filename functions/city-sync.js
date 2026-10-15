@@ -13,7 +13,9 @@
 //
 // ⚠️ 對方沒有 updated_at，只能比內容指紋（srcHash）。
 // ⚠️ 對方資料庫前端可寫（任何人都可能亂改/清空），所以筆數驟減時整次中止，不產生大量「刪除」。
-const admin = require("firebase-admin");
+// firebase-admin 新式（模組化）寫法：14 版起拿掉了 admin.firestore()／admin.auth() 這類舊寫法（2026-10-16 改）
+const { getFirestore, FieldValue } = require("firebase-admin/firestore");
+const { getStorage } = require("firebase-admin/storage");
 const crypto = require("crypto");
 
 const SRC_BASE = "https://rybazinqtazzgyxvdglk.supabase.co";
@@ -113,8 +115,8 @@ async function copyImage(srcUrl, imagesById, bucket) {
   });
   // 下載權杖網址：不經 Storage 規則（規則全擋），不可列舉，員工端 <img> 直接用
   const url = `https://firebasestorage.googleapis.com/v0/b/${BUCKET}/o/${encodeURIComponent(path)}?alt=media&token=${token}`;
-  const rec = { src: srcUrl, path, url, contentType, size: buf.length, copiedAt: admin.firestore.FieldValue.serverTimestamp() };
-  await admin.firestore().collection("cityImages").doc(id).set(rec);
+  const rec = { src: srcUrl, path, url, contentType, size: buf.length, copiedAt: FieldValue.serverTimestamp() };
+  await getFirestore().collection("cityImages").doc(id).set(rec);
   imagesById.set(id, rec);
   return rec;
 }
@@ -134,7 +136,7 @@ async function pool(items, limit, fn) {
 const docsById = (snap) => new Map(snap.docs.map((d) => [d.id, d.data()]));
 
 async function runCitySync(trigger) {
-  const db = admin.firestore();
+  const db = getFirestore();
   const metaRef = db.collection("cityMeta").doc("sync");
   const startedAt = Date.now();
   try {
@@ -200,7 +202,7 @@ async function runCitySync(trigger) {
     const needs = [...srcRecipes.values()].filter((r) => !recipes.has(r.itemId) || recipes.get(r.itemId).srcHash !== r.srcHash);
     const imageErrors = {};
     const urls = [...new Set(needs.flatMap((r) => r.sections.map((s) => s.srcImage).filter(Boolean)))];
-    const bucket = admin.storage().bucket(BUCKET);
+    const bucket = getStorage().bucket(BUCKET);
     let copied = 0;
     await pool(urls, 5, async (u) => {
       try {
@@ -213,7 +215,7 @@ async function runCitySync(trigger) {
     });
 
     // ── 3. 算出每筆應有的待確認狀態 ──
-    const now = admin.firestore.FieldValue.serverTimestamp();
+    const now = FieldValue.serverTimestamp();
     const wantPending = new Map(); // pendingId → data
     const pinUpdates = [];
 
@@ -313,7 +315,7 @@ async function runCitySync(trigger) {
   } catch (e) {
     console.error("[citySync] failed", e);
     // 保留上次成功的 sourceCounts，驟減檢查才有基準
-    await metaRef.set({ ok: false, trigger, lastRunAt: admin.firestore.FieldValue.serverTimestamp(), error: String(e.message || e) }, { merge: true });
+    await metaRef.set({ ok: false, trigger, lastRunAt: FieldValue.serverTimestamp(), error: String(e.message || e) }, { merge: true });
     throw e;
   }
 }

@@ -2,9 +2,12 @@
 // 目前僅含「店長以上重設員工登入密碼」功能。
 // 前端無法改別人的 Firebase Auth 密碼，故由 Admin SDK 代為更新。
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
-const admin = require("firebase-admin");
+// firebase-admin 新式（模組化）寫法：14 版起拿掉了 admin.firestore()／admin.auth() 這類舊寫法（2026-10-16 改）
+const { initializeApp } = require("firebase-admin/app");
+const { getFirestore, FieldValue } = require("firebase-admin/firestore");
+const { getAuth } = require("firebase-admin/auth");
 
-admin.initializeApp();
+initializeApp();
 
 // 店長以上才可重設他人密碼（與前端 canManageEmployee 一致）
 const ALLOWED_PERMS = ["manager", "owner", "admin"];
@@ -18,7 +21,7 @@ exports.adminResetPassword = onCall({ region: "asia-east1" }, async (request) =>
   if (!auth) throw new HttpsError("unauthenticated", "請先登入");
 
   // 1) 驗證呼叫者權限（讀 users/{uid}.permission）
-  const callerSnap = await admin.firestore().collection("users").doc(auth.uid).get();
+  const callerSnap = await getFirestore().collection("users").doc(auth.uid).get();
   const caller = callerSnap.data();
   if (!caller || !ALLOWED_PERMS.includes(caller.permission)) {
     throw new HttpsError("permission-denied", "權限不足，需店長以上");
@@ -40,12 +43,12 @@ exports.adminResetPassword = onCall({ region: "asia-east1" }, async (request) =>
   let uid;
   let created = false;
   try {
-    const userRecord = await admin.auth().getUserByEmail(email);
-    await admin.auth().updateUser(userRecord.uid, { password });
+    const userRecord = await getAuth().getUserByEmail(email);
+    await getAuth().updateUser(userRecord.uid, { password });
     uid = userRecord.uid;
   } catch (e) {
     if (e.code === "auth/user-not-found") {
-      const rec = await admin.auth().createUser({ email, password });
+      const rec = await getAuth().createUser({ email, password });
       uid = rec.uid;
       created = true;
     } else {
@@ -58,7 +61,7 @@ exports.adminResetPassword = onCall({ region: "asia-east1" }, async (request) =>
   //    用 Admin SDK 直接寫，繞過前端安全規則限制；缺的資料從 account（ID 欄位）補齊。
   let userDocRepaired = false;
   try {
-    const db = admin.firestore();
+    const db = getFirestore();
     const userRef = db.collection("users").doc(uid);
     const userSnap = await userRef.get();
     if (!userSnap.exists) {
@@ -89,7 +92,7 @@ exports.adminResetPassword = onCall({ region: "asia-east1" }, async (request) =>
 exports.auditUserDocs = onCall({ region: "asia-east1" }, async (request) => {
   const auth = request.auth;
   if (!auth) throw new HttpsError("unauthenticated", "請先登入");
-  const db = admin.firestore();
+  const db = getFirestore();
 
   const callerSnap = await db.collection("users").doc(auth.uid).get();
   const caller = callerSnap.data();
@@ -104,7 +107,7 @@ exports.auditUserDocs = onCall({ region: "asia-east1" }, async (request) => {
   // 逐頁掃描所有 Auth 帳號
   let pageToken;
   do {
-    const res = await admin.auth().listUsers(1000, pageToken);
+    const res = await getAuth().listUsers(1000, pageToken);
     for (const u of res.users) {
       // 只看本系統的內部帳號（xxx@lixue.internal）
       const email = u.email || "";
@@ -191,7 +194,7 @@ async function sendPushToUids(db, uids, payload, privateKey) {
       try {
         await webpush.sendNotification({ endpoint: s.endpoint, keys: s.keys }, body, { TTL: 3600 });
         sent++;
-        await d.ref.update({ lastPushAt: admin.firestore.FieldValue.serverTimestamp() }).catch(() => {});
+        await d.ref.update({ lastPushAt: FieldValue.serverTimestamp() }).catch(() => {});
       } catch (e) {
         if (e.statusCode === 404 || e.statusCode === 410) { await d.ref.delete().catch(() => {}); removed++; }
         else { failed++; console.warn("[push] 送出失敗", uid, e.statusCode, e.body || e.message); }
@@ -218,10 +221,10 @@ async function lineCall(kind, url, payload, token, meta) {
     console.error(`${kind} 失敗 HTTP ${res.status}`, body.slice(0, 300), meta || "");
     // 429=額度用罄／頻率限制，401/403=金鑰失效 → 這幾種是「全站性」故障，留檔備查
     if ([401, 403, 429].includes(res.status)) {
-      await admin.firestore().collection("notifyFailures").add({
+      await getFirestore().collection("notifyFailures").add({
         kind, status: res.status, body: body.slice(0, 500),
         to: (meta && meta.to) || null, at: new Date().toISOString(),
-        ts: admin.firestore.FieldValue.serverTimestamp(),
+        ts: FieldValue.serverTimestamp(),
       }).catch(() => {});
     }
     return false;
@@ -289,7 +292,7 @@ async function sendOrQueuePush(db, uids, payload, vapid, urgent) {
   const list = [...new Set(uids)].filter(Boolean);
   if (!list.length || !vapid) return { sent: 0 };
   if (!urgent && inQuietHours()) {
-    await db.collection("pushQueue").add({ uids: list, payload, createdAt: admin.firestore.FieldValue.serverTimestamp() });
+    await db.collection("pushQueue").add({ uids: list, payload, createdAt: FieldValue.serverTimestamp() });
     return { queued: list.length };
   }
   return sendPushToUids(db, list, payload, vapid);
@@ -360,7 +363,7 @@ exports.lineWebhook = onRequest(
     }
 
     const token = LINE_TOKEN.value();
-    const db = admin.firestore();
+    const db = getFirestore();
     const events = (req.body && req.body.events) || [];
 
     // 關鍵字清單（群組完全相符自動回覆）— 一次讀取快取
@@ -457,7 +460,7 @@ exports.onLeaveNego = onDocumentCreated(
   async (event) => {
     const snap = event.data; if (!snap) return;
     const d = snap.data(); if (!d || d.notified) return;
-    const db = admin.firestore();
+    const db = getFirestore();
     const store = fixStoreName(event.params.store);
     const token = { line: LINE_TOKEN.value(), vapid: VAPID_PRIVATE.value() };
     const es = await db.collection("stores").doc(store).collection("employees").get().catch(() => null);
@@ -625,7 +628,7 @@ exports.onSalaryPublished = onDocumentWritten(
     if (before.status === "published" || after.status !== "published") return; // 只在「變成 published」
     const month = event.params.month;
     if (!salaryViewable(month)) return; // 尚未到可查看月份 → 不即時通知（次月排程補發）
-    const db = admin.firestore();
+    const db = getFirestore();
     await notifySalary(db, fixStoreName(event.params.store), after, month, { line: LINE_TOKEN.value(), vapid: VAPID_PRIVATE.value() });
   }
 );
@@ -650,7 +653,7 @@ exports.onSalarySubmitted = onDocumentWritten(
     const store = fixStoreName(event.params.store);
     const month = event.params.month;
     const by = after.submittedBy || "店長";
-    const db = admin.firestore();
+    const db = getFirestore();
     await notifyApprovers(
       db,
       `📤 ${store} ${month} 薪資已由 ${by} 送出，請至 App 審核後發布。`,
@@ -683,7 +686,7 @@ exports.onSalaryRejected = onDocumentWritten(
     const store = fixStoreName(event.params.store);
     const month = event.params.month;
     const by = after.rejectedBy || "加盟主";
-    const db = admin.firestore();
+    const db = getFirestore();
     await notifyStoreManagers(
       db, store,
       `↩️ ${store} ${month} 薪資已被 ${by} 退回，請至 App 修改後重新送審。`,
@@ -737,16 +740,16 @@ exports.onScheduleChanged = onDocumentWritten(
     const before = event.data.before.exists ? event.data.before.data() : {};
     const after = event.data.after.exists ? event.data.after.data() : {};
     if (!(before.published === true && after.published === true)) return; // 僅已發布週的後續異動
-    if (await maintenanceOn(admin.firestore())) return; // 維護模式：不排入通知佇列
+    if (await maintenanceOn(getFirestore())) return; // 維護模式：不排入通知佇列
     const beforeRecs = before.records || [];
     const afterRecs = after.records || [];
     if (JSON.stringify(beforeRecs) === JSON.stringify(afterRecs)) return; // records 沒變（純 metadata 寫入）→ 略過
     const store = fixStoreName(event.params.store);
     const weekStr = event.params.weekStr;
-    const db = admin.firestore();
+    const db = getFirestore();
     const qref = db.collection("scheduleNotifyQueue").doc(`${store}__${weekStr}`);
     const qs = await qref.get().catch(() => null);
-    const nowTs = admin.firestore.FieldValue.serverTimestamp();
+    const nowTs = FieldValue.serverTimestamp();
     if (qs && qs.exists) {
       await qref.update({ lastChangeAt: nowTs }); // 每次新異動 → 重置 10 分鐘靜置計時
     } else {
@@ -822,7 +825,7 @@ exports.onScheduleCellLog = onDocumentWrittenWithAuthContext(
         fromText: shareCellText(bm.get(k)), toText: shareCellText(am.get(k)) });
     }
     if (!changed.length) return;
-    const db = admin.firestore();
+    const db = getFirestore();
     let by = "系統";
     if (event.authType === "app_user" && event.authId) {
       const u = await db.collection("users").doc(event.authId).get().catch(() => null);
@@ -833,7 +836,7 @@ exports.onScheduleCellLog = onDocumentWrittenWithAuthContext(
     const items = changed.map((c, i) => ({ ...c, at: now, seq: i, by }));
     await db.collection("scheduleChanges").doc(`${store}__${weekStr}`).set({
       store, weekStr, updatedAt: now,
-      items: admin.firestore.FieldValue.arrayUnion(...items),
+      items: FieldValue.arrayUnion(...items),
     }, { merge: true });
   }
 );
@@ -846,11 +849,11 @@ exports.getScheduleShare = onRequest({ region: "asia-east1" }, async (req, res) 
   if (req.method !== "GET") { res.status(405).json({ error: "method" }); return; }
   const token = String(req.query.t || "");
   if (!/^[A-Za-z0-9_-]{24,64}$/.test(token)) { res.status(404).json({ error: "invalid" }); return; }
-  const db = admin.firestore();
+  const db = getFirestore();
   const shareRef = db.collection("scheduleShares").doc(token);
   const share = await shareRef.get();
   if (!share.exists || share.data().revoked === true) { res.status(404).json({ error: "invalid" }); return; }
-  shareRef.update({ lastViewedAt: Date.now(), views: admin.firestore.FieldValue.increment(1) }).catch(() => {});
+  shareRef.update({ lastViewedAt: Date.now(), views: FieldValue.increment(1) }).catch(() => {});
 
   const cfg = await db.collection("settings").doc("globalConfig").get().catch(() => null);
   const stores = ((cfg && cfg.exists ? cfg.data().stores : []) || []).filter((s) => s && s !== "人力支援");
@@ -1092,7 +1095,7 @@ exports.onSalaryAggregate = onDocumentWritten(
     const before = event.data.before.exists ? event.data.before.data() : {};
     const after = event.data.after.exists ? event.data.after.data() : {};
     if (before.status === "published" || after.status !== "published") return; // 只在「剛發布」
-    await computeMonthlyAggregate(admin.firestore(), fixStoreName(event.params.store), event.params.month, after);
+    await computeMonthlyAggregate(getFirestore(), fixStoreName(event.params.store), event.params.month, after);
   }
 );
 
@@ -1104,10 +1107,10 @@ exports.onScheduleOtWarning = onDocumentWritten(
     if (!after) return; // 刪除不處理
     const before = event.data.before.exists ? event.data.before.data() : {};
     if (JSON.stringify(before.records || []) === JSON.stringify(after.records || [])) return; // records 沒變
-    if (await maintenanceOn(admin.firestore())) return; // 維護模式不發加班預警
+    if (await maintenanceOn(getFirestore())) return; // 維護模式不發加班預警
     const store = fixStoreName(event.params.store);
     const weekStr = event.params.weekStr;
-    const db = admin.firestore();
+    const db = getFirestore();
     const token = { line: LINE_TOKEN.value(), vapid: VAPID_PRIVATE.value() };
     // 門檻（可在 settings/globalConfig.otThresholds 調整）
     const cfg = await db.collection("settings").doc("globalConfig").get().catch(() => null);
@@ -1316,7 +1319,7 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 exports.scheduledMonthlySalaryNotify = onSchedule(
   { schedule: "0 9 1 * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN, VAPID_PRIVATE] },
   async () => {
-    const db = admin.firestore();
+    const db = getFirestore();
     const token = { line: LINE_TOKEN.value(), vapid: VAPID_PRIVATE.value() };
     // 剛變成可查看的月份＝上個曆月（台北）
     const now = new Date(Date.now() + 8 * 3600000);
@@ -1359,7 +1362,7 @@ const SALARY_ACK_MAX_REMINDS = 3;   // 每個薪資月份最多提醒幾次
 // 15:00 由 scheduledDailyReminders 呼叫（重試設定也移到那支）
 const salaryAckReminder = (
   async () => {
-    const db = admin.firestore();
+    const db = getFirestore();
     const token = LINE_TOKEN.value();
     const vapid = VAPID_PRIVATE.value();
     const ACK_START = "2026-07";
@@ -1472,7 +1475,7 @@ const salaryAckReminder = (
 exports.scheduledScheduleNotifyFlush = onSchedule(
   { schedule: "*/5 * * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN, VAPID_PRIVATE] },
   async () => {
-    const db = admin.firestore();
+    const db = getFirestore();
     if (await maintenanceOn(db)) return; // 維護模式不彙整發送班表異動
     const token = { line: LINE_TOKEN.value(), vapid: VAPID_PRIVATE.value() };
     await flushPushQueue(db, token.vapid); // 夜間排隊的推播，08:00 後送出
@@ -1501,7 +1504,7 @@ exports.flushScheduleNotify = onCall(
   async (request) => {
     const auth = request.auth;
     if (!auth) throw new HttpsError("unauthenticated", "請先登入");
-    const db = admin.firestore();
+    const db = getFirestore();
     const callerSnap = await db.collection("users").doc(auth.uid).get();
     const caller = callerSnap.data();
     if (!caller || !ALLOWED_PERMS.includes(caller.permission)) throw new HttpsError("permission-denied", "僅店長以上可用");
@@ -1606,7 +1609,7 @@ exports.onPnlSubmitted = onDocumentWritten(
     if(pnlSig(before) === pnlSig(after)) return; // 內容沒變(只動 submittedAt 等) → 不重複發
     const store = fixStoreName(event.params.store);
     const month = event.params.month;
-    const db = admin.firestore();
+    const db = getFirestore();
     const ps = await db.collection("stores").doc(store).collection("pnl").doc(pnlPrevYM(month)).get().catch(() => null);
     if(!ps || !ps.exists) return; // 無去年同期資料(回填月份) → 不發送
     await notifyManagersAndAbove(db, buildPnlText(store, month, after, ps.data()), { line: LINE_TOKEN.value(), vapid: VAPID_PRIVATE.value() },
@@ -1643,7 +1646,7 @@ exports.onMaintenanceEnded = onDocumentWritten(
     const before = event.data.before.exists ? event.data.before.data() : {};
     const after = event.data.after.exists ? event.data.after.data() : {};
     if (!(before.enabled === true && after.enabled === false)) return; // 只在「維護→關閉」
-    const db = admin.firestore();
+    const db = getFirestore();
     const token = { line: LINE_TOKEN.value(), vapid: VAPID_PRIVATE.value() };
     const snap = await db.collection("maintenanceNotify").get().catch(() => null);
     if (!snap) return;
@@ -1732,7 +1735,7 @@ exports.onSalaryPublishedSnapshot = onDocumentWritten(
     const before = event.data.before.exists ? event.data.before.data() : {};
     const after = event.data.after.exists ? event.data.after.data() : {};
     if (!(before.status !== "published" && after.status === "published")) return; // 只在「剛發布」
-    await computeMonthSnapshots(admin.firestore(), event.params.month);
+    await computeMonthSnapshots(getFirestore(), event.params.month);
   }
 );
 
@@ -1742,7 +1745,7 @@ exports.sendTestNotify = onCall(
   async (request) => {
     const auth = request.auth;
     if (!auth) throw new HttpsError("unauthenticated", "請先登入");
-    const db = admin.firestore();
+    const db = getFirestore();
     const callerSnap = await db.collection("users").doc(auth.uid).get();
     const caller = callerSnap.data();
     if (!caller || !ALLOWED_PERMS.includes(caller.permission)) {
@@ -1844,7 +1847,7 @@ exports.onPunchResolveMissFlag = onDocumentWritten(
     const emp = after.empName;
     const anchor = after.shiftDate || after.date;   // 缺卡標記的 date＝班別當天
     if (!emp || !anchor) return;
-    const db = admin.firestore();
+    const db = getFirestore();
     // ⚠️ event.params.store 對中文店名會是 latin1 亂碼（這就是 fixStoreName 存在的原因）。
     //    直接拿來當路徑會指向不存在的店 → 查詢回空、不報錯 → trigger 每次都靜靜什麼都沒做。
     //    2026-08-28 實際踩到：補登完成後缺卡標記完全沒被註銷，log 卻顯示執行成功。
@@ -1890,7 +1893,7 @@ exports.onPunchResolveMissFlag = onDocumentWritten(
         note.includes("缺上班") ? hasIn :
           (hasIn && hasOut);   // 「整天未打卡」與沒註記的一律要求上下班都齊
       const now = new Date().toISOString();
-      const AU = admin.firestore.FieldValue.arrayUnion;
+      const AU = FieldValue.arrayUnion;
       if (done && !f.d.voided) {
         await f.ref.set({
           voided: true, voidedBy: "system", voidedAt: now, voidReason: "已補登，系統自動註銷",
@@ -1920,7 +1923,7 @@ exports.onPunchResolveMissFlag = onDocumentWritten(
 exports.scheduledMissingClock = onSchedule(
   { schedule: "5 * * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [VAPID_PRIVATE] },
   async () => {
-    const db = admin.firestore();
+    const db = getFirestore();
     if (await maintenanceOn(db)) return;
     const cfg = await db.collection("settings").doc("globalConfig").get().catch(() => null);
     const conf = cfg && cfg.exists ? cfg.data() : {};
@@ -1986,7 +1989,7 @@ exports.scheduledMissingClock = onSchedule(
             await fd.ref.set({
               voided: true, voidedBy: "system", voidedAt: at,
               voidReason: "排班已變更，此班別不存在",
-              editLog: admin.firestore.FieldValue.arrayUnion({ at, by: "system", action: "註銷", reason: "排班已變更，此班別不存在" }),
+              editLog: FieldValue.arrayUnion({ at, by: "system", action: "註銷", reason: "排班已變更，此班別不存在" }),
             }, { merge: true }).catch(() => {});
           }
         }
@@ -2024,7 +2027,7 @@ exports.scheduledMissingClock = onSchedule(
           empName: emp, displayName: dn, date: ds, type: "缺卡", atStore: store, homeStore,
           shift: sh.shift, status: "缺卡", note: missWhat, source: "system",
           // 缺卡＝沒有打卡時間：不寫 deviceTs/tsMs(否則出勤表會顯示成像有打卡的掃描時間)；等手動補卡才有真時間
-          ts: admin.firestore.FieldValue.serverTimestamp(), deviceTs: null, tsMs: null,
+          ts: FieldValue.serverTimestamp(), deviceTs: null, tsMs: null,
         });
         // LINE 時代的逐張通知早已取消（額度）；改推播後不花額度，缺卡一成立就通知本人來補。
         await notifyMiss(emp, homeStore, ds, sh.shift, missWhat);
@@ -2076,7 +2079,7 @@ exports.scheduledMissingClock = onSchedule(
             empName: emp, displayName: dn, date: dsY, type: "缺卡", atStore: store, homeStore,
             shift: sh.shift, status: "缺卡", note: missWhat + (overnight ? "(跨日班)" : ""), source: "system",
             // 缺卡＝沒有打卡時間：不寫 deviceTs/tsMs；等手動補卡才有真時間
-            ts: admin.firestore.FieldValue.serverTimestamp(), deviceTs: null, tsMs: null,
+            ts: FieldValue.serverTimestamp(), deviceTs: null, tsMs: null,
           });
           await notifyMiss(emp, homeStore, dsY, sh.shift, missWhat);
         }
@@ -2097,7 +2100,7 @@ const MISS_REMIND_DAYS = 7;   // 2026-09-07 用戶指示：一週發一次
 // 20:00 由 scheduledDailyReminders 呼叫
 const missClockReminder = (
   async () => {
-    const db = admin.firestore();
+    const db = getFirestore();
     if (await maintenanceOn(db)) return;
     const cfg = await db.collection("settings").doc("globalConfig").get().catch(() => null);
     const conf = cfg && cfg.exists ? cfg.data() : {};
@@ -2154,7 +2157,7 @@ const missClockReminder = (
 // 17:00 由 scheduledDailyReminders 呼叫
 const managerDigest = (
   async () => {
-    const db = admin.firestore();
+    const db = getFirestore();
     if (await maintenanceOn(db)) return;
     const token = { line: LINE_TOKEN.value(), vapid: VAPID_PRIVATE.value() };
     const cfg = await db.collection("settings").doc("globalConfig").get().catch(() => null);
@@ -2359,7 +2362,7 @@ const managerDigest = (
 exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
   const auth = request.auth;
   if (!auth) throw new HttpsError("unauthenticated", "請先登入");
-  const db = admin.firestore();
+  const db = getFirestore();
   const userSnap = await db.collection("users").doc(auth.uid).get();
   const user = userSnap.exists ? userSnap.data() : null;
   if (!user || !user.empName) throw new HttpsError("permission-denied", "查無使用者");
@@ -2475,7 +2478,7 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
     empName, displayName: info.displayName, date: ds, shiftDate, weekday: dayName, type, atStore, homeStore,
     lat, lng, accuracy: (typeof d.accuracy === "number" ? d.accuracy : null), distanceM,
     shift: matchedShift, status, lateMin,
-    ts: admin.firestore.FieldValue.serverTimestamp(), tsMs: nowMs, deviceTs, source: "app",
+    ts: FieldValue.serverTimestamp(), tsMs: nowMs, deviceTs, source: "app",
     clientTime: (isFinite(clientMs) ? new Date(clientMs).toISOString() : null), timeSkewMs,
     deviceInfo: deviceInfo || null, punchMethod: (d.punchMethod || "GPS"),
     otIntent, otContent: otIntent ? String(d.otContent || "").slice(0, 300) : "",
@@ -2492,7 +2495,7 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
 exports.reportGeoIssue = onCall({ region: "asia-east1", secrets: [LINE_TOKEN, VAPID_PRIVATE] }, async (request) => {
   const auth = request.auth;
   if (!auth) throw new HttpsError("unauthenticated", "請先登入");
-  const db = admin.firestore();
+  const db = getFirestore();
   const userSnap = await db.collection("users").doc(auth.uid).get();
   const user = userSnap.exists ? userSnap.data() : null;
   if (!user || !user.empName) throw new HttpsError("permission-denied", "查無使用者");
@@ -2531,7 +2534,7 @@ exports.reportGeoIssue = onCall({ region: "asia-east1", secrets: [LINE_TOKEN, VA
     nearestStore: nearest ? nearest.st : "", nearestDist: nearest ? nearest.dist : null,
     reason: String(d.reason || "").slice(0, 60),
     deviceInfo: String(d.deviceInfo || "").slice(0, 200),
-    ts: admin.firestore.FieldValue.serverTimestamp(), tsMs: nowMs,
+    ts: FieldValue.serverTimestamp(), tsMs: nowMs,
     date: tp.toISOString().slice(0, 10),
   };
   await logCol.add(rec);
@@ -2564,7 +2567,7 @@ exports.serverNow = onCall({ region: "asia-east1" }, async () => {
 exports.shareMonthlyReview = onCall({ region: "asia-east1", secrets: [LINE_TOKEN, VAPID_PRIVATE] }, async (request) => {
   const auth = request.auth;
   if (!auth) throw new HttpsError("unauthenticated", "請先登入");
-  const db = admin.firestore();
+  const db = getFirestore();
   const uSnap = await db.collection("users").doc(auth.uid).get();
   const perm = uSnap.exists ? (uSnap.data().permission || "") : "";
   if (!["admin", "owner"].includes(perm)) throw new HttpsError("permission-denied", "僅加盟主／管理者可分享");
@@ -2602,7 +2605,7 @@ exports.shareMonthlyReview = onCall({ region: "asia-east1", secrets: [LINE_TOKEN
 exports.clockPunchOffline = onCall({ region: "asia-east1", secrets: [LINE_TOKEN, VAPID_PRIVATE] }, async (request) => {
   const auth = request.auth;
   if (!auth) throw new HttpsError("unauthenticated", "請先登入");
-  const db = admin.firestore();
+  const db = getFirestore();
   const userSnap = await db.collection("users").doc(auth.uid).get();
   const user = userSnap.exists ? userSnap.data() : null;
   if (!user || !user.empName) throw new HttpsError("permission-denied", "查無使用者");
@@ -2675,9 +2678,9 @@ exports.clockPunchOffline = onCall({ region: "asia-east1", secrets: [LINE_TOKEN,
     empName, displayName: info.displayName, date: ds, weekday: dayName, type, atStore, homeStore,
     lat, lng, accuracy: (typeof d.accuracy === "number" ? d.accuracy : null), distanceM,
     shift: matchedShift, status, lateMin,
-    ts: admin.firestore.FieldValue.serverTimestamp(), tsMs: cptMs, deviceTs: new Date(cptMs).toISOString(),
+    ts: FieldValue.serverTimestamp(), tsMs: cptMs, deviceTs: new Date(cptMs).toISOString(),
     clientTime: new Date(cptMs).toISOString(), source: "offline", needReview: true,
-    receivedTs: admin.firestore.FieldValue.serverTimestamp(), receivedDelayMs: (nowMs - cptMs),
+    receivedTs: FieldValue.serverTimestamp(), receivedDelayMs: (nowMs - cptMs),
     deviceInfo: deviceInfo || null, punchMethod: (d.punchMethod || "GPS"),
   });
   const notifyOn = !(clk.notifyByStore && clk.notifyByStore[atStore] === false);
@@ -2704,7 +2707,7 @@ exports.scheduledCitySync = onSchedule(
 // admin 在確認頁按「立即同步」
 exports.citySyncNow = onCall({ region: "asia-east1", timeoutSeconds: 300, memory: "512MiB" }, async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "請先登入");
-  const me = await admin.firestore().collection("users").doc(request.auth.uid).get();
+  const me = await getFirestore().collection("users").doc(request.auth.uid).get();
   if (!me.exists || me.data().permission !== "admin") throw new HttpsError("permission-denied", "只有 admin 可以同步 CITY手順");
   try {
     return await runCitySync("manual");
@@ -2724,7 +2727,7 @@ exports.citySyncNow = onCall({ region: "asia-east1", timeoutSeconds: 300, memory
 exports.getMySalary = onCall({ region: "asia-east1" }, async (request) => {
   const auth = request.auth;
   if (!auth) throw new HttpsError("unauthenticated", "請先登入");
-  const db = admin.firestore();
+  const db = getFirestore();
   const u = (await db.collection("users").doc(auth.uid).get()).data() || {};
   const empName = u.empName || "";
   if (!empName) throw new HttpsError("permission-denied", "查無使用者");
@@ -2780,7 +2783,7 @@ exports.pushSubscribe = onCall({ region: "asia-east1" }, async (request) => {
       || keys.p256dh.length > 200 || keys.auth.length > 100) {
     throw new HttpsError("invalid-argument", "訂閱資料格式不正確");
   }
-  const db = admin.firestore();
+  const db = getFirestore();
   const u = (await db.collection("users").doc(auth.uid).get()).data() || {};
   const ref = db.collection("pushSubs").doc(pushSubId(auth.uid, endpoint));
   const cur = await ref.get();
@@ -2788,8 +2791,8 @@ exports.pushSubscribe = onCall({ region: "asia-east1" }, async (request) => {
     uid: auth.uid, empName: u.empName || "", displayName: u.displayName || "", store: u.store || "", permission: u.permission || "",
     endpoint, keys: { p256dh: keys.p256dh, auth: keys.auth },
     platform: String(platform || "").slice(0, 20), standalone: !!standalone, origin: String(origin || "").slice(0, 80),
-    lastSeenAt: admin.firestore.FieldValue.serverTimestamp(),
-    ...(cur.exists ? {} : { createdAt: admin.firestore.FieldValue.serverTimestamp() }),
+    lastSeenAt: FieldValue.serverTimestamp(),
+    ...(cur.exists ? {} : { createdAt: FieldValue.serverTimestamp() }),
   }, { merge: true });
   return { ok: true };
 });
@@ -2799,14 +2802,14 @@ exports.pushUnsubscribe = onCall({ region: "asia-east1" }, async (request) => {
   if (!auth) throw new HttpsError("unauthenticated", "請先登入");
   const endpoint = request.data && request.data.endpoint;
   if (typeof endpoint !== "string") throw new HttpsError("invalid-argument", "缺少 endpoint");
-  await admin.firestore().collection("pushSubs").doc(pushSubId(auth.uid, endpoint)).delete();
+  await getFirestore().collection("pushSubs").doc(pushSubId(auth.uid, endpoint)).delete();
   return { ok: true };
 });
 
 exports.sendTestPush = onCall({ region: "asia-east1", secrets: [VAPID_PRIVATE] }, async (request) => {
   const auth = request.auth;
   if (!auth) throw new HttpsError("unauthenticated", "請先登入");
-  const db = admin.firestore();
+  const db = getFirestore();
   const u = (await db.collection("users").doc(auth.uid).get()).data() || {};
   const name = u.displayName || u.empName || "";
   const now = new Date(Date.now() + 8 * 3600000).toISOString().slice(11, 16);
@@ -2902,9 +2905,9 @@ async function syncHolidayCompForWeek(db, store, weekStr, by, dryRun) {
         note: `${h.d} ${h.name} 國定假日補休${diff > 0 ? "" : "撤銷"}（班表發布時依班表${diff > 0 ? "發放" : "撤銷"}）` };
       (diff > 0 ? out.granted : out.revoked).push({ name, date: h.d, holiday: h.name, shift: r ? r.shift : "" });
       if (dryRun) continue;
-      await logRef.set({ records: admin.firestore.FieldValue.arrayUnion(rec) }, { merge: true });
+      await logRef.set({ records: FieldValue.arrayUnion(rec) }, { merge: true });
       // 舊統計欄（會漂、計算不讀，只為跟前端逐格發放一致）
-      const inc = admin.firestore.FieldValue.increment(diff);
+      const inc = FieldValue.increment(diff);
       await empRef.collection("comp").doc(yr).set({ earned: inc }, { merge: true }).catch(() => {});
       await empRef.collection("leaves").doc(yr).set({ earnedComp: inc, updatedAt: now }, { merge: true }).catch(() => {});
     }
@@ -2978,7 +2981,7 @@ const leaveStatsTrigger = (coll, yearOf) => onDocumentWritten(
     const ref = (event.data.after.exists ? event.data.after : event.data.before).ref;
     const emp = ref.parent.parent.id, y = yearOf(ref.id);
     if (!/^\d{4}$/.test(y)) return;
-    const ch = await recomputeLeaveStats(admin.firestore(), emp, y);
+    const ch = await recomputeLeaveStats(getFirestore(), emp, y);
     if (ch.length) console.log("[leaveStats]", emp, y, ch.join("; "));
   }
 );
@@ -2992,7 +2995,7 @@ exports.onSchedulePublishedPush = onDocumentWritten(
     const before = event.data.before.exists ? event.data.before.data() : {};
     const after = event.data.after.exists ? event.data.after.data() : {};
     if (before.published === true || after.published !== true) return; // 只在「剛發布」
-    const db = admin.firestore();
+    const db = getFirestore();
     // 國定假日補休依班表同步（維護中也要做：這是員工權益，不是通知）；失敗不擋推播，週五自動發布時會補做
     await syncHolidayCompForWeek(db, fixStoreName(event.params.store), event.params.weekStr, after.publishedBy ? `班表發布（${after.publishedBy}）` : "班表發布")
       .catch((e) => console.error("[holidayCompSync]", event.params.weekStr, e));
@@ -3006,7 +3009,7 @@ exports.scheduledAutoPublishPush = onSchedule(
   // retryCount：這支也負責國定假日補休同步，失敗要重跑（重跑安全：推播有 pushPublishSent、補休有 holidayCompSync 去重）
   { schedule: "0 18 * * 5", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [VAPID_PRIVATE], retryCount: 3 },
   async () => {
-    const db = admin.firestore();
+    const db = getFirestore();
     if (await maintenanceOn(db)) return;
     const nextTp = new Date(Date.now() + 8 * 3600000 + 3 * 86400000); // 週五 +3 天＝下週一
     const weekStr = weekStrOfTp(nextTp);
@@ -3035,7 +3038,7 @@ const CLOCK_REMIND_WIN = 15 * 60000; // 視窗 15 分鐘＋clockRemindLog 去重
 exports.scheduledClockRemindPush = onSchedule(
   { schedule: "*/5 * * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [VAPID_PRIVATE] },
   async () => {
-    const db = admin.firestore();
+    const db = getFirestore();
     // 2026-09-16 使用者指示：上下班提醒改成**預設開啟**（沒設定過的人就用預設），要關的人自己在打卡頁取消勾選。
     // clockRemindPrefs/{empName} 只記「與預設不同」的設定；沒有文件＝預設值。
     const idx = await loadPushIndex(db);
@@ -3102,7 +3105,7 @@ exports.scheduledClockRemindPush = onSchedule(
         if (x.kind === "out" && hasOut) continue;
         const logRef = db.collection("stores").doc(store).collection("clockRemindLog")
           .doc(("remind_" + x.shiftDay + "_" + x.emp + "_" + x.shift + "_" + x.kind).replace(/[^\w一-龥]/g, "_"));
-        const created = await logRef.create({ empName: x.emp, date: x.shiftDay, shift: x.shift, kind: x.kind, channel: "push", ts: admin.firestore.FieldValue.serverTimestamp() })
+        const created = await logRef.create({ empName: x.emp, date: x.shiftDay, shift: x.shift, kind: x.kind, channel: "push", ts: FieldValue.serverTimestamp() })
           .then(() => true).catch(() => false);
         if (!created) continue; // 已提醒過（create 遇到既有文件會失敗＝原子去重）
         const payload = x.kind === "in"
@@ -3123,7 +3126,7 @@ exports.onAttendanceRequestResult = onDocumentWritten(
     const before = event.data.before.exists ? event.data.before.data() : null;
     const after = event.data.after.exists ? event.data.after.data() : null;
     if (!before || !after || before.status !== "pending" || !["approved", "rejected"].includes(after.status)) return;
-    const db = admin.firestore();
+    const db = getFirestore();
     const idx = await loadPushIndex(db);
     const store = after.atStore || fixStoreName(event.params.store);
     const uid = pushUidOf(idx, after.empName, after.homeStore || store);
@@ -3188,7 +3191,7 @@ exports.scheduledDailyReminders = onSchedule(
 exports.scheduledDailyCleanup = onSchedule(
   { schedule: "30 4 * * *", timeZone: "Asia/Taipei", region: "asia-east1" },
   async () => {
-    const db = admin.firestore();
+    const db = getFirestore();
     const errors = [];
     try { await memoPhoneCleanup(db); } catch (e) { console.error("[dailyCleanup] memo", e); errors.push(e); }
     try {
@@ -3211,7 +3214,7 @@ Object.assign(exports, require("./groupbuy"));
 exports.scheduledGbDueReminder = onSchedule(
   { schedule: "every 15 minutes", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [VAPID_PRIVATE] },
   async () => {
-    const db = admin.firestore();
+    const db = getFirestore();
     if (await maintenanceOn(db)) return;
     const nowMs = Date.now();
     const snap = await db.collection("gb_campaigns").where("status", "==", "open").get();
@@ -3234,7 +3237,7 @@ exports.scheduledGbDueReminder = onSchedule(
         : `三店合計 ${total} 份`;
       await sendOrQueuePush(db, uids, { title: "🛒 團購已截單，請結算", body: `「${c.title}」截單了（${rule}），到團購頁按「結算」`, url: "groupbuy.html", tag: `gb-due-${d.id}` },
         VAPID_PRIVATE.value(), false).catch((e) => console.warn("[gbDue]", e.message));
-      await d.ref.update({ due_notified_at: admin.firestore.FieldValue.serverTimestamp() });
+      await d.ref.update({ due_notified_at: FieldValue.serverTimestamp() });
     }
   }
 );
@@ -3251,7 +3254,7 @@ exports.onGbCampaignOrderRemind = onDocumentWritten(
     const o = c.ordered_qty || 0, n = c.min_qty;
     const groups = c.per_batch ? Math.floor(o / n) : (o >= n ? 1 : 0);
     if (groups <= (c.order_notified_groups || 0)) return;
-    const db = admin.firestore(), ref = event.data.after.ref;
+    const db = getFirestore(), ref = event.data.after.ref;
     // 兩個人同時下單會觸發兩次 → transaction 搶「記到第幾團」，搶輸的不發
     const go = await db.runTransaction(async (t) => {
       const cur = (await t.get(ref)).data() || {};
@@ -3285,7 +3288,7 @@ exports.onGbCampaignOrderRemind = onDocumentWritten(
 exports.scheduledGbPickupReminder = onSchedule(
   { schedule: "every 30 minutes", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [VAPID_PRIVATE] },
   async () => {
-    const db = admin.firestore();
+    const db = getFirestore();
     if (await maintenanceOn(db)) return;
     const nowMs = Date.now(), H = 3600000;
     const snap = await db.collection("gb_campaigns").where("status", "==", "arrived").get();
@@ -3315,7 +3318,7 @@ exports.scheduledGbPickupReminder = onSchedule(
           body: `「${c.title}」還有 ${b.n} 位未取（${b.q} 份），取貨期限 ${fmt(c.pickup_deadline.toMillis())}，點開看名單與電話`,
           url: "groupbuy.html?tab=pick", tag: `gb-pick-${d.id}-${code}` }, VAPID_PRIVATE.value(), false).catch((e) => console.warn("[gbPick]", e.message));
       }
-      await d.ref.update({ pick_reminded_at: admin.firestore.FieldValue.serverTimestamp() });
+      await d.ref.update({ pick_reminded_at: FieldValue.serverTimestamp() });
     }
   }
 );

@@ -12,8 +12,9 @@
 //
 // 模擬器測試：FUNCTIONS_EMULATOR=true 時接受 "TEST:<userId>:<暱稱>" 假 token（正式環境絕不會走到）。
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
-const admin = require("firebase-admin");
-const { FieldValue } = require("firebase-admin/firestore");   // admin.firestore.FieldValue 在這支模組取不到（模擬器實測 undefined），改直接引入
+// firebase-admin 新式（模組化）寫法：14 版起拿掉了 admin.firestore()／admin.auth() 這類舊寫法（2026-10-16 改）
+const { getFirestore } = require("firebase-admin/firestore");
+const { FieldValue } = require("firebase-admin/firestore");   // 早期 admin.firestore.FieldValue 在這支模組取不到（模擬器實測 undefined）才改直接引入；現在全專案都用新式寫法
 
 const REGION = "asia-east1";
 const STORES = { meide: "美德", lianxin: "聯鑫", jinhua: "錦花" };
@@ -40,7 +41,7 @@ exports.onGbOrderRecentSync = onDocumentWritten({ document: "gb_orders/{oid}", r
   const gone = !after || after.status === "cancelled";
   if (!gone && (after.status !== "active" || (before && before.status === "active" && before.qty === after.qty))) return;   // 份數沒變（付款、備註…）或已取貨／未取不用管
   const k = recentKey(o.line_user_id || "manual:" + event.params.oid);
-  const db = admin.firestore(), ref = db.collection("gb_campaigns").doc(String(o.campaign_id));
+  const db = getFirestore(), ref = db.collection("gb_campaigns").doc(String(o.campaign_id));
   await db.runTransaction(async (t) => {
     const cs = await t.get(ref);
     if (!cs.exists) return;
@@ -65,7 +66,7 @@ async function verifyLineToken(idToken) {
     const [, sub, name] = idToken.split(":");
     return { sub, name: name || "測試客人", picture: null };
   }
-  const db = admin.firestore();
+  const db = getFirestore();
   const cfg = await db.collection("gb_settings").doc("liff").get();
   const channelId = cfg.exists ? String(cfg.data().channel_id || "") : "";
   if (!channelId) throw new HttpsError("failed-precondition", "團購尚未設定完成，請稍後再試");
@@ -139,7 +140,7 @@ async function pickRound(t, db, cid, add) {
  *   closed／store／other_store／limit／stock／not_found
  */
 async function placeOrderTx({ cid, store, userId, name, picture, add, source, sourceMessageId }) {
-  const db = admin.firestore();
+  const db = getFirestore();
   const E = (code, msg, kind) => new HttpsError(code, msg, { kind });
   return db.runTransaction(async (t) => {
     const first = await t.get(db.collection("gb_campaigns").doc(cid));
@@ -195,7 +196,7 @@ exports.gbSetPhone = onCall({ region: REGION }, async (request) => {
   const d = request.data || {};
   const who = await verifyLineToken(d.idToken);
   const phone = cleanPhone(d.phone);
-  await admin.firestore().collection("gb_customers").doc(who.sub).set({ phone, phone_updated_at: FieldValue.serverTimestamp(), display_name: who.name || "" }, { merge: true });
+  await getFirestore().collection("gb_customers").doc(who.sub).set({ phone, phone_updated_at: FieldValue.serverTimestamp(), display_name: who.name || "" }, { merge: true });
   return { ok: true, phone };
 });
 
@@ -203,7 +204,7 @@ exports.gbPlaceOrder = onCall({ region: REGION }, async (request) => {
   const d = request.data || {};
   const who = await verifyLineToken(d.idToken);
   // LIFF 下單一定要先留手機（群組 +1 拿不到手機，不在此限）
-  const cu = await admin.firestore().collection("gb_customers").doc(who.sub).get();
+  const cu = await getFirestore().collection("gb_customers").doc(who.sub).get();
   if (!cu.exists || !cu.data().phone) throw new HttpsError("failed-precondition", "第一次下單請先留手機號碼", { kind: "need_phone" });
   const store = cleanStore(d.store);
   const add = cleanQty(d.qty);
@@ -221,7 +222,7 @@ exports.gbUpdateMyOrder = onCall({ region: REGION }, async (request) => {
   const qty = cleanQty(d.qty);
   const cid = String(d.campaignId || "");
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(cid)) throw new HttpsError("invalid-argument", "團購不存在");
-  const db = admin.firestore();
+  const db = getFirestore();
   const cRef = db.collection("gb_campaigns").doc(cid);
   const oRef = db.collection("gb_orders").doc(`${cid}_${who.sub}`);   // 只會是自己的那筆
   await db.runTransaction(async (t) => {
@@ -249,7 +250,7 @@ exports.gbUpdateMyOrder = onCall({ region: REGION }, async (request) => {
 exports.gbMyOrders = onCall({ region: REGION }, async (request) => {
   const d = request.data || {};
   const who = await verifyLineToken(d.idToken);
-  const db = admin.firestore();
+  const db = getFirestore();
   const sn = await db.collection("gb_orders").where("line_user_id", "==", who.sub).limit(50).get();
   const orders = sn.docs.map((x) => x.data()).filter((o) => o.status !== "cancelled");
   const cids = [...new Set(orders.map((o) => o.campaign_id))];
@@ -332,7 +333,7 @@ function countdownText(ordered, min, perBatch) {
   return lack > 0 ? `🎯 目前 ${ordered} 份，還差 ${lack} 份成團（三店合計）` : `🎉 已達成團門檻 ${min} 份，確定成團！`;
 }
 async function liffLink(store) {
-  const s = await admin.firestore().collection("gb_settings").doc("liff").get().catch(() => null);
+  const s = await getFirestore().collection("gb_settings").doc("liff").get().catch(() => null);
   const id = s && s.exists ? s.data().liff_id : "";
   return id ? `https://liff.line.me/${id}?store=${store}` : "";
 }
@@ -362,7 +363,7 @@ async function replyMsgs(replyToken, messages) {
 }
 async function handleUserEvent(ev) {
   const src = ev.source || {};
-  const liffId = await (async () => { const s = await admin.firestore().collection("gb_settings").doc("liff").get().catch(() => null); return s && s.exists ? s.data().liff_id || "" : ""; })();
+  const liffId = await (async () => { const s = await getFirestore().collection("gb_settings").doc("liff").get().catch(() => null); return s && s.exists ? s.data().liff_id || "" : ""; })();
   const shop = liffId ? `https://liff.line.me/${liffId}` : "";
   const shopBtn = shop ? [{ type: "action", action: { type: "uri", label: "🛒 我要下單", uri: shop } }] : [];
   const howBtn = { type: "action", action: { type: "postback", label: "❓ 怎麼團購", data: "gb=howto", displayText: "怎麼團購？" } };
@@ -388,7 +389,7 @@ async function handleEvent(ev) {
   const src = ev.source || {};
   if (src.type === "user") { await handleUserEvent(ev); return; }
   if (src.type !== "group" || !src.groupId) return;          // 多人聊天不處理
-  const db = admin.firestore();
+  const db = getFirestore();
   const gRef = db.collection("gb_bot_groups").doc(src.groupId);
   if (ev.type === "join") {
     const g = await gRef.get();
@@ -536,13 +537,13 @@ async function handleEvent(ev) {
 // ---- 後台：核准／拒絕群組（加盟主／admin）----
 async function requireOwner(request, what) {
   if (!request.auth) throw new HttpsError("unauthenticated", "請先登入");
-  const u = (await admin.firestore().collection("users").doc(request.auth.uid).get()).data() || {};
+  const u = (await getFirestore().collection("users").doc(request.auth.uid).get()).data() || {};
   if (!["owner", "admin"].includes(u.permission) || u.disabled === true) throw new HttpsError("permission-denied", `只有加盟主／管理者可以${what || "設定機器人"}`);
   return u;
 }
 async function requireStaff(request) {
   if (!request.auth) throw new HttpsError("unauthenticated", "請先登入");
-  const u = (await admin.firestore().collection("users").doc(request.auth.uid).get()).data() || {};
+  const u = (await getFirestore().collection("users").doc(request.auth.uid).get()).data() || {};
   if (!["employee", "manager", "owner", "admin"].includes(u.permission) || u.disabled === true) throw new HttpsError("permission-denied", "沒有權限");
   return u;
 }
@@ -550,7 +551,7 @@ exports.gbBotGroupAction = onCall({ region: REGION, secrets: [GB_TOKEN] }, async
   await requireOwner(request);
   const d = request.data || {}, gid = String(d.groupId || "");
   if (!/^C[0-9a-f]{32}$/.test(gid)) throw new HttpsError("invalid-argument", "群組 ID 不正確");
-  const ref = admin.firestore().collection("gb_bot_groups").doc(gid);
+  const ref = getFirestore().collection("gb_bot_groups").doc(gid);
   if (!(await ref.get()).exists) throw new HttpsError("not-found", "找不到這個群組");
   const by = request.auth.uid, ts = FieldValue.serverTimestamp();
   if (d.action === "approve") {
@@ -571,7 +572,7 @@ exports.gbBotGroupAction = onCall({ region: REGION, secrets: [GB_TOKEN] }, async
 const LINE_DATA_API = process.env.GB_LINE_DATA_API || "https://api-data.line.me";
 exports.gbSetupRichMenu = onCall({ region: REGION, secrets: [GB_TOKEN] }, async (request) => {
   const u = await requireOwner(request);
-  const db = admin.firestore();
+  const db = getFirestore();
   const ls = await db.collection("gb_settings").doc("liff").get();
   const liffId = ls.exists ? ls.data().liff_id || "" : "";
   if (!liffId) throw new HttpsError("failed-precondition", "請先在〔設定〕填 LIFF ID");
@@ -664,7 +665,7 @@ exports.gbDeleteCampaign = onCall({ region: REGION }, async (request) => {
   await requireOwner(request, "刪除團購");
   const cid = String((request.data || {}).campaignId || "");
   if (!/^[A-Za-z0-9_-]{1,80}$/.test(cid)) throw new HttpsError("invalid-argument", "團購不存在");
-  const db = admin.firestore(), ref = db.collection("gb_campaigns").doc(cid);
+  const db = getFirestore(), ref = db.collection("gb_campaigns").doc(cid);
   const sn = await ref.get();
   if (!sn.exists) throw new HttpsError("not-found", "團購不存在");
   if (sn.data().status === "open") throw new HttpsError("failed-precondition", "開放中的團購不能刪，請先改成截單");
@@ -675,7 +676,7 @@ exports.gbDeleteCampaign = onCall({ region: REGION }, async (request) => {
 if (process.env.GB_TEST_HOOKS === "1") module.exports.__purge = { purgeOldGb, campaignEndMs };   // 只給本機預覽／測試用
 
 exports.scheduledGbBotAutoLeave = onSchedule({ schedule: "every 60 minutes", timeZone: "Asia/Taipei", region: REGION, secrets: [GB_TOKEN] }, async () => {
-  const db = admin.firestore();
+  const db = getFirestore();
   const sn = await db.collection("gb_bot_groups").where("status", "==", "pending").get();
   for (const d of sn.docs) {
     const j = d.data().joined_at;
@@ -691,7 +692,7 @@ exports.gbResolvePending = onCall({ region: REGION }, async (request) => {
   const u = await requireStaff(request);
   const d = request.data || {}, id = String(d.pendingId || "");
   if (!/^[0-9A-Za-z]{1,40}$/.test(id)) throw new HttpsError("invalid-argument", "資料不正確");
-  const db = admin.firestore(), ref = db.collection("gb_pending_plus").doc(id);
+  const db = getFirestore(), ref = db.collection("gb_pending_plus").doc(id);
   const sn = await ref.get();
   if (!sn.exists) throw new HttpsError("not-found", "找不到這筆");
   const pnd = sn.data();
@@ -745,7 +746,7 @@ exports.gbNextRound = onCall({ region: REGION }, async (request) => {
   const cid = String((request.data || {}).campaignId || "");
   if (!/^[A-Za-z0-9_-]{1,80}$/.test(cid)) throw new HttpsError("invalid-argument", "團購不存在");
   const add = cleanQty((request.data || {}).qty || 1) || 1;
-  const db = admin.firestore();
+  const db = getFirestore();
   const res = await db.runTransaction(async (t) => {
     const first = await t.get(db.collection("gb_campaigns").doc(cid));
     if (!first.exists) throw new HttpsError("not-found", "團購不存在");
