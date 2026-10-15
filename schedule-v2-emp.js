@@ -244,63 +244,6 @@ function renderEmpCanvas(store, weekStr, records, emps, allRecs) {
 }
 
 
-
-function renderReqOffSection(records) {
-  const el = document.getElementById('reqDayList');
-  const locked = isWeekLocked(empWeekStr);
-  document.getElementById('lockedMsg').style.display = locked ? 'block' : 'none';
-
-  el.innerHTML = dayNames.map(day => {
-    const rec = records.find(r => r.name === currentUser.empName && r.day === day) || {};
-    const shift = rec.shift || '';
-    const hasShift = shift && shift !== '';
-    const isOff = shift === '排休' || shift === '指休';
-    const reqOff = rec.requestOff || false;
-    const canToggle = !locked && !hasShift;
-
-    return `<div class="req-day-row">
-      <div class="req-day-name">${day}</div>
-      <div class="req-day-shift">${isOff ? '休假' : (shift || '未排班')}</div>
-      ${canToggle
-        ? `<button class="req-toggle ${reqOff?'active':''}" onclick="toggleReqOff('${day}', ${reqOff})">${reqOff?'✅ 已申請':'申請排休'}</button>`
-        : `<span style="font-size:12px; color:var(--text-muted);">${hasShift ? '已排班' : (locked ? '已鎖定' : '')}</span>`
-      }
-    </div>`;
-  }).join('');
-}
-
-async function toggleReqOff(day, current) {
-  const store = currentUser.store;
-  const weekStr = empWeekStr;
-  const empName = currentUser.empName;
-  if(!confirm(current ? `取消 ${day} 的排休申請？` : `申請 ${day} 排休？`)) return;
-
-  showLoading('更新中...');
-  try {
-    const snap = await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).get();
-    let records = (snap.exists && snap.data().records) ? snap.data().records : [];
-    const idx = records.findIndex(r => r.name === empName && r.day === day && r.week === weekStr);
-    const newVal = !current;
-    if(idx !== -1) records[idx].requestOff = newVal;
-    else records.push({ week: weekStr, day, name: empName, shift: '', location: '本店', note: '', requestOff: newVal });
-
-    const now = new Date();
-    const timeStr = `${now.getMonth()+1}/${now.getDate()} ${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`;
-    const logMsg = `[${timeStr}] ${currentUser.displayName} 對 ${day} ${newVal?'提出申請':'取消申請'}`;
-
-    await window.db.collection('stores').doc(store).collection('weeks').doc(weekStr).set({
-      records,
-      logs: firebase.firestore.FieldValue.arrayUnion(logMsg)
-    }, { merge: true });
-
-    showToast(newVal ? `✅ 已申請 ${day} 排休` : `已取消 ${day} 排休申請`);
-    await loadEmpView();
-  } catch(e) {
-    showToast('❌ 失敗：' + e.message);
-  }
-  hideLoading();
-}
-
 // ===== 渲染班表（管理者）=====
 function renderSupportDropdown() {
   const myStore = document.getElementById('storeSelector').value;
@@ -326,10 +269,3 @@ function toggleApprovalVis() {
   document.getElementById('modalApproval').style.display = val ? 'block' : 'none';
 }
 
-function onApprovalChange(sel) {
-  if(sel.value === 'approved') {
-    if(!confirm('⚠️ 請確認已跟對方店長溝通！\n\n按下確認視同審核通過。')) {
-      sel.value = 'pending';
-    }
-  }
-}

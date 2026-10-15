@@ -44,11 +44,6 @@ function hideLoading() {
   setTimeout(() => { ov.style.display = 'none'; }, 400);
 }
 
-function showWip(name) {
-  document.getElementById('wipTitle').textContent = name + ' 開發中';
-  document.getElementById('wipDesc').textContent = `「${name}」功能正在積極建置中，預計近期上線！敬請期待。`;
-  document.getElementById('wipModal').classList.add('active');
-}
 function closeWip(e) {
   if(e.target.classList.contains('modal-overlay')) closeModal(e.target.id);
 }
@@ -59,13 +54,6 @@ function closeModal(id) {
   document.getElementById(id).classList.remove('active');
 }
 
-function getGreeting() {
-  const h = new Date().getHours();
-  if(h < 6) return { greet: '深夜辛苦了', icon: '🌙' };
-  if(h < 12) return { greet: '早安，今天也加油！', icon: '🌅' };
-  if(h < 18) return { greet: '午安，保持精神！', icon: '☀️' };
-  return { greet: '晚上好，辛苦了！', icon: '🌆' };
-}
 
 function getWeekDates(wStr) {
   let p = wStr.split('-W'); let yr = parseInt(p[0]); let wk = parseInt(p[1]);

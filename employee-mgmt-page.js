@@ -114,27 +114,6 @@ async function renderLineCard() {
       <button onclick="window.location.href='home.html'" style="width:100%; padding:11px; background:var(--primary); color:#fff; border:none; border-radius:10px; font-weight:800; cursor:pointer; margin-top:14px;">回首頁開啟推播</button>`;
   } catch(e) { body.innerHTML = '載入失敗：' + e.message; }
 }
-async function lineGenCode() {
-  const body = document.getElementById('lineCardBody');
-  body.innerHTML = '產生綁定碼中…';
-  try {
-    const code = String(Math.floor(100000 + Math.random()*900000));
-    await window.db.collection('lineBindCodes').doc(code).set({
-      uid: currentUser.uid, empName: currentUser.empName||'', displayName: currentUser.displayName||currentUser.empName||'', store: currentUser.store||'',
-      createdAt: new Date().toISOString(), expiresAt: Date.now() + 10*60*1000
-    });
-    const oa = (appConfig && appConfig.lineOaUrl) || '';
-    const basicId = (oa.match(/@[\w.\-]+/) || [''])[0]; // 從加好友連結取 @官方帳號ID
-    const url = basicId ? `https://line.me/R/oaMessage/${basicId}/?${encodeURIComponent(code)}` : oa;
-    const btn = url
-      ? `<a href="${url}" target="_blank" style="display:block; text-align:center; background:#06c755; color:#fff; padding:13px; border-radius:10px; font-weight:800; text-decoration:none; margin:12px 0;">➕ 開啟 LINE 加入並帶入綁定碼</a>`
-      : `<div style="color:var(--danger); margin:12px 0; font-weight:700;">⚠️ 官方帳號連結尚未設定，請聯絡管理員設定 lineOaUrl。</div>`;
-    body.innerHTML = `
-      <div>點下方按鈕 → 開啟官方帳號 → 若尚未加入請先按「加入」→ 綁定碼已自動帶入，按<strong>送出</strong>即完成。</div>
-      ${btn}
-      <div style="font-size:12px; color:var(--text-muted); text-align:center;">（萬一沒帶入，手動輸入綁定碼：<strong style="color:var(--primary); letter-spacing:2px;">${code}</strong>，10 分鐘內有效）</div>`;
-  } catch(e) { body.innerHTML = '產生失敗：' + e.message; }
-}
 async function lineUnbind() {
   if(!confirm('確定解除 LINE 通知綁定？')) return;
   await window.db.collection('lineBindings').doc(currentUser.uid).delete().catch(()=>{});

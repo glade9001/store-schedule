@@ -120,15 +120,6 @@ function restoreRealRole() {
     .finally(()=>{ document.getElementById('appShell').classList.add('active'); hideLoading(); });
 }
 
-// ===== 薪資頁面跳轉 =====
-function goToSalary() {
-  const perm = currentUser?.permission;
-  if(['manager','owner','admin'].includes(perm)) {
-    window.location.href = 'salary.html';
-  } else {
-    window.location.href = 'my-salary.html';
-  }
-}
 
 // ===== Enter 鍵登入 =====
 document.getElementById('loginPassword').addEventListener('keydown', (e) => {

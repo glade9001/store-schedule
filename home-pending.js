@@ -453,4 +453,3 @@ async function reinstateEmp(empName, store) {
   hideLoading();
 }
 
-function goToSchedule() { window.location.href = 'schedule-V2.html'; }

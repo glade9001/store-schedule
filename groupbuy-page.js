@@ -1239,10 +1239,6 @@ async function botAction(gid, action) {
   catch (e) { gbToast('失敗：' + friendly(e)); }
   gbLoading(false);
 }
-async function saveBotReply(on) {
-  try { await window.db.collection('gb_settings').doc('bot').set({ reply_on_success: on, updated_at: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true }); gbToast(on ? '已開啟成單回覆' : '已關閉成單回覆'); }
-  catch (e) { gbToast('更新失敗：' + friendly(e)); }
-}
 
 var gbPending = [];
 async function loadPending() {

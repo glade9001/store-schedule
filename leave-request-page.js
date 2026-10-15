@@ -225,12 +225,6 @@ function isFullTime(){
 }
 function canSchedule(){ return ['manager','owner','admin'].includes(currentUser?.permission); }
 
-// 判斷是否為正職
-function isFullTimeEmp(name){
-  // 若是查自己，用 currentUser.role
-  if(name === currentUser.empName) return isFullTime();
-  return true; // 預設正職（申請時只管自己）
-}
 
 // ===== 週次工具 =====
 function dateToWeekStr(dateStr){
@@ -741,12 +735,6 @@ function renderCalendar(){
   renderCalBody();
 }
 
-function getNextMonday(){
-  const d = new Date();
-  const day = d.getDay()||7;
-  d.setDate(d.getDate() + (8-day));
-  return lrYmd(d);
-}
 
 function renderCalBody(){
   const body = document.getElementById('calBody');

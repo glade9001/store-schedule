@@ -88,46 +88,6 @@ async function flushCurrentWeek(storeOverride) {
 // 現行流程走 handleCellClick() → openModal('shiftModal') → applyShift()。
 
 
-
-
-// ===== 畫筆模式 =====
-function paintCell(btn) {
-  if(!paintMode || !paintShift) return;
-  // 跨店整日外派格（loc=支援X）為衍生唯讀顯示，畫筆不可覆蓋（避免落地成雙軌 set#1）
-  if(String(btn.dataset.loc||'').startsWith('支援')) return;
-  const store = document.getElementById('storeSelector').value;
-  const weekStr = document.getElementById('weekSelector').value;
-  if(!canScheduleStore(store)) return;
-  pushToUndo(btn);
-  const prevShift = btn.dataset.shift || ''; // 捕捉舊班別，供特休/補休扣還
-  if(paintShift === '清空') {
-    btn.dataset.shift=''; btn.dataset.hours=0; btn.dataset.ot='false';
-    btn.dataset.note=''; btn.dataset.loc='本店';
-  } else {
-    const h = appConfig.shiftHours?.[paintShift] || 0;
-    btn.dataset.shift = paintShift;
-    btn.dataset.hours = h;
-    btn.dataset.ot = 'false';
-  }
-  // 🌟 畫筆也要處理特休/補休扣還（否則塗掉特休不退假、塗上特休不扣假）
-  if(prevShift !== btn.dataset.shift) deductLeave(btn.dataset.emp, btn.dataset.day, weekStr, prevShift, btn.dataset.shift||'');
-  const idx = appData.records.findIndex(r=>r.name===btn.dataset.emp&&r.day===btn.dataset.day&&r.week===weekStr);
-  const data = {week:weekStr,day:btn.dataset.day,name:btn.dataset.emp,
-    shift:btn.dataset.shift,location:btn.dataset.loc||'本店',note:btn.dataset.note||'',
-    actualHours:parseFloat(btn.dataset.hours||0),isOT:btn.dataset.ot==='true',
-    supportEmp:'',approvalStatus:'',requestOff:false};
-  const hasData = btn.dataset.shift||btn.dataset.note;
-  if(hasData){if(idx!==-1)appData.records[idx]=data;else appData.records.push(data);}
-  else{if(idx!==-1)appData.records.splice(idx,1);}
-  const eIdx=appData.employees.findIndex(e=>e.name===btn.dataset.emp);
-  updateCellUI(btn,'');
-  updateDailyTotals();
-  updateWeekTotalCell();
-  const empObj=appData.employees.find(e=>e.name===btn.dataset.emp)||{name:btn.dataset.emp,role:'待補'};
-  updateSummary(eIdx,empObj);
-  triggerAutoSave();
-}
-
 // ===== 操作紀錄 =====
 async function loadLogs() {
   const el = document.getElementById('logContent');

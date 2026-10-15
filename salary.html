@@ -180,36 +180,6 @@
   </div>
 </div>
 
-<div class="modal-overlay" id="encashModal" onclick="if(event.target===this)closeModal('encashModal')">
-  <div class="modal-box" style="max-height:70vh;">
-    <div class="modal-handle"></div>
-    <div class="modal-title" id="encashModalTitle">折現</div>
-    <div id="encashModalDesc" style="font-size:13px;line-height:1.8;background:#f8fafc;border-radius:8px;padding:12px;margin-bottom:14px;"></div>
-    <div class="salary-row">
-      <span class="salary-row-label">折現天數</span>
-      <div style="display:flex;align-items:center;gap:6px;">
-        <input id="encashDays" type="number" min="0" class="salary-input" style="width:80px;">
-        <span style="font-size:12px;color:var(--text-muted);">天</span>
-      </div>
-    </div>
-    <div class="salary-total-row">
-      <span class="salary-total-label">折現金額</span>
-      <span class="salary-total-val" id="encashModalAmount">$0</span>
-    </div>
-    <button id="encashConfirmBtn" class="modal-action" style="margin-top:16px;">確認折現</button>
-    <button onclick="closeModal('encashModal')" class="modal-cancel">取消</button>
-  </div>
-</div>
-
-<div class="modal-overlay" id="mgmtDetailModal" onclick="if(event.target===this)closeModal('mgmtDetailModal')">
-  <div class="modal-box" style="max-height:70vh;">
-    <div class="modal-handle"></div>
-    <div class="modal-title" id="mgmtDetailTitle">管理責任獎金明細</div>
-    <div id="mgmtDetailBody"></div>
-    <button onclick="closeModal('mgmtDetailModal')" class="modal-cancel">關閉</button>
-  </div>
-</div>
-
 <div class="modal-overlay" id="payslipModal" onclick="if(event.target===this)closeModal('payslipModal')">
   <div class="modal-box" style="max-height:90vh;">
     <div class="modal-handle"></div>

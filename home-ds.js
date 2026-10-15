@@ -14,8 +14,6 @@ var hdBusy = false;
 function hdUser() { try { return currentUser; } catch (e) { return null; } }
 function hdEsc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 function hdMoney(v) { return Math.round(v).toLocaleString('en-US'); }
-function hdWan(v) { return Math.abs(v) >= 10000 ? (Math.round(v / 1000) / 10) + ' 萬' : hdMoney(v); }
-function hdPct(v) { return (v >= 0 ? '+' : '−') + Math.abs(v * 100).toFixed(1) + '%'; }
 function hdMd(d) { return (+d.slice(5, 7)) + '/' + (+d.slice(8)); }
 function hdYm() { var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }
 function hdStores(u) {
