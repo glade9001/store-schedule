@@ -25,7 +25,7 @@ const KNOWN = new Set([
   'Math','Date','JSON','Object','Array','String','Number','Boolean','Promise','Set','Map','WeakMap','WeakSet',
   'Symbol','Proxy','Reflect','BigInt','RegExp','Error','TypeError','RangeError','Intl','Function',
   'parseInt','parseFloat','isNaN','isFinite','encodeURIComponent','decodeURIComponent','encodeURI','decodeURI',
-  'setTimeout','setInterval','clearTimeout','clearInterval','queueMicrotask','requestAnimationFrame',
+  'setTimeout','setInterval','clearTimeout','clearInterval','queueMicrotask','requestAnimationFrame','cancelAnimationFrame',
   'alert','confirm','prompt','fetch','atob','btoa','structuredClone',
   'XMLHttpRequest','FormData','Blob','File','FileReader','URL','URLSearchParams','AbortController',
   'Image','Audio','Event','CustomEvent','MutationObserver','IntersectionObserver','ResizeObserver',

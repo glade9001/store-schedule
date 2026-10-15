@@ -8,6 +8,21 @@
 
 ### 2026-10-15（四）
 
+#### 🧪 上線前自動檢查＋上線腳本
+- `zsh tools/check/run.sh [--full]`：① 語法與載入（所有 JS、check-globals、雲端函式 export）② 權限規則（模擬器 24 項，改到 firestore.rules 或 --full 才跑）③ 畫面試算（Node 沙盒載入真正的前端檔，用正式資料唯讀跑首頁團購、工時上限、每日營業分析、補休可用、國定假日）④ 資料健檢（團購份數、特休補休統計、國定假日補休、正職特休批次、每日營業怪數字）。約 15 秒；任何 ❌ 就 exit 1。已驗證抓得到 10/13 首頁團購那個 bug。
+- `zsh tools/deploy.sh hosting｜functions:名稱,...｜firestore:rules`：檢查沒過不部署；部署後比對 web.app、github.io 兩邊檔案內容跟本機一致。functions 一律指定名稱、不加 --force。
+- 檢查程式只讀不寫、不存資料、輸出不印姓名（repo 公開）；登入沿用 Firebase CLI（`firebase login`）。
+
+#### 🔒 權限收緊（catch-all 拆出 4 類）
+- `employees/**`（特休補休帳本與統計）：登入可讀、店長以上可寫；`settings/**`：加盟主／admin 可寫，店長只能改 `globalConfig.clockIn`（不含 geo 座標）；`salaryAck`／`salaryAckSig`：本人簽、本人與店長以上看。舊規則這 24 個案例有 13 個是漏洞（員工可自己加補休、改國定假日、幫別人簽收）。
+
+#### 🧮 特休／補休統計欄自動校正
+- 後端 `onLeaveLogStats`／`onCompUsageStats`／`onAnnualUsageStats`：帳本一有變動就照 recomputeLeaveCounters 同一套規則整年重算（交易）。前端只 +1/−1 的寫法不用改，幾秒內會被校正。上線時修正 12 筆（2 人補休取得少 1 天、2 人 5 月的舊數字）。
+
+#### 其他
+- 首頁薪資簽收：全部已簽當天記住（原本每次開首頁都呼叫 getMySalary，一週約 2,000 次）。
+- 國定假日：薪資、我的薪資、排班、勞檢出勤表、自動排班改跟系統設定（holidays.js `syncHolidayMapInto`，4 秒讀不到用內建表）。
+
 #### 💰 排程合併省 Cloud Scheduler 費用（15 → 11 個）
 - Cloud Scheduler 每個付費帳戶只有 3 個免費排程，之後每個每月約 US$0.1，**按個數算、跟跑幾次無關**。
 - 刪 `scheduledUpdateNoticeLine`（9/15 改版的一次性 LINE 通知，cron 每年 9/15 還會觸發）。
