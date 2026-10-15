@@ -874,6 +874,10 @@ async function checkSalaryAck(){
       return !(_payYM===_nowYM && (_nowDay<_remDay || (_nowDay===_remDay && _nowHour<15)));
     });
     if(!_months.length){ renderSalaryAckBanner([]); return; }
+    // 「全部已簽」當天記住，不再每次打開首頁都呼叫 getMySalary（2026-10-15：一週 1,981 次，幾乎都是已簽完的人）。
+    // 只記到當天：薪資更正後重新發布（payHash 變了要重簽）最晚隔天會再提醒；有待簽月份不記，照舊每次查。
+    const _ackKey='salAckOk:'+currentUser.uid, _today=`${_nowYM}-${String(_nowDay).padStart(2,'0')}`;
+    try{ const c=JSON.parse(localStorage.getItem(_ackKey)||'null'); if(c && c.day===_today && c.months===_months.join(',')){ renderSalaryAckBanner([]); return; } }catch(e){}
     // 找本人在各月「已發布」的薪資記錄（先本店，找到就停）。
     // 2026-10-10 薪資規則收緊：員工不能直接讀 salary 文件，改由 getMySalary 只回本人那筆。
     const _fn=firebase.app().functions('asia-east1').httpsCallable('getMySalary');
@@ -887,6 +891,7 @@ async function checkSalaryAck(){
       const signed = ack && (ack.signedPayHash||'')===(rec.payHash||'');
       if(!signed) pending.push(ym);
     }
+    try{ if(pending.length) localStorage.removeItem(_ackKey); else localStorage.setItem(_ackKey, JSON.stringify({ day:_today, months:_months.join(',') })); }catch(e){}
     renderSalaryAckBanner(pending);
   }catch(e){ console.error('checkSalaryAck 失敗', e); }
 }
