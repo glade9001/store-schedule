@@ -3,11 +3,7 @@
 const TW_HOLIDAYS = builtinHolidayMap();
 
 // 取得某月的國定假日
-function getMonthHolidays(ym) {
-  return Object.entries(TW_HOLIDAYS)
-    .filter(([k]) => k.startsWith(ym))
-    .map(([k, v]) => ({ date: k, name: v, day: parseInt(k.split('-')[2]) }));
-}
+function getMonthHolidays(ym) { return SalaryCalc.monthHolidays(ym, TW_HOLIDAYS); } // 規則在 salary-calc.js
 
 // 計算當月六日天數（應休基準）
 function getMonthWeekendDays(ym) {
@@ -23,57 +19,13 @@ function getMonthWeekendDays(ym) {
 }
 
 // 從排班記錄偵測國定假日是否有上班
-function detectHolidayWork(empName, ym) {
-  const holidays = getMonthHolidays(ym);
-  const [cy, cm] = ym.split('-').map(Number);
-  const worked = [];
-  holidays.forEach(h => {
-    const [hy, hm, hd] = h.date.split('-').map(Number);
-    // 從排班記錄找這天
-    let hasWork = false;
-    Object.entries(scheduleData).forEach(([ws, recs]) => {
-      recs.forEach(r => {
-        if(!recBelongsTo(r, empName)) return;
-        const wDates = getWeekDatesFromStr(ws);
-        const dIdx = ['週一','週二','週三','週四','週五','週六','週日'].indexOf(r.day);
-        if(dIdx < 0) return;
-        const dateStr = wDates[dIdx];
-        if(!dateStr) return;
-        const [dm, dd] = dateStr.split('/').map(Number);
-        if(dm === hm && dd === hd && r.shift && r.shift !== '排休' && r.shift !== '指休' && r.shift !== '特休' && r.shift !== '補休') {
-          hasWork = true;
-        }
-      });
-    });
-    if(hasWork) worked.push(h);
-  });
-  return worked;
-}
+function detectHolidayWork(empName, ym) { return SalaryCalc.detectHolidayWork(empName, ym, { scheduleData, holidays: TW_HOLIDAYS }); } // salary-calc.js
 
 // 計算當月已休天數（從排班記錄）
 // ✅ Bug4修正：「已休」只計排休/指休（例休），不含特休/補休
 // 特休/補休是員工另外請的假，不應抵銷週末例休義務
 // ✅ Bug5修正：時薪另計視為當日休假，計入已休
-function calcMonthOffDays(empName, ym) {
-  const [cy, cm] = ym.split('-').map(Number);
-  let offDays = 0;
-  Object.entries(scheduleData).forEach(([ws, recs]) => {
-    recs.forEach(r => {
-      if(r.name !== empName) return;
-      const isRegOff = r.shift === '排休' || r.shift === '指休';
-      const isHourlyOff = r.isHourly === true; // 時薪另計視為休假
-      if(!isRegOff && !isHourlyOff) return;
-      const wDates = getWeekDatesFromStr(ws);
-      const dIdx = ['週一','週二','週三','週四','週五','週六','週日'].indexOf(r.day);
-      if(dIdx < 0) return;
-      const dateStr = wDates[dIdx];
-      if(!dateStr) return;
-      const dm = parseInt(dateStr.split('/')[0]);
-      if(dm === cm) offDays++;
-    });
-  });
-  return offDays;
-}
+function calcMonthOffDays(empName, ym) { return SalaryCalc.calcMonthOffDays(empName, ym, { scheduleData }); } // salary-calc.js
 
 // ===== 狀態 =====
 let currentUser = null;
@@ -1047,10 +999,7 @@ const ROLE_MANAGER = '店長';
 
 // 計薪模式覆蓋：員工主檔 payAsPartTime=true 者，計薪一律走「工讀時薪」模式，
 // 職務角色（排班/權限/一般顯示）不受影響。所有計薪 role 判定改用此函式。
-function effSalaryRole(emp, rec) {
-  const flag = (emp && emp.payAsPartTime) || (rec && rec.payAsPartTime);
-  return flag ? ROLE_PART : ((emp && emp.role) || (rec && rec.role) || '');
-}
+function effSalaryRole(emp, rec) { return SalaryCalc.effSalaryRole(emp, rec); } // salary-calc.js
 
 // ===== 工具 =====
 function openModal(id) {
@@ -1121,36 +1070,7 @@ function recBelongsTo(r, empName) { return SalaryCalc.recBelongsTo(r, empName); 
 function calcEmpHours(empName) { return SalaryCalc.calcEmpHours(empName, { scheduleData, currentMonth }); }
 
   // ===== 計算工讀生國定假日出勤時數（含去重機制） =====
-function calcEmpHolidayHours(empName) {
-  const holidays = getMonthHolidays(currentMonth);
-  let autoH = 0;
-  const counted = new Set(); // 🎉 關鍵防呆：用來記錄已經算過的日期，避免重複加總
-
-  holidays.forEach(h => {
-    const [hy, hm, hd] = h.date.split('-').map(Number);
-    Object.entries(scheduleData).forEach(([ws, weekRecs]) => {
-      (weekRecs || []).forEach(r => {
-        if(!recBelongsTo(r, empName)) return;
-        const wDates = getWeekDatesFromStr(ws);
-        const dIdx = ['週一','週二','週三','週四','週五','週六','週日'].indexOf(r.day);
-        if(dIdx < 0) return;
-        const dateStr = wDates[dIdx];
-        if(!dateStr) return;
-        const [dm, dd] = dateStr.split('/').map(Number);
-
-        // 如果日期吻合國定假日，且有正常出勤
-        if(dm === hm && dd === hd && r.shift && r.shift !== '排休' && r.shift !== '指休' && r.shift !== '特休' && r.shift !== '補休') {
-          const dayKey = `${dm}/${dd}`;
-          if(counted.has(dayKey)) return; // 🎉 如果這天已經算過了，就跳過
-          counted.add(dayKey);
-
-          autoH += parseFloat(r.actualHours || 0);
-        }
-      });
-    });
-  });
-  return Math.round(autoH * 10) / 10;
-}
+function calcEmpHolidayHours(empName) { return SalaryCalc.calcEmpHolidayHours(empName, { scheduleData, currentMonth, holidays: TW_HOLIDAYS }); } // salary-calc.js
 
 function calcTotal(rec) {
   // 已發布月份：讀凍結快照(=員工端看到的=實際匯款)，不重算，守歷史不可變；草稿仍即時算
@@ -2372,28 +2292,10 @@ function getCurrentMonth() {
 
 // 週次字串必須是 getWeekDatesFromStr() 的精準反函式（每週以「週一」起算）。
 // 舊寫法直接把日期套年度週次，週界會隨該年 1/1 是星期幾而變 →「月初落在週六/週日」的月份會整週漏抓。
-function week1MondayOf(yr) {
-  const d = new Date(yr, 0, 1), day = d.getDay();
-  d.setDate(d.getDate() + (day <= 4 ? 1 - day : 8 - day));
-  return d;
-}
-function weekStrOfDate(dt) {
-  const mon = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()); // 去掉時間，避免小數天數進位
-  mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));               // 退到該日所屬的週一
-  let yr = mon.getFullYear();
-  if(mon < week1MondayOf(yr)) yr--; else if(mon >= week1MondayOf(yr + 1)) yr++;  // 跨年首尾週
-  const w = Math.round((mon - week1MondayOf(yr)) / 604800000) + 1;
-  return `${yr}-W${String(w).padStart(2,'0')}`;
-}
+function week1MondayOf(yr) { return SalaryCalc.week1MondayOf(yr); } // salary-calc.js
+function weekStrOfDate(dt) { return SalaryCalc.weekStrOfDate(dt); } // salary-calc.js
 
-function getMonthWeeks(ym) {
-  // 取得某月份涵蓋的所有週次（逐日掃描，確保不漏週）
-  const [y, m] = ym.split('-').map(Number);
-  const weeks = new Set();
-  const daysInMonth = new Date(y, m, 0).getDate();
-  for(let day = 1; day <= daysInMonth; day++) weeks.add(weekStrOfDate(new Date(y, m-1, day)));
-  return [...weeks];
-}
+function getMonthWeeks(ym) { return SalaryCalc.monthWeeks(ym); } // salary-calc.js
 
 // ===== 本月說明區（國定假日 + 應休天數）=====
 function renderMonthInfo() {

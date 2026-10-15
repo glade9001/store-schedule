@@ -113,5 +113,115 @@ window.SalaryCalc = (function(){
     }
   }
 
-  return { ROLE_PART, getWeekDatesFromStr, recBelongsTo, hourlyRate, calcDeduct, calcEmpHours, calcHourlySupportHours, grossFromParts };
+  // ===== 2026-10-16 整理第 3 階段：以下從 salary-page.js 搬來（薪資頁版本為準），my-salary 共用 =====
+  // ctx = { scheduleData, currentMonth, holidays }（holidays＝頁面的國定假日表，已跟系統設定同步）
+  const WEEKDAY = DAY;
+
+  // 計薪職稱：payAsPartTime（例：店長職稱但領時薪）一律以工讀計
+  function effSalaryRole(emp, rec){
+    const flag = (emp && emp.payAsPartTime) || (rec && rec.payAsPartTime);
+    return flag ? ROLE_PART : ((emp && emp.role) || (rec && rec.role) || '');
+  }
+
+  // 某月的國定假日
+  function monthHolidays(ym, holidays){
+    return Object.entries(holidays || {})
+      .filter(([k]) => k.startsWith(ym))
+      .map(([k, v]) => ({ date: k, name: v, day: parseInt(k.split('-')[2]) }));
+  }
+
+  // ISO 週次（週一為一週開始）
+  function week1MondayOf(yr){
+    const d = new Date(yr, 0, 1), day = d.getDay();
+    d.setDate(d.getDate() + (day <= 4 ? 1 - day : 8 - day));
+    return d;
+  }
+  function weekStrOfDate(dt){
+    const mon = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()); // 去掉時間，避免小數天數進位
+    mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));               // 退到該日所屬的週一
+    let yr = mon.getFullYear();
+    if(mon < week1MondayOf(yr)) yr--; else if(mon >= week1MondayOf(yr + 1)) yr++;  // 跨年首尾週
+    const w = Math.round((mon - week1MondayOf(yr)) / 604800000) + 1;
+    return `${yr}-W${String(w).padStart(2,'0')}`;
+  }
+  // 某月份涵蓋的所有週次（逐日掃描，確保不漏週）
+  function monthWeeks(ym){
+    const [y, m] = ym.split('-').map(Number);
+    const weeks = new Set();
+    const daysInMonth = new Date(y, m, 0).getDate();
+    for(let day = 1; day <= daysInMonth; day++) weeks.add(weekStrOfDate(new Date(y, m-1, day)));
+    return [...weeks];
+  }
+
+  // 排班列的實際日期 → [月, 日]；對不到回 null
+  function recMonthDay(ws, r){
+    const wDates = getWeekDatesFromStr(ws);
+    const dIdx = WEEKDAY.indexOf(r.day);
+    if(dIdx < 0) return null;
+    const dateStr = wDates[dIdx];
+    if(!dateStr) return null;
+    return dateStr.split('/').map(Number);
+  }
+  const isWorkShift = r => r.shift && r.shift !== '排休' && r.shift !== '指休' && r.shift !== '特休' && r.shift !== '補休';
+
+  // 本月已休（例休：排休／指休；時薪另計視為休假）。只看本人名字的列（支援別店的班不算本店的休）
+  function calcMonthOffDays(empName, ym, ctx){
+    const cm = Number(ym.split('-')[1]);
+    let offDays = 0;
+    Object.entries(ctx.scheduleData).forEach(([ws, recs]) => {
+      recs.forEach(r => {
+        if(r.name !== empName) return;
+        const isRegOff = r.shift === '排休' || r.shift === '指休';
+        const isHourlyOff = r.isHourly === true; // 時薪另計視為休假
+        if(!isRegOff && !isHourlyOff) return;
+        const md = recMonthDay(ws, r);
+        if(md && md[0] === cm) offDays++;
+      });
+    });
+    return offDays;
+  }
+
+  // 國定假日有上班的日子：本人或跨店支援（recBelongsTo）；排休／指休／特休／補休不算上班
+  // ⚠️ 原本 my-salary 那份只看本人名字、而且把特休／補休當上班（員工端會看到「國定假日上班」其實是請特休），2026-10-16 統一成這份
+  function detectHolidayWork(empName, ym, ctx){
+    const worked = [];
+    monthHolidays(ym, ctx.holidays).forEach(h => {
+      const hm = Number(h.date.slice(5, 7)), hd = Number(h.date.slice(8, 10));
+      let hasWork = false;
+      Object.entries(ctx.scheduleData).forEach(([ws, recs]) => {
+        recs.forEach(r => {
+          if(!recBelongsTo(r, empName)) return;
+          const md = recMonthDay(ws, r);
+          if(md && md[0] === hm && md[1] === hd && isWorkShift(r)) hasWork = true;
+        });
+      });
+      if(hasWork) worked.push(h);
+    });
+    return worked;
+  }
+
+  // 工讀國定假日出勤時數（同一天只算一次）
+  function calcEmpHolidayHours(empName, ctx){
+    let autoH = 0;
+    const counted = new Set(); // 已經算過的日期，避免重複加總
+    monthHolidays(ctx.currentMonth, ctx.holidays).forEach(h => {
+      const hm = Number(h.date.slice(5, 7)), hd = Number(h.date.slice(8, 10));
+      Object.entries(ctx.scheduleData).forEach(([ws, weekRecs]) => {
+        (weekRecs || []).forEach(r => {
+          if(!recBelongsTo(r, empName)) return;
+          const md = recMonthDay(ws, r);
+          if(md && md[0] === hm && md[1] === hd && isWorkShift(r)) {
+            const dayKey = `${md[0]}/${md[1]}`;
+            if(counted.has(dayKey)) return;
+            counted.add(dayKey);
+            autoH += parseFloat(r.actualHours || 0);
+          }
+        });
+      });
+    });
+    return Math.round(autoH * 10) / 10;
+  }
+
+  return { ROLE_PART, getWeekDatesFromStr, recBelongsTo, hourlyRate, calcDeduct, calcEmpHours, calcHourlySupportHours, grossFromParts,
+    effSalaryRole, monthHolidays, week1MondayOf, weekStrOfDate, monthWeeks, calcMonthOffDays, detectHolidayWork, calcEmpHolidayHours };
 })();

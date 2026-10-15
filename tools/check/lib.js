@@ -98,7 +98,7 @@ function loadFront(files, extra) {
     document: { getElementById: id => (els[id] = els[id] || el()), createElement: el, head: { appendChild() {} }, body: el(), querySelector: () => el(), querySelectorAll: () => [], visibilityState: 'visible', addEventListener() {} },
     localStorage: { getItem() { return null; }, setItem() {}, removeItem() {} }, location: { search: '', href: '' }, navigator: { userAgent: 'node' },
   }, extra || {});
-  ctx.els = els; ctx.window.document = ctx.document;
+  ctx.els = els; ctx.db = ctx.window.db; ctx.window = ctx;   // 跟瀏覽器一樣：window 就是全域（window.SalaryCalc＝SalaryCalc）
   vm.createContext(ctx);
   for (const f of files) vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx, { filename: f });
   return ctx;

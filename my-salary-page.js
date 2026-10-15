@@ -22,18 +22,11 @@ let currentEmpModal = null;
 const ROLE_PART = '工讀';
 const ROLE_FULL = '正職';
 // 計薪模式覆蓋：payAsPartTime 者計薪走工讀時薪（與 salary.html effSalaryRole 一致）
-function effSalaryRole(emp, rec) {
-  const flag = (emp && emp.payAsPartTime) || (rec && rec.payAsPartTime);
-  return flag ? ROLE_PART : ((emp && emp.role) || (rec && rec.role) || '');
-}
+function effSalaryRole(emp, rec) { return SalaryCalc.effSalaryRole(emp, rec); } // salary-calc.js
 const ROLE_MANAGER = '店長';
 
 // ===== 輔助工具 =====
-function getMonthHolidays(ym) {
-  return Object.entries(TW_HOLIDAYS)
-    .filter(([k]) => k.startsWith(ym))
-    .map(([k, v]) => ({ date: k, name: v, day: parseInt(k.split('-')[2]) }));
-}
+function getMonthHolidays(ym) { return SalaryCalc.monthHolidays(ym, TW_HOLIDAYS); } // 規則在 salary-calc.js
 
 function getMonthWeekendDays(ym) {
   const [y, m] = ym.split('-').map(Number);
@@ -47,45 +40,9 @@ function getMonthWeekendDays(ym) {
   return { sat, sun, total: sat + sun };
 }
 
-function detectHolidayWork(empName, ym) {
-  const holidays = getMonthHolidays(ym);
-  const worked = [];
-  holidays.forEach(h => {
-    let hasWork = false;
-    Object.entries(scheduleData).forEach(([ws, recs]) => {
-      recs.forEach(r => {
-        if(r.name !== empName) return;
-        const wDates = getWeekDatesFromStr(ws);
-        const dIdx = ['週一','週二','週三','週四','週五','週六','週日'].indexOf(r.day);
-        const [hy, hm, hd] = h.date.split('-').map(Number);
-        if(dIdx >= 0 && wDates[dIdx] === `${hm}/${hd}` && r.shift && r.shift !== '排休' && r.shift !== '指休') {
-          hasWork = true;
-        }
-      });
-    });
-    if(hasWork) worked.push(h);
-  });
-  return worked;
-}
+function detectHolidayWork(empName, ym) { return SalaryCalc.detectHolidayWork(empName, ym, { scheduleData, holidays: TW_HOLIDAYS }); } // salary-calc.js
 
-function calcMonthOffDays(empName, ym) {
-  // ✅ Bug4修正：只計排休/指休（例休），不含特休/補休
-  // ✅ Bug5修正：時薪另計視為休假，計入已休
-  const [cy, cm] = ym.split('-').map(Number);
-  let offDays = 0;
-  Object.entries(scheduleData).forEach(([ws, recs]) => {
-    recs.forEach(r => {
-      if(r.name !== empName) return;
-      const isRegOff = r.shift === '排休' || r.shift === '指休';
-      const isHourlyOff = r.isHourly === true;
-      if(!isRegOff && !isHourlyOff) return;
-      const wDates = getWeekDatesFromStr(ws);
-      const dIdx = ['週一','週二','週三','週四','週五','週六','週日'].indexOf(r.day);
-      if(dIdx >= 0 && parseInt(wDates[dIdx].split('/')[0]) === cm) offDays++;
-    });
-  });
-  return offDays;
-}
+function calcMonthOffDays(empName, ym) { return SalaryCalc.calcMonthOffDays(empName, ym, { scheduleData }); } // salary-calc.js
 
 function getDisplayName(empName) {
   return displayNameMap[empName] || empName;
@@ -132,30 +89,12 @@ function getMonthLabel(ym) {
   return `${y} 年 ${parseInt(m)} 月`;
 }
 
-function getMonthWeeks(ym) {
-  // 取得某月份涵蓋的所有 ISO 週次（逐日掃描，確保不漏週）
-  const [y, m] = ym.split('-').map(Number);
-  const weeks = new Set();
-  const daysInMonth = new Date(y, m, 0).getDate();
-  for(let day = 1; day <= daysInMonth; day++) weeks.add(weekStrOfDate(new Date(y, m-1, day)));
-  return [...weeks];
-}
+function getMonthWeeks(ym) { return SalaryCalc.monthWeeks(ym); } // salary-calc.js
 
 // 週次字串必須是 getWeekDatesFromStr() 的精準反函式（每週以「週一」起算）。
 // 舊寫法直接把日期套年度週次，週界會隨該年 1/1 是星期幾而變 →「月初落在週六/週日」的月份會整週漏抓。
-function week1MondayOf(yr) {
-  const d = new Date(yr, 0, 1), day = d.getDay();
-  d.setDate(d.getDate() + (day <= 4 ? 1 - day : 8 - day));
-  return d;
-}
-function weekStrOfDate(dt) {
-  const mon = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()); // 去掉時間，避免小數天數進位
-  mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));               // 退到該日所屬的週一
-  let yr = mon.getFullYear();
-  if(mon < week1MondayOf(yr)) yr--; else if(mon >= week1MondayOf(yr + 1)) yr++;  // 跨年首尾週
-  const w = Math.round((mon - week1MondayOf(yr)) / 604800000) + 1;
-  return `${yr}-W${String(w).padStart(2,'0')}`;
-}
+function week1MondayOf(yr) { return SalaryCalc.week1MondayOf(yr); } // salary-calc.js
+function weekStrOfDate(dt) { return SalaryCalc.weekStrOfDate(dt); } // salary-calc.js
   
 function getWeekDatesFromStr(weekStr) {
   const [yr, wk] = weekStr.split('-W').map(Number);
