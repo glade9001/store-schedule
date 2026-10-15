@@ -197,37 +197,52 @@ function hdMultiCard(i, stores, out) {
     }).join('') + '</div>';
 }
 
-// 近 7 日走勢：單店＝長條＋去年同星期折線；多店＝每天一組長條、一店一色。照實際寬度畫（手機字不縮小）
-// mode：'sales' 營業額（刻度以萬）／'cust' 來客（刻度以人；2026-10-16 使用者：同一張圖切換，不另外加圖）
-function hdChart(xs, names, W, mode) {
-  var cust = mode === 'cust', V = function (r) { return cust ? r.c : r.v; }, P = function (r) { return cust ? r.pc : r.p; };
-  var multi = xs.length > 1, rows = xs[0].chart, H = 190, L = 34, base = H - 34, top = 22, step = (W - L - 4) / 7;
-  var vals = []; xs.forEach(function (x) { x.chart.forEach(function (r) { if (V(r) != null) vals.push(V(r)); if (!multi && P(r) != null) vals.push(P(r)); }); });
-  if (!vals.length) return '<p class="hbEmpty">近 7 天還沒有' + (cust ? '來客' : '營業') + '資料</p>';
-  // 刻度：營業額每格 2 萬的倍數；來客每格 100 人的倍數（三格）
-  var unit = cust ? 100 : 20000, stepV = Math.max(unit, Math.ceil(Math.max.apply(null, vals) / 3 / unit) * unit), max = stepV * 3, k = (base - top) / max;
-  var axis = function (v) { return !v ? '0' : cust ? hdMoney(v) : (v / 10000) + '萬'; };
-  var num = function (v) { return cust ? hdMoney(v) : hdW1(v); };
+// 近 7 日走勢（2026-10-16 使用者：營業額跟來客不拆開、同一張圖）
+//   長條＝今年營業額（左軸，萬）；長條上的短橫線＝去年同星期營業額；曲線＝來客（右軸，人）
+//   多店：每天一組長條＋每店一條來客曲線（一店一色，不畫去年，太擠）。照實際寬度畫（手機字不縮小）
+function hdChart(xs, names, W) {
+  var multi = xs.length > 1, rows = xs[0].chart, H = 190, L = 34, R = 34, base = H - 34, top = 22, step = (W - L - R) / 7;
+  var vals = [], cs = [];
+  xs.forEach(function (x) { x.chart.forEach(function (r) { if (r.v != null) vals.push(r.v); if (!multi && r.p != null) vals.push(r.p); if (r.c != null) cs.push(r.c); }); });
+  if (!vals.length && !cs.length) return '<p class="hbEmpty">近 7 天還沒有營業資料</p>';
+  // 刻度：營業額每格 2 萬的倍數、來客每格 50 人的倍數，三格（兩軸共用同一組格線）
+  var stepV = Math.max(20000, Math.ceil(Math.max.apply(null, vals.concat([0])) / 3 / 20000) * 20000), k = (base - top) / (stepV * 3);
+  var stepC = Math.max(50, Math.ceil(Math.max.apply(null, cs.concat([0])) / 3 / 50) * 50), kc = (base - top) / (stepC * 3);
   var y = function (v) { return (base - v * k).toFixed(1); };
-  var s = ['<svg viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" class="hbChart" role="img" aria-label="近 7 日' + (cust ? '來客' : '營業額') + '長條圖">'];
-  for (var g = 0; g <= 3; g++) { var yy = base - g * stepV * k; s.push('<line x1="' + L + '" x2="' + (W - 4) + '" y1="' + yy + '" y2="' + yy + '" class="hbGrid"/><text x="' + (L - 5) + '" y="' + (yy + 3.5) + '" text-anchor="end" class="hbAx">' + axis(g * stepV) + '</text>'); }
-  var groupW = Math.min(multi ? 40 : 28, step * (multi ? 0.74 : 0.56)), bw = multi ? (groupW - 2 * (xs.length - 1)) / xs.length : groupW, pts = [];
+  var yc = function (c) { return (base - c * kc).toFixed(1); };
+  var s = ['<svg viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" class="hbChart" role="img" aria-label="近 7 日營業額長條與來客曲線">'];
+  for (var g = 0; g <= 3; g++) {
+    var yy = base - g * stepV * k;
+    s.push('<line x1="' + L + '" x2="' + (W - R) + '" y1="' + yy + '" y2="' + yy + '" class="hbGrid"/><text x="' + (L - 5) + '" y="' + (yy + 3.5) + '" text-anchor="end" class="hbAx">' + (g ? (g * stepV / 10000) + '萬' : '0') + '</text>');
+    if (cs.length) s.push('<text x="' + (W - R + 5) + '" y="' + (yy + 3.5) + '" class="hbAx c">' + (g ? hdMoney(g * stepC) : '0') + '</text>');
+  }
+  var groupW = Math.min(multi ? 40 : 28, step * (multi ? 0.74 : 0.56)), bw = multi ? (groupW - 2 * (xs.length - 1)) / xs.length : groupW;
+  var lines = xs.map(function () { return []; });
   var WD = ['日', '一', '二', '三', '四', '五', '六'];
   rows.forEach(function (r, i) {
     var cx = L + step * i + step / 2, last = i === rows.length - 1;
     xs.forEach(function (x, j) {
-      var v = V(x.chart[i]); if (v == null) return;
-      var bx = multi ? cx - groupW / 2 + j * (bw + 2) : cx - bw / 2;
-      s.push('<rect x="' + bx.toFixed(1) + '" y="' + y(v) + '" width="' + bw.toFixed(1) + '" height="' + (v * k).toFixed(1) + '" rx="3" ' + (multi ? 'fill="' + x.color + '"' : 'class="hbBar' + (last ? ' now' : '') + '"') + '><title>' + hdMd(r.d) + ' ' + hdEsc(names[j]) + ' ' + hdMoney(v) + (cust ? ' 人' : '') + '</title></rect>');
-      if (!multi) { var ny = Math.min(base - v * k, P(r) == null ? Infinity : base - P(r) * k - 4) - 5; s.push('<text x="' + cx.toFixed(1) + '" y="' + ny.toFixed(1) + '" text-anchor="middle" class="hbNum">' + num(v) + '</text>'); }
+      var q = x.chart[i], v = q.v, bx = multi ? cx - groupW / 2 + j * (bw + 2) : cx - bw / 2;
+      if (q.c != null) lines[j].push([(multi ? bx + bw / 2 : cx).toFixed(1), yc(q.c), q]); else lines[j].push(null);
+      if (v == null) return;
+      s.push('<rect x="' + bx.toFixed(1) + '" y="' + y(v) + '" width="' + bw.toFixed(1) + '" height="' + (v * k).toFixed(1) + '" rx="3" ' + (multi ? 'fill="' + x.color + '"' : 'class="hbBar' + (last ? ' now' : '') + '"') + '><title>' + hdMd(r.d) + ' ' + hdEsc(names[j]) + ' 營業額 ' + hdMoney(v) + '</title></rect>');
+      if (!multi) {
+        var ny = Math.min(base - v * k, q.p == null ? Infinity : base - q.p * k) - 5;
+        s.push('<text x="' + cx.toFixed(1) + '" y="' + ny.toFixed(1) + '" text-anchor="middle" class="hbNum">' + hdW1(v) + '</text>');
+      }
     });
-    if (xs.every(function (x) { return V(x.chart[i]) == null; })) s.push('<text x="' + cx.toFixed(1) + '" y="' + (base - 6) + '" text-anchor="middle" class="hbAx">未填</text>');
+    // 去年同星期：長條上一條比長條寬一點的短橫線（沒有今年的長條也照畫，看得出去年那天多少）
+    if (!multi && r.p != null) s.push('<line x1="' + (cx - groupW / 2 - 4).toFixed(1) + '" x2="' + (cx + groupW / 2 + 4).toFixed(1) + '" y1="' + y(r.p) + '" y2="' + y(r.p) + '" class="hbLy"><title>' + hdMd(r.d) + ' 去年同星期 ' + hdMoney(r.p) + '</title></line>');
+    if (xs.every(function (x) { return x.chart[i].v == null; })) s.push('<text x="' + cx.toFixed(1) + '" y="' + (base - 6) + '" text-anchor="middle" class="hbAx">未填</text>');
     var dw = WD[new Date(r.d + 'T00:00:00').getDay()];
     s.push('<text x="' + cx.toFixed(1) + '" y="' + (base + 15) + '" text-anchor="middle" class="hbAx' + (last ? ' now' : '') + '">' + hdMd(r.d) + '</text><text x="' + cx.toFixed(1) + '" y="' + (base + 28) + '" text-anchor="middle" class="hbAx' + (last ? ' now' : '') + '">(' + dw + ')</text>');
-    pts.push(multi || P(r) == null ? null : [cx.toFixed(1), y(P(r))]);
   });
-  for (var p = 1; p < pts.length; p++) if (pts[p - 1] && pts[p]) s.push('<line x1="' + pts[p - 1][0] + '" y1="' + pts[p - 1][1] + '" x2="' + pts[p][0] + '" y2="' + pts[p][1] + '" class="hbLine"/>');
-  pts.forEach(function (q) { if (q) s.push('<circle cx="' + q[0] + '" cy="' + q[1] + '" r="3.5" class="hbDot"/>'); });
+  // 來客曲線畫在最上層（中間沒填的日子斷開，不硬連）
+  lines.forEach(function (pts, j) {
+    var col = multi ? ' style="stroke:' + xs[j].color + '"' : '';
+    for (var p = 1; p < pts.length; p++) if (pts[p - 1] && pts[p]) s.push('<line x1="' + pts[p - 1][0] + '" y1="' + pts[p - 1][1] + '" x2="' + pts[p][0] + '" y2="' + pts[p][1] + '" class="hbLine"' + col + '/>');
+    pts.forEach(function (q) { if (q) s.push('<circle cx="' + q[0] + '" cy="' + q[1] + '" r="3.5" class="hbDot"' + col + '><title>' + hdMd(rows[pts.indexOf(q)].d) + ' ' + hdEsc(names[j]) + ' 來客 ' + hdMoney(q[2].c) + ' 人</title></circle>'); });
+  });
   return s.join('') + '</svg>';
 }
 
@@ -241,11 +256,8 @@ function hdRender(card, u, stores, ym, out) {
   var sub = multi ? mo + ' 月・' + shown.map(function (s) { return s + ' 填到 ' + hdMd(out[s].lastD); }).join('・')
     : shown[0] + '・' + mo + ' 月・填到 ' + hdMd(xs[0].lastD);
   var cards = multi ? [0, 1, 2, 3].map(function (i) { return hdMultiCard(i, shown, out); }).join('') : hdMetrics(xs[0]).map(hdCard).join('');
-  var mode = 'sales'; try { if (localStorage.getItem('hdMode') === 'cust') mode = 'cust'; } catch (e) {}   // 記住上次看營業額還是來客
-  var legendOf = function (md) { return shown.length > 1 ? shown.map(function (s, j) { return '<span><i class="bar" style="background:' + xs[j].color + '"></i>' + hdEsc(s) + '</span>'; }).join('')
-    : '<span><i class="bar"></i>' + (md === 'cust' ? '來客' : '營業額') + '</span><span><i class="line"></i>去年同星期</span>'; };
-  var titleOf = function (md) { return md === 'cust' ? '來客走勢 <small>近 7 日・人</small>' : '營業額走勢 <small>近 7 日・含稅</small>'; };
-  var seg = '<span class="hbSeg" role="group" aria-label="走勢切換"><button type="button" data-md="sales">營業額</button><button type="button" data-md="cust">來客</button></span>';
+  var legend = multi ? shown.map(function (s, j) { return '<span><i class="bar" style="background:' + xs[j].color + '"></i>' + hdEsc(s) + '</span>'; }).join('') + '<span><i class="line"></i>來客（右軸）</span>'
+    : '<span><i class="bar"></i>營業額</span><span><i class="ly"></i>去年同星期</span><span><i class="line"></i>來客（右軸）</span>';
   var foot = xs.map(function (x, j) {
     var bits = [];
     if (x.rem > 0 && x.needLy != null) bits.push('<span>比去年成長每天要 <b>' + (x.needLy <= 0 ? '已超過' : hdMoney(x.needLy)) + '</b></span>');
@@ -258,7 +270,7 @@ function hdRender(card, u, stores, ym, out) {
   card.className = 'hBoard';
   card.innerHTML = '<div class="hbTitle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 20V11M10 20V6M15 20V9M20 20V4"/></svg><h2>門市經營看板</h2><span>' + hdEsc(sub) + '</span></div>' +
     '<div class="hbCards' + (multi ? ' multi' : '') + '">' + cards + '</div>' +
-    '<div class="hbTrend"><div class="hbTrendH"><h3>' + titleOf(mode) + '</h3>' + seg + '<span class="hbLeg">' + legendOf(mode) + '</span></div><div class="hbSvg"></div>' + foot + '</div>' + tips +
+    '<div class="hbTrend"><div class="hbTrendH"><h3>營業額＋來客 <small>近 7 日・含稅</small></h3><span class="hbLeg">' + legend + '</span></div><div class="hbSvg"></div>' + foot + '</div>' + tips +
     '<button type="button" class="hbMore">看完整分析<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>';
   card.style.display = '';
   card.onclick = function (e) { var r = e.target.closest('[data-st]'), st = r ? r.getAttribute('data-st') : shown[0]; if (r && !out[st]) return; location.href = 'daily-sales.html?store=' + encodeURIComponent(st); };
@@ -267,20 +279,9 @@ function hdRender(card, u, stores, ym, out) {
   function fill() {
     var w = Math.round(el.clientWidth);
     if (!w && tries++ < 30) { requestAnimationFrame(fill); return; }
-    el.innerHTML = hdChart(xs, shown, Math.max(280, Math.min(900, w || 340)), mode);
-    card.querySelectorAll('.hbSeg button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-md') === mode); b.setAttribute('aria-pressed', b.getAttribute('data-md') === mode); });
+    el.innerHTML = hdChart(xs, shown, Math.max(280, Math.min(900, w || 340)));
   }
   fill();
-  // 切換只重畫走勢，不跳到每日營業頁（整張看板的 onclick 會跳頁）
-  card.querySelector('.hbSeg').onclick = function (e) {
-    e.stopPropagation();
-    var b = e.target.closest('button'); if (!b) return;
-    mode = b.getAttribute('data-md');
-    try { localStorage.setItem('hdMode', mode); } catch (err) {}
-    card.querySelector('.hbTrendH h3').innerHTML = titleOf(mode);
-    card.querySelector('.hbLeg').innerHTML = legendOf(mode);
-    fill();
-  };
 }
 
 (function () {
@@ -313,14 +314,11 @@ function hdRender(card, u, stores, ym, out) {
     '.hbTrendH{display:flex;align-items:center;gap:10px;flex-wrap:wrap}' +
     '.hbTrendH h3{margin:0;font-size:14px;font-weight:800}.hbTrendH h3 small{font-weight:500;color:#a9bad3;font-size:11.5px}' +
     '.hbLeg{margin-left:auto;display:flex;gap:12px;font-size:11px;color:#b8c7dc}.hbLeg span{display:flex;align-items:center;gap:5px}' +
-    '.hbSeg{display:inline-flex;border:1px solid #2f8fcc;border-radius:999px;overflow:hidden}' +
-    '.hbSeg button{font:inherit;font-size:12px;font-weight:800;color:#8ec5ff;background:transparent;border:0;padding:5px 12px;min-height:30px;cursor:pointer}' +
-    '.hbSeg button.on{background:#2f8fcc;color:#fff}' +
-    '.hbLeg i{display:inline-block;width:10px;height:10px;border-radius:2px;background:#c0841f}.hbLeg i.line{width:14px;height:2px;border-radius:0;background:#8ec5ff}' +
+    '.hbLeg i{display:inline-block;width:10px;height:10px;border-radius:2px;background:#c0841f}.hbLeg i.line{width:14px;height:2px;border-radius:0;background:#8ec5ff}.hbLeg i.ly{width:14px;height:3px;border-radius:0;background:#fff}' +
     '.hbChart{display:block;max-width:100%}' +
     '.hbGrid{stroke:#2a4675;stroke-width:1}.hbAx{font-size:10px;fill:#93a6c2}.hbAx.now{fill:#f4c06a;font-weight:700}' +
     '.hbNum{font-size:10px;fill:#dce6f5}.hbBar{fill:#c0841f}.hbBar.now{fill:#e0a640}' +
-    '.hbLine{stroke:#8ec5ff;stroke-width:2}.hbDot{fill:#13294b;stroke:#8ec5ff;stroke-width:2}' +
+    '.hbLine{stroke:#8ec5ff;stroke-width:2}.hbDot{fill:#13294b;stroke:#8ec5ff;stroke-width:2}.hbLy{stroke:#fff;stroke-width:2.5;stroke-linecap:round;opacity:.85}.hbAx.c{fill:#8ec5ff}' +
     '.hbFoot{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:11.5px;color:#a9bad3;padding:0 2px}.hbFoot b{color:#fff}' +
     '.hbTip{background:#0f2240;border:1px solid #2a4675;border-radius:12px;padding:9px 12px;font-size:12.5px;line-height:1.6;color:#f4d58a}.hbTip b{color:#fff}' +
     '.hbEmpty{margin:0;font-size:13px;color:#a9bad3}' +

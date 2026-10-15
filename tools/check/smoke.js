@@ -24,7 +24,7 @@ async function homeGroupbuy() {
   }
 }
 
-// 首頁門市經營看板：每家有每日營業的店都算一次，營業額／來客兩種走勢都要畫得出來（2026-10-16 加來客切換）
+// 首頁門市經營看板：每家有每日營業的店都算一次，營業額長條＋去年短橫線＋來客曲線要畫得出來（2026-10-16 合成一張圖）
 async function homeBoard() {
   const ctx = loadFront(['leave-rules.js', 'shift-utils.js', 'labor-budget.js', 'home-ds.js']);
   for (const s of STORES) {
@@ -33,11 +33,13 @@ async function homeBoard() {
       const x = await ctx.hdCompute(s, YM);
       if (!x) { bad(`首頁經營看板 ${s}`, '有本月資料卻算不出看板'); continue; }
       x.color = '#c0841f';
-      const svgS = ctx.hdChart([x], [s], 360, 'sales'), svgC = ctx.hdChart([x], [s], 360, 'cust');
-      const bars = t => (t.match(/<rect /g) || []).length;
-      if (/NaN|undefined|Infinity/.test(svgS + svgC)) bad(`首頁經營看板 ${s}`, '走勢圖出現 NaN／undefined');
-      else if (!bars(svgS) || (x.chart.some(r => r.c != null) && !bars(svgC))) bad(`首頁經營看板 ${s}`, '走勢圖沒有長條');
-      else ok(`首頁經營看板 ${s}`, `營業額 ${bars(svgS)} 天、來客 ${bars(svgC)} 天`);
+      const svg = ctx.hdChart([x], [s], 360), svgM = ctx.hdChart([x, Object.assign({}, x, { color: '#2f8fcc' })], [s, s], 360);
+      const cnt = (t, re) => (t.match(re) || []).length;
+      const bars = cnt(svg, /<rect /g), dots = cnt(svg, /<circle /g), ly = cnt(svg, /class="hbLy"/g);
+      const want = { bars: x.chart.filter(r => r.v != null).length, dots: x.chart.filter(r => r.c != null).length, ly: x.chart.filter(r => r.p != null).length };
+      if (/NaN|undefined|Infinity/.test(svg + svgM)) bad(`首頁經營看板 ${s}`, '走勢圖出現 NaN／undefined');
+      else if (bars !== want.bars || dots !== want.dots || ly !== want.ly) bad(`首頁經營看板 ${s}`, `長條 ${bars}/${want.bars}、來客點 ${dots}/${want.dots}、去年線 ${ly}/${want.ly}`);
+      else ok(`首頁經營看板 ${s}`, `營業額 ${bars} 天、去年 ${ly} 天、來客 ${dots} 天`);
     } catch (e) { bad(`首頁經營看板 ${s}`, e.message); }
   }
 }
