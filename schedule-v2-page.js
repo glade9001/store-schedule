@@ -622,67 +622,9 @@ async function deductLeave(empName, day, weekStr, prevShift, newShift) {
 // ===== 從 annualUsage / compUsage 帳本重算快取欄位（給 salary/leave/export 等既有讀取端用）=====
 // usedAnnual/usedComp = 帳本筆數(依年)；補休 earned 仍取自 leaveLog(comp_earn/comp_cancel)；
 // 補休遞延(前一年度 carried)優先扣，其餘記當年度。idempotent。
-async function recomputeLeaveCounters(empName, yearStr) {
-  const empRef = window.db.collection('employees').doc(empName);
-  const batchesRef = empRef.collection('leaveBatches');
-  const [annSnap, compSnap, leaveSnap, logSnaps, prevCompSnap, bSnap] = await Promise.all([
-    empRef.collection('annualUsage').get(),
-    empRef.collection('compUsage').get(),
-    empRef.collection('leaves').doc(yearStr).get(),
-    empRef.collection('leaveLog').get(),
-    empRef.collection('comp').doc(String(parseInt(yearStr)-1)).get(),
-    batchesRef.get()
-  ]);
-
-  let finalAnnualUse=0, finalCompUse=0;
-  const annDatesAll=[]; // 全部特休使用日(跨年)，用於批次日期歸屬
-  annSnap.forEach(d => { const dt=(d.data().date)||d.id; annDatesAll.push(dt); if(String(dt).startsWith(yearStr)) finalAnnualUse++; });
-  compSnap.forEach(d => { const dt=(d.data().date)||d.id; if(String(dt).startsWith(yearStr)) finalCompUse++; });
-
-  let cEarn=0, cCan=0;
-  logSnaps.forEach(doc => {
-    if(!doc.id.startsWith(yearStr)) return;
-    (doc.data().records || []).forEach(r => { const rd=parseFloat(r.days)||0; if(r.type==='comp_earn')cEarn+=rd; if(r.type==='comp_cancel')cCan+=rd; });
-  });
-  const finalCompEarn = Math.max(0, cEarn - cCan);
-
-  const ld = leaveSnap.exists ? leaveSnap.data() : {};
-  const leaveRef = empRef.collection('leaves').doc(yearStr);
-  const compRef  = empRef.collection('comp').doc(yearStr);
-  const prevCompRef = empRef.collection('comp').doc(String(parseInt(yearStr)-1));
-
-  const prevC = prevCompSnap.exists ? prevCompSnap.data() : null;
-  const carriedActive = !!(prevC && prevC.carried === true && !prevC.settled);
-  const carriedAvail  = carriedActive ? Math.max(0, (prevC.earned||0) - (prevC.used||0)) : 0;
-  const carriedUsedNow = carriedActive ? Math.min(finalCompUse, carriedAvail) : 0;
-  const currentCompUse = finalCompUse - carriedUsedNow;
-
-  const writes = [
-    leaveRef.set({ ...ld, usedAnnual: finalAnnualUse, earnedComp: finalCompEarn, usedComp: finalCompUse, updatedAt: new Date().toISOString() }, { merge: true }),
-    compRef.set({ earned: finalCompEarn, used: currentCompUse }, { merge: true })
-  ];
-  if(carriedActive) writes.push(prevCompRef.set({ carriedUsed: carriedUsedNow }, { merge: true }));
-
-  // 🌟 批次「已用」重算：先拿到先用(FIFO)——依取得日(grantDate)由舊到新扣完，快到期的先消耗。
-  // settled 批次不動；超額(用超過總天數)記到最新批次(容許負餘額)。sum(used)==特休使用總數。
-  const batches=[]; bSnap.forEach(d=>batches.push({ id:d.id, ...d.data() }));
-  const settledUsed = batches.filter(b=>b.settled).reduce((s,b)=>s+(b.used||0),0);
-  const nonS = batches.filter(b=>!b.settled).sort((a,b)=>String(a.grantDate||'').localeCompare(String(b.grantDate||'')));
-  let rem = Math.max(0, annDatesAll.length - settledUsed);
-  nonS.forEach((b,i)=>{ const cap=b.days||0; let u=Math.min(cap,rem); rem-=u; if(i===nonS.length-1 && rem>0){ u+=rem; rem=0; } if((b.used||0)!==u) writes.push(batchesRef.doc(b.id).set({ used:u }, { merge:true })); });
-
-  await Promise.all(writes);
-}
+async function recomputeLeaveCounters(empName, yearStr) { return lvRecomputeLeaveCounters(empName, yearStr); } // 規則在 leave-rules.js（2026-10-16 合併）
 // 某天國定假日補休的淨額（發放 − 撤銷）；同 functions syncHolidayCompForWeek、comp-avail.js 的口徑
-function holidayCompNet(records, date) {
-  let net = 0;
-  (records||[]).forEach(r => {
-    if(!r || r.date !== date || !(r.source === 'holiday' || String(r.note||'').includes('國定假日'))) return;
-    const n = parseFloat(r.days) || 1;
-    if(r.type === 'comp_earn') net += n; else if(r.type === 'comp_cancel') net -= n;
-  });
-  return net;
-}
+function holidayCompNet(records, date) { return lvHolidayCompNet(records, date); } // 規則在 leave-rules.js
 // ===== 國定假日補休：發放 =====
 async function grantHolidayComp(empName, fullDate, holidayName) {
   const year = fullDate.slice(0,4);
@@ -746,9 +688,7 @@ async function revokeHolidayComp(empName, fullDate, holidayName) {
 // ===== 國定假日偵測：這格儲存時檢查是否需要發/撤銷補休 =====
 // 計薪模式：payAsPartTime（如楷岳，職務店長但領時薪）在排班端也比照工讀——統計看工時、國定假日不發補休
 // （與 salary.html effSalaryRole 同一旗標）
-function isPartTimeEmp(emp) {
-  return !!emp && (!!emp.payAsPartTime || (emp.role||'').includes('工讀'));
-}
+function isPartTimeEmp(emp) { return lvIsPayPartTime(emp); } // 規則在 leave-rules.js
 
 async function checkHolidayCompOnSave(empName, fullDate, prevShift, newShift, emp) {
   // 工讀生不處理補休（加盟主照發：使用者 2026-10-15 確認）

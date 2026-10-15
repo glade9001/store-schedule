@@ -213,7 +213,7 @@ function hideLoading(){ document.getElementById('loadingOverlay').classList.add(
 function showToast(m){ const t=document.getElementById('toast'); t.textContent=m; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2500); }
 function openModal(id){ document.getElementById(id).classList.add('active'); }
 function closeModal(id){ document.getElementById(id).classList.remove('active'); }
-function today(){ return new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().split('T')[0]; }
+function today(){ return lvLocalYmd(); } // leave-rules.js
 function fmtDate(s){ if(!s)return '--'; const[y,m,d]=s.split('-'); return `${parseInt(m)}/${parseInt(d)}`; }
 function fmtDateFull(s){ if(!s)return '--'; const[y,m,d]=s.split('-'); return `${y}年${parseInt(m)}月${parseInt(d)}日`; }
 function getDN(n){ return displayNameMap[n]||n; }
@@ -264,7 +264,7 @@ function getDeadlineForWeek(weekStr){
 // ===== 開放範圍（使用者 2026-09-22）=====
 // 只開放未來 4 週（店長以上 8 週）：每週一 16:00 開放新的一週（週一 16:00 後最新開放到「本週＋5 週」那週，之前到「＋4 週」）。
 // 各週截止仍是前一週週一 23:59（getDeadlineForWeek），所以平常同時開放的剛好是 4 週。
-function lrYmd(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function lrYmd(d){ return lvLocalYmd(d); } // leave-rules.js
 function lrNewestOpenSunday(){
   const now = new Date();
   const mon = new Date(now.getFullYear(), now.getMonth(), now.getDate());

@@ -19,7 +19,7 @@ function showToast(m){const t=document.getElementById('toast');t.textContent=m;t
 function openModal(id){document.getElementById(id).classList.add('active');}
 function closeModal(id){document.getElementById(id).classList.remove('active');}
 function handleBack(){if(window.history.length>1)window.history.back();else window.location.href='home.html';}
-function today(){return new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().split('T')[0];}
+function today(){ return lvLocalYmd(); } // leave-rules.js
 function fmtDate(s){if(!s)return '--';const[y,m,d]=s.split('-');return `${y}/${parseInt(m)}/${parseInt(d)}`;}
 function getDN(n){return displayNameMap[n]||n;}
 // 方案C：把某年度使用日期排成「4/21、4/22」字串（給概況卡內嵌顯示）
@@ -41,16 +41,10 @@ function isExpiringThisMonth(dateStr) {
 }
 
 // ===== 勞基法週年制 =====
-function annualLeaveRule(totalMonths) {
-  if(totalMonths < 6)   return { days:0,  label:'未滿6個月' };
-  if(totalMonths < 12)  return { days:3,  label:'滿6個月' };
-  if(totalMonths < 24)  return { days:7,  label:'滿1年' };
-  if(totalMonths < 36)  return { days:10, label:'滿2年' };
-  if(totalMonths < 48)  return { days:14, label:'滿3年' };
-  if(totalMonths < 60)  return { days:14, label:'滿4年' };
-  if(totalMonths < 120) return { days:15, label:'滿5年' };
-  const extra = Math.floor(totalMonths/12) - 10;
-  return { days:Math.min(30, 15+extra+1), label:`滿${Math.floor(totalMonths/12)}年` };
+function annualLeaveRule(totalMonths) { // 天數規則在 leave-rules.js lvAnnualDays；這裡只加顯示文字
+  const y = Math.floor(totalMonths / 12);
+  const label = totalMonths < 6 ? '未滿6個月' : totalMonths < 12 ? '滿6個月' : `滿${y}年`;
+  return { days: lvAnnualDays(totalMonths), label };
 }
 
 function calcBatchSchedule(hireDate) {
@@ -848,44 +842,7 @@ async function adjustBatchUsed(empName, delta) {
   }
 }
 // 從帳本集合重算快取（與 schedule-V2.html recomputeLeaveCounters 一致）
-async function recomputeCountersClient(empName, yearStr) {
-  const empRef = window.db.collection('employees').doc(empName);
-  const batchesRef = empRef.collection('leaveBatches');
-  const [annSnap, compSnap, leaveSnap, logSnaps, prevCompSnap, bSnap] = await Promise.all([
-    empRef.collection('annualUsage').get(),
-    empRef.collection('compUsage').get(),
-    empRef.collection('leaves').doc(yearStr).get(),
-    empRef.collection('leaveLog').get(),
-    empRef.collection('comp').doc(String(parseInt(yearStr)-1)).get(),
-    batchesRef.get()
-  ]);
-  let fa=0, fc=0; const annDatesAll=[];
-  annSnap.forEach(d=>{ const dt=(d.data().date)||d.id; annDatesAll.push(dt); if(String(dt).startsWith(yearStr)) fa++; });
-  compSnap.forEach(d=>{ const dt=(d.data().date)||d.id; if(String(dt).startsWith(yearStr)) fc++; });
-  let cE=0, cC=0;
-  logSnaps.forEach(doc=>{ if(!doc.id.startsWith(yearStr)) return; (doc.data().records||[]).forEach(r=>{ const rd=parseFloat(r.days)||0; if(r.type==='comp_earn')cE+=rd; if(r.type==='comp_cancel')cC+=rd; }); });
-  const fCE=Math.max(0,cE-cC);
-  const ld=leaveSnap.exists?leaveSnap.data():{};
-  const prevC=prevCompSnap.exists?prevCompSnap.data():null;
-  const cActive=!!(prevC&&prevC.carried===true&&!prevC.settled);
-  const cAvail=cActive?Math.max(0,(prevC.earned||0)-(prevC.used||0)):0;
-  const cUsedNow=cActive?Math.min(fc,cAvail):0;
-  const curUse=fc-cUsedNow;
-  const writes=[
-    empRef.collection('leaves').doc(yearStr).set({ ...ld, usedAnnual:fa, earnedComp:fCE, usedComp:fc, updatedAt:new Date().toISOString() }, { merge:true }),
-    empRef.collection('comp').doc(yearStr).set({ earned:fCE, used:curUse }, { merge:true })
-  ];
-  if(cActive) writes.push(empRef.collection('comp').doc(String(parseInt(yearStr)-1)).set({ carriedUsed:cUsedNow }, { merge:true }));
-
-  // 🌟 批次「已用」重算(與 schedule-V2 一致)：先拿到先用(FIFO)，依取得日由舊到新扣完；settled 不動
-  const batches=[]; bSnap.forEach(d=>batches.push({ id:d.id, ...d.data() }));
-  const settledUsed = batches.filter(b=>b.settled).reduce((s,b)=>s+(b.used||0),0);
-  const nonS = batches.filter(b=>!b.settled).sort((a,b)=>String(a.grantDate||'').localeCompare(String(b.grantDate||'')));
-  let rem = Math.max(0, annDatesAll.length - settledUsed);
-  nonS.forEach((b,i)=>{ const cap=b.days||0; let u=Math.min(cap,rem); rem-=u; if(i===nonS.length-1 && rem>0){ u+=rem; rem=0; } if((b.used||0)!==u) writes.push(batchesRef.doc(b.id).set({ used:u }, { merge:true })); });
-
-  await Promise.all(writes);
-}
+async function recomputeCountersClient(empName, yearStr) { return lvRecomputeLeaveCounters(empName, yearStr); } // 規則在 leave-rules.js（2026-10-16 合併）
 
 // ===== Tab 切換 =====
 function switchTab(tab) {

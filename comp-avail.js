@@ -5,10 +5,7 @@
 // 還沒過的＝leaveLog 裡 comp_earn 來源是國定假日、日期 ≥ 今天，扣掉同日期的國定假日補休撤銷（comp_cancel）。
 // 本檔只有 function 宣告（前綴 ca），任何頁面掛上來都不會撞名。
 
-function caToday() {
-  var d = new Date();
-  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-}
+function caToday() { return lvLocalYmd(); } // leave-rules.js（載入本檔的頁面要先載 leave-rules.js）
 
 /**
  * @returns {Promise<{balance:number, effective:number, pending:Array<{date:string, n:number}>}>}

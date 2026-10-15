@@ -59,7 +59,7 @@ function lbFit(xs, ys) {
 /** 工讀平均時薪（在職、有填時薪）；沒有就回 null */
 function lbPartTimeWage(employees, burden) {
   var ws = (employees || []).filter(function (e) {
-    return e && !['離職', '調走'].includes(e.status) && (e.payAsPartTime || String(e.role || '').includes('工讀')) && +e.wage > 0;
+    return e && !['離職', '調走'].includes(e.status) && lvIsPayPartTime(e) && +e.wage > 0;
   }).map(function (e) { return +e.wage; });
   // 要加上公司負擔（勞保、健保、勞退）（2026-10-11 使用者確認修正）。只影響「比近 3 月多／少的人事」換算成的時數，
   // 10 月實際差：美德 −17h、聯鑫 −6h、錦花 +19h（人事上限低於近 3 月時，貴的時薪換算出的減少時數變少）

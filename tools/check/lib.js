@@ -60,9 +60,9 @@ async function group(coll) {
 }
 
 /** 假的 Firestore（前端 compat SDK 形狀，唯讀）：給在 Node 裡直接跑頁面函式用 */
-function fakeDb() {
+function fakeDb(capture) {
   const snapOf = (p, d) => ({ id: p.split('/').pop(), exists: !!d, data: () => d || undefined, ref: docRef(p) });
-  function docRef(p) { return { id: p.split('/').pop(), path: p, get: async () => { const d = await getDoc(p); return snapOf(p, d && d.data); }, collection: c => collRef(p + '/' + c), set: ro, update: ro, delete: ro }; }
+  let docRef = function (p) { return { id: p.split('/').pop(), path: p, get: async () => { const d = await getDoc(p); return snapOf(p, d && d.data); }, collection: c => collRef(p + '/' + c), set: ro, update: ro, delete: ro }; };
   function collRef(p) {
     const filt = [];
     const q = {
@@ -81,6 +81,9 @@ function fakeDb() {
     return q;
   }
   function ro() { throw new Error('檢查程式不可寫入正式資料'); }
+  // capture：只記錄要寫什麼（不寫入），給比對用
+  const _docRef = docRef;
+  if (capture) docRef = function (p) { const r = _docRef(p); r.set = async (d) => { capture.push({ path: p, data: d }); }; r.update = r.set; return r; };
   return { collection: c => collRef(c) };
 }
 const fakeFirebase = () => ({ firestore: Object.assign(() => fakeDb(), { FieldPath: { documentId: () => '__id' }, FieldValue: {}, Timestamp: { fromDate: d => ({ toMillis: () => +d }) } }) });

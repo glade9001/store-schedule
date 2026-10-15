@@ -64,16 +64,8 @@ function settleMonthsBetween(fromDate, toDate) {
   return Math.max(0, m);
 }
 
-/** 勞基法 §38 特休天數表（與 salary-page.js annualLeaveRuleSalary 同一份） */
-function settleAnnualRule(totalMonths) {
-  if (totalMonths < 6) return 0;
-  if (totalMonths < 12) return 3;
-  if (totalMonths < 24) return 7;
-  if (totalMonths < 36) return 10;
-  if (totalMonths < 60) return 14;
-  if (totalMonths < 120) return 15;
-  return Math.min(30, 15 + Math.floor(totalMonths / 12) - 9);
-}
+/** 勞基法 §38 特休天數表：規則在 leave-rules.js lvAnnualDays（載入本檔的頁面要先載 leave-rules.js） */
+function settleAnnualRule(totalMonths) { return lvAnnualDays(totalMonths); }
 
 /** 日薪基準：月薪 ÷ 30（與既有 calcCarrySettlement / calcRetireSettlement 一致） */
 function settleDailyWage(monthWage) {

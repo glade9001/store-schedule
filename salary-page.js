@@ -256,17 +256,8 @@ function monthsDiffSalary(from, to) {
 function dateAddMonths(s, months) {
   const d=new Date(s); d.setMonth(d.getMonth()+months); return d.toISOString().split('T')[0];
 }
-function annualLeaveRuleSalary(totalMonths) {
-  if(totalMonths<6)   return {days:0};
-  if(totalMonths<12)  return {days:3};
-  if(totalMonths<24)  return {days:7};
-  if(totalMonths<36)  return {days:10};
-  if(totalMonths<48)  return {days:14};
-  if(totalMonths<60)  return {days:14};
-  if(totalMonths<120) return {days:15};
-  return {days:Math.min(30,15+Math.floor(totalMonths/12)-9)};
-}
-function today() { return new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().split('T')[0]; }
+function annualLeaveRuleSalary(totalMonths) { return { days: lvAnnualDays(totalMonths) }; } // 規則在 leave-rules.js
+function today(){ return lvLocalYmd(); } // leave-rules.js
 // ===== 確認遞延假結算（納入當月薪資）=====
 async function confirmCarrySettle(empName) {
   const carry = calcCarrySettlement(empName);
@@ -2983,7 +2974,7 @@ function renderSalaryForm(emp, rec, idx, readonly) {
           .then(snap => {
             const recs2 = snap.exists ? (snap.data().records||[]) : [];
             // 看淨額（發放 − 撤銷）：撤銷後 comp_earn 還在，只看有沒有 earn 會誤報「已發放」（2026-10-15）
-            const _net = d => recs2.reduce((t, r) => (r && r.date===d && (r.source==='holiday' || (r.note||'').includes('國定假日'))) ? t + (r.type==='comp_earn' ? (parseFloat(r.days)||1) : r.type==='comp_cancel' ? -(parseFloat(r.days)||1) : 0) : t, 0);
+            const _net = d => lvHolidayCompNet(recs2, d); // 規則在 leave-rules.js
             const allGranted = _worked.every(h => _net(h.date) > 0);
             const noneGranted = !_worked.some(h => _net(h.date) > 0);
             const holidayNames = _worked.map(h => `${parseInt(h.date.slice(5,7))}/${parseInt(h.date.slice(8,10))} ${h.name}`).join('、');
@@ -3242,7 +3233,8 @@ function renderLeaveSection(empName, rec, idx, readonly) {
           const statusId = `hcomp-${empName.replace(/[^a-zA-Z0-9]/g,'_')}-${h.date}`;
           const el = document.getElementById(statusId);
           if(!el) return;
-          const granted = records.some(r => r.type === 'comp_earn' && r.date === h.date && (r.note||'').includes('國定假日'));
+          // 看淨額（發放−撤銷）：只看有沒有 comp_earn，撤銷過的也會顯示「已發放」（2026-10-16 整理時發現，同 10/15 修過的那個 bug）
+          const granted = lvHolidayCompNet(records, h.date) > 0;
           if(granted) {
             el.innerHTML = '<span style="color:#16a34a;font-weight:700;">✅ 補休已自動完成發放</span>';
           } else {

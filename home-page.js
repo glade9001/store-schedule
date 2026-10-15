@@ -1987,7 +1987,7 @@ async function loadPendingItems() {
             // ⚠️ 2026-10-15：原本只在「剛好當天」提醒，那天沒人開 App 就永遠不再出現，批次只能手動新增 → 特休就漏了
             //    （查到 2 位正職 7/1 該新增的批次沒有）。正職改成：週年後 180 天內、還沒有對應批次（取得日差 31 天內）就一直提醒。
             //    工讀維持只在當天提醒（工讀幾乎都沒建特休批次，是否要追蹤待使用者決定）。
-            const isPT = emp.payAsPartTime || String(emp.role||'').includes('工讀');
+            const isPT = lvIsPayPartTime(emp);
             const hasBatchNear = d => batches.some(b => b.grantDate && Math.abs((new Date(b.grantDate) - new Date(d)) / 86400000) <= 31);
             const dueNow = d => isPT ? d === todayStr
               : (d <= todayStr && (new Date(todayStr) - new Date(d)) / 86400000 <= 180 && !hasBatchNear(d));
@@ -2002,14 +2002,7 @@ async function loadPendingItems() {
               const annivDate = _dateAdd(hireDate, yr * 12);
               if(annivDate > todayStr) break;
               if(dueNow(annivDate)) {
-                const months = yr * 12;
-                let days = 0;
-                if(months < 24) days = 7;
-                else if(months < 36) days = 10;
-                else if(months < 48) days = 14;
-                else if(months < 60) days = 14;
-                else if(months < 120) days = 15;
-                else days = Math.min(30, 15 + Math.floor(months/12) - 10 + 1);
+                const days = lvAnnualDays(yr * 12); // 規則在 leave-rules.js
                 storePending.push({ type:'特休週年', desc:`${store}｜${empDisplayName} ${whenTxt(annivDate)}滿${yr}年，請至特休管理新增批次（${days}天）`, link:'leave.html', color:'#9334e6' });
               }
             }
