@@ -853,7 +853,8 @@ function odDailyRows(only){
     const daily=x.loaded.daily||{}, pm=lbAddMonth(ym,-1);
     const ds=Object.keys(daily).filter(d=>d.startsWith(ym)&&daily[d]&&daily[d].sales!=null).sort(); if(!ds.length) return;
     const win={}; Object.keys(daily).forEach(d=>{ if(d.startsWith(ym)||d.startsWith(pm)) win[d]=daily[d]; });
-    const big=lbBigDays(win).big, lyBig=lbBigDays(x.ly).big;
+    const bigOn=!(x.loaded.pds&&x.loaded.pds.bigOn===false); // 大單有進損益表的店（聯鑫）不扣
+    const big=lbBigDays(win,bigOn).big, lyBig=lbBigDays(x.ly,bigOn).big;
     const adj=(v,b)=>+v.sales-(b?b.excess:0);
     let cum=0, s1=0, s0=0, pk=0;
     ds.forEach(d=>{ const a=adj(daily[d],big[d]); cum+=a; const l=x.ly[odShiftDay(d,-364)]; if(l&&l.sales!=null){ s1+=a; s0+=adj(l,lyBig[odShiftDay(d,-364)]); pk++; } });
@@ -877,7 +878,7 @@ function renderDailyDash(rows){
       <span style="font-size:12.5px;color:var(--muted);font-weight:700;">到 ${md(r.lastD)} 累計 ${wan(r.cum)}${r.yoy!=null?`・比去年同期 <span style="color:${r.yoy>=0?'#137333':'#c5221f'}">${pct(r.yoy)}</span>`:''}</span>
       <a href="daily-sales.html?store=${encodeURIComponent(r.s)}&ref=owner-dashboard.html" style="margin-left:auto;font-size:12px;font-weight:800;color:#1a73e8;text-decoration:none;white-space:nowrap;">看分析 ›</a></div>
     ${r.rem>0&&(r.needTgt!=null||r.needLy!=null)?`<div style="font-size:13px;display:flex;flex-wrap:wrap;gap:2px 14px;"><span>剩下 ${r.rem} 天每天要做到：</span>${[need(r.needTgt,'達標'),need(r.needLy,'比去年成長')].filter(Boolean).join('')}</div>`:''}
-  </div>`).join('')+`<div style="font-size:11px;color:var(--muted);line-height:1.6;margin-top:8px;">只列有輸入每日營業額的店。金額＝後台 PSD（含稅），已扣掉客單特別高的大單多出的部分；去年同期對齊星期幾。</div>`;
+  </div>`).join('')+`<div style="font-size:11px;color:var(--muted);line-height:1.6;margin-top:8px;">只列有輸入每日營業額的店。金額＝後台 PSD（含稅）；大單不進損益表的店已扣掉客單特別高的大單多出的部分；去年同期對齊星期幾。</div>`;
 }
 function lbSummary(only){
   if(!lbDash) return '計算中…';

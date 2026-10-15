@@ -7,7 +7,7 @@
 // 每日營業頁存檔時會清掉該店快取（daily-sales-page.js），輸入完回首頁馬上看到新數字。
 // 比照 shift-utils.js：只有 function 與 var（前綴 hd），掛在首頁不會撞名。
 var HD_TTL = 30 * 60 * 1000;
-var HD_KEY = 'hdc4:';   // 快取鍵（資料格式改版就換名字，舊快取自然失效）
+var HD_KEY = 'hdc5:';   // 快取鍵（資料格式改版就換名字，舊快取自然失效）
 var HD_COLORS = ['#c0841f', '#2f8fcc', '#d9628e'];   // 三店在深藍底上的顏色（dataviz 驗證：亮度帶、色盲分辨、對比都過）
 var hdBusy = false;
 
@@ -56,7 +56,8 @@ async function hdCompute(store, ym) {
   var pm = lbAddMonth(ym, -1), win = {};
   Object.keys(lb.daily || {}).forEach(function (d) { if (d.slice(0, 7) === pm) win[d] = lb.daily[d]; });
   Object.keys(days).forEach(function (d) { win[d] = days[d]; });
-  var big = lbBigDays(win).big, lyBig = lbBigDays(ly).big;
+  var bigOn = !(lb.pds && lb.pds.bigOn === false); // 大單有進損益表的店（聯鑫）不扣
+  var big = lbBigDays(win, bigOn).big, lyBig = lbBigDays(ly, bigOn).big;
   var adj = function (x, b) { return +x.sales - (b ? b.excess : 0); };
   var cum = 0; ds.forEach(function (d) { cum += adj(days[d], big[d]); });
   var lastD = ds[ds.length - 1], rem = n - (+lastD.slice(8));

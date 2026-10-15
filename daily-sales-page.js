@@ -19,9 +19,13 @@ const DS_EDIT_DAYS = 7;  // 作帳人員可改最近 7 天（含今天）
 const DS_OFF = ['排休', '指休', '特休', '補休', '清空', ''];
 const DS_WD = ['日', '一', '二', '三', '四', '五', '六'];
 // 防呆（2026-10-11 使用者要求）：日結單「收銀機合計」欄印刷錯一列，照列對很容易抄成
-// 120「扣除行動隨取」（少了代銷隨取，約少 15~20%）或抄到別列 → 跟近 4 週平均比，差太多先確認。
+// 120「扣除行動隨取」（少了代銷隨取，約少 15~20%）或抄到別列。
+// 2026-10-15 改成跟「前 4 週同一個星期幾」的中位數比**客單價**：原本跟近 4 週平均比營業額，
+// 聯鑫週日 30～55 萬、平日 7～9 萬，存檔有 56% 會跳確認（店長會習慣直接按確定）。
+// 抄成 120 時來客對、營業額少 → 客單掉，用客單最抓得到。實測（聯鑫／美德）：±15% 誤報約 20%、抓到 120 約 64%（使用者選 ±15%）。
 const DS_REF_DAYS = 28;
-const DS_DEV = 0.3;          // 跟近 4 週平均差超過 30% 先確認
+const DS_DEV = 0.3;          // 沒填來客時，營業額跟同星期中位數差超過 30% 先確認
+const DS_TICKET_DEV = 0.15;  // 客單跟同星期中位數差超過 15% 先確認
 const DS_SALES_MAX = 1000000; // 擋多打一位數；聯鑫大單日（週日）常 30～55 萬，上限不可設 30 萬
 
 function dsToast(m) { const t = document.getElementById('toast'); t.textContent = m; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2600); }
@@ -115,12 +119,18 @@ async function dsLoadRecent() {
   const snap = await dsRef().collection('dailySales').where(FP, '>=', shiftDateAdd(dsToday(), -DS_REF_DAYS)).get().catch(() => null);
   if (snap) snap.forEach(d => { dsRecent[d.id] = d.data(); });
 }
-// 近 4 週平均（排除正在輸入的那天）；資料少於 5 天不比，避免被單日帶偏
-function dsRefAvg(key, exclude) {
-  const v = Object.keys(dsRecent).filter(d => d !== exclude).map(d => dsRecent[d][key]).filter(x => x != null && +x > 0).map(Number);
-  return v.length >= 5 ? v.reduce((a, b) => a + b, 0) / v.length : null;
+// 前 4 週同一個星期幾（date−7／14／21／28）的中位數；少於 3 天不比。
+// 店長補很久以前的日子時 dsRecent 沒有，傳 extra（另外讀的那幾天）。
+const dsMedian = v => { const s = [...v].sort((a, b) => a - b), k = s.length >> 1; return s.length % 2 ? s[k] : (s[k - 1] + s[k]) / 2; };
+function dsSameWd(date, f, extra) {
+  const v = [7, 14, 21, 28].map(k => { const d = shiftDateAdd(date, -k); return (extra && extra[d]) || dsRecent[d]; }).filter(Boolean).map(f).filter(x => x != null && isFinite(x) && x > 0);
+  return v.length >= 3 ? dsMedian(v) : null;
 }
-function dsHint(key, dflt) { const a = dsRefAvg(key); return a ? '近 4 週平均 ' + dsMoney(a) : dflt; }
+const dsTicketOf = x => +x.customers > 0 && x.sales != null ? +x.sales / +x.customers : null;
+function dsHint(key, dflt, date) {
+  const a = dsSameWd(date || dsToday(), x => x[key] != null ? +x[key] : null);
+  return a ? `前 4 週週${dsWdOf(date || dsToday())}約 ${dsMoney(a)}` : dflt;
+}
 
 // 漏輸入提醒（使用者 2026-10-11：只放在這一頁，不上首頁——測試功能，別店不一定想用）
 // 最近 7 天（作帳人員能改的範圍）到昨天為止沒輸入的日子；本店最近 14 天完全沒輸入過就不顯示（還沒開始用）。
@@ -133,12 +143,18 @@ function dsRenderMiss() {
   el.innerHTML = active && miss.length ? `<div class="miss">⚠️ 最近 7 天有 ${miss.length} 天還沒輸入：${miss.map(d => `<a onclick="dsEditDay('${d}')">${dsMd(d)}（${dsWdOf(d)}）</a>`).join('、')}<small>點日期直接補；漏一天，那個月就不能拿來校正工時上限。</small></div>` : '';
 }
 
+let dsPickSeq = 0; // 快速切換日期時，只採用最後一次讀回來的資料（否則前一天的數字可能晚到、填進現在這天）
 async function dsPickDate(date) {
-  const tag = document.getElementById('dsSavedTag');
+  const tag = document.getElementById('dsSavedTag'), seq = ++dsPickSeq;
   ['dsSales', 'dsCust'].forEach(id => { document.getElementById(id).value = ''; });
   tag.textContent = ''; dsPicked = null;
   if (!date) return;
+  document.getElementById('dsSales').placeholder = dsHint('sales', '例：65000', date);
+  document.getElementById('dsCust').placeholder = dsHint('customers', '例：600', date);
+  const btn = document.getElementById('dsSaveBtn'); if (btn) btn.disabled = true; // 讀完才能存，避免把舊資料當成沒輸入過
   const snap = await dsRef().collection('dailySales').doc(date).get().catch(() => null);
+  if (seq !== dsPickSeq || document.getElementById('dsDate').value !== date) return;
+  if (btn) btn.disabled = false;
   if (snap && snap.exists) {
     const d = dsPicked = snap.data();
     document.getElementById('dsSales').value = d.sales ?? '';
@@ -167,10 +183,21 @@ async function dsSave() {
   if (sales === 0 && !confirm('銷貨收入是 0，確定這天沒有營業嗎？')) return;
   // 防手誤：銷貨收入跟來客數差太多（客單價 < 20 或 > 2000）先確認一次
   if (cust && (sales / cust < 20 || sales / cust > 2000) && !confirm(`客單價算出來是 ${Math.round(sales / cust)} 元，數字確定沒打錯嗎？`)) return;
-  // 防抄錯列：跟近 4 週平均差太多
-  const warns = [];
-  const chk = (v, key, label) => { const a = dsRefAvg(key, date); if (v && a && Math.abs(v / a - 1) > DS_DEV) warns.push(`${label} ${dsMoney(v)}，近 4 週平均 ${dsMoney(a)}（${v > a ? '多' : '少'} ${Math.round(Math.abs(v / a - 1) * 100)}%）`); };
-  chk(sales, 'sales', '銷貨收入'); chk(cust, 'customers', '來客數');
+  // 防抄錯列：跟前 4 週同星期幾比（有來客比客單，沒來客才比營業額）
+  const warns = [], wd = dsWdOf(date);
+  let extra = null; // 補舊日子：dsRecent 只有最近 4 週，另外讀那 4 天
+  if ([7, 14, 21, 28].some(k => !dsRecent[shiftDateAdd(date, -k)]) && date < shiftDateAdd(dsToday(), -7)) {
+    extra = {};
+    await Promise.all([7, 14, 21, 28].map(k => shiftDateAdd(date, -k)).map(d => dsRef().collection('dailySales').doc(d).get().then(s => { if (s.exists) extra[d] = s.data(); }).catch(() => {})));
+  }
+  const pct = (v, a) => `${v > a ? '多' : '少'} ${Math.round(Math.abs(v / a - 1) * 100)}%`;
+  if (cust > 0) {
+    const t = sales / cust, a = dsSameWd(date, dsTicketOf, extra);
+    if (a && Math.abs(t / a - 1) > DS_TICKET_DEV) warns.push(`客單價 ${dsMoney(t)} 元，前 4 週週${wd}大約 ${dsMoney(a)} 元（${pct(t, a)}）${t < a ? '：營業額可能抄成了最後一格（120）' : ''}`);
+  } else {
+    const a = dsSameWd(date, x => x.sales != null ? +x.sales : null, extra);
+    if (sales && a && Math.abs(sales / a - 1) > DS_DEV) warns.push(`銷貨收入 ${dsMoney(sales)}，前 4 週週${wd}大約 ${dsMoney(a)}（${pct(sales, a)}）`);
+  }
   const prev = dsRecent[shiftDateAdd(date, -1)];
   if (prev && prev.sales === sales) warns.push(`銷貨收入跟前一天（${dsMd(shiftDateAdd(date, -1))}）一模一樣，是不是看到前一天的日報表？`);
   if (warns.length && !confirm('請再看一次現金日報表：\n\n・' + warns.join('\n・') + '\n\n「111 本日實際銷貨收入」是「收銀機合計」欄倒數第二個數字。\n數字確定沒錯就按「確定」儲存。')) return;
@@ -191,7 +218,7 @@ async function dsSave() {
     dsCache = {};
     dsRecent[date] = { date, sales, customers: cust, updatedBy: who, updatedByName: whoName };
     dsRenderMiss();
-    try { localStorage.removeItem('hdc4:' + dsStoreName); } catch (e) {} // 首頁每日營業卡（home-ds.js）回去馬上重算
+    try { localStorage.removeItem('hdc5:' + dsStoreName); } catch (e) {} // 首頁每日營業卡（home-ds.js）回去馬上重算
     dsToast('✅ 已儲存 ' + dsMd(date));
     await dsPickDate(date);
     if (dsRole === 'lead') await dsRenderTab();
@@ -301,12 +328,13 @@ async function dsRenderAna(store, ym) {
   const first = ym + '-01', lastDay = ym + '-' + dsPad(dsDaysIn(ym));
   const [cur, p1, p2, lb, lyDays, hol] = await Promise.all([dsLoadMonth(store, ym), dsLoadMonth(store, dsAddMonth(ym, -1)), dsLoadMonth(store, dsAddMonth(ym, -2)), dsLb(store),
     dsLoadRange(store, dsLyDate(first), dsLyDate(lastDay)), dsHolidays(ym)]);
-  // 大單日（labor-budget.js lbBigDays）：今年用上月＋本月當基準，去年用去年那段
-  const bigCur = typeof lbBigDays === 'function' ? lbBigDays(Object.assign({}, p1.days, cur.days)).big : {};
-  const bigLy = typeof lbBigDays === 'function' ? lbBigDays(lyDays).big : {};
+  // 大單日（labor-budget.js lbBigDays）：今年用上月＋本月當基準，去年用去年那段；大單有進損益表的店（聯鑫）不扣（lbBigOn）
+  const bigOn = !(lb && lb.pds && lb.pds.bigOn === false);
+  const bigCur = typeof lbBigDays === 'function' ? lbBigDays(Object.assign({}, p1.days, cur.days), bigOn).big : {};
+  const bigLy = typeof lbBigDays === 'function' ? lbBigDays(lyDays, bigOn).big : {};
   const ctx = { ly: d => { const x = lyDays[dsLyDate(d)]; return x && x.sales != null ? x : null; }, hol,
     big: d => bigCur[d] || null, lyBig: d => bigLy[dsLyDate(d)] || null,
-    adj: (x, b) => +x.sales - (b ? b.excess : 0) }; // 扣掉大單多出的金額
+    adj: (x, b) => +x.sales - (b ? b.excess : 0), bigOn }; // 扣掉大單多出的金額
   const head = `<div class="card-title">📊 ${+ym.slice(5)}月分析<span class="sub">${dsMonthSel()}</span></div>`;
   const ds = dsSalesDays(cur);
   if (!ds.length) return `<div class="card">${head}<div class="empty">這個月還沒有輸入資料</div></div>`;
@@ -490,7 +518,7 @@ function dsAnaChange(cur, p1, ym, ctx) {
     <div class="say">日均營業額 <b>${dsMoney(b.S)}</b>，比${lbl} <b class="${dS >= 0 ? 'hi' : 'lo'}">${dsSigned(dS, dsMoney)} 元（${dsSigned(dS / a.S * 100, v => v.toFixed(1))}%）</b>，主要是<b>${main}</b>：</div>
     ${row('每天來客', dsMoney(a.C), dsMoney(b.C), '人', eC)}
     ${row('客單價', dsMoney(a.T), dsMoney(b.T), '元', eT)}
-    <div class="note">兩項加起來等於日均營業額的變化。不含大單日。${hint}</div></div>`;
+    <div class="note">兩項加起來等於日均營業額的變化。${ctx.bigOn ? '不含大單日。' : ''}${hint}</div></div>`;
 }
 
 // ── 圖表元件 ──

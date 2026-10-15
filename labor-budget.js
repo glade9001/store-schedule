@@ -36,6 +36,7 @@ var LB_PDS_DRIFT = 0.03;   // 最新一個月跟前幾個月差超過 3% → 儀
 // 大單日：客單 > 期間客單中位數 × 1.35（2026-10-11 美德 15 個月實測）。偶爾有幾天客單 150～260 的大單，
 // 多出的金額幾乎不會反映在損益表營業淨額 → 比例會跳到 1.05～1.09；扣掉後只剩 0.968～1.013。
 // 使用者不知道大單是什麼，所以只按資料處理：校正、業績進度都扣掉「比平常多出的金額」。
+// ⚠️ 只對「大單不進損益表」的店扣（lbBigOn 每店自動判斷）：聯鑫週日大單有進損益表，不扣。
 var LB_BIG_TICKET = 1.35;
 var LB_OFF = ['排休', '指休', '特休', '補休', '清空', ''];
 
@@ -196,7 +197,8 @@ function lbOwnerPct(c) { var v = +(c && c.ownerPct); return v > 0 && v < 100 ? v
  * 找出大單日。days：{ 'YYYY-MM-DD': {sales, customers} }（傳整段當基準，至少 7 天有來客才判斷）
  * @returns { base（平常日均營業額）, big: { date: { excess（比平常多出的金額）, ticket } } }
  */
-function lbBigDays(days) {
+function lbBigDays(days, on) {
+  if (on === false) return { base: null, big: {} }; // 這家店不扣大單（lbPdsRatio 的 bigOn）
   var ds = Object.keys(days || {}).filter(function (d) { var x = days[d]; return x && x.sales != null && +x.customers > 0; });
   if (ds.length < 7) return { base: null, big: {} };
   var tk = ds.map(function (d) { return +days[d].sales / +days[d].customers; }).sort(function (a, b) { return a - b; });
@@ -226,11 +228,12 @@ function lbPdsRatio(daily, pnl) {
   Object.keys(byM).forEach(function (m) {
     var bg = lbBigDays(byM[m].days).big, ex = 0;
     Object.keys(bg).forEach(function (d) { ex += bg[d].excess; });
-    byM[m].big = ex; byM[m].s -= ex;
+    byM[m].big = ex;
   });
   var full = Object.keys(byM).filter(function (m) { return byM[m].n >= lbDaysIn(m) && pnl && pnl[m] && +pnl[m].netSales > 0; }).sort();
-  var months = full.slice(-LB_PDS_MONTHS).map(function (m) { return { ym: m, psd: byM[m].s, big: byM[m].big, net: +pnl[m].netSales, r: byM[m].s / +pnl[m].netSales }; });
-  if (!months.length) return { ratio: LB_PDS_RATIO, auto: false, months: [], drift: null };
+  var bigOn = lbBigOn(full.map(function (m) { return { s: byM[m].s, big: byM[m].big, net: +pnl[m].netSales }; }));
+  var months = full.slice(-LB_PDS_MONTHS).map(function (m) { var ps = byM[m].s - (bigOn ? byM[m].big : 0); return { ym: m, psd: ps, big: bigOn ? byM[m].big : 0, net: +pnl[m].netSales, r: ps / +pnl[m].netSales }; });
+  if (!months.length) return { ratio: LB_PDS_RATIO, auto: false, months: [], drift: null, bigOn: bigOn };
   var sum = function (a, k) { return a.reduce(function (t, x) { return t + x[k]; }, 0); };
   var drift = null;
   if (months.length >= 2) {
@@ -239,13 +242,27 @@ function lbPdsRatio(daily, pnl) {
   }
   // 偏掉的那個月先不算進比例（多半是某天營業額打錯，一天多打一位數就會把比例拉到 1.09）；改正後自動恢復
   var use = drift ? months.slice(0, -1) : months;
-  return { ratio: sum(use, 'psd') / sum(use, 'net'), auto: true, months: use, drift: drift };
+  return { ratio: sum(use, 'psd') / sum(use, 'net'), auto: true, months: use, drift: drift, bigOn: bigOn };
+}
+/**
+ * 這家店要不要扣大單（2026-10-15）：看「扣」跟「不扣」哪一種的每月比例（PSD ÷ 營業淨額）比較穩。
+ * 美德的大單幾乎不進損益表（扣了比較穩）；聯鑫週日 30～55 萬的大單約 107% 進損益表，
+ * 扣了反而讓比例在 0.89～1.11 亂跳（不扣 1.045～1.081）。完整月份不到 4 個照舊扣。
+ * @param ms [{ s（月營業額）, big（大單多出）, net }]
+ */
+function lbBigOn(ms) {
+  if (ms.length < 4) return true;
+  var sd = function (f) {
+    var r = ms.map(f), m = r.reduce(function (a, b) { return a + b; }, 0) / r.length;
+    return Math.sqrt(r.reduce(function (t, x) { return t + (x - m) * (x - m); }, 0) / r.length) / m;
+  };
+  return sd(function (x) { return (x.s - x.big) / x.net; }) <= sd(function (x) { return x.s / x.net; });
 }
 /**
  * 本月實際業績推估整月營業淨額：（已輸入天數的營業額，扣大單）÷ 天數 × 整月天數 ÷ 換算比例
  * 輸入不滿 LB_LIVE_MIN_DAYS 天回 null（照舊用近 3 月平均）。
  */
-function lbLiveSales(daily, ym, ratio) {
+function lbLiveSales(daily, ym, ratio, bigOn) {
   var prevYm = lbAddMonth(ym, -1), win = {}, ds = [];
   Object.keys(daily || {}).forEach(function (d) {
     var m = d.slice(0, 7); if (m !== ym && m !== prevYm) return;
@@ -253,7 +270,7 @@ function lbLiveSales(daily, ym, ratio) {
     if (m === ym && daily[d] && daily[d].sales != null && daily[d].sales !== '') ds.push(d);
   });
   if (ds.length < LB_LIVE_MIN_DAYS || !(ratio > 0)) return null;
-  var big = lbBigDays(win).big, cum = 0;
+  var big = lbBigDays(win, bigOn).big, cum = 0;
   ds.forEach(function (d) { cum += +daily[d].sales - (big[d] ? big[d].excess : 0); });
   var n = lbDaysIn(ym);
   return { days: ds.length, n: n, last: ds.sort()[ds.length - 1], psd: cum, sales: cum / ds.length * n / ratio };
@@ -324,7 +341,7 @@ function lbProjectedCost(model, sched, ym) {
 /** 一家店某月的完整結果（排班頁、儀表板都用這個） */
 function lbEvaluate(loaded, records, ym) {
   var R0 = loaded.pds ? loaded.pds.ratio : LB_PDS_RATIO;
-  var plan = lbPlan(loaded.model, ym, loaded.daily ? lbLiveSales(loaded.daily, ym, R0) : null);
+  var plan = lbPlan(loaded.model, ym, loaded.daily ? lbLiveSales(loaded.daily, ym, R0, loaded.pds ? loaded.pds.bigOn : true) : null);
   var m = loaded.model, sched = lbScheduledHours(records, ym, m && !m.err ? m.H0 / 30 : 0);
   var proj = lbProjectedCost(m, sched, ym), days = lbDaysIn(ym);
   var R = loaded.pds ? loaded.pds.ratio : LB_PDS_RATIO;
