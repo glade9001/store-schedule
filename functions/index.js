@@ -1356,9 +1356,8 @@ function resignAccessUntil(retireDate) {
 }
 const SALARY_ACK_REMIND_DAYS = 7;   // 兩次提醒最短間隔
 const SALARY_ACK_MAX_REMINDS = 3;   // 每個薪資月份最多提醒幾次
-exports.scheduledSalaryAckReminder = onSchedule(
-  // retryCount：雲端偶爾「沒有可用的機器」直接失敗（2026-10-05 實際發生），每天只跑一次，失敗就少提醒一天
-  { schedule: "0 15 * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN, VAPID_PRIVATE], retryCount: 3 },
+// 15:00 由 scheduledDailyReminders 呼叫（重試設定也移到那支）
+const salaryAckReminder = (
   async () => {
     const db = admin.firestore();
     const token = LINE_TOKEN.value();
@@ -2095,8 +2094,8 @@ exports.scheduledMissingClock = onSchedule(
 // 不是技術冗餘）後預算只剩 1 則餘裕，從這裡騰空間最便宜——店長的每日摘要天天都會列缺卡未補，
 // 員工端這條只是備援，拉長到 10 天不會讓任何一筆缺卡沒人管。
 const MISS_REMIND_DAYS = 7;   // 2026-09-07 用戶指示：一週發一次
-exports.scheduledMissClockReminder = onSchedule(
-  { schedule: "0 20 * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN, VAPID_PRIVATE] },
+// 20:00 由 scheduledDailyReminders 呼叫
+const missClockReminder = (
   async () => {
     const db = admin.firestore();
     if (await maintenanceOn(db)) return;
@@ -2152,8 +2151,8 @@ exports.scheduledMissClockReminder = onSchedule(
 // 店長要做的事（審補登、催缺卡、輸損益、月底結帳）本來就是批次工作，沒有一件需要三分鐘內反應，
 // 合併後降到「3 店長 × 有事的日子」約 60 則/月。
 // 保留一條例外：跨店支援請求仍即時發（onSupportRequest）——那是要別店的人明天到班，等不到 17:00。
-exports.scheduledManagerDigest = onSchedule(
-  { schedule: "0 17 * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN, VAPID_PRIVATE] },
+// 17:00 由 scheduledDailyReminders 呼叫
+const managerDigest = (
   async () => {
     const db = admin.firestore();
     if (await maintenanceOn(db)) return;
@@ -2714,48 +2713,6 @@ exports.citySyncNow = onCall({ region: "asia-east1", timeoutSeconds: 300, memory
   }
 });
 
-// ════════════════════════════════════════════════════════════════
-// 一次性：系統更新預告 LINE 重送（notices/{UPDATE_NOTICE_ID}.lineText）
-// 發給「有綁定 LINE、且不是已生效離職者」的員工。
-// ⚠️ cron 每年同一天都會觸發 → 用「台北日期＝指定日」＋ transaction 搶 lineClaimedAt 雙重防呆，只發一次
-// ════════════════════════════════════════════════════════════════
-const UPDATE_NOTICE_ID = "update-20260915";
-const UPDATE_NOTICE_LINE_DATE = "2026-09-15";
-exports.scheduledUpdateNoticeLine = onSchedule(
-  { schedule: "30 8 15 9 *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN] },
-  async () => {
-    if (taipeiTodayStr() !== UPDATE_NOTICE_LINE_DATE) { console.log("[updateNoticeLine] 非指定日，略過"); return; }
-    const db = admin.firestore();
-    const ref = db.collection("notices").doc(UPDATE_NOTICE_ID);
-    const claimed = await db.runTransaction(async (tx) => {
-      const s = await tx.get(ref);
-      if (!s.exists || !s.data().lineText || s.data().lineClaimedAt) return null;
-      tx.update(ref, { lineClaimedAt: admin.firestore.FieldValue.serverTimestamp() });
-      return s.data();
-    });
-    if (!claimed) { console.log("[updateNoticeLine] 沒有內容或已發過，略過"); return; }
-
-    const today = taipeiTodayStr();
-    const resigned = new Set();
-    for (const st of await getAllStores(db)) {
-      const es = await db.collection("stores").doc(st).collection("employees").get().catch(() => null);
-      if (es) es.forEach((d) => { const e = d.data() || {}; if (e.status === "離職" && (!e.retireDate || today >= e.retireDate)) resigned.add(d.id); });
-    }
-    const token = LINE_TOKEN.value();
-    const bindSnap = await db.collection("lineBindings").get();
-    let sent = 0, failed = 0, skipped = 0;
-    const seen = new Set();
-    for (const bd of bindSnap.docs) {
-      const b = bd.data();
-      if (!b.lineUserId || !b.empName || resigned.has(b.empName) || seen.has(b.lineUserId)) { skipped++; continue; }
-      seen.add(b.lineUserId);
-      (await linePush(b.lineUserId, claimed.lineText, token)) ? sent++ : failed++;
-    }
-    await ref.update({ lineSentAt: admin.firestore.FieldValue.serverTimestamp(), lineSent: sent, lineFailed: failed, lineSkipped: skipped });
-    console.log(`[updateNoticeLine] 已發 ${sent}、失敗 ${failed}、略過 ${skipped}`);
-  }
-);
-
 // ============ PWA 推播（標準 Web Push，2026-09-15）============
 // ===== 本人薪資（2026-10-10 薪資規則收緊，方案 A）=====
 // 薪資一個月一份文件、records[] 含全店員工，原本員工端整份下載再前端過濾 → 開 console 就看得到全店同事薪資。
@@ -3113,10 +3070,7 @@ exports.onAttendanceRequestResult = onDocumentWritten(
 // ===== 門市備忘（客訂／留貨單）：結案 14 天後清掉客人電話（2026-09-25）=====
 // 個資最小化：取貨結案後電話已無用途，留著只是風險。只清 phone，其餘紀錄（誰、何時推進）保留。
 const MEMO_PHONE_KEEP_DAYS = 14;
-exports.scheduledMemoPhoneCleanup = onSchedule(
-  { schedule: "30 4 * * *", timeZone: "Asia/Taipei", region: "asia-east1" },
-  async () => {
-    const db = admin.firestore();
+async function memoPhoneCleanup(db) {
     const cutoff = Date.now() - MEMO_PHONE_KEEP_DAYS * 86400000;
     const snap = await db.collection("storeMemos").where("status", "==", 3).get();
     let n = 0;
@@ -3130,6 +3084,46 @@ exports.scheduledMemoPhoneCleanup = onSchedule(
     });
     if (n) await batch.commit();
     console.log(`memo phone cleanup: ${n} cleared`);
+}
+
+// ===== 每日提醒（2026-10-15 合併：原 scheduledSalaryAckReminder 15:00／scheduledManagerDigest 17:00／scheduledMissClockReminder 20:00）=====
+// Cloud Scheduler 按排程個數收費，三支併成一個排程；發送時間與內容都不變，依台北時間的「整點」決定跑哪一件。
+// ⚠️ 要改其中一件的時間：schedule 的小時清單＋ DAILY_REMINDERS 的鍵要一起改。
+// 重試（retryCount 3，重試間隔是秒級，不會跨到下一個整點）：
+//   - 雲端沒機器、還沒開始跑就失敗 → 三件都會重試（原本只有薪資簽收有重試，其餘直接少一天）
+//   - 程式跑到一半出錯 → 只有薪資簽收照原本重試；店長摘要／缺卡提醒原本就不重試（重跑可能重複發），維持不重試
+const DAILY_REMINDERS = {
+  15: { run: salaryAckReminder, retry: true },
+  17: { run: managerDigest, retry: false },
+  20: { run: missClockReminder, retry: false },
+};
+exports.scheduledDailyReminders = onSchedule(
+  { schedule: "0 15,17,20 * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN, VAPID_PRIVATE], retryCount: 3 },
+  async () => {
+    const hour = new Date(Date.now() + 8 * 3600000).getUTCHours();
+    const job = DAILY_REMINDERS[hour];
+    if (!job) { console.warn("[dailyReminders] 這個整點沒有要跑的提醒", hour); return; }
+    try { await job.run(); } catch (e) {
+      console.error(`[dailyReminders] ${hour}:00 失敗`, e);
+      if (job.retry) throw e;
+    }
+  }
+);
+
+// ===== 每天 04:30 清理（2026-10-15 合併：原 scheduledMemoPhoneCleanup＋scheduledGbPurge）=====
+// Cloud Scheduler 每個帳戶只有 3 個免費排程、之後按個數收費，同時間的清理併成一支。
+// 兩件事各自 try/catch，一件失敗不影響另一件；有失敗最後再丟出，讓 log 標成錯誤。
+exports.scheduledDailyCleanup = onSchedule(
+  { schedule: "30 4 * * *", timeZone: "Asia/Taipei", region: "asia-east1" },
+  async () => {
+    const db = admin.firestore();
+    const errors = [];
+    try { await memoPhoneCleanup(db); } catch (e) { console.error("[dailyCleanup] memo", e); errors.push(e); }
+    try {
+      const rep = await require("./groupbuy").purgeOldGb(db, { dry: false });
+      console.log("[gbPurge]", JSON.stringify({ campaigns: rep.campaigns.length, orders: rep.orders, pending: rep.pending, postMap: rep.postMap }));
+    } catch (e) { console.error("[dailyCleanup] gbPurge", e); errors.push(e); }
+    if (errors.length) throw errors[0];
   }
 );
 

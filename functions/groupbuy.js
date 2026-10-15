@@ -656,10 +656,9 @@ async function purgeOldGb(db, { dry }) {
   if (!dry) await deleteDocs(db, [...ps, ...ms]);
   return rep;
 }
-exports.scheduledGbPurge = onSchedule({ schedule: "every day 04:30", timeZone: "Asia/Taipei", region: REGION }, async () => {
-  const rep = await purgeOldGb(admin.firestore(), { dry: false });
-  console.log("[gbPurge]", JSON.stringify({ campaigns: rep.campaigns.length, orders: rep.orders, pending: rep.pending, postMap: rep.postMap }));
-});
+// 每天 04:30 由 index.js 的 scheduledDailyCleanup 呼叫（2026-10-15 併排程省費用）。
+// 不可列舉：index.js 用 Object.assign 把這裡的 exports 全部掛上去，部署工具也會掃 exports。
+Object.defineProperty(module.exports, "purgeOldGb", { value: purgeOldGb, enumerable: false });
 // 手動刪除整檔團購（加盟主／admin）：連訂單一起刪，不能復原
 exports.gbDeleteCampaign = onCall({ region: REGION }, async (request) => {
   await requireOwner(request, "刪除團購");
