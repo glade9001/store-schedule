@@ -53,7 +53,7 @@ window.onload = async () => {
   // ⚠️ 顯示時要還原成 ''（讓 CSS 決定），不能寫死 'block'——設定項現在有些是 flex 版面的 menu-item
   const showEl=(id,ok)=>{const el=document.getElementById(id);if(el)el.style.display=ok?'':'none';};
   // 各設定項依權限顯示（分類分組）
-  showEl('itemClock', canAdmin()); showEl('itemShare', canAdmin()); showEl('itemStoreMgmt', canAdmin()); showEl('itemCity', canAdmin()); showEl('itemMaint', canAdmin()); showEl('itemLineKw', canAdmin()); showEl('itemStats', canAdmin());
+  showEl('itemClock', canAdmin()); showEl('itemShare', canAdmin()); showEl('itemCity', canAdmin()); showEl('itemMaint', canAdmin()); showEl('itemLineKw', canAdmin()); showEl('itemStats', canAdmin());
   showEl('itemShift', canManager());
   showEl('itemInsurance', canOwner()); showEl('itemHoliday', canOwner());
   showEl('itemChangelog', true);
@@ -61,42 +61,11 @@ window.onload = async () => {
   showEl('itemA2hs', typeof hpStandalone === 'function' ? !hpStandalone() : false);
   if(canAdmin()){ loadScheduleShares(); loadLineKeywords(); loadMaintenanceState(); loadClockConfig(); loadCitySummary(); loadNoticeStats(); loadTourStats(); loadAppUsageStats(); }
   // 群組標題：該類任一項可見才顯示整組
-  [['grpOps',['itemClock','itemShare','itemShift','itemStoreMgmt','itemCity']],['grpPayLaw',['itemInsurance','itemHoliday']],['grpSystem',['itemMaint','itemLineKw','itemStats']]]
+  [['grpOps',['itemClock','itemShare','itemShift','itemCity']],['grpPayLaw',['itemInsurance','itemHoliday']],['grpSystem',['itemMaint','itemLineKw','itemStats']]]
     .forEach(([g,items])=>{ const any=items.some(id=>{const el=document.getElementById(id);return el&&el.style.display!=='none';}); showEl(g,any); });
 
   hideLoading();
 };
-
-// ===== 系統基礎設定 =====
-async function openSysConfigModal() {
-  const listEl = document.getElementById('sysStoreList');
-  listEl.innerHTML = '';
-  (appConfig.stores || []).forEach(s => {
-    listEl.innerHTML += `<div style="display:flex; align-items:center; gap:8px; padding:8px; background:#f8fafc; border-radius:8px; margin-bottom:6px;">
-      <span style="flex:1; font-weight:700;">${s}</span>
-      <button onclick="removeSysStore('${s}')" style="background:#fce8e6; color:var(--danger); border:none; border-radius:6px; padding:4px 10px; font-size:12px; font-weight:700; cursor:pointer;">刪除</button>
-    </div>`;
-  });
-
-  // 國定假日區塊（管理者才顯示）
-  holidayMgrYear = new Date().getFullYear();
-  openModal('sysConfigModal');
-}
-
-function addSysStore() {
-  const val = document.getElementById('sysNewStore').value.trim();
-  if(!val) { showToast('⚠️ 請輸入門市名稱'); return; }
-  if(appConfig.stores.includes(val)) { showToast('⚠️ 門市已存在'); return; }
-  appConfig.stores.push(val);
-  document.getElementById('sysNewStore').value = '';
-  openSysConfigModal();
-}
-
-function removeSysStore(name) {
-  if(!confirm(`確定刪除「${name}」門市？\n此操作不影響已儲存的排班資料。`)) return;
-  appConfig.stores = appConfig.stores.filter(s => s !== name);
-  openSysConfigModal();
-}
 
 // ===== LINE 群組關鍵字（格子編輯：左多關鍵字 → 右回覆）=====
 function _esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -437,19 +406,6 @@ async function saveLineKeywords() {
     const kwCount = list.reduce((n,p)=>n+p.keys.length,0);
     showToast(`✅ 已儲存 ${list.length} 列 / ${kwCount} 個關鍵字`);
   } catch(e) { hideLoading(); showToast('❌ 儲存失敗：' + e.message); }
-}
-
-async function saveSysConfig() {
-  showLoading('儲存系統設定中...');
-  try {
-    await window.db.collection('settings').doc('globalConfig').set(appConfig, { merge: true });
-    localStorage.setItem('appConfig', JSON.stringify(appConfig));
-    closeModal('sysConfigModal');
-    showToast('✅ 系統設定已儲存');
-  } catch(e) {
-    showToast('❌ 儲存失敗：' + e.message);
-  }
-  hideLoading();
 }
 
 // ===== 國定假日管理 =====
