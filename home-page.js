@@ -1785,10 +1785,12 @@ async function loadStats() {
       const thisYear = new Date().getFullYear();
       if(empNameStr) {
         // 讀取批次計算特休剩餘
+        // 跟劃休頁同一套算法（2026-10-15）：補休用 comp-avail.js 的「已生效」可用天數（從帳本算）；
+        // 原本讀 comp/{年}.earned − used（統計欄會漂、也算進還沒到那天的國定假日補休），21 人中有 8 人跟劃休頁不一樣
         Promise.all([
           window.db.collection('employees').doc(empNameStr).collection('leaveBatches').get(),
-          window.db.collection('employees').doc(empNameStr).collection('comp').doc(String(thisYear)).get()
-        ]).then(([batchSnap, compSnap]) => {
+          typeof caCompAvailability === 'function' ? caCompAvailability(empNameStr) : Promise.resolve(null)
+        ]).then(([batchSnap, compAv]) => {
           const todayStr = new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().split('T')[0];
           let totalAvail = 0;
           if(batchSnap) {
@@ -1797,14 +1799,14 @@ async function loadStats() {
               if(b.settled) return;
               const rem = (b.days||0) - (b.used||0);
               if(rem <= 0) return;
+              // 遞延批次到期＝原到期日＋12 個月−1 天（同劃休頁 addMonths、假勤頁 dateAddExpire）
               const expDate = b.carried
-                ? new Date(b.expireDate).setMonth(new Date(b.expireDate).getMonth()+12) && (() => { const d2=new Date(b.expireDate); d2.setMonth(d2.getMonth()+12); return d2.toISOString().split('T')[0]; })()
+                ? (() => { const d2=new Date(b.expireDate); d2.setMonth(d2.getMonth()+12); d2.setDate(d2.getDate()-1); return d2.toISOString().split('T')[0]; })()
                 : b.expireDate;
               if(todayStr <= expDate) totalAvail += rem;
             });
           }
-          const compData = compSnap?.exists ? compSnap.data() : {};
-          const remainComp = Math.max(0, (compData.earned||0) - (compData.used||0));
+          const remainComp = compAv ? Math.max(0, compAv.effective) : '--';
           
           if(annualLeaveEl) {
             annualLeaveEl.textContent = totalAvail;
@@ -1813,6 +1815,7 @@ async function loadStats() {
           if(compLeaveEl) {
             compLeaveEl.textContent = remainComp;
             compLeaveEl.style.color = remainComp > 0 ? '#1a73e8' : 'var(--text-muted)';
+            compLeaveEl.title = compAv && compAv.pending.length ? '另有國定假日補休：' + caPendingText(compAv.pending) : '';
           }
         }).catch(() => { 
           if(annualLeaveEl) annualLeaveEl.textContent = '--';
@@ -1946,7 +1949,8 @@ async function loadPendingItems() {
                   window.db.collection('employees').doc(emp.id).collection('comp').doc(String(thisYear)).get(),
                   window.db.collection('employees').doc(emp.id).collection('comp').doc(String(prevYear)).get()
                 ]);
-                return { emp, batchSnap, leaveLegacySnap, compSnap, compPrevSnap };
+                const compAv = isDecember && typeof caCompAvailability === 'function' ? await caCompAvailability(emp.id).catch(() => null) : null;
+                return { emp, batchSnap, leaveLegacySnap, compSnap, compPrevSnap, compAv };
               } catch(e) { return null; }
             })),
             new Promise(res => setTimeout(() => res([]), 8000))
@@ -1974,17 +1978,25 @@ async function loadPendingItems() {
               return;
             }
 
-            // === 2. 週年日提醒（今天 = 到職日某個週年）===
+            // === 2. 週年日提醒 ===
+            // ⚠️ 2026-10-15：原本只在「剛好當天」提醒，那天沒人開 App 就永遠不再出現，批次只能手動新增 → 特休就漏了
+            //    （查到 2 位正職 7/1 該新增的批次沒有）。正職改成：週年後 180 天內、還沒有對應批次（取得日差 31 天內）就一直提醒。
+            //    工讀維持只在當天提醒（工讀幾乎都沒建特休批次，是否要追蹤待使用者決定）。
+            const isPT = emp.payAsPartTime || String(emp.role||'').includes('工讀');
+            const hasBatchNear = d => batches.some(b => b.grantDate && Math.abs((new Date(b.grantDate) - new Date(d)) / 86400000) <= 31);
+            const dueNow = d => isPT ? d === todayStr
+              : (d <= todayStr && (new Date(todayStr) - new Date(d)) / 86400000 <= 180 && !hasBatchNear(d));
+            const whenTxt = d => d === todayStr ? '今天' : `${+d.slice(5,7)}/${+d.slice(8,10)} 已`;
             // 滿6個月
             const m6Date = _dateAdd(hireDate, 6);
-            if(m6Date === todayStr) {
-              storePending.push({ type:'特休週年', desc:`${store}｜${empDisplayName} 今天滿6個月，請至特休管理新增批次（3天）`, link:'leave.html', color:'#9334e6' });
+            if(dueNow(m6Date)) {
+              storePending.push({ type:'特休週年', desc:`${store}｜${empDisplayName} ${whenTxt(m6Date)}滿6個月，請至特休管理新增批次（3天）`, link:'leave.html', color:'#9334e6' });
             }
             // 每個週年
             for(let yr = 1; yr <= 30; yr++) {
               const annivDate = _dateAdd(hireDate, yr * 12);
               if(annivDate > todayStr) break;
-              if(annivDate === todayStr) {
+              if(dueNow(annivDate)) {
                 const months = yr * 12;
                 let days = 0;
                 if(months < 24) days = 7;
@@ -1993,7 +2005,7 @@ async function loadPendingItems() {
                 else if(months < 60) days = 14;
                 else if(months < 120) days = 15;
                 else days = Math.min(30, 15 + Math.floor(months/12) - 10 + 1);
-                storePending.push({ type:'特休週年', desc:`${store}｜${empDisplayName} 今天滿${yr}年，請至特休管理新增批次（${days}天）`, link:'leave.html', color:'#9334e6' });
+                storePending.push({ type:'特休週年', desc:`${store}｜${empDisplayName} ${whenTxt(annivDate)}滿${yr}年，請至特休管理新增批次（${days}天）`, link:'leave.html', color:'#9334e6' });
               }
             }
 
@@ -2016,10 +2028,10 @@ async function loadPendingItems() {
 
             // === 4. 補休本月（12月）到期提醒 ===
             if(isDecember) {
-              // 本年度補休
-              if(compSnap?.exists) {
-                const cd = compSnap.data();
-                const remaining = Math.max(0, (cd.earned||0) - (cd.used||0));
+              // 本年度補休：取得／使用從帳本算（item.compAv＝comp-avail.js，2026-10-15；comp/{年}.earned/used 統計欄會漂）
+              if(item.compAv || compSnap?.exists) {
+                const cd = compSnap?.exists ? compSnap.data() : {};
+                const remaining = item.compAv ? Math.max(0, item.compAv.earned - item.compAv.used) : Math.max(0, (cd.earned||0) - (cd.used||0));
                 if(!cd.settled && remaining > 0) {
                   storePending.push({ type:'補休結算', desc:`${store}｜${empDisplayName} 本年度補休剩 ${remaining} 天，12/31 到期，請結算或遞延`, link:'leave.html', color:'var(--accent)' });
                 }
