@@ -140,7 +140,7 @@ async function asdGenerate(mode) {
       if (r.draft && !String(r.name).startsWith('🆘') && asIsHomeRecord(r)) { var di = asDayNames().indexOf(r.day); if (di >= 0) keep[r.name + '|' + di] = String(r.shift || '').trim(); }
     });
     var res = asGenerateDraft({ weekStr: week, cfg: cfg, emps: emps, weeks: weeks, leaves: leaves, away: away, catalog: catalog,
-      holidays: (typeof builtinHolidayMap === 'function' ? builtinHolidayMap() : {}), opt: { keep: keep } });
+      holidays: (typeof TW_HOLIDAYS_SCHED !== 'undefined' ? TW_HOLIDAYS_SCHED : typeof builtinHolidayMap === 'function' ? builtinHolidayMap() : {}) /* 排班頁已同步系統設定 */, opt: { keep: keep } });
     asdLast = { week: week, store: store, res: res, ms: Date.now() - t0, cur: weeks[week], mode: mode, before: curRecs, fixes: fixes, hasPay: hasPay };
     hideLoading();
     asdShowPreview();

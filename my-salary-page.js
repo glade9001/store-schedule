@@ -924,6 +924,7 @@ window.onload = async () => {
 
   const _fbAuth = await new Promise(r => { const u = firebase.auth().onAuthStateChanged(fb => { u(); r(fb); }); });
   if (!_fbAuth) { localStorage.removeItem('currentUser'); sessionStorage.removeItem('currentUser'); window.location.replace('home.html'); return; }
+  await syncHolidayMapInto(TW_HOLIDAYS, [new Date().getFullYear() - 1, new Date().getFullYear(), new Date().getFullYear() + 1]); // 國定假日跟著系統設定（holidays.js）
 
   hideLoading();
   const hasPassword = _fbAuth.providerData.some(p => p.providerId === 'password');

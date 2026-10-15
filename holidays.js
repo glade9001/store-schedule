@@ -98,3 +98,21 @@ async function loadHolidayMap(years) {
   }
   return { map: map, source: (hit && miss) ? 'mixed' : hit ? 'firestore' : 'builtin' };
 }
+
+/**
+ * 把「系統設定 → 國定假日」（Firestore）的資料填進頁面已經在用的假日表（2026-10-15）
+ * 薪資、我的薪資、排班、勞檢出勤表原本都只用內建表（builtinHolidayMap），設定頁改了這幾頁不會跟著變。
+ * 直接改 target 物件本身（不換物件），頁面裡所有用到這張表的程式都不用動。
+ * 讀不到或逾時（4 秒；Firestore SDK 卡住不會自己失敗）就維持內建表。
+ * @param {Object} target 頁面的假日表（YYYY-MM-DD → 名稱）
+ * @param {Array<number>} years 要同步的年份
+ */
+async function syncHolidayMapInto(target, years) {
+  try {
+    var r = await Promise.race([loadHolidayMap(years), new Promise(function (res) { setTimeout(function () { res(null); }, 4000); })]);
+    if (!r || r.source === 'builtin') return;
+    var ys = (years || []).map(String);
+    Object.keys(target).forEach(function (d) { if (ys.indexOf(d.slice(0, 4)) >= 0) delete target[d]; });
+    for (var d in r.map) target[d] = r.map[d];
+  } catch (e) { /* 維持內建表 */ }
+}

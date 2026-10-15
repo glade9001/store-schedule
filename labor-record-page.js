@@ -21,12 +21,14 @@ const lrHrs = h => { const m = Math.round(h * 60), H = Math.floor(m / 60), M = m
 const lrDec = h => Math.round(h * 100) / 100; // Excel 用小數小時（可加總）
 const LR_WD = ['日', '一', '二', '三', '四', '五', '六'];
 
+var LR_HOL = (typeof builtinHolidayMap === 'function') ? builtinHolidayMap() : {}; // 頁面打開時改用系統設定（syncHolidayMapInto）
 window.onload = async () => {
   const saved = localStorage.getItem('currentUser') || sessionStorage.getItem('currentUser');
   if (!saved) { location.replace('home.html'); return; }
   try { lrUser = JSON.parse(saved); } catch (e) { location.replace('home.html'); return; }
   const fb = await new Promise(r => { const u = firebase.auth().onAuthStateChanged(x => { u(); r(x); }); });
   if (!fb) { location.replace('home.html'); return; }
+  await syncHolidayMapInto(LR_HOL, [new Date().getFullYear() - 1, new Date().getFullYear(), new Date().getFullYear() + 1]); // 國定假日跟著系統設定（holidays.js）
   if (!['manager', 'owner', 'admin'].includes(lrUser?.permission)) { alert('僅店長以上可使用'); location.replace('home.html'); return; }
   try {
     const s = await window.db.collection('settings').doc('globalConfig').get();
@@ -110,7 +112,7 @@ async function lrLoad(store, ym) {
     });
   }));
 
-  const hol = (typeof builtinHolidayMap === 'function') ? builtinHolidayMap() : {};
+  const hol = LR_HOL;
   return { store, ym, first, last, rFirst, rLast, emps, disp, punches, sched, hol };
 }
 // ───────── 整理成每人每天一列 ─────────
