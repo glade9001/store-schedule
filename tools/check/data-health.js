@@ -22,9 +22,9 @@ async function groupbuy() {
   issues.length ? bad('團購份數與訂單', issues.join('；')) : ok('團購份數與訂單', camps.length + ' 檔');
 }
 
-// 特休／補休統計欄：用後端 recomputeLeaveStats 同一份程式（從 functions/index.js 抽出來）唯讀重算，看有沒有漂
+// 特休／補休統計欄：用後端 recomputeLeaveStats 同一份程式（從 functions/leave.js 抽出來）唯讀重算，看有沒有漂
 async function leaveStats() {
-  const src = fs.readFileSync(path.join(ROOT, 'functions/index.js'), 'utf8');
+  const src = fs.readFileSync(path.join(ROOT, 'functions/leave.js'), 'utf8');
   const code = src.slice(src.indexOf('async function recomputeLeaveStats'), src.indexOf('const leaveStatsTrigger'));
   const changes = [];
   const db = fakeDb();

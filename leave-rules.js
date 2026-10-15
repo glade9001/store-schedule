@@ -5,7 +5,7 @@
  *   2026-10-15 實例：國定假日補休「發放→撤銷→再發放」被擋，薪資頁修過、排班頁沒修，16 班正職少補休。
  *   合併前逐份比對過算法相同（特休天數表 4 份逐月算到 40 年相同；整年重算 2 份逐行相同）。
  *
- * 後端（functions/index.js）因為跑在 Node、不能直接用這個檔，另有一份同規則：
+ * 後端（functions/leave.js、functions/schedule.js）因為跑在 Node、不能直接用這個檔，另有一份同規則：
  *   recomputeLeaveStats ↔ lvRecomputeLeaveCounters、syncHolidayCompForWeek 的淨額 ↔ lvHolidayCompNet。改規則兩邊一起改。
  *
  * 本檔只有 function 宣告、名稱一律 lv 開頭（同 holidays.js、shift-utils.js 的規矩），任何頁面掛上來都不會撞名。

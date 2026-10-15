@@ -100,14 +100,14 @@ async function holidays() {
 }
 
 // 前後端規則一致（2026-10-16 整理第 1 階段）：同一位員工，前端 leave-rules.js lvRecomputeLeaveCounters 與
-// 後端 functions/index.js recomputeLeaveStats 用正式資料各算一次，要寫的數字必須相同。只改了其中一邊就會在這裡抓到。
+// 後端 functions/leave.js recomputeLeaveStats 用正式資料各算一次，要寫的數字必須相同。只改了其中一邊就會在這裡抓到。
 async function leaveRulesParity() {
   const ctx = loadFront(['leave-rules.js']);
   // 特休天數表：勞基法 §38
   const law = m => m < 6 ? 0 : m < 12 ? 3 : m < 24 ? 7 : m < 36 ? 10 : m < 60 ? 14 : m < 120 ? 15 : Math.min(30, 15 + Math.floor(m / 12) - 9);
   const badM = Array.from({ length: 481 }, (_, m) => m).filter(m => ctx.lvAnnualDays(m) !== law(m));
   badM.length ? bad('特休天數表', '這些年資算錯（月）：' + badM.slice(0, 5).join('、')) : ok('特休天數表（勞基法 §38，0～40 年）');
-  const src = fs.readFileSync(path.join(ROOT, 'functions/index.js'), 'utf8');
+  const src = fs.readFileSync(path.join(ROOT, 'functions/leave.js'), 'utf8');
   const sv = {}; require('vm').runInNewContext(src.slice(src.indexOf('async function recomputeLeaveStats'), src.indexOf('const leaveStatsTrigger')) + ';this.f=recomputeLeaveStats', sv);
   const emps = new Set(); for (const c of ['leaveLog', 'compUsage', 'annualUsage', 'leaveBatches']) (await group(c)).forEach(d => { const p = d.path.split('/'); if (p[0] === 'employees') emps.add(p[1]); });
   const y = String(new Date().getFullYear()), diff = [];
