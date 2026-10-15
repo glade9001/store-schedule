@@ -24,6 +24,24 @@ async function homeGroupbuy() {
   }
 }
 
+// 首頁門市經營看板：每家有每日營業的店都算一次，營業額／來客兩種走勢都要畫得出來（2026-10-16 加來客切換）
+async function homeBoard() {
+  const ctx = loadFront(['leave-rules.js', 'shift-utils.js', 'labor-budget.js', 'home-ds.js']);
+  for (const s of STORES) {
+    if (!(await list(`stores/${s}/dailySales`)).some(d => d.id.startsWith(YM))) continue;
+    try {
+      const x = await ctx.hdCompute(s, YM);
+      if (!x) { bad(`首頁經營看板 ${s}`, '有本月資料卻算不出看板'); continue; }
+      x.color = '#c0841f';
+      const svgS = ctx.hdChart([x], [s], 360, 'sales'), svgC = ctx.hdChart([x], [s], 360, 'cust');
+      const bars = t => (t.match(/<rect /g) || []).length;
+      if (/NaN|undefined|Infinity/.test(svgS + svgC)) bad(`首頁經營看板 ${s}`, '走勢圖出現 NaN／undefined');
+      else if (!bars(svgS) || (x.chart.some(r => r.c != null) && !bars(svgC))) bad(`首頁經營看板 ${s}`, '走勢圖沒有長條');
+      else ok(`首頁經營看板 ${s}`, `營業額 ${bars(svgS)} 天、來客 ${bars(svgC)} 天`);
+    } catch (e) { bad(`首頁經營看板 ${s}`, e.message); }
+  }
+}
+
 async function laborBudget() {
   const ctx = loadFront(['leave-rules.js', 'shift-utils.js', 'labor-budget.js']);
   for (const s of STORES) {
@@ -112,6 +130,6 @@ async function leaveRulesParity() {
 
 module.exports = async function run() {
   console.log('③ 畫面試算（正式資料、唯讀）');
-  await homeGroupbuy(); await laborBudget(); await dailySales(); await compAvail(); await holidays(); await leaveRulesParity();
+  await homeGroupbuy(); await homeBoard(); await laborBudget(); await dailySales(); await compAvail(); await holidays(); await leaveRulesParity();
 };
 if (require.main === module) module.exports().then(() => require('./lib').done(), e => { console.error(e); process.exit(1); });
