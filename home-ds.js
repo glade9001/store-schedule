@@ -206,7 +206,8 @@ function hdChart(xs, names, W, mode) {
   if (!vals.length) return '<p class="hbEmpty">近 7 天還沒有' + (cust ? '來客' : '營業') + '資料</p>';
   // 刻度：營業額每格 2 萬的倍數；來客每格 100 人的倍數（三格）
   var unit = cust ? 100 : 20000, stepV = Math.max(unit, Math.ceil(Math.max.apply(null, vals) / 3 / unit) * unit), max = stepV * 3, k = (base - top) / max;
-  var axis = function (v) { return !v ? '0' : cust ? hdMoney(v) : (v / 10000) + '萬'; }, num = function (v) { return cust ? hdMoney(v) : hdW1(v); };
+  var axis = function (v) { return !v ? '0' : cust ? hdMoney(v) : (v / 10000) + '萬'; };
+  var num = function (v) { return cust ? hdMoney(v) : hdW1(v); };
   var y = function (v) { return (base - v * k).toFixed(1); };
   var s = ['<svg viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" class="hbChart" role="img" aria-label="近 7 日' + (cust ? '來客' : '營業額') + '長條圖">'];
   for (var g = 0; g <= 3; g++) { var yy = base - g * stepV * k; s.push('<line x1="' + L + '" x2="' + (W - 4) + '" y1="' + yy + '" y2="' + yy + '" class="hbGrid"/><text x="' + (L - 5) + '" y="' + (yy + 3.5) + '" text-anchor="end" class="hbAx">' + axis(g * stepV) + '</text>'); }
