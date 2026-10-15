@@ -750,8 +750,8 @@ function isPartTimeEmp(emp) {
 }
 
 async function checkHolidayCompOnSave(empName, fullDate, prevShift, newShift, emp) {
-  // 工讀生、加盟主不處理補休（加盟主是老闆不是勞工；同 functions syncHolidayCompForWeek）
-  if(!emp || isPartTimeEmp(emp) || String(emp.role||'').includes('加盟主')) return;
+  // 工讀生不處理補休（加盟主照發：使用者 2026-10-15 確認）
+  if(!emp || isPartTimeEmp(emp)) return;
 
   const holidayName = TW_HOLIDAYS_SCHED[fullDate];
   if(!holidayName) return; // 不是國定假日

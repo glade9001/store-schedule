@@ -2881,8 +2881,7 @@ async function syncHolidayCompForWeek(db, store, weekStr, by, dryRun) {
   const out = { granted: [], revoked: [] }, now = new Date().toISOString();
   for (const name of Object.keys(emps)) {
     const e = emps[name];
-    if (e.payAsPartTime || String(e.role || "").includes("工讀")) continue; // 工讀不發補休（同前端 isPartTimeEmp）
-    if (String(e.role || "").includes("加盟主")) continue; // 加盟主是老闆不是勞工，不發（2026-10-15 試跑發現會發給加盟主；要發請使用者決定）
+    if (e.payAsPartTime || String(e.role || "").includes("工讀")) continue; // 工讀不發補休（同前端 isPartTimeEmp）；加盟主照發（使用者 2026-10-15 確認）
     for (const h of holDays) {
       const r = recs.find((x) => x && x.name === name && x.day === h.day);
       const isWorking = working.has(`${name}|${h.day}`);
