@@ -19,7 +19,7 @@ function showToast(m){const t=document.getElementById('toast');t.textContent=m;t
 function openModal(id){document.getElementById(id).classList.add('active');}
 function closeModal(id){document.getElementById(id).classList.remove('active');}
 function handleBack(){if(window.history.length>1)window.history.back();else window.location.href='home.html';}
-function today(){return new Date().toISOString().split('T')[0];}
+function today(){return new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().split('T')[0];}
 function fmtDate(s){if(!s)return '--';const[y,m,d]=s.split('-');return `${y}/${parseInt(m)}/${parseInt(d)}`;}
 function getDN(n){return displayNameMap[n]||n;}
 // 方案C：把某年度使用日期排成「4/21、4/22」字串（給概況卡內嵌顯示）
@@ -1224,7 +1224,7 @@ async function saveAddLog() {
   showLoading('儲存中...');
   try{
     // ✅ Bug6：加入 source 欄位追溯補休來源
-    const _logRec = { date, type, days, note:note||'', savedBy:currentUser.displayName||currentUser.empName };
+    const _logRec = { date, type, days, note:note||'', savedBy:currentUser.displayName||currentUser.empName, ts: Date.now() }; // ts：同一天兩筆一模一樣的紀錄會被 arrayUnion 吃掉一筆
     if(type==='comp_earn') _logRec.source = 'manual';
     if(type==='comp_use')  _logRec.source = `schedule:${date}`;
     await window.db.collection('employees').doc(empName).collection('leaveLog').doc(ym).set({

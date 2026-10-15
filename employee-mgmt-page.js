@@ -545,7 +545,7 @@ async function saveAccountSetting() {
     }
 
     // 判斷職稱是否延後生效
-    const today = new Date().toISOString().split('T')[0];
+    const today = new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().split('T')[0];
     const hasFutureRoleDate = roleEffDate && roleEffDate > today && roleOriginal && role !== roleOriginal;
     // 延後生效：保留原職稱，寫入 pendingRole + roleChangeDate
     const effectiveRole = hasFutureRoleDate ? roleOriginal : role;
@@ -644,7 +644,7 @@ async function saveAccountSetting() {
         const wasPart = (empSnap.data()||{}).role === '工讀';
         if (role === '工讀' && !wasPart) {
           upd.partTimeFrom = hasFutureRoleDate ? roleEffDate
-            : `${new Date().toISOString().slice(0,7)}-01`;
+            : `${new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,7)}-01`;
           upd.leaveSettledAt = firebase.firestore.FieldValue.delete();
         } else if (role !== '工讀') {
           // 目標職稱不是工讀 → 沒有待生效或已生效的轉換，一律清掉。
@@ -902,7 +902,7 @@ async function handleRehire(accDoc, form) {
   );
   if(!ok) return;
   // 新到職日 + 不重疊驗證
-  const newHire = prompt(`新到職日（YYYY-MM-DD，年資由此重算；需晚於離職日 ${retireDate||'?'}）：`, new Date().toISOString().split('T')[0]);
+  const newHire = prompt(`新到職日（YYYY-MM-DD，年資由此重算；需晚於離職日 ${retireDate||'?'}）：`, new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().split('T')[0]);
   if(!newHire) return;
   if(!/^\d{4}-\d{2}-\d{2}$/.test(newHire)){ showToast('⚠️ 日期格式需 YYYY-MM-DD'); return; }
   if(retireDate && newHire <= retireDate){ showToast(`❌ 入職日（${newHire}）必須晚於離職日（${retireDate}），不可重疊`); return; }
@@ -955,7 +955,7 @@ function toggleRetire(empId, store, isRetired, dispName) {
   document.getElementById('retireEmpId').value = empId;
   document.getElementById('retireStore').value = store;
   document.getElementById('retireModalSub').textContent = `將「${name}」標記為離職`;
-  const today = new Date().toISOString().split('T')[0];
+  const today = new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().split('T')[0];
   document.getElementById('retireDate').value = today;
   openModal('retireModal');
 }
@@ -1223,7 +1223,7 @@ async function confirmTransfer() {
     });
 
     // 更新帳號：生效日當天才切換 store，先記錄待生效資訊
-    const today = new Date().toISOString().split('T')[0];
+    const today = new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().split('T')[0];
     const isEffective = date <= today;
     const transferUpdate = isEffective
       ? { store: toStore, role: newRole }

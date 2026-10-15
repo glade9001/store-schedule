@@ -27,7 +27,7 @@ async function _loadProfile(fbUser) {
     err.code = 'disabled';
     throw err;
   }
-  const today = new Date().toISOString().split('T')[0];
+  const today = new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().split('T')[0];
 
   // 同店職稱生效日：無調店但有 pendingRole + roleChangeDate
   if (!data.pendingStore && data.pendingRole && data.roleChangeDate && data.roleChangeDate <= today) {
@@ -77,7 +77,7 @@ async function _loadProfile(fbUser) {
         //    實例：錦花某員工 9/1 離職、8 月就先標記好，結果 8 月還要上滿整個月的班，
         //    卻在 8 月就看不到班表、打不了卡、不能劃休。
         //    改成生效日當天才生效 → 可以放心提前登記。
-        const today = new Date().toISOString().split('T')[0];
+        const today = new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().split('T')[0];
         if (e.status === '離職' && e.retireDate && today >= e.retireDate) {
           const until = _resignAccessUntil(e.retireDate);
           if (until && today > until) {
@@ -141,7 +141,7 @@ async function handleGoogleRedirectResult() {
 
 // ===== 掃描並套用所有到期的待轉換職稱（管理者登入後呼叫）=====
 async function applyOverduePendingRoles() {
-  const today = new Date().toISOString().split('T')[0];
+  const today = new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().split('T')[0];
   try {
     const batch = window.db.batch();
     const tasks = [];

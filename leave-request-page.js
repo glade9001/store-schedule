@@ -213,7 +213,7 @@ function hideLoading(){ document.getElementById('loadingOverlay').classList.add(
 function showToast(m){ const t=document.getElementById('toast'); t.textContent=m; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2500); }
 function openModal(id){ document.getElementById(id).classList.add('active'); }
 function closeModal(id){ document.getElementById(id).classList.remove('active'); }
-function today(){ return new Date().toISOString().split('T')[0]; }
+function today(){ return new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().split('T')[0]; }
 function fmtDate(s){ if(!s)return '--'; const[y,m,d]=s.split('-'); return `${parseInt(m)}/${parseInt(d)}`; }
 function fmtDateFull(s){ if(!s)return '--'; const[y,m,d]=s.split('-'); return `${y}年${parseInt(m)}月${parseInt(d)}日`; }
 function getDN(n){ return displayNameMap[n]||n; }
@@ -288,7 +288,7 @@ function isDateLocked(dateStr){
   if(leaveWindowCfg.nextWeekOpen) {
     const nextWeekStr = getNextWeekString();
     const closeDateTime = leaveWindowCfg.closeDateTime || (leaveWindowCfg.closeDate ? leaveWindowCfg.closeDate + 'T23:59' : '');
-    const nowStr = new Date().toISOString().slice(0,16); // YYYY-MM-DDTHH:mm
+    const nowStr = new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16); // YYYY-MM-DDTHH:mm
     if(weekStr === nextWeekStr && (!closeDateTime || nowStr <= closeDateTime)) {
       return false;
     }
@@ -300,14 +300,14 @@ function isDateLocked(dateStr){
 function getNextWeekString(){
   const d = new Date();
   d.setDate(d.getDate() + 7);
-  return dateToWeekStr(d.toISOString().split('T')[0]);
+  return dateToWeekStr(lrYmd(d)); // 本機日期：toISOString 在台灣 0～8 點會是前一天（週一凌晨會算成本週）
 }
 
 // 取下下週 ISO week string（第三週）
 function getWeekAfterNext(){
   const d = new Date();
   d.setDate(d.getDate() + 14);
-  return dateToWeekStr(d.toISOString().split('T')[0]);
+  return dateToWeekStr(lrYmd(d));
 }
 
 // 取該 ISO week 的 M/D 字串陣列（週一～週日）
@@ -331,7 +331,7 @@ function getWeekDatesFromStr(weekStr) {
 function openLeaveWindowModal() {
   const nextWeekStr = getNextWeekString();
   const nwDates = getWeekDatesFromStr(nextWeekStr);
-  const nowStr3 = new Date().toISOString().slice(0,16);
+  const nowStr3 = new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16);
   const cdtCheck2 = leaveWindowCfg.closeDateTime || (leaveWindowCfg.closeDate ? leaveWindowCfg.closeDate+'T23:59' : '');
   const isOpen = leaveWindowCfg.nextWeekOpen && (!cdtCheck2 || nowStr3 <= cdtCheck2);
 
@@ -343,7 +343,7 @@ function openLeaveWindowModal() {
     const dow = now.getDay() || 7;
     const thisSun = new Date(now);
     thisSun.setDate(now.getDate() + (7 - dow));
-    defaultClose = thisSun.toISOString().split('T')[0];
+    defaultClose = lrYmd(thisSun);
   }
 
   const modal = document.createElement('div');
@@ -670,7 +670,7 @@ function renderCalendar(){
   // ===== 橫幅提示 =====
   const nextWeekStr = getNextWeekString();    // 第二週
   const nwDates = getWeekDatesFromStr(nextWeekStr);
-  const nowStr = new Date().toISOString().slice(0,16);
+  const nowStr = new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16);
   const cdtManual = leaveWindowCfg.closeDateTime || (leaveWindowCfg.closeDate ? leaveWindowCfg.closeDate + 'T23:59' : '');
   const isManualOpen = leaveWindowCfg.nextWeekOpen && (!cdtManual || nowStr <= cdtManual);
 
@@ -745,7 +745,7 @@ function getNextMonday(){
   const d = new Date();
   const day = d.getDay()||7;
   d.setDate(d.getDate() + (8-day));
-  return d.toISOString().split('T')[0];
+  return lrYmd(d);
 }
 
 function renderCalBody(){

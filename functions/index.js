@@ -1357,7 +1357,8 @@ function resignAccessUntil(retireDate) {
 const SALARY_ACK_REMIND_DAYS = 7;   // 兩次提醒最短間隔
 const SALARY_ACK_MAX_REMINDS = 3;   // 每個薪資月份最多提醒幾次
 exports.scheduledSalaryAckReminder = onSchedule(
-  { schedule: "0 15 * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN, VAPID_PRIVATE] },
+  // retryCount：雲端偶爾「沒有可用的機器」直接失敗（2026-10-05 實際發生），每天只跑一次，失敗就少提醒一天
+  { schedule: "0 15 * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [LINE_TOKEN, VAPID_PRIVATE], retryCount: 3 },
   async () => {
     const db = admin.firestore();
     const token = LINE_TOKEN.value();
@@ -2881,6 +2882,81 @@ async function pushSchedulePublished(db, store, weekStr, records, vapid) {
   return r;
 }
 
+// ── 國定假日補休：班表「發布」時依班表發放／撤銷（使用者 2026-10-15 定案）──
+// 原本是排班時每改一格就跳「是否發放」：草稿階段來回改，發放→撤銷→再發放時被「已發放過」擋掉
+// （只看有沒有 comp_earn、沒扣 comp_cancel），2026 年有 16 班正職國定假日上班、補休淨額卻是 0。
+// 改成：發布前不發；發布當下（手動發布 onSchedulePublishedPush／週五 18:00 自動發布 scheduledAutoPublishPush）
+// 依班表把每位正職每個國定假日的補休淨額對齊成「有上班＝1、沒上班＝0」。發布後再改班，前端照舊逐格詢問。
+// holidayCompSync/{店}__{週}：同步過的週自動發布時不再重跑（以免蓋掉發布後店長逐格的決定）。
+// 補休的真相＝leaveLog 的 comp_earn − comp_cancel（comp-avail.js、leave-page 都這樣算）；每筆帶 ts，避免 arrayUnion 吃掉相同紀錄。
+const HOL_OFF = ["排休", "指休", "特休", "補休", "清空", ""];
+function weekMonStrOf(wStr) {
+  const [y, w] = String(wStr).split("-W").map(Number);
+  const d = week1MondayUTC(y);
+  d.setUTCDate(d.getUTCDate() + (w - 1) * 7);
+  return d.toISOString().slice(0, 10);
+}
+async function syncHolidayCompForWeek(db, store, weekStr, by, dryRun) {
+  const mon = weekMonStrOf(weekStr), dates = WEEK_DAYS.map((_, i) => addDaysStr(mon, i));
+  const years = [...new Set(dates.map((d) => d.slice(0, 4)))], hol = {};
+  for (const y of years) {
+    const hs = await db.collection("settings").doc("holidays").collection("years").doc(y).get().catch(() => null);
+    Object.assign(hol, (hs && hs.exists && hs.data().dates) || {});
+  }
+  const holDays = dates.map((d, i) => ({ d, day: WEEK_DAYS[i], name: hol[d] })).filter((x) => x.name);
+  if (!holDays.length) return null;
+  const wk = await db.collection("stores").doc(store).collection("weeks").doc(weekStr).get().catch(() => null);
+  if (!wk || !wk.exists) return null;
+  // 「那天有沒有上班」看所有門市的班表：調店的人那週的班在舊店、跨店支援的班在對方店（🆘 列 supportEmp＝「本店-姓名」）。
+  // 只看本店會把「在別店上班」誤判成沒上班而撤銷（2026-10-15 試跑抓到：調走的正職 9/25 在錦花上班，美德這邊被判撤銷）。
+  const working = new Set();
+  for (const st of (await getAllStores(db)).filter((x) => x !== "人力支援")) {
+    const sw = st === store ? wk : await db.collection("stores").doc(st).collection("weeks").doc(weekStr).get().catch(() => null);
+    ((sw && sw.exists && sw.data().records) || []).forEach((r) => {
+      if (!r || HOL_OFF.includes(String(r.shift || "").trim())) return;
+      if (r.name && !String(r.name).startsWith("🆘")) working.add(`${r.name}|${r.day}`);
+      if (r.approvalStatus === "approved" && typeof r.supportEmp === "string" && r.supportEmp.includes("-")) working.add(`${r.supportEmp.slice(r.supportEmp.indexOf("-") + 1)}|${r.day}`);
+    });
+  }
+  const recs = wk.data().records || [];
+  const empSnap = await db.collection("stores").doc(store).collection("employees").get();
+  const emps = {}; empSnap.forEach((d) => { emps[d.id] = d.data(); });
+  const out = { granted: [], revoked: [] }, now = new Date().toISOString();
+  for (const name of Object.keys(emps)) {
+    const e = emps[name];
+    if (e.payAsPartTime || String(e.role || "").includes("工讀")) continue; // 工讀不發補休（同前端 isPartTimeEmp）
+    for (const h of holDays) {
+      const r = recs.find((x) => x && x.name === name && x.day === h.day);
+      const isWorking = working.has(`${name}|${h.day}`);
+      const ym = h.d.slice(0, 7), yr = h.d.slice(0, 4);
+      const empRef = db.collection("employees").doc(name), logRef = empRef.collection("leaveLog").doc(ym);
+      const logSnap = await logRef.get().catch(() => null);
+      let net = 0;
+      ((logSnap && logSnap.exists && logSnap.data().records) || []).forEach((x) => {
+        if (!x || x.date !== h.d || !(x.source === "holiday" || String(x.note || "").includes("國定假日"))) return;
+        const n = parseFloat(x.days) || 1;
+        if (x.type === "comp_earn") net += n; else if (x.type === "comp_cancel") net -= n;
+      });
+      const target = isWorking ? 1 : 0;
+      if (net === target || (net > 1 && isWorking)) continue;
+      const diff = target - net; // +1 發放、−1 撤銷（net 異常時一次補齊到 target）
+      const type = diff > 0 ? "comp_earn" : "comp_cancel";
+      const rec = { date: h.d, type, days: Math.abs(diff), source: "holiday", savedBy: by, ts: Date.now(),
+        note: `${h.d} ${h.name} 國定假日補休${diff > 0 ? "" : "撤銷"}（班表發布時依班表${diff > 0 ? "發放" : "撤銷"}）` };
+      (diff > 0 ? out.granted : out.revoked).push({ name, date: h.d, holiday: h.name, shift: r ? r.shift : "" });
+      if (dryRun) continue;
+      await logRef.set({ records: admin.firestore.FieldValue.arrayUnion(rec) }, { merge: true });
+      // 舊統計欄（會漂、計算不讀，只為跟前端逐格發放一致）
+      const inc = admin.firestore.FieldValue.increment(diff);
+      await empRef.collection("comp").doc(yr).set({ earned: inc }, { merge: true }).catch(() => {});
+      await empRef.collection("leaves").doc(yr).set({ earnedComp: inc, updatedAt: now }, { merge: true }).catch(() => {});
+    }
+  }
+  if (dryRun) return out;
+  await db.collection("holidayCompSync").doc(`${store}__${weekStr}`).set({ store, weekStr, at: now, by, ...out });
+  if (out.granted.length || out.revoked.length) console.log("[holidayCompSync]", store, weekStr, JSON.stringify(out));
+  return out;
+}
 exports.onSchedulePublishedPush = onDocumentWritten(
   { document: "stores/{store}/weeks/{weekStr}", region: "asia-east1", secrets: [VAPID_PRIVATE] },
   async (event) => {
@@ -2888,6 +2964,9 @@ exports.onSchedulePublishedPush = onDocumentWritten(
     const after = event.data.after.exists ? event.data.after.data() : {};
     if (before.published === true || after.published !== true) return; // 只在「剛發布」
     const db = admin.firestore();
+    // 國定假日補休依班表同步（維護中也要做：這是員工權益，不是通知）；失敗不擋推播，週五自動發布時會補做
+    await syncHolidayCompForWeek(db, fixStoreName(event.params.store), event.params.weekStr, after.publishedBy ? `班表發布（${after.publishedBy}）` : "班表發布")
+      .catch((e) => console.error("[holidayCompSync]", event.params.weekStr, e));
     if (await maintenanceOn(db)) return;
     await pushSchedulePublished(db, fixStoreName(event.params.store), event.params.weekStr, after.records || [], VAPID_PRIVATE.value());
   }
@@ -2895,7 +2974,8 @@ exports.onSchedulePublishedPush = onDocumentWritten(
 
 // ── 週五 18:00 自動發布：店長沒手動發布的下週班表，前端此時起視為已發布（isAutoPublishedHome）→ 補推 ──
 exports.scheduledAutoPublishPush = onSchedule(
-  { schedule: "0 18 * * 5", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [VAPID_PRIVATE] },
+  // retryCount：這支也負責國定假日補休同步，失敗要重跑（重跑安全：推播有 pushPublishSent、補休有 holidayCompSync 去重）
+  { schedule: "0 18 * * 5", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [VAPID_PRIVATE], retryCount: 3 },
   async () => {
     const db = admin.firestore();
     if (await maintenanceOn(db)) return;
@@ -2905,6 +2985,9 @@ exports.scheduledAutoPublishPush = onSchedule(
       const wd = await db.collection("stores").doc(store).collection("weeks").doc(weekStr).get().catch(() => null);
       if (!wd || !wd.exists) continue;
       const d = wd.data();
+      // 國定假日補休：這週還沒依班表同步過（沒手動發布、或手動發布時同步失敗）→ 自動發布這一刻補做
+      const synced = await db.collection("holidayCompSync").doc(`${store}__${weekStr}`).get().catch(() => null);
+      if (!synced || !synced.exists) await syncHolidayCompForWeek(db, store, weekStr, "班表自動發布").catch((e) => console.error("[holidayCompSync]", store, weekStr, e));
       if (d.published === true) continue; // 已手動發布（當時已通知）
       if (!(d.records || []).some((r) => r && r.shift)) continue; // 空班表不發
       await pushSchedulePublished(db, store, weekStr, d.records || [], VAPID_PRIVATE.value());

@@ -266,7 +266,7 @@ function annualLeaveRuleSalary(totalMonths) {
   if(totalMonths<120) return {days:15};
   return {days:Math.min(30,15+Math.floor(totalMonths/12)-9)};
 }
-function today() { return new Date().toISOString().split('T')[0]; }
+function today() { return new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().split('T')[0]; }
 // ===== 確認遞延假結算（納入當月薪資）=====
 async function confirmCarrySettle(empName) {
   const carry = calcCarrySettlement(empName);
@@ -2307,7 +2307,7 @@ async function loadSalaryData() {
     // 歷史月份鎖定職稱：過去月份且該員當月已有薪資記錄 → 職稱以記錄為準，
     // 避免員工日後升遷/降職（改主檔職稱）回頭污染舊月薪資結構
     // （例：某工讀 7/1 由工讀轉正職，主檔已是正職，但 6 月仍應以工讀計薪）
-    const nowYM = new Date().toISOString().slice(0,7);
+    const nowYM = new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,7);
     if(currentMonth < nowYM) {
       empList.forEach(e => {
         const histRec = salaryData.records.find(r => r.empName === e.name);
@@ -2982,8 +2982,10 @@ function renderSalaryForm(emp, rec, idx, readonly) {
         window.db.collection('employees').doc(_empN).collection('leaveLog').doc(_ym).get()
           .then(snap => {
             const recs2 = snap.exists ? (snap.data().records||[]) : [];
-            const allGranted = _worked.every(h => recs2.some(r => r.type==='comp_earn' && r.date===h.date && (r.note||'').includes('國定假日')));
-            const noneGranted = !_worked.some(h => recs2.some(r => r.type==='comp_earn' && r.date===h.date && (r.note||'').includes('國定假日')));
+            // 看淨額（發放 − 撤銷）：撤銷後 comp_earn 還在，只看有沒有 earn 會誤報「已發放」（2026-10-15）
+            const _net = d => recs2.reduce((t, r) => (r && r.date===d && (r.source==='holiday' || (r.note||'').includes('國定假日'))) ? t + (r.type==='comp_earn' ? (parseFloat(r.days)||1) : r.type==='comp_cancel' ? -(parseFloat(r.days)||1) : 0) : t, 0);
+            const allGranted = _worked.every(h => _net(h.date) > 0);
+            const noneGranted = !_worked.some(h => _net(h.date) > 0);
             const holidayNames = _worked.map(h => `${parseInt(h.date.slice(5,7))}/${parseInt(h.date.slice(8,10))} ${h.name}`).join('、');
             const el2 = document.getElementById(_noteId);
             if(!el2) return;

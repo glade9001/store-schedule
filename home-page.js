@@ -768,7 +768,7 @@ async function checkHireDateGate(){
     _hireGateStore = store;
     const empSnap = await window.db.collection('stores').doc(store).collection('employees').get().catch(()=>null);
     if(!empSnap) return;
-    const todayStr = new Date().toISOString().slice(0,10);
+    const todayStr = new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
     const cy = new Date().getFullYear().toString();
     const candidates = [];
     empSnap.forEach(d=>{
@@ -1544,7 +1544,7 @@ async function loadMyCalendar() {
 
 function renderMyCalendar(year, month, dayMap) {
   const grid = document.getElementById('myCalGrid');
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().split('T')[0];
   const hdrs = ['一','二','三','四','五','六','日'];
   let html = hdrs.map((h,i) => `<div class="my-cal-hdr${i>=5?' we':''}">${h}</div>`).join('');
 
@@ -1716,7 +1716,7 @@ async function loadStats() {
     }
 
     // 今天日期字串（YYYY-MM-DD），用於截止判斷
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().split('T')[0];
 
     let monthHours = 0, monthOff = 0, monthOT = 0;
 
@@ -1789,7 +1789,7 @@ async function loadStats() {
           window.db.collection('employees').doc(empNameStr).collection('leaveBatches').get(),
           window.db.collection('employees').doc(empNameStr).collection('comp').doc(String(thisYear)).get()
         ]).then(([batchSnap, compSnap]) => {
-          const todayStr = new Date().toISOString().split('T')[0];
+          const todayStr = new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().split('T')[0];
           let totalAvail = 0;
           if(batchSnap) {
             batchSnap.forEach(d => {
@@ -1928,7 +1928,7 @@ async function loadPendingItems() {
           empSnap.forEach(d => { if(!['離職','調走'].includes(d.data().status)) emps.push({ id:d.id, ...d.data() }); });
 
           const now = new Date();
-          const todayStr = now.toISOString().split('T')[0];
+          const todayStr = new Date(now - now.getTimezoneOffset()*60000).toISOString().split('T')[0]; // 本機日期（UTC 半夜會是昨天）
           const isDecember = now.getMonth() === 11;
           const thisYear = now.getFullYear();
           const prevYear = thisYear - 1;

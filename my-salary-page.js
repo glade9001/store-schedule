@@ -331,7 +331,7 @@ async function loadSalaryData() {
 
     // 歷史月份鎖定職稱：過去月份且該員當月已有薪資記錄 → 職稱以記錄為準，
     // 避免升遷/降職後回頭看舊月，職稱標籤與計算基準不一致
-    const nowYM = new Date().toISOString().slice(0,7);
+    const nowYM = new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,7);
     if(currentMonth < nowYM) {
       empList.forEach(e => {
         const histRec = salaryData.records.find(r => r.empName === e.name);

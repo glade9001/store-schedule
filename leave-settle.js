@@ -114,7 +114,7 @@ function calcLeaveSettle(o) {
   o = o || {};
   var all = o.batches || [];
   var batches = all.filter(function (b) { return !b.settled; });
-  var effectDate = o.effectDate || new Date().toISOString().slice(0, 10);
+  var effectDate = o.effectDate || new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0, 10);
 
   // 到職日：優先用員工主檔；退而求其次用最早批次往前推 6 個月（特休於到職滿 6 個月首次發放）
   var hireDate = o.hireDate || null;

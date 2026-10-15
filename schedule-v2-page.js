@@ -389,7 +389,7 @@ async function togglePublish() {
   if(isPublished && pd.published) {
     if(!confirm('確定要取消發布嗎？員工將看不到班表。')) return;
   } else if(!isPublished) {
-    if(!confirm('確定要發布此週班表嗎？員工將可以看到。')) return;
+    if(!confirm('確定要發布此週班表嗎？員工將可以看到。\n\n這週如果有國定假日，發布時會依班表自動發放正職的國定假日補休（沒上班的會撤回）。')) return;
     // 發布前：偵測空白格，詢問是否填「休」
     const blanks = getBlankCellsData(weekStr);
     if(blanks.length){
@@ -672,6 +672,16 @@ async function recomputeLeaveCounters(empName, yearStr) {
 
   await Promise.all(writes);
 }
+// 某天國定假日補休的淨額（發放 − 撤銷）；同 functions syncHolidayCompForWeek、comp-avail.js 的口徑
+function holidayCompNet(records, date) {
+  let net = 0;
+  (records||[]).forEach(r => {
+    if(!r || r.date !== date || !(r.source === 'holiday' || String(r.note||'').includes('國定假日'))) return;
+    const n = parseFloat(r.days) || 1;
+    if(r.type === 'comp_earn') net += n; else if(r.type === 'comp_cancel') net -= n;
+  });
+  return net;
+}
 // ===== 國定假日補休：發放 =====
 async function grantHolidayComp(empName, fullDate, holidayName) {
   const year = fullDate.slice(0,4);
@@ -681,17 +691,15 @@ async function grantHolidayComp(empName, fullDate, holidayName) {
   const compRef = window.db.collection('employees').doc(empName).collection('comp').doc(year);
   const leaveRef= window.db.collection('employees').doc(empName).collection('leaves').doc(year);
 
-  // 防重複：檢查 leaveLog 是否已有此日 comp_earn
+  // 防重複：看「發放 − 撤銷」的淨額，不能只看有沒有 comp_earn（2026-10-15：發放→撤銷→再發放被擋，16 班正職國定假日上班補休是 0）
   const logSnap = await logRef.get();
-  const existing = (logSnap.exists ? logSnap.data().records||[] : [])
-    .some(r => r.type === 'comp_earn' && r.date === fullDate && (r.note||'').includes('國定假日'));
-  if(existing) { showToast(`⚠️ ${empName} ${fullDate} 補休已發放過`); return false; }
+  if(holidayCompNet(logSnap.exists ? logSnap.data().records||[] : [], fullDate) > 0) { showToast(`⚠️ ${empName} ${fullDate} 補休已發放過`); return false; }
 
   const note = `${fullDate} ${holidayName} 國定假日補休`;
   await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
     date: fullDate, type: 'comp_earn', days: 1, note,
     source: 'holiday', // ✅ Bug6 S2：標記為國定假日補休來源
-    savedBy
+    savedBy, ts: Date.now() // ts：arrayUnion 會吃掉一模一樣的紀錄（再發放時跟第一筆完全相同）
   })}, { merge: true });
 
   // 同步 comp/{year}
@@ -718,8 +726,10 @@ async function revokeHolidayComp(empName, fullDate, holidayName) {
   const leaveRef= window.db.collection('employees').doc(empName).collection('leaves').doc(year);
 
   const note = `${fullDate} ${holidayName} 國定假日補休撤銷`;
+  const logSnap0 = await logRef.get();
+  if(holidayCompNet(logSnap0.exists ? logSnap0.data().records||[] : [], fullDate) <= 0) return false; // 目前沒有發放中的，不撤（避免撤成負的）
   await logRef.set({ records: firebase.firestore.FieldValue.arrayUnion({
-    date: fullDate, type: 'comp_cancel', days: 1, note, savedBy
+    date: fullDate, type: 'comp_cancel', days: 1, note, source: 'holiday', savedBy, ts: Date.now()
   })}, { merge: true });
 
   const compSnap = await compRef.get();
@@ -745,6 +755,9 @@ async function checkHolidayCompOnSave(empName, fullDate, prevShift, newShift, em
 
   const holidayName = TW_HOLIDAYS_SCHED[fullDate];
   if(!holidayName) return; // 不是國定假日
+  // 發布前不發也不撤（使用者 2026-10-15）：發布當下由後端依班表一次對齊（functions syncHolidayCompForWeek）；發布後改班才逐格詢問
+  const wkOf = shiftWeekStr(fullDate), pdh = weekPublishData[wkOf] || {};
+  if(!(pdh.published || isAutoPublished(wkOf))) return;
 
   const wasWorking = prevShift && prevShift !== '排休' && prevShift !== '指休' && prevShift !== '特休' && prevShift !== '補休';
   const isWorking  = newShift  && newShift  !== '排休' && newShift  !== '指休' && newShift  !== '特休' && newShift  !== '補休';
@@ -760,8 +773,7 @@ ${getDisplayName(empName)} 有上班，是否發放 1 天補休？`)) {
     // 取消上班 → 檢查是否已發補休
     const ym = fullDate.slice(0,7);
     const logSnap = await window.db.collection('employees').doc(empName).collection('leaveLog').doc(ym).get();
-    const hasComp = (logSnap.exists ? logSnap.data().records||[] : [])
-      .some(r => r.type === 'comp_earn' && r.date === fullDate && (r.note||'').includes('國定假日'));
+    const hasComp = holidayCompNet(logSnap.exists ? logSnap.data().records||[] : [], fullDate) > 0;
     if(hasComp) {
       if(confirm(`⚠️ ${fullDate} ${holidayName} 已發放補休
 ${getDisplayName(empName)} 取消上班，是否一併撤銷補休？`)) {
@@ -3089,7 +3101,7 @@ function fetchLeaveSum(empName) {
     window.db.collection('employees').doc(empName).collection('leaveBatches').get(),
     caCompAvailability(empName)
   ]).then(([bSnap, ca]) => {
-    const todayStr2 = new Date().toISOString().split('T')[0];
+    const todayStr2 = new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().split('T')[0];
     let annual = 0;
     bSnap.forEach(b => {
       const bd = b.data();
