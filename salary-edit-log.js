@@ -84,8 +84,8 @@
 
   window.SalaryEditLog = {
     // 開員工視窗時呼叫：換人就收合；換月份／門市時清快取
-    reset(empName) { emp = empName; showAll = false; if (cacheKey !== `${currentStore}__${currentMonth}`) { cache = null; cacheKey = ''; } collapsed(); },
+    reset: function (empName) { emp = empName; showAll = false; if (cacheKey !== `${currentStore}__${currentMonth}`) { cache = null; cacheKey = ''; } collapsed(); },
     open, close: collapsed,
-    more() { showAll = true; render(); },
+    more: function () { showAll = true; render(); },
   };
 })();
