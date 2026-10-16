@@ -397,3 +397,73 @@ exports.getMySalary = onCall({ region: "asia-east1" }, async (request) => {
   }
   return { empName, items };
 });
+
+// ===== 薪資修改紀錄（2026-10-16）=====
+// 薪資每存一次 → 逐人逐欄比對「原本→改成」，記下誰改的、什麼時候改的，存到 salaryEditLog/{店}__{月}。
+// 原本只有整份文件的 updatedBy（每存一次就被蓋掉），查不到某個金額是誰填的。
+// ⚠️ 用 WithAuthContext 才拿得到修改者；Cloud Functions 自己寫的（Admin SDK）記成「系統」。
+// ⚠️ 店名從 event.params 來會是 latin1 亂碼，一定要 fixStoreName（見 reference_cjk_encoding_traps）。
+// ⚠️ arrayUnion 會吃掉完全相同的元素 → 每筆帶 at（毫秒）＋序號。
+// 不記：payHash／dummy（內部用）、grossAmt／deductAmt（算出來的）；netAmt 只在同一人有其他欄位變動時順帶記，看得出實發從多少變多少。
+const SAL_LOG_SKIP = new Set(["payHash", "dummy", "grossAmt", "deductAmt", "netAmt", "empName"]);
+// 空值、0、false 視為同一個「沒有」——程式補新欄位（undefined→0）不算有人改
+function salLogNorm(v) {
+  if (v === undefined || v === null || v === "" || v === 0 || v === false || v === "0") return "";
+  if (typeof v === "object") return JSON.stringify(v);
+  return String(v);
+}
+function salLogVal(v) {
+  const s = salLogNorm(v);
+  return s.length > 200 ? s.slice(0, 200) + "…" : s;
+}
+function salLogDiff(before, after) {
+  const out = [];
+  if (salLogNorm(before.status || "draft") !== salLogNorm(after.status || "draft")) {
+    out.push({ emp: "", field: "status", from: before.status || "draft", to: after.status || "draft" });
+  }
+  const bm = new Map((before.records || []).map((r) => [r.empName, r]));
+  const am = new Map((after.records || []).map((r) => [r.empName, r]));
+  for (const [emp, a] of am) {
+    const b = bm.get(emp);
+    if (!b) { out.push({ emp, field: "_added", from: "", to: "" }); continue; }
+    const rows = [];
+    for (const k of new Set([...Object.keys(b), ...Object.keys(a)])) {
+      if (SAL_LOG_SKIP.has(k)) continue;
+      if (salLogNorm(b[k]) === salLogNorm(a[k])) continue;
+      rows.push({ emp, field: k, from: salLogVal(b[k]), to: salLogVal(a[k]) });
+    }
+    if (rows.length && salLogNorm(b.netAmt) !== salLogNorm(a.netAmt)) {
+      rows.push({ emp, field: "netAmt", from: salLogVal(b.netAmt), to: salLogVal(a.netAmt) });
+    }
+    out.push(...rows);
+  }
+  for (const emp of bm.keys()) if (!am.has(emp)) out.push({ emp, field: "_removed", from: "", to: "" });
+  return out;
+}
+exports.onSalaryEditLog = onDocumentWrittenWithAuthContext(
+  { document: "stores/{store}/salary/{month}", region: "asia-east1" },
+  async (event) => {
+    if (!event.data.after.exists) return; // 整份刪除另計（目前沒有刪薪資的功能）
+    const before = event.data.before.exists ? event.data.before.data() || {} : null;
+    const after = event.data.after.data() || {};
+    // 新建這個月：只記一筆「建立」，不逐欄列出預設值
+    const changed = before ? salLogDiff(before, after) : [{ emp: "", field: "_created", from: "", to: after.status || "draft" }];
+    if (!changed.length) return;
+    const db = getFirestore();
+    let by = "系統", byPerm = "";
+    if (event.authType === "app_user" && event.authId) {
+      const u = await db.collection("users").doc(event.authId).get().catch(() => null);
+      const ud = u && u.exists ? u.data() : {};
+      by = ud.displayName || ud.empName || "未知使用者";
+      byPerm = ud.permission || "";
+    }
+    const store = fixStoreName(event.params.store);
+    const month = event.params.month;
+    const now = Date.now();
+    const items = changed.map((c, i) => ({ ...c, at: now, seq: i, by, byPerm, byUid: event.authId || "" }));
+    await db.collection("salaryEditLog").doc(`${store}__${month}`).set({
+      store, month, updatedAt: now,
+      items: FieldValue.arrayUnion(...items),
+    }, { merge: true });
+  }
+);

@@ -10,7 +10,8 @@ async function call(method,path,uid,body,mask){const h={'Content-Type':'applicat
 const seed=async()=>{for(const [uid,perm,store] of [['emp1','employee','美德'],['mgr1','manager','美德'],['own1','owner','美德']])await call('PATCH',`users/${uid}`,'ADMIN',F({permission:perm,store,empName:uid}));
  await call('PATCH','employees/員工甲/leaveLog/2026-10','ADMIN',F({x:'1'}));await call('PATCH','settings/holidays/years/2026','ADMIN',F({x:'1'}));
  await call('PATCH','settings/globalConfig','ADMIN',F({stores:'美德',clockIn:{geo:{lat:'1'},tolByStore:{美德:5}}}));
- await call('PATCH','salaryAck/emp1_2026-09','ADMIN',F({m:'1'}));await call('PATCH','salaryAck/mgr1_2026-09','ADMIN',F({m:'1'}));await call('PATCH','todos/t1','ADMIN',F({x:'1'}));};
+ await call('PATCH','salaryAck/emp1_2026-09','ADMIN',F({m:'1'}));await call('PATCH','salaryAck/mgr1_2026-09','ADMIN',F({m:'1'}));await call('PATCH','todos/t1','ADMIN',F({x:'1'}));
+ await call('PATCH','salaryEditLog/美德__2026-10','ADMIN',F({store:'美德',month:'2026-10'}));await call('PATCH','salaryEditLog/錦花__2026-10','ADMIN',F({store:'錦花',month:'2026-10'}));};
 const T=[ // [說明, method, path, uid, body, mask, 預期通過?]
  ['員工讀別人補休帳本','GET','employees/員工甲/leaveLog/2026-10','emp1',null,null,true],
  ['員工改別人補休帳本','PATCH','employees/員工甲/leaveLog/2026-10','emp1',F({x:'2'}),null,false],
@@ -35,8 +36,19 @@ const T=[ // [說明, method, path, uid, body, mask, 預期通過?]
  ['員工讀別人簽名','GET','salaryAckSig/mgr1_2026-09','emp1',null,null,false],
  ['員工刪自己的簽收','DELETE','salaryAck/emp1_2026-09','emp1',null,null,false],
  ['catch-all 其他照舊：員工寫待辦勾選','PATCH','todos/t1','emp1',F({x:'2'}),null,true],
+ ['加盟主讀別店薪資修改紀錄','GET','salaryEditLog/錦花__2026-10','own1',null,null,true],
+ ['店長讀本店薪資修改紀錄','GET','salaryEditLog/美德__2026-10','mgr1',null,null,true],
+ ['店長讀別店薪資修改紀錄','GET','salaryEditLog/錦花__2026-10','mgr1',null,null,false],
+ ['店長讀還沒有紀錄的月份','GET','salaryEditLog/美德__2025-01','mgr1',null,null,true],
+ ['員工讀還沒有紀錄的月份','GET','salaryEditLog/美德__2025-01','emp1',null,null,false],
+ ['員工讀薪資修改紀錄','GET','salaryEditLog/美德__2026-10','emp1',null,null,false],
+ ['店長竄改本店薪資修改紀錄','PATCH','salaryEditLog/美德__2026-10','mgr1',F({store:'美德',items:'x'}),null,false],
+ ['加盟主竄改薪資修改紀錄','PATCH','salaryEditLog/錦花__2026-10','own1',F({store:'錦花'}),null,false],
+ ['加盟主刪薪資修改紀錄','DELETE','salaryEditLog/美德__2026-10','own1',null,null,false],
+ ['員工偽造新的薪資修改紀錄','PATCH','salaryEditLog/美德__2026-11','emp1',F({store:'美德'}),null,false],
+ ['未登入讀薪資修改紀錄','GET','salaryEditLog/美德__2026-10',null,null,null,false],
  ['未登入讀帳本','GET','employees/員工甲/leaveLog/2026-10',null,null,null,false],
 ];
 (async()=>{await seed();let fail=0;
- for(const [d,m,p,u,b,mask,exp] of T){let st;if(u===null){const r=await fetch(B+'/'+enc(p));st=r.status}else st=await call(m,p,u,b,mask);const ok=st<300;const pass=ok===exp;if(!pass)fail++;console.log(pass?'✅':'❌',d,'→',ok?'允許':'拒絕',`(${st})`);}
+ for(const [d,m,p,u,b,mask,exp] of T){let st;if(u===null){const r=await fetch(B+'/'+enc(p));st=r.status}else st=await call(m,p,u,b,mask);const ok=st<300||st===404; /* 404＝規則放行、只是文件不存在 */const pass=ok===exp;if(!pass)fail++;console.log(pass?'✅':'❌',d,'→',ok?'允許':'拒絕',`(${st})`);}
  console.log(fail?`${fail} 項不符`:'全部符合');process.exit(fail?1:0);})();

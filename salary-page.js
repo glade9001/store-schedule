@@ -2373,6 +2373,7 @@ function openEmpModal(empName, tabIdx) {
   document.getElementById('empModalRole').textContent = `${emp.role||''} · ${currentMonth.replace('-','年')}月`;
   document.getElementById('empModalTotal').textContent = `$${total.toLocaleString()}`;
   document.getElementById('empModalBody').innerHTML = renderSalaryForm(emp, rec, 0, readonly);
+  if(window.SalaryEditLog) SalaryEditLog.reset(empName); // 📝 修改紀錄（salary-edit-log.js）
 
   openModal('empEditModal');
 }

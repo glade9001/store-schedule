@@ -260,6 +260,15 @@ service cloud.firestore {
       allow write: if isOwnerOrAdmin();
     }
 
+    // ── salaryEditLog：薪資修改紀錄（2026-10-16）──────────────
+    // 只由 onSalaryEditLog（Admin SDK）寫入，前端任何人都不能寫／改／刪 → 紀錄不能被竄改。
+    // 讀：加盟主／admin 看全部；店長只看本店。員工不開放。
+    // ⚠️ 必須被下面的 catch-all 排除，否則任何登入者都能改紀錄。
+    match /salaryEditLog/{id} {
+      // 還沒有紀錄的月份（文件不存在）也要讀得到，否則店長畫面會顯示讀取失敗
+      allow read: if isOwnerOrAdmin() || (myPerm() == 'manager' && (resource == null || resource.data.get('store', '') == myStore()));
+    }
+
     // ── 班表分享連結（2026-10-11）────────────────────────
     // scheduleShares：只有 admin 能產生／撤銷／查看（代碼本身就是通行證，不能讓其他登入者讀到）。
     //   不可刪除（撤銷用 revoked=true，留紀錄）。分享頁不讀這裡，一律經 getScheduleShare 函式。
@@ -305,12 +314,12 @@ service cloud.firestore {
     }
 
     match /{coll}/{docPath=**} {
-      allow read: if request.auth != null && coll != 'inspectionSheets' && coll != 'pushSubs' && !(coll in ['employees', 'settings', 'salaryAck', 'salaryAckSig']) && coll != 'stores' && !coll.matches('gb_.*') && coll != 'users' && coll != 'account' && coll != 'storeMemos' && !coll.matches('city[A-Z].*') && !coll.matches('schedule(Shares|Changes)');
-      allow update, delete: if request.auth != null && coll != 'inspectionSheets' && coll != 'pushSubs' && !(coll in ['employees', 'settings', 'salaryAck', 'salaryAckSig']) && coll != 'stores' && !coll.matches('gb_.*') && coll != 'users' && coll != 'account' && coll != 'storeMemos' && !coll.matches('city[A-Z].*') && !coll.matches('schedule(Shares|Changes)');
+      allow read: if request.auth != null && coll != 'inspectionSheets' && coll != 'pushSubs' && !(coll in ['employees', 'settings', 'salaryAck', 'salaryAckSig']) && coll != 'stores' && !coll.matches('gb_.*') && coll != 'users' && coll != 'account' && coll != 'storeMemos' && !coll.matches('city[A-Z].*') && !coll.matches('schedule(Shares|Changes)') && coll != 'salaryEditLog';
+      allow update, delete: if request.auth != null && coll != 'inspectionSheets' && coll != 'pushSubs' && !(coll in ['employees', 'settings', 'salaryAck', 'salaryAckSig']) && coll != 'stores' && !coll.matches('gb_.*') && coll != 'users' && coll != 'account' && coll != 'storeMemos' && !coll.matches('city[A-Z].*') && !coll.matches('schedule(Shares|Changes)') && coll != 'salaryEditLog';
       // 打卡防偽：source=="app" 的打卡「只能」由 clockPunch callable(Admin SDK 略過規則)建立；
       //          客戶端不可直接寫入假打卡。管理者補登(source=manual)、缺卡(source=system)、其他無 source 的建立照常。
       // ⚠️ 必須用 .get('source','')：直接存取不存在的欄位會讓規則報錯而「拒絕」→ 會擋掉所有沒有 source 欄位的建立(薪資簽收/劃休/綁定…)
-      allow create: if request.auth != null && coll != 'inspectionSheets' && coll != 'pushSubs' && !(coll in ['employees', 'settings', 'salaryAck', 'salaryAckSig']) && coll != 'stores' && !coll.matches('gb_.*') && coll != 'users' && coll != 'account' && coll != 'storeMemos' && !coll.matches('city[A-Z].*') && !coll.matches('schedule(Shares|Changes)')
+      allow create: if request.auth != null && coll != 'inspectionSheets' && coll != 'pushSubs' && !(coll in ['employees', 'settings', 'salaryAck', 'salaryAckSig']) && coll != 'stores' && !coll.matches('gb_.*') && coll != 'users' && coll != 'account' && coll != 'storeMemos' && !coll.matches('city[A-Z].*') && !coll.matches('schedule(Shares|Changes)') && coll != 'salaryEditLog'
                     && request.resource.data.get('source', '') != 'app';
     }
   }
