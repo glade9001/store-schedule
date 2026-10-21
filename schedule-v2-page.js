@@ -321,7 +321,7 @@ function updatePublishBtn(store, weekStr) {
   if(!canScheduleStore(store)) {
     btn.style.display = 'none';
     if(notifyBtn) notifyBtn.style.display = 'none';
-    if(typeof asdRefreshBtn === 'function') asdRefreshBtn();
+    if(typeof asdRefreshBtn === 'function') asdRefreshBtn(); if(typeof clearWeekRefreshBtn === 'function') clearWeekRefreshBtn();
     return;
   }
   btn.style.display = 'flex';
@@ -336,7 +336,7 @@ function updatePublishBtn(store, weekStr) {
     document.getElementById('publishBtnIcon').textContent = '🚀';
     document.getElementById('publishBtnText').textContent = '發布';
   }
-  if(typeof asdRefreshBtn === 'function') asdRefreshBtn(); // 🤖 產生草稿：已發布的週不能用
+  if(typeof asdRefreshBtn === 'function') asdRefreshBtn(); if(typeof clearWeekRefreshBtn === 'function') clearWeekRefreshBtn(); // 🤖 產生草稿：已發布的週不能用
 }
 
 // 店長按「立即通知」→ 呼叫 flushScheduleNotify，馬上把本週班表異動發給相關員工
@@ -532,7 +532,7 @@ function updateHistoryLockUI(weekStr, store) {
   } else {
     lockBanner.style.display = 'none';
     editBtn.style.display = 'none';
-  }  if(typeof asdRefreshBtn === 'function') asdRefreshBtn(); // 🤖 產生草稿：已過去的週不能用
+  }  if(typeof asdRefreshBtn === 'function') asdRefreshBtn(); if(typeof clearWeekRefreshBtn === 'function') clearWeekRefreshBtn(); // 🤖 產生草稿：已過去的週不能用
 }
 
 

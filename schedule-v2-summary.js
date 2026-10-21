@@ -215,6 +215,17 @@ function pushToUndo(btn) {
 function undoLastAction() {
   if(!undoStack.length) { showToast('沒有可回復的動作'); return; }
   const l=undoStack.pop();
+  if(l.clearedRecords) { // 一鍵清空 → 整批復原
+    const week=document.getElementById('weekSelector').value;
+    if(l.clearedRecords[0].week!==week) { showToast('⚠️ 已換週，請回到 '+l.clearedRecords[0].week+' 再按上一步'); undoStack.push(l); return; }
+    syncUIToMemory();
+    l.clearedRecords.forEach(o => {
+      const idx=appData.records.findIndex(r=>r.name===o.name&&r.day===o.day&&r.week===o.week);
+      if(idx!==-1) appData.records[idx]=o; else appData.records.push(o);
+    });
+    invalidateDayViewCache(); renderSchedule(); triggerAutoSave();
+    return;
+  }
   const fromShift=l.btn.dataset.shift||''; // 回復前的班別
   l.btn.dataset.shift=l.s; l.btn.dataset.hours=l.h; l.btn.dataset.loc=l.l; l.btn.dataset.note=l.n;
   l.btn.dataset.ot=l.ot; l.btn.dataset.support=l.supp; l.btn.dataset.approval=l.app; l.btn.dataset.reqoff=l.reqOff; l.btn.dataset.lawoverrides=l.lo||''; l.btn.dataset.draft=l.dr||'';
@@ -239,6 +250,50 @@ function deleteVirtualRow(name) {
   virtualRowNames=virtualRowNames.filter(n=>n!==name);
   renderSchedule();
   triggerAutoSave();
+}
+
+// ===== 一鍵清空（2026-10-21）=====
+// 只清店長排的班別與排休；員工劃休(requestOff)、特休/補休、跨店支援、待補格已派的支援人、備註都保留。
+// 只限還沒發布的未來週（不動特補休帳本、不觸發異動通知、不改歷史）。
+function clearWeekBlockReason(store, week) {
+  if(!canScheduleStore(store)) return '沒有這家店的排班權限';
+  if(weekStringToDate(week) <= new Date()) return '只有還沒開始的未來週可以一鍵清空';
+  const pd = weekPublishData[week] || {};
+  if(pd.published || isAutoPublished(week)) return '已發布的班表不能一鍵清空';
+  return '';
+}
+function clearWeekRefreshBtn() {
+  const btn = document.getElementById('clearWeekBtn');
+  if(!btn) return;
+  const store = document.getElementById('storeSelector').value;
+  const week = document.getElementById('weekSelector').value;
+  if(!canScheduleStore(store)) { btn.style.display = 'none'; return; }
+  btn.style.display = 'inline-flex';
+  const why = clearWeekBlockReason(store, week);
+  btn.classList.toggle('disabled', !!why);
+  btn.title = why || '清空這週店長排的班別與排休（員工劃休、特休/補休、跨店支援會保留）';
+}
+function clearWeekShifts() {
+  const store = document.getElementById('storeSelector').value;
+  const week = document.getElementById('weekSelector').value;
+  const why = clearWeekBlockReason(store, week);
+  if(why) { showToast('🚫 ' + why); return; }
+  syncUIToMemory();
+  const targets = appData.records.filter(r => r.week === week && r.name !== '門市備註'
+    && r.shift && !r.requestOff && r.shift !== '特休' && r.shift !== '補休'
+    && (!r.location || r.location === '本店') && !r.supportEmp);
+  if(!targets.length) { showToast('這週沒有可清空的班別'); return; }
+  if(!confirm(`確定清空 ${week} 的 ${targets.length} 格班別與排休？\n\n員工劃休、特休/補休、跨店支援會保留。\n清錯可按「↩️ 上一步」整批復原。`)) return;
+  undoStack.push({ clearedRecords: targets.map(r => JSON.parse(JSON.stringify(r))) });
+  if(undoStack.length>30) undoStack.shift();
+  targets.forEach(r => {
+    r.shift=''; r.actualHours=0; r.isOT=false; r.lawOverrides=[]; delete r.draft;
+  });
+  appData.records = appData.records.filter(r => !(targets.includes(r) && !r.note && !r.isHourly));
+  invalidateDayViewCache();
+  renderSchedule();
+  triggerAutoSave();
+  showToast(`🧹 已清空 ${targets.length} 格`);
 }
 
 // ===== 跨店支援審核 =====

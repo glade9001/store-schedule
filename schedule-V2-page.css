@@ -93,6 +93,8 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 .tool-btn.add { background: #fff3e0; color: #e65100; }
 .tool-btn.emp { background: #ede7f6; color: var(--purple); }
 .tool-btn.log { background: #e0f2f1; color: #00695c; }
+.tool-btn.clearall { background: #fef2f2; color: #b91c1c; }
+.tool-btn.clearall.disabled { opacity: .45; }
 
 /* ===== PAINT TOOLBAR ===== */
 .paint-bar {
