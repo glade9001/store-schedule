@@ -56,6 +56,7 @@ var HOME_FEATURES = [
   // 團購（2026-10-10 第 1 階段）：全員可用——員工補本店單、看取貨名單；開團／編輯在頁面內依角色開放
   { id: 'groupbuy',  group: 'store', icon: '🛒', label: '團購',     sub: '開團、補單、取貨名單',     go: 'groupbuy.html', show: function () { return !!currentUser?.empName; }, kw: '團購 補單 開團 +1 取貨 付款 棄單' },
   { id: 'barcode', group: 'store', icon: '▥',  label: '條碼查詢',   sub: '外部網站',       href: 'https://bk-bc.github.io/Barcode/' },
+  { id: 'itemno',  group: 'store', icon: '🔍', label: '品號查詢',   sub: '外部網站・品號／PMA類別', href: 'https://7-11howhowfun.netlify.app/', kw: '品號 商品號 PMA 7-11' },
   { id: 'wds',     group: 'store', icon: '💬', label: '大智通小智', sub: '外部網站',       href: 'https://www.wds.com.tw/webchat/?action=dispatch2&bb=2&openExternalBrowser=1' },
   { id: 'learn',   group: 'store', icon: '📚', label: '學習平台',   sub: '外部網站・線上課程', href: 'https://e-learning.unipcsc.com.tw/eHRD/eHRDOrg', browser: true, kw: '教育訓練 課程 e-learning' },
   // ── 帳號與系統 ──

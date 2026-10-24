@@ -420,6 +420,8 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 .ring-city .tool-face    { color:#8a5a2e; }
 .ring-barcode { background:conic-gradient(#243042,#7b8aa0,#243042); }
 .ring-barcode .tool-face { color:#243042; }
+.ring-itemno  { background:conic-gradient(#0056b3,#7fb4ef,#0056b3); }
+.ring-itemno .tool-face  { color:#0056b3; }
 .ring-wds     { background:conic-gradient(#e0540f,#ffb27a,#e0540f); }
 .ring-wds .tool-face     { color:#d9510f; }
 .ring-learn   { background:conic-gradient(#0f766e,#5ec7b8,#0f766e); }
