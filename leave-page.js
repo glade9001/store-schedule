@@ -496,13 +496,13 @@ function renderEmpDetail(empName, showBack=true) {
       const canCarry = !b.carried; // 遞延批次不可再延
       html+=`<div class="expire-alert" onclick="openSettleCarryModal('${empName}','${b.id}',${canCarry})">
         <div class="expire-alert-title">⚠️ 特休到期：${b.label||b.note} — 剩 ${remaining} 天（${fmtDate(expDate)} 到期）</div>
-        <div class="expire-alert-sub">點擊選擇「結算薪資」或「遞延${canCarry?'一年':'（不可再延，請結算）'}」→ 處理前薪資無法送出</div>
+        <div class="expire-alert-sub">點擊選擇「到薪資頁結算」或「遞延${canCarry?'一年':'（不可再延，請結算）'}」</div>
       </div>`;
     });
     expiringComp.forEach(c=>{
       html+=`<div class="expire-alert warn-type" onclick="openCompSettleModal('${empName}',${c.year},${c.canCarry})">
         <div class="expire-alert-title">${c.canCarry?'⚠️':'🚨'} 補休到期（${c.year}年度）— 剩 ${c.remaining} 天（12/31 到期${c.canCarry?''+'':'，不可再延'}）</div>
-        <div class="expire-alert-sub">點擊選擇「結算薪資」${c.canCarry?'或「遞延至明年12/31」':''} → 處理前薪資無法送出</div>
+        <div class="expire-alert-sub">點擊選擇「到 12 月薪資結算」${c.canCarry?'或「遞延至明年12/31」':''}</div>
       </div>`;
     });
   }
@@ -823,38 +823,31 @@ function openSettleCarryModal(empName, batchId, canCarry) {
   const carryBtn = document.getElementById('scCarryBtn');
   if(!canCarry) {
     carryBtn.style.display='none';
-    document.getElementById('scHint').textContent='⚠️ 此批次為遞延批，不可再延。請結算薪資，否則薪資無法送出審核。';
+    document.getElementById('scHint').textContent='⚠️ 此批次已遞延過，不能再延，到期要折發工資。';
   } else {
     carryBtn.style.display='block';
     carryBtn.textContent='📌 遞延一年（到 '+fmtDate(dateAdd(expDate,12))+'）';
-    document.getElementById('scHint').textContent='⚠️ 此批次特休本月到期，請選擇處理方式。處理完成前薪資無法送出審核。';
+    document.getElementById('scHint').textContent='⚠️ 此批次特休到期，請選擇折發工資或遞延一年。';
   }
   openModal('settleCarryModal');
 }
 
+// 結算改到薪資頁辦理（2026-10-26）：原本只在這裡把批次標成已結算、跳一句「請在薪資系統中手動計入」，
+// 忘了加就少發、畫面卻顯示已結算。現在薪資頁會列出到期項目，按「結算」金額自動寫進特休折現（同轉工讀結清）。
+function goSalaryForExpiry(dueDate, what) {
+  const ym = (dueDate && dueDate.slice(0,7) > today().slice(0,7)) ? dueDate.slice(0,7) : today().slice(0,7);
+  if(ym > today().slice(0,7)) {
+    alert(`${what}${fmtDate(dueDate)} 才到期。\n\n到 ${ym.replace('-','年')}月薪資時，薪資頁上方會列出來，在那裡按「結算」，金額會自動計入。`);
+    return;
+  }
+  if(confirm(`${what}要在薪資頁結算，金額會自動計入 ${ym.replace('-','年')}月薪資。\n\n現在前往薪資頁嗎？`)) location.href = `salary.html?month=${ym}`;
+}
 async function doSettle() {
   const empName = document.getElementById('scEmpName').value;
-  const batchId = document.getElementById('scBatchId').value;
-  const b = batchesAll[empName]?.find(x=>x.id===batchId);
+  const b = batchesAll[empName]?.find(x=>x.id===document.getElementById('scBatchId').value);
   if(!b) return;
-  const remaining = batchRemain(empName, b);
-  if(!confirm(`確定將 ${getDN(empName)} 剩餘 ${remaining} 天特休結算為薪資？\n請在薪資系統中手動計入日薪 × ${remaining} 天。`)) return;
-  showLoading('結算中...');
-  try{
-    await window.db.collection('employees').doc(empName).collection('leaveBatches').doc(batchId).update({
-      settled:true, settledAt:today(), settledNote:'月底結算', settledDays:remaining
-    });
-    // 寫入 log
-    const ym = today().slice(0,7);
-    await window.db.collection('employees').doc(empName).collection('leaveLog').doc(ym).set({
-      records: firebase.firestore.FieldValue.arrayUnion({ ts: Date.now(), date:today(), type:'settle', days:remaining, note:`特休薪資結算（${b.label||b.note}）`, savedBy:currentUser.displayName||currentUser.empName })
-    },{ merge:true });
-    showToast('✅ 已結算，請至薪資系統確認');
-    closeModal('settleCarryModal');
-    await loadEmpBatches(empName);
-    renderEmpDetail(empName, true);
-  }catch(e){ showToast('❌ 失敗：'+e.message); }
-  hideLoading();
+  closeModal('settleCarryModal');
+  goSalaryForExpiry(pbExpireOf(b), `${getDN(empName)} 的特休「${b.label||b.note||'批次'}」`);
 }
 
 async function doCarry() {
@@ -903,7 +896,7 @@ function openCompSettleModal(empName, compYear, canCarry) {
     document.getElementById('csHint').textContent='🚨 此補休為遞延批，不可再延，請結算薪資。';
   } else {
     carryBtn.style.display='block';
-    document.getElementById('csHint').textContent='⚠️ 12月底補休即將到期，請選擇處理方式。處理完成前薪資無法送出審核。';
+    document.getElementById('csHint').textContent='⚠️ 12月底補休即將到期，請選擇折發工資或遞延。';
   }
   openModal('compSettleModal');
 }
@@ -911,31 +904,9 @@ function openCompSettleModal(empName, compYear, canCarry) {
 async function doCompSettle() {
   const empName = document.getElementById('csEmpName').value;
   const compYear = document.getElementById('csCompYear').value;
-  const cd = compDataAll[empName];
-  const isCarried = String(compYear) === String(cd?.carried?.year);
-  const data = isCarried ? cd.carried : cd.current;
-  if(!data) return;
-
-  if(!confirm(`確定將 ${getDN(empName)} ${compYear}年度剩餘 ${data.remaining} 天補休結算為薪資？`)) return;
-  showLoading('結算中...');
-  try{
-    const compRef = window.db.collection('employees').doc(empName).collection('comp').doc(String(compYear));
-    if(isCarried) {
-      await compRef.update({ settled:true, settledAt:today(), settledDays:data.remaining });
-    } else {
-      await compRef.set({ earned:data.earned||0, used:data.used||0, settled:true, settledAt:today(), settledDays:data.remaining },{ merge:true });
-    }
-    // 寫入 log
-    const ym = today().slice(0,7);
-    await window.db.collection('employees').doc(empName).collection('leaveLog').doc(ym).set({
-      records: firebase.firestore.FieldValue.arrayUnion({ ts: Date.now(), date:today(), type:'settle', days:data.remaining, note:`補休薪資結算（${compYear}年度）`, savedBy:currentUser.displayName||currentUser.empName })
-    },{ merge:true });
-    showToast('✅ 補休已結算，請至薪資系統確認');
-    closeModal('compSettleModal');
-    await loadEmpComp(empName);
-    renderEmpDetail(empName, true);
-  }catch(e){ showToast('❌ 失敗：'+e.message); }
-  hideLoading();
+  closeModal('compSettleModal');
+  // 補休（含去年遞延的）都是 12/31 到期 → 在當年 12 月薪資結算
+  goSalaryForExpiry(`${new Date().getFullYear()}-12-31`, `${getDN(empName)} 的${compYear}年度補休`);
 }
 
 async function doCompCarry() {

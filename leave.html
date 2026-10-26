@@ -129,9 +129,9 @@
       <input type="hidden" id="scEmpName">
       <input type="hidden" id="scBatchId">
       <input type="hidden" id="scCanCarry">
-      <div class="danger-hint" id="scHint">⚠️ 此批次特休本月到期，請選擇處理方式。處理完成前薪資無法送出審核。</div>
+      <div class="danger-hint" id="scHint">⚠️ 此批次特休到期，請選擇處理方式。</div>
       <div id="scInfo" style="background:#f8fafc;border-radius:10px;padding:12px;margin-bottom:14px;font-size:13px;line-height:2;"></div>
-      <button class="modal-action settle" id="scSettleBtn" onclick="doSettle()">💰 結算薪資（將剩餘天數折算工資）</button>
+      <button class="modal-action settle" id="scSettleBtn" onclick="doSettle()">💰 到薪資頁結算（金額自動計入薪資）</button>
       <button class="modal-action warn" id="scCarryBtn" onclick="doCarry()" style="margin-top:8px;">📌 遞延一年</button>
       <button class="modal-cancel" onclick="closeModal('settleCarryModal')">稍後處理</button>
     </div>
@@ -149,7 +149,7 @@
       <input type="hidden" id="csCanCarry">
       <div class="danger-hint" id="csHint">⚠️ 此補休本月底到期，請選擇處理方式。</div>
       <div id="csInfo" style="background:#f8fafc;border-radius:10px;padding:12px;margin-bottom:14px;font-size:13px;line-height:2;"></div>
-      <button class="modal-action settle" onclick="doCompSettle()">💰 結算薪資</button>
+      <button class="modal-action settle" onclick="doCompSettle()">💰 到 12 月薪資結算（金額自動計入）</button>
       <button class="modal-action warn" id="csCarryBtn" onclick="doCompCarry()" style="margin-top:8px;">📌 遞延至明年12/31</button>
       <button class="modal-cancel" onclick="closeModal('compSettleModal')">稍後處理</button>
     </div>

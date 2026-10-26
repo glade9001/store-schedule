@@ -37,9 +37,11 @@ async function caCompAvailability(empName) {
   });
   var used = snaps[1].size;
   var balance = earned - used;
-  // 去年遞延（沿用劃休頁原本的算法）
+  // 去年遞延：加「遞延進來的總數」（去年取得−去年使用），不扣 carriedUsed——
+  // used 是今年全部使用（含從遞延扣的那幾天），再扣 carriedUsed 會扣兩次（2026-10-26 修；當時還沒有人有遞延補休）。
+  // 與特補休頁（loadEmpComp：今年剩＋遞延剩）、存摺（期初＋取得−全部使用）同一個數。
   var pd = snaps[2] && snaps[2].exists ? snaps[2].data() : null;
-  if (pd && pd.carried && !pd.settled) balance += Math.max(0, (pd.earned || 0) - (pd.used || 0) - (pd.carriedUsed || 0));
+  if (pd && pd.carried && !pd.settled) balance += Math.max(0, (pd.earned || 0) - (pd.used || 0));
   var pending = Object.keys(byDate).filter(function (k) { return byDate[k] > 0; }).sort()
     .map(function (k) { return { date: k, n: byDate[k] }; });
   var pn = pending.reduce(function (a, p) { return a + p.n; }, 0);

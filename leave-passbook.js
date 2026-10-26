@@ -57,7 +57,7 @@ function pbAnnualBook(o) {
     if (b.settled && !whole && b.settledAt) ev.push([b.settledAt, 3, { k: 'bsettle', b: b }]);
     var exp = pbExpireOf(b);
     if (b.carried && b.expireDate) ev.push([b.expireDate, 4, { k: 'carry', b: b, to: exp }]);
-    if (exp && exp < today) ev.push([exp, 5, { k: 'expire', b: b }]);
+    if (exp) ev.push([exp, 5, { k: 'expire', b: b }]);   // 記下到期那天還剩幾天（到期結算用）；過了才列待處理
   });
   (o.usage || []).forEach(function (u) { if (u && u.date) ev.push([u.date, 1, { k: 'use', u: u }]); });
   // 結清算的是「到生效日前一天」為止（leave-settle.js 的量測點），生效日前已排的特休也算在裡面
@@ -74,7 +74,7 @@ function pbAnnualBook(o) {
   });
   ev.sort(function (a, b) { return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] - b[1]; });
 
-  var rem = {}, bal = 0, rows = [], todo = 0, settledIds = {};
+  var rem = {}, bal = 0, rows = [], todo = 0, settledIds = {}, atExp = {};
   ev.forEach(function (e) {
     var d = e[0], x = e[2], row = null;
     if (x.k === 'grant') {
@@ -101,7 +101,8 @@ function pbAnnualBook(o) {
     } else if (x.k === 'carry') {
       row = { date: d, kind: 'info', title: (x.b.label || '特休') + ' 遞延', delta: 0, sub: '到期延到 ' + x.to };
     } else if (x.k === 'expire') {
-      if (!x.b.settled && (rem[x.b.id] || 0) > 0) {
+      atExp[x.b.id] = settledIds[x.b.id] ? 0 : (rem[x.b.id] || 0);
+      if (d < today && !x.b.settled && (rem[x.b.id] || 0) > 0) {
         todo++;
         row = { date: d, kind: 'todo', title: (x.b.label || '特休') + ' 到期還剩 ' + rem[x.b.id] + ' 天沒處理', delta: 0,
           sub: x.b.carried ? '已遞延過，要折發工資' : '要折發工資或遞延', batchId: x.b.id, canCarry: !x.b.carried, days: rem[x.b.id] };
@@ -120,7 +121,8 @@ function pbAnnualBook(o) {
     if (settledIds[b.id] || b.settled || !(rem[b.id] > 0) || !exp || exp < today) return;
     if (!next || exp < next.date) next = { date: exp, days: rem[b.id], label: b.label || '' };
   });
-  return { rows: rows, balance: bal, batchRem: rem, nextExpire: next, todo: todo };
+  // remAtExpire：到期那天還剩幾天（到期後才排的特休不算進這批）——到期結算的天數以這個為準
+  return { rows: rows, balance: bal, batchRem: rem, remAtExpire: atExp, nextExpire: next, todo: todo };
 }
 
 /**
@@ -134,9 +136,14 @@ function pbAnnualBook(o) {
 function pbCompBook(o) {
   var y = String(o.year), today = o.today, inY = function (d) { return String(d || '').slice(0, 4) === y; };
   var ev = [], prev = o.prev || {};
+  // 去年遞延的補休在今年結算：帳本記在去年 12/31（comp_cancel、carrySettle:true、settledAt＝實際辦理日），
+  // comp/{去年}.earned 已經扣掉 → 期初要加回來，再在辦理日扣一筆，才看得出「遞延 N 天、結算 M 天」
+  var carrySet = (o.logs || []).filter(function (r) { return r && r.type === 'comp_cancel' && r.carrySettle && String(r.settledAt || '').slice(0, 4) === y; });
+  var carrySetDays = carrySet.reduce(function (a, r) { return a + (parseFloat(r.days) || 0); }, 0);
   if (prev.carried && !prev.settled) {
-    var open = Math.max(0, (parseFloat(prev.earned) || 0) - (parseFloat(prev.used) || 0));
+    var open = Math.max(0, (parseFloat(prev.earned) || 0) - (parseFloat(prev.used) || 0)) + carrySetDays;
     if (open > 0) ev.push([y + '-01-01', 0, { k: 'open', n: open }]);
+    carrySet.forEach(function (r) { ev.push([r.settledAt, 3, { k: 'carrySettle', r: r }]); });
   }
   var logs = (o.logs || []).filter(function (r) { return r && inY(r.date); })
     .slice().sort(function (a, b) { return String(a.date).localeCompare(String(b.date)) || ((a.ts || 0) - (b.ts || 0)); });
@@ -181,7 +188,10 @@ function pbCompBook(o) {
       bal -= 1; row = { date: d, kind: 'use', title: '休補休', delta: -1, future: d > today, sub: [x.u.store, pbSourceText(x.u)].filter(Boolean).join('・'), usageDate: d, manual: x.u.source === 'manual' };
     } else if (x.k === 'csettle') {
       var s = parseFloat(x.r.days) || 0; bal -= s;
-      row = { date: d, kind: 'settle', title: '結清（折發工資）', delta: -s };
+      row = { date: d, kind: 'settle', title: String(x.r.note || '').indexOf('年度結算') >= 0 ? '年底結算（折發工資）' : '結清（折發工資）', delta: -s };
+    } else if (x.k === 'carrySettle') {
+      var cs = parseFloat(x.r.days) || 0; bal -= cs;
+      row = { date: d, kind: 'settle', title: '去年遞延結算（折發工資）', delta: -cs };
     } else if (x.k === 'ysettle') {
       var ys = parseFloat(x.r.days) || 0; bal -= ys;
       row = { date: d, kind: 'settle', title: '年度結算（折發工資）', delta: -ys };

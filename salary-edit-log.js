@@ -6,7 +6,7 @@
     baseSalary: '底薪', fullAttendBonus: '全勤獎金', fullAttendBase: '全勤基準', otherBase: '其他底薪',
     roleBonus: '職務加給', mgmtOps: '營運獎勵', mgmtQuality: '品保獎勵', mgmtKPI: '營運指標', mgmtAccount: '帳務獎勵', mgmtLeader: '卓越領導',
     laborAllowance: '勞務津貼', performance: '績效獎金', nightAllowance: '夜班津貼', otherBonus: '其他加項', otherBonusNote: '其他加項備註',
-    annualLeaveEncash: '特休折現', compLeaveEncash: '補休折現', leaveSettleFor: '特補休結清（生效日）',
+    annualLeaveEncash: '特休折現', compLeaveEncash: '補休折現', leaveSettleFor: '特補休結清（生效日）', expirySettled: '特補休到期結算',
     otHours: '平日加班時數', otHoursManual: '加班時數手動', restDayOtHours: '休息日加班時數', restDayOtPay: '休息日加班費', holidayOtPay: '國定假日加班費',
     customOtEnabled: '自訂加班費率', customOtRate: '自訂加班時薪', customOtX134: '自訂費率×1.34',
     hourlySupportRate: '支援時薪', hourlySupportAmt: '支援費',

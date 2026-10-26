@@ -55,7 +55,7 @@ async function loadLeaveData() {
   compLogMap = {};
   try {
     await Promise.all(empList.map(async emp => {
-      const [leaveSnap, batchSnap, compSnap, compPrevSnap, leaveLogSnap, compUseSnap] = await Promise.all([
+      const [leaveSnap, batchSnap, compSnap, compPrevSnap, leaveLogSnap, compUseSnap, annUseSnap] = await Promise.all([
         window.db.collection('employees').doc(emp.name).collection('leaves').doc(year).get().catch(()=>null),
         window.db.collection('employees').doc(emp.name).collection('leaveBatches').get().catch(()=>null),
         window.db.collection('employees').doc(emp.name).collection('comp').doc(year).get().catch(()=>null),
@@ -63,8 +63,12 @@ async function loadLeaveData() {
         // ✅ Bug6：讀取全年 leaveLog，用於建立補休發放批次清單
         window.db.collection('employees').doc(emp.name).collection('leaveLog').get().catch(()=>null),
         // 🌟 方案C：補休使用日期化帳本（消耗發放批次用）
-        window.db.collection('employees').doc(emp.name).collection('compUsage').get().catch(()=>null)
+        window.db.collection('employees').doc(emp.name).collection('compUsage').get().catch(()=>null),
+        // 特休逐日帳本：到期結算的天數以帳本為準（批次 used 是快取）
+        window.db.collection('employees').doc(emp.name).collection('annualUsage').get().catch(()=>null)
       ]);
+      if(annUseSnap) { const ds = []; annUseSnap.forEach(d => ds.push((d.data()||{}).date || d.id)); annualUseMap[emp.name] = ds; }
+      else delete annualUseMap[emp.name];
       if(leaveSnap?.exists) leaveDataMap[emp.name] = leaveSnap.data();
       let batches = [];
       if(batchSnap) batchSnap.forEach(d => batches.push({id:d.id,...d.data()}));
@@ -116,52 +120,6 @@ async function loadLeaveData() {
     }));
   } catch(e) { console.warn('特補休讀取失敗:', e); }
 
-  if(currentMonth.endsWith('-01')) checkCarryOverSettlement();
-}
-
-// ===== 遞延假年底結算（1月份薪資偵測）=====
-function checkCarryOverSettlement() {
-  const prevYear = parseInt(currentMonth.split('-')[0]) - 1;
-  const settleDate = `${prevYear}-12-31`;
-  let hasSettle = false;
-
-  empList.forEach(emp => {
-    const batches = batchDataMap[emp.name] || [];
-    const needSettle = batches.filter(b =>
-      b.carried && !b.settled &&
-      (b.settleDate === settleDate || new Date(b.expireDate||'') <= new Date(settleDate))
-    );
-    if(needSettle.length > 0) hasSettle = true;
-  });
-
-  if(hasSettle) {
-    const banner = document.getElementById('carrySettleBanner');
-    if(banner) banner.style.display = 'flex';
-  }
-}
-
-// 計算員工遞延假結算金額
-function calcCarrySettlement(empName) {
-  const batches = batchDataMap[empName] || [];
-  const prevYear = parseInt(currentMonth.split('-')[0]) - 1;
-  const settleDate = `${prevYear}-12-31`;
-
-  const toSettle = batches.filter(b => b.carried && !b.settled);
-  if(!toSettle.length) return { days:0, amount:0, items:[] };
-
-  const rec = getSalaryRecord(empName);
-  const emp = empList.find(e=>e.name===empName);
-  // 日薪基準：月薪 / 30
-  const monthWage = parseFloat(rec?.baseSalary||0) + parseFloat(rec?.fullAttendBonus||0);
-  const dailyWage = Math.round(monthWage / 30);
-
-  const items = toSettle.map(b => {
-    const remaining = Math.max(0,(b.days||0)-(b.used||0));
-    return { batchId:b.id, label:b.label||b.note||'遞延批次', grantDate:b.grantDate, days:remaining, amount:remaining*dailyWage };
-  });
-  const totalDays   = items.reduce((a,b)=>a+b.days,0);
-  const totalAmount = items.reduce((a,b)=>a+b.amount,0);
-  return { days:totalDays, amount:totalAmount, dailyWage, items };
 }
 
 // ===== 離職擇優結算 =====
@@ -210,41 +168,6 @@ function dateAddMonths(s, months) {
 }
 function annualLeaveRuleSalary(totalMonths) { return { days: lvAnnualDays(totalMonths) }; } // 規則在 leave-rules.js
 function today(){ return lvLocalYmd(); } // leave-rules.js
-// ===== 確認遞延假結算（納入當月薪資）=====
-async function confirmCarrySettle(empName) {
-  const carry = calcCarrySettlement(empName);
-  if(!carry.days) { showToast('無需結算'); return; }
-  if(!confirm(`確認將 ${getDisplayName(empName)} 的 ${carry.days} 天遞延假結算為工資 $${carry.amount.toLocaleString()}？\n\n此金額將計入本月薪資的「特別假津貼（特休折現）」。`)) return;
-  showLoading('結算中...');
-  try {
-    for(const item of carry.items) {
-      await window.db.collection('employees').doc(empName).collection('leaveBatches').doc(item.batchId).update({
-        settled:true, settledAt:today(), settledDays:item.days, settlePay:item.amount,
-        settledNote:`${currentMonth} 薪資年底遞延假結算`
-      });
-    }
-    let rec = getSalaryRecord(empName);
-    const emp = empList.find(e=>e.name===empName);
-    if(!rec){ rec=buildDefaultRecord(emp); salaryData.records.push(rec); }
-    // ⚠️ 遞延假＝特休遞延，折現金額要進「特別假津貼」(annualLeaveEncash) 這個專屬欄位，
-    //    不是「其他獎金」（2026-08-29 修）。薪資單會印成獨立的「特休折現」列，
-    //    export-page.js 的 opt-col-ho 欄與 analytics 的成本拆解也才分得出來；
-    //    塞進 otherBonus 會混進雜項、報表上看不出這筆是折現。
-    //    （既有的年度折現流程 :964 本來就是寫 annualLeaveEncash，此處是漏網的一支。）
-    rec.annualLeaveEncash = (parseFloat(rec.annualLeaveEncash||0)) + carry.amount;
-    // carrySettleNote 移除：全專案沒有任何地方顯示它，卻掛在員工讀得到的薪資記錄上。
-    // 依據已經寫在 leaveBatches 的 settledNote／settledDays／settlePay 裡。
-    const batchSnap = await window.db.collection('employees').doc(empName).collection('leaveBatches').get().catch(()=>null);
-    let batches = [];
-    if(batchSnap) batchSnap.forEach(d=>batches.push({id:d.id,...d.data()}));
-    batchDataMap[empName] = batches;
-    triggerAutoSave();
-    openEmpModal(empName);
-    showToast(`✅ 已結算 $${carry.amount.toLocaleString()}，已計入本月「特休折現」`);
-  }catch(e){ showToast('❌ 失敗：'+e.message); }
-  hideLoading();
-}
-
 // ===== 特補休結清（離職／身份轉換共用）=====
 // 用戶 2026-08-28 定案：
 //  ① 目標薪資月＝生效日 1 號→上個月、2 號以後→當月（settleTargetMonth，見 leave-settle.js）
@@ -546,11 +469,9 @@ async function _confirmLeaveSettle() {
         }, { merge:true });
         await recalcComp(empName, year);   // 會重算並寫回 comp/{年}.earned/used
       }
-      // 遞延年度：那一段的讀取端本來就看 settled，標旗標即可
-      if(carried && carried.remaining > 0) {
-        await window.db.collection('employees').doc(empName).collection('comp').doc(String(carried.year))
-          .set({ settled:true, settledAt:now, settledDays:carried.remaining }, { merge:true });
-      }
+      // 遞延年度：記在去年 12/31 的帳本（見 settleCarriedComp）。原本是標 comp/{去年}.settled，
+      //    但那會把「今年已經從遞延扣掉的天數」改算成扣今年的 → 今年補休被少算（2026-10-26 修）
+      if(carried && carried.remaining > 0) await settleCarriedComp(empName, carried.year, carried.remaining, `${note}：去年遞延補休 ${carried.remaining} 天折發工資`);
       // 稽核旗標（earned/used 已由 recalcComp 寫好，這裡不可再覆蓋）
       await window.db.collection('employees').doc(empName).collection('comp').doc(year)
         .set({ settled:true, settledAt:now, settledDays:c.compDays }, { merge:true });
@@ -615,6 +536,187 @@ async function _confirmLeaveSettle() {
       ? (st==='submitted' ? `✅ 已結清 $${amount.toLocaleString()}，薪資已收回為草稿，請重新送出` : `✅ 已結清 $${amount.toLocaleString()}，已計入本月「特休／補休折現」`)
       : '✅ 已確認無未休特補休（0 元），已留存紀錄');
   } catch(e) { hideLoading(); showToast('❌ 結清失敗：' + e.message); }
+}
+
+// ===== 特補休到期結算（2026-10-26）=====
+// 特休批次到期（含遞延過、隔年到期的）、補休年底到期（12 月薪資）：在這裡辦理，金額直接寫進當月「特休折現／補休折現」。
+// 原本：特補休頁的「結算」只把批次標成已結算、跳一句「請在薪資系統中手動計入」→ 忘了加就少發，畫面上卻顯示已結算；
+//      1 月的「遞延假結算」只有一條橫幅、沒有任何按鈕（confirmCarrySettle 從沒被呼叫），天數還讀批次 used 快取。
+// 天數：特休用存摺（leave-passbook.js）算的「到期那天還剩幾天」；補休用 compDataMap（後端依帳本自動校正的統計欄）。
+// 本月要辦轉工讀／離職結清的人不列在這裡——那邊會一次結清全部，兩邊都列會付兩次。
+function expiryMonthEnd() {
+  const [y, m] = currentMonth.split('-').map(Number);
+  return `${currentMonth}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`;
+}
+function expiryItemsOf(empName) {
+  const emp = empList.find(e => e.name === empName);
+  if(!emp || settleCaseOf(emp) || emp.leaveSettledAt) return [];
+  // 加盟主本人不列（使用者定案：加盟主本人特休不折現；老闆儀表板未休假估算同樣排除）
+  if(String(emp.role || '').includes('加盟主')) return [];
+  const items = [], end = expiryMonthEnd(), year = currentMonth.slice(0, 4);
+  const batches = batchDataMap[empName] || [];
+  if(batches.length && typeof pbAnnualBook === 'function') {
+    const bk = pbAnnualBook({ batches, usage: (annualUseMap[empName] || []).map(d => ({ date: d })), logs: [], schedule: [], today: today() });
+    batches.forEach(b => {
+      const exp = pbExpireOf(b);
+      if(b.settled || !exp || exp > end) return;
+      const days = bk.remAtExpire[b.id] != null ? bk.remAtExpire[b.id] : (bk.batchRem[b.id] || 0);
+      if(days > 0) items.push({ key: `batch:${b.id}`, kind: 'annual', batchId: b.id, days, label: `特休「${b.label || b.note || '批次'}」${exp.slice(5).replace('-', '/')} 到期${b.carried ? '（遞延過）' : ''}` });
+    });
+  }
+  if(currentMonth.endsWith('-12')) {
+    const cd = compDataMap[empName];
+    if(cd && cd.carried && cd.carried.remaining > 0)
+      items.push({ key: `compCarried:${cd.carried.year}`, kind: 'compCarried', year: cd.carried.year, days: cd.carried.remaining, label: `去年遞延補休 12/31 到期（不能再遞延）` });
+    if(cd && cd.current && !cd.current.settled && cd.current.remaining > 0)
+      items.push({ key: `comp:${year}`, kind: 'comp', year, days: cd.current.remaining, label: `${year} 年補休 12/31 到期` });
+  }
+  const rec = getSalaryRecord(empName), done = (rec && rec.expirySettled) || [];
+  return items.filter(it => !done.includes(it.key));
+}
+
+function renderExpirySettleBanner() {
+  const box = document.getElementById('expirySettleBanner');
+  if(!box) return;
+  const rows = [];
+  empList.forEach(emp => { const its = expiryItemsOf(emp.name); if(its.length) rows.push({ emp, its }); });
+  if(!rows.length || !canEditSalary()) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  box.innerHTML = `<div style="font-size:13px;font-weight:900;color:#b45309;margin-bottom:4px;">⏰ 本月有 ${rows.length} 位特補休到期要結算</div>
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">按「結算」金額會自動計入本月特休／補休折現；要遞延的請到特補休頁</div>`
+    + rows.map(({ emp, its }) => `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid #fde68a;">
+        <div style="flex:1;font-size:13px;font-weight:700;">${getDisplayName(emp.name)}<div style="font-size:11px;color:var(--text-muted);font-weight:600;">${its.map(i => `${i.label}・剩 ${i.days} 天`).join('<br>')}</div></div>
+        <button onclick="openExpirySettleModal('${emp.name.replace(/'/g, "\\'")}')" style="background:var(--warn);color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:800;cursor:pointer;">結算</button>
+      </div>`).join('');
+  box.style.display = 'block';
+}
+
+let _exEmp = null, _exItems = null, _exBusy = false;
+async function openExpirySettleModal(empName) {
+  showLoading('讀取特補休資料…');
+  try { await loadLeaveData(); } catch(e) { /* 讀不到就用記憶體現有值 */ }
+  hideLoading();
+  const items = expiryItemsOf(empName);
+  if(!items.length) { showToast('已經沒有要結算的項目'); renderExpirySettleBanner(); return; }
+  const rec = getSalaryRecord(empName), emp = empList.find(e => e.name === empName);
+  // 工讀沒有底薪：日薪＝時薪×8（同老闆儀表板未休假估算）；正職＝(底薪＋全勤)÷30（同轉工讀結清）
+  const isPT = lvIsPayPartTime(rec || emp);
+  const dailyWage = isPT ? Math.round((parseFloat(rec?.wage || emp?.wage || 0)) * 8)
+    : settleDailyWage(parseFloat(rec?.baseSalary || 0) + parseFloat(rec?.fullAttendBonus || 0));
+  _exEmp = empName; _exItems = items;
+  const total = items.reduce((a, i) => a + i.days, 0), amount = Math.round(total * dailyWage);
+  document.getElementById('lsTitle').textContent = `特補休到期結算：${getDisplayName(empName)}`;
+  document.getElementById('lsBody').innerHTML = `
+    ${items.map(i => `<div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-bottom:1px solid var(--border);"><span>${i.label}</span><b>${i.days} 天</b></div>`).join('')}
+    <div style="font-size:12px;color:var(--text-muted);margin-top:8px;">日薪 ${dailyWage.toLocaleString()}（${isPT ? '時薪 × 8' : '底薪＋全勤 ÷ 30'}）× ${total} 天</div>
+    <div style="margin-top:10px;"><label style="font-size:12px;font-weight:700;">結算金額</label>
+      <input id="exAmount" type="number" class="salary-input" value="${amount}" data-calc="${amount}"></div>
+    <button onclick="confirmExpirySettle()" style="width:100%;padding:12px;background:var(--warn);color:white;border:none;border-radius:10px;font-size:14px;font-weight:800;margin-top:16px;cursor:pointer;">確認結算 $<span id="exAmtShow">${amount.toLocaleString()}</span></button>
+    <button onclick="closeModal('leaveSettleModal')" style="width:100%;padding:10px;background:#f1f5f9;color:var(--text);border:none;border-radius:10px;font-size:13px;font-weight:700;margin-top:8px;cursor:pointer;">取消</button>`;
+  const inp = document.getElementById('exAmount');
+  if(inp) inp.oninput = () => { document.getElementById('exAmtShow').textContent = (Math.round(parseFloat(inp.value) || 0)).toLocaleString(); };
+  openModal('leaveSettleModal');
+}
+
+// 防重複：執行中鎖住；寫入前重讀批次／帳本確認還沒結算；薪資記錄記 expirySettled（同 confirmLeaveSettle 的做法）
+async function confirmExpirySettle() {
+  if(_exBusy) return;
+  _exBusy = true;
+  try { await _confirmExpirySettle(); } finally { _exBusy = false; }
+}
+async function _confirmExpirySettle() {
+  const empName = _exEmp, items = _exItems;
+  if(!empName || !items || !items.length) return;
+  const st = salaryData.status || 'draft';
+  if(st === 'published') { alert(`${currentMonth} 薪資已發布，系統不會自行更動。\n\n請切換到下個月薪資辦理（到期項目會一直列著），或先由加盟主「退回」本月。`); return; }
+  const inp = document.getElementById('exAmount');
+  const amount = Math.round(parseFloat(inp?.value) || 0), calc = parseFloat(inp?.dataset.calc) || 0;
+  if(amount < 0) { alert('金額不能是負數'); return; }
+  let diffReason = '';
+  if(amount < calc) {
+    diffReason = prompt(`你填的金額比試算少 $${(calc - amount).toLocaleString()}，請填原因（會存檔備查）：`, '');
+    if(diffReason === null) return;
+    if(!diffReason.trim()) { alert('調降金額必須填寫原因。'); return; }
+  }
+  const _done = (getSalaryRecord(empName)?.expirySettled) || [];
+  const _hit = items.find(i => _done.includes(i.key));
+  if(_hit) { alert(`不能重複結算：${_hit.label} 已經計入 ${currentMonth} 薪資。`); return; }
+  const empRef = window.db.collection('employees').doc(empName);
+  // 重讀：別的視窗可能已經結算過
+  try {
+    for(const it of items) {
+      if(it.kind === 'annual') {
+        const b = await empRef.collection('leaveBatches').doc(it.batchId).get();
+        if(!b.exists || b.data().settled) { alert(`不能重複結算：${it.label} 已經結算過（或已刪除），請重新整理。`); return; }
+      }
+    }
+    const logs = await empRef.collection('leaveLog').get();
+    let dup = null;
+    logs.forEach(d => (d.data().records || []).forEach(r => { if(r && r.expiryKey && items.some(i => i.key === r.expiryKey)) dup = r; }));
+    if(dup) { alert(`不能重複結算：${dup.date} 已經辦過（${dup.note || ''}），請重新整理。`); return; }
+  } catch(e) { showToast('❌ 讀不到結算紀錄，請稍後再試：' + e.message); return; }
+
+  const total = items.reduce((a, i) => a + i.days, 0);
+  if(!confirm(`確認結算 ${getDisplayName(empName)}：\n${items.map(i => `・${i.label} ${i.days} 天`).join('\n')}\n\n共 $${amount.toLocaleString()}，計入 ${currentMonth} 薪資。\n結算後不可自動復原。`)) return;
+  showLoading('結算中...');
+  try {
+    const now = today(), who = currentUser.displayName || currentUser.empName, year = currentMonth.slice(0, 4);
+    const pay = it => total > 0 ? Math.round(amount * it.days / total) : 0;
+    let annualAmt = 0, compAmt = 0;
+    for(const it of items) {
+      const p = pay(it);
+      if(it.kind === 'annual') {
+        annualAmt += p;
+        await empRef.collection('leaveBatches').doc(it.batchId).update({
+          settled: true, settledAt: now, settledDays: it.days, settlePay: p, settledNote: `${currentMonth} 到期結算（折發工資）` });
+      } else if(it.kind === 'comp') {
+        compAmt += p;
+        // 補休要真的從餘額扣掉：記 comp_cancel（來源 settle），各頁算餘額都看帳本（同 confirmLeaveSettle 的做法）。
+        // 12 月薪資常在隔年 1 月初做 → 日期不能超過該年 12/31，否則記到隔年去
+        const d = now <= `${it.year}-12-31` ? now : `${it.year}-12-31`;
+        await empRef.collection('leaveLog').doc(d.slice(0, 7)).set({ records: firebase.firestore.FieldValue.arrayUnion({
+          ts: Date.now(), date: d, type: 'comp_cancel', source: 'settle', days: it.days, expiryKey: it.key,
+          note: `補休年度結算（${it.year}）：${it.days} 天折發工資 $${p.toLocaleString()}`, savedBy: who }) }, { merge: true });
+        await recalcComp(empName, it.year);
+      } else if(it.kind === 'compCarried') {
+        compAmt += p;
+        await settleCarriedComp(empName, it.year, it.days, `去年遞延補休結算（${it.year} 年度）：${it.days} 天折發工資 $${p.toLocaleString()}`, it.key);
+      }
+    }
+    // 留痕（金額、試算、調整原因、經手人）：只寫 leaveLog（員工端薪資頁讀不到），同 confirmLeaveSettle
+    await empRef.collection('leaveLog').doc(currentMonth).set({ records: firebase.firestore.FieldValue.arrayUnion({
+      ts: Date.now() + 1, date: now, type: 'expiry_settle', days: total, expiryKeys: items.map(i => i.key),
+      note: `${currentMonth} 特補休到期結算：${items.map(i => `${i.label} ${i.days} 天`).join('、')}，計 $${amount.toLocaleString()}` + (diffReason ? `｜試算 $${calc.toLocaleString()}，調整原因：${diffReason.trim()}` : ''),
+      calcAmount: calc, actualAmount: amount, savedBy: who }) }, { merge: true });
+
+    let rec = getSalaryRecord(empName);
+    if(!rec) { rec = buildDefaultRecord(empList.find(e => e.name === empName)); salaryData.records.push(rec); }
+    if(annualAmt > 0) rec.annualLeaveEncash = (parseFloat(rec.annualLeaveEncash || 0)) + annualAmt;
+    if(compAmt > 0)   rec.compLeaveEncash   = (parseFloat(rec.compLeaveEncash || 0)) + compAmt;
+    rec.expirySettled = [...new Set([...(rec.expirySettled || []), ...items.map(i => i.key)])];   // 防重複第③層
+    if(st === 'submitted') {
+      salaryData.status = 'draft';
+      salaryData.recalledAt = new Date().toISOString();
+      salaryData.recalledBy = who;
+      salaryData.recallReason = '特補休到期結算後金額異動，需重新送出';
+    }
+    clearTimeout(autoSaveTimer);
+    await autoSaveDraft();
+    hideLoading();
+    closeModal('leaveSettleModal');
+    await loadSalaryData();
+    showToast(st === 'submitted' ? `✅ 已結算 $${amount.toLocaleString()}，薪資已收回為草稿，請重新送出` : `✅ 已結算 $${amount.toLocaleString()}，已計入本月特休／補休折現`);
+  } catch(e) { hideLoading(); showToast('❌ 結算失敗：' + e.message); }
+}
+
+// 去年遞延的補休結算：在「去年 12/31」記一筆 comp_cancel（carrySettle），後端依帳本重算 comp/{去年}.earned → 遞延剩餘自動扣掉。
+// 不用 comp/{去年}.settled 旗標：那會把今年已經從遞延扣的天數改算成扣今年的（今年補休少算）。
+async function settleCarriedComp(empName, carriedYear, days, note, key) {
+  const y = String(carriedYear), d = `${y}-12-31`;
+  await window.db.collection('employees').doc(empName).collection('leaveLog').doc(`${y}-12`).set({ records: firebase.firestore.FieldValue.arrayUnion({
+    ts: Date.now(), date: d, type: 'comp_cancel', source: 'settle', carrySettle: true, settledAt: today(), days,
+    note, savedBy: currentUser.displayName || currentUser.empName, ...(key ? { expiryKey: key } : {}) }) }, { merge: true });
+  await recalcComp(empName, y);
+  await recalcComp(empName, String(parseInt(y) + 1));
 }
 
 // ===== 應休未休三選一操作 =====
@@ -2160,6 +2262,7 @@ async function loadSalaryData() {
     renderEmpList();
     renderBottomAction();
     renderLeaveSettleBanner(); // 特補休結清提示（需在 loadLeaveData 之後，才有批次/補休餘額）
+    renderExpirySettleBanner(); // 特補休到期結算提示
   } catch(e) {
     console.error('loadSalaryData 失敗:', e);
     showToast('❌ 載入失敗：' + e.message);
@@ -3247,7 +3350,7 @@ let autoSaveTimer = null;
 function triggerAutoSave() {
   clearTimeout(autoSaveTimer);
   autoSaveTimer = setTimeout(() => autoSaveDraft(), 2000);
-  try{ renderLeaveSettleBanner(); }catch(e){}   // 即時回饋；autoSaveDraft 內也會再繪一次
+  try{ renderLeaveSettleBanner(); renderExpirySettleBanner(); }catch(e){}   // 即時回饋；autoSaveDraft 內也會再繪一次
   // 顯示儲存中提示
   const badge = document.getElementById('statusBadge');
   if(badge && salaryData.status === 'draft') {
@@ -3286,7 +3389,7 @@ async function autoSaveDraft() {
     // 放這裡而不是各動作裡——散著加必然漏掉一條。
     // ⚠️ 2026-08-29：發放/撤回改成直接 await autoSaveDraft() 之後就繞過了 triggerAutoSave，
     //    橫幅因此不再更新（使用者回報「發放補休後立刻看仍會是 0」），所以兩邊都要有。
-    try{ renderLeaveSettleBanner(); }catch(e){}
+    try{ renderLeaveSettleBanner(); renderExpirySettleBanner(); }catch(e){}
   } catch(e) {
     console.error('自動儲存失敗:', e);
   }
