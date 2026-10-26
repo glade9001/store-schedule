@@ -211,7 +211,9 @@ async function loadEmpBatches(empName) {
   }
 
   let logs = [];
-  if(logSnap) logSnap.forEach(d=>{ const data=d.data(); (data.records||[]).forEach(r=>logs.push({ym:d.id,...r})); });
+  // _i＝這筆在該月份文件 records 裡的位置（編輯／刪除要用）。畫面上的清單是跨月份、排序過、
+  // 又濾掉使用紀錄的，它的序號跟 records 位置對不上——曾因此刪到別筆（2026-10-26 某正職的國定假日補休發放不見）。
+  if(logSnap) logSnap.forEach(d=>{ const data=d.data(); (data.records||[]).forEach((r,i)=>logs.push({ym:d.id,...r,_i:i})); });
   logs.sort((a,b)=>(b.date||b.ym).localeCompare(a.date||a.ym));
   leaveLogAll[empName] = logs;
 }
@@ -755,8 +757,8 @@ function renderLogItem(r, idx, empName) {
     </div>
     ${r.savedBy?`<div class="log-note">👤 ${r.savedBy}</div>`:''}
     ${isManager()?`<div class="log-actions">
-      <button class="log-btn edit" onclick="openEditLogModal('${empName}','${r.ym}',${idx})">✏️ 編輯</button>
-      <button class="log-btn del" onclick="confirmDeleteLog('${empName}','${r.ym}',${idx})">🗑️ 刪除</button>
+      <button class="log-btn edit" onclick="openEditLogModal('${empName}','${r.ym}',${r._i})">✏️ 編輯</button>
+      <button class="log-btn del" onclick="confirmDeleteLog('${empName}','${r.ym}',${r._i})">🗑️ 刪除</button>
     </div>`:''}
   </div>`;
 }
@@ -1201,13 +1203,20 @@ async function saveAddLog() {
 }
 
 // ===== 編輯 leaveLog =====
+// 畫面上看到的那筆（載入時的內容）跟資料庫 records[idx] 要是同一筆才可以改／刪；
+// 載入後別人又新增或刪除過，位置就會跑掉 → 寧可擋下請他重新整理，也不要改到別筆。
+function sameLogRec(empName, ym, idx, rec) {
+  const shown = (leaveLogAll[empName]||[]).find(r=>r.ym===ym && r._i===idx);
+  if(!shown || !rec) return false;
+  return ['type','date','days','note','ts'].every(k=>String(shown[k]??'')===String(rec[k]??''));
+}
 function openEditLogModal(empName, ym, idx) {
   if(!isManager()) return;
   window.db.collection('employees').doc(empName).collection('leaveLog').doc(ym).get()
     .then(snap=>{
       if(!snap.exists) return;
       const r = (snap.data().records||[])[idx];
-      if(!r) return;
+      if(!sameLogRec(empName, ym, idx, r)) { showToast('⚠️ 紀錄已有變動，請重新整理後再編輯'); return; }
       document.getElementById('editLogEmpName').value = empName;
       document.getElementById('editLogYm').value = ym;
       document.getElementById('editLogIdx').value = idx;
@@ -1233,6 +1242,7 @@ async function saveEditLog() {
     const snap = await logRef.get();
     if(!snap.exists){ showToast('⚠️ 找不到紀錄'); hideLoading(); return; }
     const records = [...(snap.data().records||[])];
+    if(!sameLogRec(empName, ym, idx, records[idx])) { showToast('⚠️ 紀錄已有變動，請重新整理後再編輯'); hideLoading(); return; }
     const oldRec = records[idx] || {};
     records[idx] = { ...records[idx], type:newType, date:newDate, days:newDays, note:newNote, editedBy:currentUser.empName, editedAt:today() };
     await logRef.update({ records });
@@ -1260,6 +1270,7 @@ async function confirmDeleteLog(empName, ym, idx) {
     const snap = await logRef.get();
     if(!snap.exists){ hideLoading(); return; }
     const records = [...(snap.data().records||[])];
+    if(!sameLogRec(empName, ym, idx, records[idx])) { showToast('⚠️ 紀錄已有變動，請重新整理後再刪除'); hideLoading(); return; }
     const removed = records[idx] || {};
     records.splice(idx,1);
     await logRef.update({ records });
