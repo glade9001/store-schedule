@@ -100,7 +100,14 @@ function settleYearStart(hireDate, totalMonths) {
  *   於是週年制欄算成 0，擇優就掉到比例制、少付 5 天。
  *   現在改為：法定應得 = 依年資的當年度天數 − 當年度已使用 + 前期未結清餘額。
  *
- * @param {object} o batches / compRemaining / monthWage / hireDate / effectDate
+ * ⚠️ 2026-10-26 修正：「已使用」改從特休逐日帳本（annualUsage）算，不再讀批次上的 used。
+ *   批次的 used 是快取，批次當天才補建時是 0 → 某正職實際休了 9 天，試算卻當成一天都沒休，
+ *   算出 10 天 $10,930（店長手動改成 1 天才沒多發）。
+ *   有傳 annualUseDates 時：帳本日期依「先拿到先用」（grantDate 由早到晚，不看到期日，
+ *   與排班頁 recompute 的批次已用規則相同）分配到未結清批次；量測點之後的日期（已是新身分）不算。
+ *   沒傳時退回舊算法（讀批次 used），並在說明裡標示。
+ *
+ * @param {object} o batches / annualUseDates / compRemaining / monthWage / hireDate / effectDate
  */
 function calcLeaveSettle(o) {
   o = o || {};
@@ -126,7 +133,10 @@ function calcLeaveSettle(o) {
   var yearStart = settleYearStart(hireDate, totalMonths);
   var entitled = settleAnnualRule(totalMonths);   // 當年度法定應得（整年度，不按比例）
 
-  // 批次拆成「本年度」與「前期」：本年度用來抵扣已使用，前期未結清的直接累加
+  var useDates = Array.isArray(o.annualUseDates) ? o.annualUseDates : null;
+  if (useDates) return settleFromLedger(o, batches, useDates, hireDate, effectDate, measureDate, totalMonths, yearStart, entitled);
+
+  // （舊算法：沒有帳本資料時才走）批次拆成「本年度」與「前期」：本年度用來抵扣已使用，前期未結清的直接累加
   var usedThisYear = 0, priorRemain = 0, items = [], batchRemainTotal = 0;
   for (var i = 0; i < batches.length; i++) {
     var b = batches[i];
@@ -162,6 +172,7 @@ function calcLeaveSettle(o) {
   explain.push('到職 ' + (hireDate || '—') + '，至 ' + measureDate + '（生效日前一天）年資 ' + totalMonths + ' 個月');
   explain.push('目前特休年度起算 ' + (yearStart || '—') + '，該年度法定應得 ' + entitled + ' 天（滿年資即整年度取得，不按比例）');
   explain.push('本年度已使用 ' + usedThisYear + ' 天' + (priorRemain > 0 ? '，前期未結清 ' + priorRemain + ' 天' : ''));
+  explain.push('⚠️ 沒有讀到特休使用帳本，已使用天數取自批次紀錄，可能不準，請核對');
   explain.push('特休應結清 ' + annualDays + ' 天（' + basis + '）');
   if (uncovered > 0) explain.push('⚠️ 其中 ' + uncovered + ' 天在系統裡沒有對應批次（該年度批次未發放），仍須結算');
   explain.push('※ 比例制僅供對照：' + entitled + ' × ' + monthsIntoYear + '/12 = ' + proportional + ' 天，依施行細則 §24 不得低於週年制，故不採用');
@@ -176,5 +187,66 @@ function calcLeaveSettle(o) {
     annualDays: annualDays, basis: basis, items: items, proportional: proportional,
     compDays: compDays, totalDays: totalDays,
     dailyWage: dailyWage, amount: amount, explain: explain,
+  };
+}
+
+/**
+ * 帳本版試算（calcLeaveSettle 有傳 annualUseDates 時走這裡）
+ *   可結清天數＝（本年度法定應得＋前期未結清批次天數）−（這段期間帳本上的特休使用天數）
+ *   期間＝最早一個未結清批次的取得日（沒有就用本年度起算日）～量測點。
+ *   批次剩餘照「先拿到先用」分配，用來決定結清時標記哪些批次。
+ */
+function settleFromLedger(o, batches, useDates, hireDate, effectDate, measureDate, totalMonths, yearStart, entitled) {
+  var bs = batches.slice().sort(function (a, b) { return String(a.grantDate || '').localeCompare(String(b.grantDate || '')); });
+  var from = yearStart || '';
+  var priorDays = 0;
+  for (var i = 0; i < bs.length; i++) {
+    var gd = String(bs[i].grantDate || '');
+    if (!(yearStart && gd >= yearStart)) { priorDays += parseFloat(bs[i].days) || 0; if (gd && (!from || gd < from)) from = gd; }
+  }
+  var dates = useDates.map(String).filter(function (d) { return (!from || d >= from) && d <= measureDate; }).sort();
+  var used = dates.length;
+
+  // 先拿到先用：每一天扣在「取得日 ≤ 該日、還有剩」的最早批次
+  var rem = bs.map(function (b) { return parseFloat(b.days) || 0; });
+  dates.forEach(function (d) {
+    for (var j = 0; j < bs.length; j++) if (String(bs[j].grantDate || '') <= d && rem[j] > 0) { rem[j]--; return; }
+  });
+  var items = [], batchRemainTotal = 0;
+  for (var k = 0; k < bs.length; k++) {
+    batchRemainTotal += rem[k];
+    if (rem[k] > 0) items.push({ batchId: bs[k].id, label: bs[k].label || bs[k].note || '特休批次', grantDate: bs[k].grantDate || '', days: rem[k] });
+  }
+
+  var statutory = Math.max(0, entitled + priorDays - used);
+  var annualDays = Math.max(statutory, batchRemainTotal);
+  var basis = annualDays === statutory && statutory >= batchRemainTotal ? '法定應得（週年制）' : '系統批次剩餘';
+  var monthsIntoYear = totalMonths > 0 ? (totalMonths % 12 || 12) : 0;
+  var proportional = totalMonths > 0 ? Math.ceil(entitled * monthsIntoYear / 12) : 0;
+  var compDays = Math.max(0, parseFloat(o.compRemaining) || 0);
+  var totalDays = annualDays + compDays;
+  var dailyWage = settleDailyWage(o.monthWage);
+  var amount = Math.round(totalDays * dailyWage);
+  var uncovered = Math.max(0, annualDays - batchRemainTotal);
+
+  var explain = [];
+  explain.push('到職 ' + (hireDate || '—') + '，至 ' + measureDate + '（生效日前一天）年資 ' + totalMonths + ' 個月');
+  explain.push('目前特休年度起算 ' + (yearStart || '—') + '，該年度法定應得 ' + entitled + ' 天（滿年資即整年度取得，不按比例）');
+  if (priorDays > 0) explain.push('前期未結清批次 ' + priorDays + ' 天');
+  explain.push((from || '—') + ' ～ ' + measureDate + ' 特休使用帳本共 ' + used + ' 天');
+  explain.push('特休應結清 ' + annualDays + ' 天（' + basis + '）');
+  if (uncovered > 0) explain.push('⚠️ 其中 ' + uncovered + ' 天在系統裡沒有對應批次（該年度批次未發放），仍須結算');
+  explain.push('※ 比例制僅供對照：' + entitled + ' × ' + monthsIntoYear + '/12 = ' + proportional + ' 天，依施行細則 §24 不得低於週年制，故不採用');
+  if (compDays > 0) explain.push('補休剩餘 ' + compDays + ' 天');
+  explain.push('日薪 = 月薪 ' + (parseFloat(o.monthWage) || 0).toLocaleString() + ' ÷ 30 = ' + dailyWage.toLocaleString());
+  explain.push('結清金額 = (' + annualDays + (compDays > 0 ? ' + ' + compDays : '') + ') 天 × ' + dailyWage.toLocaleString() + ' = ' + amount.toLocaleString());
+
+  return {
+    hireDate: hireDate, effectDate: effectDate, measureDate: measureDate, totalMonths: totalMonths,
+    yearStart: yearStart, entitled: entitled, usedThisYear: used, priorRemain: priorDays,
+    statutory: statutory, batchRemainTotal: batchRemainTotal, uncovered: uncovered,
+    annualDays: annualDays, basis: basis, items: items, proportional: proportional,
+    compDays: compDays, totalDays: totalDays,
+    dailyWage: dailyWage, amount: amount, explain: explain, fromLedger: true,
   };
 }

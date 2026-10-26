@@ -980,12 +980,14 @@ async function showSettlePrompt(store, empName, effectDate, kind) {
   const targetYM = settleTargetMonth(effectDate);
   let calc = null;
   try {
-    const [empSnap, batchSnap, compSnap, compPrevSnap] = await Promise.all([
+    const [empSnap, batchSnap, compSnap, compPrevSnap, annUseSnap] = await Promise.all([
       window.db.collection('stores').doc(store).collection('employees').doc(empName).get().catch(()=>null),
       window.db.collection('employees').doc(empName).collection('leaveBatches').get().catch(()=>null),
       window.db.collection('employees').doc(empName).collection('comp').doc(String(new Date(effectDate).getFullYear())).get().catch(()=>null),
       window.db.collection('employees').doc(empName).collection('comp').doc(String(new Date(effectDate).getFullYear()-1)).get().catch(()=>null),
+      window.db.collection('employees').doc(empName).collection('annualUsage').get().catch(()=>null),
     ]);
+    const annualUseDates = annUseSnap ? annUseSnap.docs.map(d => d.id) : undefined;   // 特休逐日帳本（已使用以此為準）
     const emp = empSnap && empSnap.exists ? empSnap.data() : {};
     const batches = []; if(batchSnap) batchSnap.forEach(d => batches.push({ id:d.id, ...d.data() }));
     const cd = compSnap && compSnap.exists ? compSnap.data() : {};
@@ -993,7 +995,7 @@ async function showSettlePrompt(store, empName, effectDate, kind) {
     const carriedRem = (cpd.carried && !cpd.settled) ? Math.max(0,(cpd.earned||0)-(cpd.used||0)-(cpd.carriedUsed||0)) : 0;
     const compRemaining = Math.max(0,(cd.earned||0)-(cd.used||0)) + carriedRem;
     calc = calcLeaveSettle({
-      batches, compRemaining,
+      batches, annualUseDates, compRemaining,
       monthWage: parseFloat(emp.wage||0),   // 試算用主檔月薪；實際以薪資頁的底薪＋全勤為準
       hireDate: emp.startDate || null, effectDate
     });

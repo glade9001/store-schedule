@@ -313,6 +313,7 @@ function buildSettleCalc(empName) {
   const comp = compDataMap[empName];
   return calcLeaveSettle({
     batches: batchDataMap[empName] || [],
+    annualUseDates: annualUseMap[empName],   // 特休逐日帳本（reloadLeaveDataFor 讀；讀不到是 undefined → 舊算法並標示）
     compRemaining: comp ? comp.totalRemaining : 0,
     monthWage,
     hireDate: emp?.startDate || null,
@@ -329,11 +330,15 @@ function buildSettleCalc(empName) {
  */
 async function reloadLeaveDataFor(empName) {
   const year = currentMonth.split('-')[0], prevYear = String(parseInt(year) - 1);
-  const [batchSnap, compSnap, compPrevSnap] = await Promise.all([
+  const [batchSnap, compSnap, compPrevSnap, annUseSnap] = await Promise.all([
     window.db.collection('employees').doc(empName).collection('leaveBatches').get().catch(()=>null),
     window.db.collection('employees').doc(empName).collection('comp').doc(year).get().catch(()=>null),
-    window.db.collection('employees').doc(empName).collection('comp').doc(prevYear).get().catch(()=>null)
+    window.db.collection('employees').doc(empName).collection('comp').doc(prevYear).get().catch(()=>null),
+    window.db.collection('employees').doc(empName).collection('annualUsage').get().catch(()=>null)
   ]);
+  // 結清試算的「已使用」以逐日帳本為準（批次上的 used 是快取，會是 0）
+  if(annUseSnap) { const ds = []; annUseSnap.forEach(d => ds.push(d.id)); annualUseMap[empName] = ds; }
+  else delete annualUseMap[empName];
   const batches = [];
   if(batchSnap) batchSnap.forEach(d => batches.push({ id:d.id, ...d.data() }));
   batchDataMap[empName] = batches.sort((a,b)=>(a.grantDate||'').localeCompare(b.grantDate||''));
@@ -349,6 +354,7 @@ async function reloadLeaveDataFor(empName) {
 }
 
 let _lsEmp = null, _lsCalc = null, _lsCase = null;
+const annualUseMap = {};   // 員工 → 特休使用日期（annualUsage 文件 id），只給結清試算用
 async function openLeaveSettleModal(empName) {
   const emp = empList.find(e => e.name === empName);
   if(!emp) { showToast('找不到員工'); return; }
