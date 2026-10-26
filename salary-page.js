@@ -437,9 +437,40 @@ async function openLeaveSettleModal(empName) {
   openModal('leaveSettleModal');
 }
 
+// ⚠️ 防重複結清（2026-10-26）：某正職轉工讀的特休折現被加了兩次（$1,093 → $2,186，兩次寫入隔 47 分鐘），
+//    折現是「加上去」（rec.annualLeaveEncash += …）不是覆寫，按兩次就付兩次。三層擋：
+//    ① 執行中鎖住（連點）② 寫入前重讀主檔 leaveSettledAt 與帳本同生效日的結清紀錄（別的視窗／記憶體舊資料）
+//    ③ 薪資記錄記 leaveSettleFor＝生效日（帳本紀錄被刪掉時②擋不住，那次就是這樣）
+let _lsBusy = false;
 async function confirmLeaveSettle() {
+  if(_lsBusy) return;
+  _lsBusy = true;
+  try { await _confirmLeaveSettle(); } finally { _lsBusy = false; }
+}
+/** 這個人這次（同一生效日）是不是已經結清過；是的話回傳說明文字 */
+async function leaveSettledAlready(empName, effectDate) {
+  const rec = getSalaryRecord(empName);
+  if(effectDate && rec && rec.leaveSettleFor === effectDate) return `${currentMonth} 薪資已經計入這次結清的金額`;
+  const empSnap = await window.db.collection('stores').doc(currentStore).collection('employees').doc(empName).get();
+  const ed = empSnap.exists ? empSnap.data() : {};
+  if(ed.leaveSettledAt) return `${ed.leaveSettledAt} 已經結清過（計入 ${ed.leaveSettledMonth||'—'} 薪資）`;
+  if(effectDate) {
+    const logSnap = await window.db.collection('employees').doc(empName).collection('leaveLog').get();
+    let hit = null;
+    logSnap.forEach(d => (d.data().records||[]).forEach(r => {
+      if(r && r.type==='settle' && String(r.note||'').includes(`生效日 ${effectDate}`)) hit = r;
+    }));
+    if(hit) return `${hit.date} 已經辦過這次（生效日 ${effectDate}）的結清`;
+  }
+  return '';
+}
+async function _confirmLeaveSettle() {
   const empName = _lsEmp, c = _lsCalc;
   if(!empName || !c) return;
+  try {
+    const done = await leaveSettledAlready(empName, _lsCase && _lsCase.effectDate);
+    if(done) { alert(`不能重複結清：${getDisplayName(empName)} ${done}。\n\n如果金額有誤，請直接修改薪資的「特休折現／補休折現」，不要再結清一次。`); return; }
+  } catch(e) { showToast('❌ 讀不到結清紀錄，請稍後再試：' + e.message); return; }
   const amount = Math.round(parseFloat(document.getElementById('lsAmount').value) || 0);
   const st = salaryData.status || 'draft';
 
@@ -562,6 +593,7 @@ async function confirmLeaveSettle() {
       const _compAmt = amount - _annualAmt;
       if(_annualAmt > 0) rec.annualLeaveEncash = (parseFloat(rec.annualLeaveEncash||0)) + _annualAmt;
       if(_compAmt   > 0) rec.compLeaveEncash   = (parseFloat(rec.compLeaveEncash||0))   + _compAmt;
+      if(_lsCase && _lsCase.effectDate) rec.leaveSettleFor = _lsCase.effectDate;   // 防重複第③層
       if(st === 'submitted') {
         salaryData.status = 'draft';
         salaryData.recalledAt = new Date().toISOString();

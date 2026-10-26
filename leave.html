@@ -109,7 +109,6 @@
         <label>類型</label>
         <select id="addLogType">
           <option value="comp_earn">補休 — 取得（發放）</option>
-          <option value="comp_cancel">補休 — 取消取得</option>
         </select>
       </div>
       <div class="form-field"><label>日期</label><input type="date" id="addLogDate"></div>
@@ -117,31 +116,6 @@
       <div class="form-field"><label>說明</label><input type="text" id="addLogNote" placeholder="說明（選填）"></div>
       <button class="modal-action" onclick="saveAddLog()">儲存</button>
       <button class="modal-cancel" onclick="closeModal('addLogModal')">取消</button>
-    </div>
-  </div>
-</div>
-
-<!-- ===== 編輯 leaveLog Modal ===== -->
-<div class="modal-overlay" id="editLogModal" onclick="if(event.target===this)closeModal('editLogModal')">
-  <div class="modal-box">
-    <div class="modal-handle"></div>
-    <div class="modal-title">✏️ 編輯紀錄</div>
-    <div class="modal-body">
-      <input type="hidden" id="editLogEmpName">
-      <input type="hidden" id="editLogYm">
-      <input type="hidden" id="editLogIdx">
-      <div class="form-field">
-        <label>類型</label>
-        <select id="editLogType">
-          <option value="comp_earn">補休 — 取得（發放）</option>
-          <option value="comp_cancel">補休 — 取消取得</option>
-        </select>
-      </div>
-      <div class="form-field"><label>日期</label><input type="date" id="editLogDate"></div>
-      <div class="form-field"><label>天數</label><input type="number" id="editLogDays" min="0.5" step="0.5"></div>
-      <div class="form-field"><label>說明</label><input type="text" id="editLogNote" placeholder="說明"></div>
-      <button class="modal-action" onclick="saveEditLog()">儲存修改</button>
-      <button class="modal-cancel" onclick="closeModal('editLogModal')">取消</button>
     </div>
   </div>
 </div>
@@ -185,6 +159,7 @@
 <div class="toast" id="toast"></div>
 
 <script src="leave-rules.js"></script>
+<script src="leave-passbook.js"></script>
 <script src="leave-page.js"></script>
 </body>
 </html>

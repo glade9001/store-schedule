@@ -88,8 +88,33 @@ async function dailySales() {
   odd.length ? warn('每日營業數字', odd.join('；')) : ok('每日營業數字（近 30 天）');
 }
 
+// 特補休頁「存摺」（leave-passbook.js）的餘額要跟權威算法一致：
+//   補休＝comp-avail.js（劃休頁、首頁用的同一份，含「國定假日還沒到」天數）；
+//   特休（沒結清過的人）＝未結清批次天數 − 特休逐日帳本天數。
+// 存摺是畫面上唯一的數字，跟別頁對不上店長就不知道該信哪個（2026-10-26 改版前就是這樣）。
+async function passbook() {
+  const L = require('./lib');
+  const ctx = L.loadFront(['leave-rules.js', 'comp-avail.js', 'leave-passbook.js']);
+  const now = new Date(), today = new Date(now - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10), Y = today.slice(0, 4);
+  const names = new Set();
+  for (const c of ['leaveBatches', 'annualUsage', 'compUsage', 'leaveLog']) (await group(c)).forEach(d => { const p = d.path.split('/'); if (p[0] === 'employees') names.add(p[1]); });
+  const issues = [];
+  for (const n of names) {
+    const [bs, au, cu, ld, prev] = await Promise.all([list(`employees/${n}/leaveBatches`), list(`employees/${n}/annualUsage`), list(`employees/${n}/compUsage`),
+      list(`employees/${n}/leaveLog`), getDoc(`employees/${n}/comp/${+Y - 1}`)]);
+    const logs = []; ld.forEach(d => (d.data.records || []).forEach(r => logs.push({ ym: d.id, ...r })));
+    const B = bs.map(b => ({ id: b.id, ...b.data })), use = x => x.map(u => u.data.date ? u.data : { date: u.id });
+    const A = ctx.pbAnnualBook({ batches: B, usage: use(au), logs, schedule: [], today });
+    const C = ctx.pbCompBook({ logs, usage: use(cu), prev: prev ? prev.data : {}, year: Y, today });
+    const av = await ctx.caCompAvailability(n);
+    if (C.balance !== av.balance || C.pending !== av.balance - av.effective) issues.push(`${tag(n)} 補休 存摺 ${C.balance}≠${av.balance}`);
+    if (!B.some(b => b.settled)) { const want = B.reduce((s, b) => s + (+b.days || 0), 0) - au.length; if (A.balance !== want) issues.push(`${tag(n)} 特休 存摺 ${A.balance}≠${want}`); }
+  }
+  issues.length ? bad('特補休存摺餘額', issues.join('；')) : ok('特補休存摺餘額', names.size + ' 人與劃休頁／帳本一致');
+}
+
 module.exports = async function run() {
   console.log('④ 資料健檢（正式資料、唯讀）');
-  await groupbuy(); await leaveStats(); await holidayComp(); await annualBatches(); await dailySales();
+  await groupbuy(); await leaveStats(); await holidayComp(); await annualBatches(); await passbook(); await dailySales();
 };
 if (require.main === module) module.exports().then(() => require('./lib').done(), e => { console.error(e); process.exit(1); });
