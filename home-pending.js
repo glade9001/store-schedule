@@ -131,15 +131,15 @@ async function loadPendingItems() {
             const empDisplayName = displayNameMap[emp.id] || emp.id;
 
             // === 取得到職日 ===
-            let hireDate = null;
+            // ⚠️ 2026-10-26：原本先用「最早批次往前推 6 個月」當到職日，只有沒批次才看系統到職日。
+            //    資深員工最早的批次不是「滿6個月」那批 → 推錯到職日、週年日也跟著錯，
+            //    首頁一直叫店長補建根本不缺的批次（錦花 2 位 1/1 週年被提醒 7/1），真的缺的反而被當成雜訊。
+            //    改成系統到職日優先（與特休頁、資料健檢一致），沒有才用批次推。
             const batches = [];
             if(batchSnap) batchSnap.forEach(d => batches.push({ id:d.id, ...d.data() }));
             batches.sort((a,b) => (a.grantDate||'').localeCompare(b.grantDate||''));
-            if(batches.length > 0) {
-              const firstBatch = batches[0];
-              hireDate = firstBatch.grantDate ? _dateAdd(firstBatch.grantDate, -6) : null;
-            }
-            if(!hireDate && leaveLegacySnap?.exists) hireDate = leaveLegacySnap.data()?.hireDate || null;
+            let hireDate = (leaveLegacySnap?.exists && leaveLegacySnap.data()?.hireDate) || null;
+            if(!hireDate && batches.length > 0 && batches[0].grantDate) hireDate = _dateAdd(batches[0].grantDate, -6);
 
             // === 1. 尚未建檔 ===
             if(!hireDate) {
