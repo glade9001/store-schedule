@@ -31,6 +31,19 @@ function hdCacheGet(store, ym) {
 function hdCacheSet(store, ym, v) { try { localStorage.setItem(HD_KEY + store, JSON.stringify({ at: Date.now(), ym: ym, v: v })); } catch (e) {} }
 
 // 一家店的摘要；這個月沒有每日營業回 null
+/** 前 3 個完整月的日均營業額（扣大單）；資料不完整回 null */
+function hdRecentAvg(daily, ym, bigOn) {
+  var sum = 0, cnt = 0;
+  for (var k = 1; k <= 3; k++) {
+    var m = lbAddMonth(ym, -k), n = lbDaysIn(m), win = {};
+    Object.keys(daily).forEach(function (d) { if (d.slice(0, 7) === m && daily[d] && daily[d].sales != null) win[d] = daily[d]; });
+    var ds = Object.keys(win); if (ds.length < n) return null;
+    var big = lbBigDays(win, bigOn).big;
+    ds.forEach(function (d) { sum += +win[d].sales - (big[d] ? big[d].excess : 0); }); cnt += n;
+  }
+  return sum / cnt;
+}
+
 async function hdCompute(store, ym) {
   var db = window.db, ref = db.collection('stores').doc(store), FP = firebase.firestore.FieldPath.documentId();
   var n = lbDaysIn(ym), first = ym + '-01', lastDay = ym + '-' + String(n).padStart(2, '0');
@@ -77,10 +90,11 @@ async function hdCompute(store, ym) {
     chart.push({ d: cd, v: cx && cx.sales != null ? +cx.sales : null, p: cl && cl.sales != null ? +cl.sales : null,
       c: cx && +cx.customers > 0 ? +cx.customers : null, pc: cl && +cl.customers > 0 ? +cl.customers : null });   // c／pc：來客（2026-10-16 走勢可切換）
   }
-  var proj = cum;
-  if (rem > 0) {
+  var proj = cum, early = rem > 0 && ds.length < HD_JUDGE_DAYS;
+  if (early) { var base = hdRecentAvg(lb.daily || {}, ym, bigOn); proj = base != null ? cum + base * rem : null; }
+  else if (rem > 0) {
     if (lyOk && pk >= 5) { var lr = 0; for (var q = +lastD.slice(8) + 1; q <= n; q++) { var kq = shiftDateAdd(ym + '-' + String(q).padStart(2, '0'), -364); lr += adj(ly[kq], lyBig[kq]); } proj = cum + lr * (s1 / s0); }
-    else proj = ds.length >= HD_PROJ_MIN_DAYS ? cum / ds.length * n : null; // 月初天數太少（1 號週日×30 天）不推估，卡片改顯示本月營業額
+    else proj = cum / ds.length * n;
   }
   return {
     lastD: lastD, days: ds.length, raw: raw, rem: rem,
@@ -88,7 +102,7 @@ async function hdCompute(store, ym) {
     yoy: pk >= 5 ? s1 / s0 - 1 : null,
     needTgt: rem > 0 && tgt != null ? (tgt * n - cum) / rem : null,
     needLy: rem > 0 && lyOk ? (lyAll - cum) / rem : null,
-    proj: proj, tgtMonth: tgt != null ? tgt * n : null, beMonth: ev && ev.beSchedPds != null ? ev.beSchedPds * n : null,
+    proj: proj, early: early, tgtMonth: tgt != null ? tgt * n : null, beMonth: ev && ev.beSchedPds != null ? ev.beSchedPds * n : null,
     light: lt ? { level: lt.level, hours: ev.sched.hours, capP: lt.capP, lastDate: ev.sched.lastDate } : null,
     tip: hdTip(lt, ev, days, lb.daily || {}, ly7, recs, lastD, winFrom),
     chart: chart,
@@ -129,7 +143,10 @@ function hdTip(lt, ev, days, daily, ly, recs, lastD, from) {
   return '近 8 週週' + WD[lo] + '每排 1 小時只接 ' + (by[lo].c / by[lo].h).toFixed(1) + ' 位客人（平均 ' + avg.toFixed(1) + '），排班可優先減這天';
 }
 
-var HD_OPEN_KEY = 'hdOpen', HD_PICK_KEY = 'hdPick', HD_PROJ_MIN_DAYS = 5;
+var HD_OPEN_KEY = 'hdOpen', HD_PICK_KEY = 'hdPick';
+// 月初天數太少：1 號週日×30 天會差很多（2026-11-01 回測 13 個月，第 1 天日均法 美德 17%／聯鑫 32%，累計＋近 3 月日均 3.5%／4.8%）
+// → 不滿 10 天改用後者推估，而且誤差比兩平到達標的距離還大，只顯示金額、不判斷達標或虧錢。
+var HD_JUDGE_DAYS = 10;
 
 async function hdLoad() {
   var card = document.getElementById('dsHomeCard'); if (!card) return;
@@ -166,7 +183,8 @@ function hdMetrics(x) {
   // 💰 月底會不會達標（使用者 2026-10-11：要看了能行動）＝月底推估 ÷ 達標；算不出達標才退回本月營業額
   var yo = x.yoy == null ? '' : '・比去年 ' + (x.yoy >= 0 ? '+' : '−') + Math.abs(x.yoy * 100).toFixed(1) + '%';
   // 三段色（使用者 2026-10-11）：綠＝推估 ≥ 達標（賺到目標利潤率）、黃＝兩平～達標（有賺但不到目標）、紅＝推估 < 兩平（照現在排班會虧）
-  if (x.tgtMonth && x.proj != null) {
+  if (x.early && x.proj != null) m.push({ k: 'money', name: '月底推估', v: hdW1(x.proj), u: '萬', tone: '', sub: '滿 ' + HD_JUDGE_DAYS + ' 天才判斷達標' });
+  else if (x.tgtMonth && x.proj != null) {
     var lv = x.proj >= x.tgtMonth ? 'up' : x.beMonth != null && x.proj >= x.beMonth ? 'warn' : 'down';
     m.push({ k: 'money', name: x.rem > 0 ? '月底會不會達標' : '本月達標率', v: (x.proj / x.tgtMonth * 100).toFixed(0), u: '%', tone: lv, valTone: lv,
       sub: lv === 'up' ? '累計 ' + hdW1(x.raw) + ' 萬' + yo : lv === 'warn' ? '有賺，未到目標利潤' : '照現在排班會虧錢' });
