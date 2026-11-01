@@ -499,7 +499,7 @@ function aspRenderStaff() {
         <div class="cap-row">每週最多
           <input type="number" inputmode="numeric" min="1" max="7" value="${st.maxDays ?? ''}" placeholder="不限" onchange="aspSetCap(${idx},'maxDays',this.value)"> 天
           <input type="number" inputmode="decimal" min="1" max="${ft ? 40 : 80}" step="0.5" value="${st.maxHours ?? ''}" placeholder="${ft ? '40' : '不限'}" onchange="aspSetCap(${idx},'maxHours',this.value)"> 小時
-          ${ft ? '<span class="meta">（正職最多 40）</span>' : ''}</div>
+          <span class="meta">${ft ? '（正職最多 40）' : '（不超過就要開待補時，草稿會超過並提醒你）'}</span></div>
         <details class="emp-ref"><summary>過去排班參考</summary>近 12 週平均每週 ${ref.weeklyHours ?? 0} 小時｜常上 ${aspEsc(aspTopCounts(season === 'term' ? ref.termCount : ref.vacCount, 4))}</details>`
       : '<div class="meta">不自動排，由店長手動排這個人。</div>'}
     </div>`;
@@ -535,7 +535,7 @@ function aspStaffOf(idx) {
   const name = aspEmps[idx].name;
   return aspCfg.staff[name] = aspCfg.staff[name] || { auto: true, term: [], vacation: [], note: '' };
 }
-// 每週上限：空白＝不限（正職仍受 40 小時）；超過只能由店長在排班頁手動排
+// 每週上限：空白＝不限（正職仍受 40 小時）；正職超過只能由店長手動排，工讀草稿為了不開待補會超過（2026-10-21）
 function aspSetCap(idx, key, v) {
   const st = aspStaffOf(idx), n = parseFloat(v);
   if (v === '' || !(n > 0)) delete st[key];

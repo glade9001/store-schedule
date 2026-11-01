@@ -47,11 +47,13 @@ function parseArgs(argv) {
 async function loadStore(store, { useCache = false, fromWeek = '2026-W14', salaryMonths = [] } = {}) {
   const file = path.join(CACHE_DIR, encodeURIComponent(store) + '.json');
   if (useCache && fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf8'));
-  const admin = require(path.join(ROOT, 'functions', 'node_modules', 'firebase-admin'));
-  if (!admin.apps.length) admin.initializeApp({ projectId: PROJECT_ID });
-  const db = admin.firestore();
+  // firebase-admin 14 起沒有 admin.apps／admin.firestore()，改用分模組匯入
+  const adminApp = require(path.join(ROOT, 'functions', 'node_modules', 'firebase-admin', 'lib', 'app'));
+  const { getFirestore, FieldPath } = require(path.join(ROOT, 'functions', 'node_modules', 'firebase-admin', 'lib', 'firestore'));
+  if (!adminApp.getApps().length) adminApp.initializeApp({ projectId: PROJECT_ID });
+  const db = getFirestore();
   const ref = db.collection('stores').doc(store);
-  const FP = admin.firestore.FieldPath.documentId();
+  const FP = FieldPath.documentId();
   const [wk, em, cfg, sh, lr] = await Promise.all([
     ref.collection('weeks').where(FP, '>=', fromWeek).get(),
     ref.collection('employees').get(),

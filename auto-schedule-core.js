@@ -11,8 +11,8 @@
  *   seasons: { summer:{from:'07-01', to:'08-31'}, winter:{from:'01-20', to:'02-20'} }  每年重複的 MM-DD
  *   staff  : { 員工名: { auto:true, term:['18-23',…], vacation:['15-23',…], note:'' } }
  *            term＝學期中、vacation＝寒暑假可上的班別，第一個＝主力。auto=false＝不自動排、由店長手動排（如楷岳）。
- *            maxDays / maxHours＝每週最多幾天／幾小時（null＝不限；正職另有 40 小時上限）。草稿不會超過，
- *              營運需要超過時由店長手動排（排班頁「知情放行」留紀錄）。
+ *            maxDays / maxHours＝每週最多幾天／幾小時（null＝不限；正職另有 40 小時上限）。正職草稿不會超過；
+ *              工讀只有「不超過就得開待補」時才會超過（本店人優先於待補，使用者 2026-10-21），預覽會提醒。
  *            termDays / vacationDays＝逐日例外：{ 週二:'off', 週三:['15-23'] }
  *              'off'＝那天不能上；陣列＝那天只能上這些班；沒寫的日子照整季的 term / vacation。
  *              （學生每學期課表不同，例：某工讀（學生）這學期週二、四不能上，週三只能 15-23）
@@ -551,7 +551,9 @@ function asGenerateDraft(inp) {
   // pairOff：正職連續兩週都被排「兩天相連的排休」→ 中間會連上很多天、一直覺得在上班（使用者 2026-09-22）。
   //   只看排休，員工自己劃的指休不算；比缺半小時人力(1000)輕，人力優先
   // gapSeg：每段待補的固定成本；softOT：正職清單明寫的班多 1 小時，加班費以外再加的偏好成本（不輕易用）
-  var W = { min: 1000, tgt: 300, ot: 100000, offDev: 20000, sixth: 800, rot: 60, capPerDollar: 1, fair: 4, ptShift: 250, pairOff: 900, gapSeg: 6000, softOT: 200, gap2: 1500, gapDay: 12000 };
+  // ptOverH / ptOverDay：工讀超過設定頁每週上限（每小時／每天）。本店人上班優先於待補（使用者 2026-10-21）：
+  //   比缺人(每小時 2000＋每段 6000)輕 → 補得到「最少人數」就寧可超過；比「目標人數」(每小時 600)重 → 只是想多一個人不會超過
+  var W = { min: 1000, tgt: 300, ot: 100000, offDev: 20000, sixth: 800, rot: 60, capPerDollar: 1, fair: 4, ptShift: 250, pairOff: 900, gapSeg: 6000, softOT: 200, gap2: 1500, gapDay: 12000, ptOverH: 1200, ptOverDay: 3000 };
   // keep：重排時每改動一格原本的草稿格扣的分（比缺半小時人力 1000 輕：要補人還是會改，但不會為了小事大洗牌）
   W.keep = 400;
   if (opt.weights) Object.keys(opt.weights).forEach(function (k) { W[k] = opt.weights[k]; }); // 調參／回測用
@@ -619,10 +621,10 @@ function asGenerateDraft(inp) {
       }
       cost += tag('W.ot * overDay', W.ot * overDay);
       if (wkNormal > 40) cost += tag('weekly40', W.ot * (wkNormal - 40)); // 正常工時一週 40；每天超過 8 的部分已算加班
-      // 每人每週上限（設定頁填的；草稿不超過，要超過由店長手動）
+      // 每人每週上限（設定頁填的）：正職不超過、要超過由店長手動；工讀只為了不開待補才超過（見 W.ptOverH）
       var mh = p.st.maxHours, md = p.st.maxDays;
-      if (mh != null && mh !== '' && wkH > +mh) cost += tag('maxHours', W.ot * (wkH - mh));
-      if (md != null && md !== '') { var wdn = workFlags.filter(Boolean).length; if (wdn > +md) cost += tag('maxDays', W.ot * 8 * (wdn - md)); }
+      if (mh != null && mh !== '' && wkH > +mh) cost += tag('maxHours', (p.pt ? W.ptOverH : W.ot) * (wkH - mh));
+      if (md != null && md !== '') { var wdn = workFlags.filter(Boolean).length; if (wdn > +md) cost += tag('maxDays', (p.pt ? W.ptOverDay : W.ot * 8) * (wdn - md)); }
       // 連續上班（接上週尾巴）：第 7 天硬擋、第 6 天軟擋
       var run = p.prev.run;
       for (var dj = 0; dj < 7; dj++) {
@@ -917,6 +919,13 @@ function asGenerateDraft(inp) {
             msg: p.name + ' ' + (+m.slice(5)) + ' 月到這週 $' + pay.toLocaleString() + warn + '——可考慮先開放跨店支援' });
         }
       });
+    }
+    // 工讀超過設定頁每週上限（為了不開待補）→ 預覽提醒店長
+    if (p.pt) {
+      var omh = p.st.maxHours, omd = p.st.maxDays, odays = bestState[pi].filter(asIsWorkShift).length, over = [];
+      if (omh != null && omh !== '' && h > +omh) over.push('排 ' + h + ' 小時（上限 ' + omh + '）');
+      if (omd != null && omd !== '' && odays > +omd) over.push('排 ' + odays + ' 天（上限 ' + omd + '）');
+      if (over.length) notes.push({ type: 'over', name: p.name, msg: p.name + ' 這週' + over.join('、') + '——超過設定上限，為了不開待補；不行的話改掉這格會開回待補' });
     }
     perEmp[p.name] = { away: p.cells.map(function (c) { return c.away ? { store: c.away, shift: c.fixed } : null; }), pt: p.pt, hours: h, offs: offs, offTarget: p.pt ? null : p.offTarget, offTargetRaw: p.offTargetRaw,
       monthHours: monthsOfWeek.map(function (m) { return { m: m, before: ms(p.name, m).hours }; }) };

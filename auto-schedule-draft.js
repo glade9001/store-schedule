@@ -266,7 +266,7 @@ function asdShowPreview() {
     res.gaps.map(function (g) { return g.day + ' ' + g.shift; }).join('、') + '</div>');
   if (res.soft.length) alerts.push('<div class="asd-alert amber"><b>⚠️ 未達目標人數（在最少人數以上，不開待補）：</b><br>' +
     res.soft.map(function (g) { return g.day + ' ' + g.label; }).join('、') + '</div>');
-  res.notes.forEach(function (n) { alerts.push('<div class="asd-alert amber">💰 ' + asdEsc(n.msg) + '</div>'); });
+  res.notes.forEach(function (n) { alerts.push('<div class="asd-alert amber">' + (n.type === 'over' ? '⏱️ ' : '💰 ') + asdEsc(n.msg) + '</div>'); });
   res.suggestions.forEach(function (s) {
     alerts.push('<div class="asd-alert blue">💡 ' + s.day + ' ' + asdEsc(s.name) + ' 延長 ' + s.label + ' 可補缺口' +
       (s.save > 0 ? '，比找工讀約省 $' + s.save : '') + '（正職加班由店長決定，草稿不會自動排）</div>');
