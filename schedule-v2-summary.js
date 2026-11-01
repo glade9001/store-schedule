@@ -11,6 +11,15 @@ function getRecordMonth(r) {
   return `${yr}-${p[0].padStart(2,'0')}`;
 }
 
+// 工讀時薪：優先用當月薪資記錄；員工主檔 wage 正職存月薪、轉工讀不會改，超過上限視為月薪不採用（回 0＝不顯示估算）
+const SCHED_HOURLY_MAX = 1000;
+function schedHourlyWage(emp) {
+  const recWage = parseFloat((appData.salaryRecData || {})[emp.name]?.wage || 0);
+  if(recWage > 0) return recWage;
+  const wage = parseFloat(emp.wage || 0);
+  return wage <= SCHED_HOURLY_MAX ? wage : 0;
+}
+
 // 取得本週涵蓋的月份清單（可能1或2個）
 function getWeekMonths(weekStr) {
   const yr = weekStr.split('-W')[0];
@@ -153,7 +162,7 @@ async function updateSummary(idx, emp) {
   }).catch(()=>{});
 
   if(isPartTime) {
-    const wage = parseFloat(emp.wage || 0);
+    const wage = schedHourlyWage(emp);
     const ms = monthStats[currentMonthKey];
     const mLabel = weekMonForStats.getMonth()+1 + "月";
     const salary = Math.round(ms.h * wage);

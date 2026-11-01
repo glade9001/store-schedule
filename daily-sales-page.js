@@ -37,6 +37,8 @@ const dsPad = n => String(n).padStart(2, '0');
 const dsYmd = d => `${d.getFullYear()}-${dsPad(d.getMonth() + 1)}-${dsPad(d.getDate())}`;
 const dsToday = () => dsYmd(new Date());
 const dsMd = s => `${+s.slice(5, 7)}/${+s.slice(8)}`;
+// updatedAt 存的是 UTC（toISOString），直接切字串會比台灣時間少 8 小時，要先轉回本地時間
+const dsStamp = iso => { const d = new Date(iso); return isNaN(d) ? '' : `${d.getMonth() + 1}/${d.getDate()} ${dsPad(d.getHours())}:${dsPad(d.getMinutes())}`; };
 const dsWdOf = s => DS_WD[new Date(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8)).getDay()];
 const dsMoney = v => v == null || !isFinite(v) ? '—' : Math.round(v).toLocaleString('en-US');
 const dsWan = v => v == null || !isFinite(v) ? '—' : (Math.abs(v) >= 10000 ? (Math.round(v / 1000) / 10) + ' 萬' : dsMoney(v));
@@ -159,7 +161,7 @@ async function dsPickDate(date) {
     const d = dsPicked = snap.data();
     document.getElementById('dsSales').value = d.sales ?? '';
     document.getElementById('dsCust').value = d.customers ?? '';
-    tag.textContent = `✓ 已輸入（${dsEsc(d.updatedByName || d.updatedBy || '')}${d.updatedAt ? ' · ' + dsMd(d.updatedAt.slice(0, 10)) + ' ' + d.updatedAt.slice(11, 16) : ''}），修改後再按儲存`;
+    tag.textContent = `✓ 已輸入（${dsEsc(d.updatedByName || d.updatedBy || '')}${d.updatedAt ? ' · ' + dsStamp(d.updatedAt) : ''}），修改後再按儲存`;
   }
 }
 

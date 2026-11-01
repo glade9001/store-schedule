@@ -903,7 +903,7 @@ function updateWeekTotalCell() {
     const role = emp.role || '';
     const isPartTime = isPartTimeEmp(emp);
     if(isPartTime) {
-      const wage = parseFloat(emp.wage || 0);
+      const wage = schedHourlyWage(emp);
       let monthH = 0;
       (appData.allStoresRecords || []).forEach(r => {
         if(!isEmpRecord(r, store, emp.name)) return;
