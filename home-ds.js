@@ -129,6 +129,8 @@ function hdTip(lt, ev, days, daily, ly, recs, lastD, from) {
   return '近 8 週週' + WD[lo] + '每排 1 小時只接 ' + (by[lo].c / by[lo].h).toFixed(1) + ' 位客人（平均 ' + avg.toFixed(1) + '），排班可優先減這天';
 }
 
+var HD_OPEN_KEY = 'hdOpen', HD_PICK_KEY = 'hdPick';
+
 async function hdLoad() {
   var card = document.getElementById('dsHomeCard'); if (!card) return;
   var u = hdUser(), stores = hdStores(u);
@@ -244,10 +246,18 @@ function hdChart(xs, names, W) {
   return s.join('') + '</svg>';
 }
 
+// 折合與單看門市只是這支手機的偏好，存不了就照預設（折合、全部）
+function hdPrefGet(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }
+function hdPrefSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+
 function hdRender(card, u, stores, ym, out) {
   var mo = +ym.slice(5);
-  var shown = stores.filter(function (s) { return out[s]; });
-  if (!shown.length) { card.style.display = 'none'; return; }   // 店長沒填 → 不出現；加盟主三店都沒填也不出現
+  var allShown = stores.filter(function (s) { return out[s]; });
+  if (!allShown.length) { card.style.display = 'none'; return; }   // 店長沒填 → 不出現；加盟主三店都沒填也不出現
+  // 加盟主以上可單看一家：只列有資料的店；記住的店這次沒資料就回到全部，不要安靜換成別家
+  var pick = hdPrefGet(HD_PICK_KEY); if (allShown.indexOf(pick) < 0) pick = '';
+  var shown = pick ? [pick] : allShown;
+  var open = hdPrefGet(HD_OPEN_KEY) === '1';
   // 店長、加盟主同一種版面，只差在幾家店有資料（使用者 2026-10-11）：一家＝單店版；兩家以上＝每張卡每店一行，只列有資料的店
   var multi = shown.length > 1;
   var xs = shown.map(function (s) { var x = out[s]; x.color = HD_COLORS[stores.indexOf(s) % HD_COLORS.length]; return x; });
@@ -265,13 +275,26 @@ function hdRender(card, u, stores, ym, out) {
     return bits.length ? '<div class="hbFoot">' + (multi ? '<span class="hbSt"><i style="background:' + x.color + '"></i>' + hdEsc(shown[j]) + '</span>' : '') + bits.join('') + '</div>' : '';
   }).join('');
   var tips = xs.map(function (x, j) { return x.tip ? '<div class="hbTip">💡 ' + (multi ? '<b>' + hdEsc(shown[j]) + '</b> ' : '') + hdEsc(x.tip) + '</div>' : ''; }).join('');
+  var chips = allShown.length > 1 ? '<div class="hbPick" role="group" aria-label="選擇門市">' + [''].concat(allShown).map(function (s) {
+    return '<button type="button" data-pick="' + hdEsc(s) + '" aria-pressed="' + (s === pick) + '"' + (s === pick ? ' class="on"' : '') + '>' + hdEsc(s || '全部') + '</button>';
+  }).join('') + '</div>' : '';
+  var title = '<div class="hbTitle" role="button" tabindex="0" aria-expanded="' + open + '"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 20V11M10 20V6M15 20V9M20 20V4"/></svg><h2>門市經營看板</h2><span>' + hdEsc(sub) + '</span><svg class="hbChev' + (open ? ' open' : '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></div>';
   card.className = 'hBoard';
-  card.innerHTML = '<div class="hbTitle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 20V11M10 20V6M15 20V9M20 20V4"/></svg><h2>門市經營看板</h2><span>' + hdEsc(sub) + '</span></div>' +
+  card.innerHTML = !open ? title : title + chips +
     '<div class="hbCards' + (multi ? ' multi' : '') + '">' + cards + '</div>' +
     '<div class="hbTrend"><div class="hbTrendH"><h3>營業額＋來客 <small>近 7 日・含稅</small></h3><span class="hbLeg">' + legend + '</span></div><div class="hbSvg"></div>' + foot + '</div>' + tips +
     '<button type="button" class="hbMore">看完整分析<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>';
   card.style.display = '';
-  card.onclick = function (e) { var r = e.target.closest('[data-st]'), st = r ? r.getAttribute('data-st') : shown[0]; if (r && !out[st]) return; location.href = 'daily-sales.html?store=' + encodeURIComponent(st); };
+  var toggle = function () { hdPrefSet(HD_OPEN_KEY, open ? '0' : '1'); hdRender(card, u, stores, ym, out); };
+  card.querySelector('.hbTitle').onkeydown = function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } };
+  card.onclick = function (e) {
+    if (e.target.closest('.hbTitle')) { toggle(); return; }
+    var pk = e.target.closest('[data-pick]');
+    if (pk) { hdPrefSet(HD_PICK_KEY, pk.getAttribute('data-pick')); hdRender(card, u, stores, ym, out); return; }
+    if (!open) return;
+    var r = e.target.closest('[data-st]'), st = r ? r.getAttribute('data-st') : shown[0]; if (r && !out[st]) return; location.href = 'daily-sales.html?store=' + encodeURIComponent(st);
+  };
+  if (!open) return;
   // 走勢照實際寬度畫：首頁剛顯示時寬度可能是 0 → 等下一個畫面再量
   var el = card.querySelector('.hbSvg'), tries = 0;
   function fill() {
@@ -286,7 +309,11 @@ function hdRender(card, u, stores, ym, out) {
   var css = document.createElement('style');
   css.textContent =
     '.hBoard{background:#13294b;border:1px solid #2a4675;border-radius:18px;padding:14px 12px;display:grid;gap:12px;color:#eef3fb;margin-bottom:14px;cursor:pointer;}' +
-    '.hbTitle{display:flex;align-items:center;gap:8px;flex-wrap:wrap}' +
+    '.hbTitle{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:32px}' +
+    '.hbTitle .hbChev{color:#a9bad3;transition:transform .15s}.hbTitle .hbChev.open{transform:rotate(180deg)}' +
+    '.hbPick{display:flex;gap:6px;overflow-x:auto}' +
+    '.hbPick button{font:inherit;font-size:13px;font-weight:700;color:#dce6f5;background:#0f2240;border:1px solid #2a4675;border-radius:999px;min-height:36px;padding:0 14px;white-space:nowrap;cursor:pointer}' +
+    '.hbPick button.on{color:#13294b;background:#8ec5ff;border-color:#8ec5ff}' +
     '.hbTitle svg{width:20px;height:20px;color:#8ec5ff;flex:none}' +
     '.hbTitle h2{margin:0;font-size:16px;font-weight:900;color:#fff;letter-spacing:.04em}' +
     '.hbTitle span{margin-left:auto;font-size:11.5px;color:#a9bad3}' +
