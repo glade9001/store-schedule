@@ -493,6 +493,20 @@ exports.scheduledDailyReminders = onSchedule(
 // ===== 每天 04:30 清理（2026-10-15 合併：原 scheduledMemoPhoneCleanup＋scheduledGbPurge）=====
 // Cloud Scheduler 每個帳戶只有 3 個免費排程、之後按個數收費，同時間的清理併成一支。
 // 兩件事各自 try/catch，一件失敗不影響另一件；有失敗最後再丟出，讓 log 標成錯誤。
+// 通知紀錄只留 60 天
+const NOTIFICATION_KEEP_DAYS = 60;
+async function notificationsCleanup(db) {
+  const cutoff = new Date(Date.now() - NOTIFICATION_KEEP_DAYS * 86400000);
+  const users = await db.collection("users").get();
+  for (const u of users.docs) {
+    const old = await u.ref.collection("notifications").where("createdAt", "<", cutoff).limit(400).get();
+    if (old.empty) continue;
+    const b = db.batch();
+    old.forEach((d) => b.delete(d.ref));
+    await b.commit();
+  }
+}
+
 exports.scheduledDailyCleanup = onSchedule(
   { schedule: "30 4 * * *", timeZone: "Asia/Taipei", region: "asia-east1" },
   async () => {
@@ -503,6 +517,7 @@ exports.scheduledDailyCleanup = onSchedule(
       const rep = await require("./groupbuy").purgeOldGb(db, { dry: false });
       console.log("[gbPurge]", JSON.stringify({ campaigns: rep.campaigns.length, orders: rep.orders, pending: rep.pending, postMap: rep.postMap }));
     } catch (e) { console.error("[dailyCleanup] gbPurge", e); errors.push(e); }
+    try { await notificationsCleanup(db); } catch (e) { console.error("[dailyCleanup] notifications", e); errors.push(e); }
     if (errors.length) throw errors[0];
   }
 );

@@ -48,6 +48,14 @@ service cloud.firestore {
                     || (request.auth != null && request.auth.uid == uid
                         && changedKeys().hasOnly(selfEditableKeys()) && selfPendingApplyOk());
       allow delete: if isOwnerOrAdmin();
+
+      // 通知紀錄（2026-11-01）：只看得到自己的；本人只能把 read 改成 true；新增由後端 sendPushToUids 寫
+      match /notifications/{nid} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow update: if request.auth != null && request.auth.uid == uid
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+                      && request.resource.data.read == true;
+      }
     }
 
     // ── account：舊集合，遷移期保留（2026-09-16 收緊）──

@@ -7,12 +7,18 @@ const F=o=>({fields:Object.fromEntries(Object.entries(o).map(([k,v])=>[k,tv(v)])
 const enc=p=>p.split('/').map(encodeURIComponent).join('/');
 async function call(method,path,uid,body,mask){const h={'Content-Type':'application/json'};h.Authorization=uid==='ADMIN'?'Bearer owner':'Bearer '+jwt(uid);
  const u=B+'/'+enc(path)+(mask?'?'+mask.map(m=>'updateMask.fieldPaths='+encodeURIComponent(m)).join('&'):'');const r=await fetch(u,{method,headers:h,body:body?JSON.stringify(body):undefined});return r.status;}
-const seed=async()=>{for(const [uid,perm,store] of [['emp1','employee','美德'],['mgr1','manager','美德'],['own1','owner','美德']])await call('PATCH',`users/${uid}`,'ADMIN',F({permission:perm,store,empName:uid}));
+const seed=async()=>{await call('PATCH','users/emp1/notifications/n1','ADMIN',F({title:'t',read:false}));for(const [uid,perm,store] of [['emp1','employee','美德'],['mgr1','manager','美德'],['own1','owner','美德']])await call('PATCH',`users/${uid}`,'ADMIN',F({permission:perm,store,empName:uid}));
  await call('PATCH','employees/員工甲/leaveLog/2026-10','ADMIN',F({x:'1'}));await call('PATCH','settings/holidays/years/2026','ADMIN',F({x:'1'}));
  await call('PATCH','settings/globalConfig','ADMIN',F({stores:'美德',clockIn:{geo:{lat:'1'},tolByStore:{美德:5}}}));
  await call('PATCH','salaryAck/emp1_2026-09','ADMIN',F({m:'1'}));await call('PATCH','salaryAck/mgr1_2026-09','ADMIN',F({m:'1'}));await call('PATCH','todos/t1','ADMIN',F({x:'1'}));
  await call('PATCH','salaryEditLog/美德__2026-10','ADMIN',F({store:'美德',month:'2026-10'}));await call('PATCH','salaryEditLog/錦花__2026-10','ADMIN',F({store:'錦花',month:'2026-10'}));};
 const T=[ // [說明, method, path, uid, body, mask, 預期通過?]
+ ['員工讀自己的通知','GET','users/emp1/notifications/n1','emp1',null,null,true],
+ ['員工讀別人的通知','GET','users/emp1/notifications/n1','mgr1',null,null,false],
+ ['加盟主讀別人的通知','GET','users/emp1/notifications/n1','own1',null,null,false],
+ ['員工把通知標已讀','PATCH','users/emp1/notifications/n1','emp1',F({read:true}),['read'],true],
+ ['員工改通知內容','PATCH','users/emp1/notifications/n1','emp1',F({title:'x'}),['title'],false],
+ ['員工自己新增通知','PATCH','users/emp1/notifications/n2','emp1',F({title:'x'}),null,false],
  ['員工讀別人補休帳本','GET','employees/員工甲/leaveLog/2026-10','emp1',null,null,true],
  ['員工改別人補休帳本','PATCH','employees/員工甲/leaveLog/2026-10','emp1',F({x:'2'}),null,false],
  ['員工幫自己新增補休','PATCH','employees/emp1/leaveLog/2026-10','emp1',F({x:'2'}),null,false],

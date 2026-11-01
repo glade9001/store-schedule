@@ -26,6 +26,11 @@ async function sendPushToUids(db, uids, payload, privateKey) {
   const body = JSON.stringify(payload);
   let sent = 0, failed = 0, removed = 0;
   for (const uid of [...new Set(uids)].filter(Boolean)) {
+    // 通知紀錄：每送一則存一筆，App 內看得到（notifications.html）；存失敗不影響推播
+    await db.collection("users").doc(uid).collection("notifications").add({
+      title: String(payload.title || "").slice(0, 80), body: String(payload.body || "").slice(0, 500),
+      url: String(payload.url || "").slice(0, 200), read: false, createdAt: FieldValue.serverTimestamp(),
+    }).catch((e) => console.warn("[notifications]", uid, e.message));
     const subs = await db.collection("pushSubs").where("uid", "==", uid).get();
     // 同一個人、同一種平台有好幾份訂閱（通常是 github.io 與 web.app 各訂一份＝同一台手機）→ 只送最近用過的那份，避免同一則收兩次
     const ms = (t) => (t && t.toMillis ? t.toMillis() : 0);

@@ -382,6 +382,7 @@ async function loadPendingItems() {
   }
 
   if(pendingCard) pendingCard.style.display = 'block';
+  loadBellDot();
   hnPendingPages = pending.map(p => String(p.link || '').split('?')[0]);
   if(document.getElementById('navDrawer')?.classList.contains('active') && typeof renderNavDrawer === 'function') renderNavDrawer();
   // 只露前幾筆（使用者 2026-11-01）：紅色的排前面；門市備忘收成一行，點進代辦頁看
@@ -393,6 +394,14 @@ async function loadPendingItems() {
 }
 
 var pendRows = [], pendShowAll = false, PEND_SHOW = 3;
+// 🔔 有沒有未讀通知：只讀一筆，亮紅點就好
+async function loadBellDot() {
+  const dot = document.getElementById('headerBellDot');
+  if(!dot || !currentUser?.uid) return;
+  const snap = await window.db.collection('users').doc(currentUser.uid).collection('notifications')
+    .where('read', '==', false).limit(1).get().catch(() => null);
+  dot.hidden = !snap || snap.empty;
+}
 function togglePendingList() { pendShowAll = !pendShowAll; renderPendingList(); }
 function renderPendingList() {
   const el = document.getElementById('pendingList');
