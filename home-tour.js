@@ -34,11 +34,11 @@ function homeTourSteps() {
       before: function () { closeNavDrawer(); },
       target: '#homeClockCard',
       title: '漏打或遲到怎麼辦',
-      text: '最常漏的是下班卡。漏打不要慌，到「我的出勤」送補登，選一個原因送出，店長審核後就補上了。遲到也請照實打卡，可以在補登時留說明——不要請別人代打，也不要因為遲到就不打。',
+      text: '最常漏的是下班卡。漏打不要慌，到「我的出勤」送補登，選一個原因送出，店長審核後就補上了。當月缺卡沒補滿 7 天就不能劃休，送出補登就會解除。遲到也請照實打卡，可以在補登時留說明——不要請別人代打，也不要因為遲到就不打。',
     },
     Object.assign(htPoint('leaveReq'), {
       title: '想休假要先劃休',
-      text: '每週一 16:00 開放新的一週，一次可以劃未來 4 週。截止時間是該週前一週的週一 23:59，過了就不能改。',
+      text: '每週一 16:00 開放新的一週，一次可以劃未來 4 週。截止時間是該週前一週的週一 23:59，過了就不能改。當月缺卡沒補滿 7 天，要先補登才能劃休。',
     }),
     Object.assign(htPoint('schedule'), {
       title: '班表在這裡看',
@@ -46,19 +46,19 @@ function homeTourSteps() {
     }),
     Object.assign(htPoint('mySalary'), {
       title: '薪資要簽收',
-      text: '每月 5 號發薪（遇假日順延）。當月看得到的是上個月以前的薪資。收到通知後進去核對並簽收，沒簽會一直提醒你。',
+      text: '每月 5 號發薪（遇假日順延）。當月看得到的是上個月以前的薪資。收到通知後進去核對並簽收，沒簽的話每 3 天提醒一次，到 25 號為止。',
     }),
     {
       before: function () { closeNavDrawer(); },
       target: '#headerMenuBtn',
-      title: '收不到通知的話',
-      text: 'iPhone 一定要先「加入主畫面」，用瀏覽器開是收不到推播的。點這個 ☰ →「設定」，裡面有「加入主畫面」和「通知設定」，照著做就可以了。',
+      title: '通知怎麼開、去哪裡看',
+      text: 'iPhone 一定要先「加入主畫面」，用瀏覽器開是收不到推播的。點這個 ☰ →「系統」→「設定」，裡面有「加入主畫面」和「通知設定」，照著做就可以了。收過的通知都在首頁右上角 🔔。',
     },
     {
       before: function () { openNavDrawer(); },
       target: function () { return document.querySelector('#ndBody .nd-star'); },
       title: '把常用的放到首頁',
-      text: '☰ 裡任何功能點一下 ☆ 就會出現在首頁，最多 3 個。最上面有搜尋，找不到東西就直接搜。',
+      text: '☰ 裡點一下分類就能展開，任何功能按 ☆ 就會出現在首頁，最多 3 個。最上面有搜尋，找不到東西就直接搜。',
     },
   ];
   return steps;
