@@ -80,7 +80,7 @@ async function hdCompute(store, ym) {
   var proj = cum;
   if (rem > 0) {
     if (lyOk && pk >= 5) { var lr = 0; for (var q = +lastD.slice(8) + 1; q <= n; q++) { var kq = shiftDateAdd(ym + '-' + String(q).padStart(2, '0'), -364); lr += adj(ly[kq], lyBig[kq]); } proj = cum + lr * (s1 / s0); }
-    else proj = cum / ds.length * n;
+    else proj = ds.length >= HD_PROJ_MIN_DAYS ? cum / ds.length * n : null; // 月初天數太少（1 號週日×30 天）不推估，卡片改顯示本月營業額
   }
   return {
     lastD: lastD, days: ds.length, raw: raw, rem: rem,
@@ -129,7 +129,7 @@ function hdTip(lt, ev, days, daily, ly, recs, lastD, from) {
   return '近 8 週週' + WD[lo] + '每排 1 小時只接 ' + (by[lo].c / by[lo].h).toFixed(1) + ' 位客人（平均 ' + avg.toFixed(1) + '），排班可優先減這天';
 }
 
-var HD_OPEN_KEY = 'hdOpen', HD_PICK_KEY = 'hdPick';
+var HD_OPEN_KEY = 'hdOpen', HD_PICK_KEY = 'hdPick', HD_PROJ_MIN_DAYS = 5;
 
 async function hdLoad() {
   var card = document.getElementById('dsHomeCard'); if (!card) return;

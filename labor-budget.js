@@ -44,6 +44,7 @@ var LB_PDS_DRIFT = 0.03;   // 最新一個月跟前幾個月差超過 3% → 儀
 // 使用者不知道大單是什麼，所以只按資料處理：校正、業績進度都扣掉「比平常多出的金額」。
 // ⚠️ 只對「大單不進損益表」的店扣（lbBigOn 每店自動判斷）：聯鑫週日大單有進損益表，不扣。
 var LB_BIG_TICKET = 1.35;
+var LB_HOURLY_MAX = 1000; // 主檔 wage 正職存月薪、轉工讀不會改；混進平均會讓人事推估變負數、達標率爆量（2026-11-01 聯鑫 675%）
 var LB_OFF = ['排休', '指休', '特休', '補休', '清空', ''];
 
 function lbYm(y, m) { return y + '-' + String(m).padStart(2, '0'); }
@@ -65,7 +66,7 @@ function lbFit(xs, ys) {
 /** 工讀平均時薪（在職、有填時薪）；沒有就回 null */
 function lbPartTimeWage(employees, burden) {
   var ws = (employees || []).filter(function (e) {
-    return e && !['離職', '調走'].includes(e.status) && lvIsPayPartTime(e) && +e.wage > 0;
+    return e && !['離職', '調走'].includes(e.status) && lvIsPayPartTime(e) && +e.wage > 0 && +e.wage <= LB_HOURLY_MAX;
   }).map(function (e) { return +e.wage; });
   // 要加上公司負擔（勞保、健保、勞退）（2026-10-11 使用者確認修正）。只影響「比近 3 月多／少的人事」換算成的時數，
   // 10 月實際差：美德 −17h、聯鑫 −6h、錦花 +19h（人事上限低於近 3 月時，貴的時薪換算出的減少時數變少）
