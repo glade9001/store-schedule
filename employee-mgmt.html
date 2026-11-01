@@ -290,10 +290,15 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
     </div>
     <div class="form-field" id="payModeField" style="display:none;">
       <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:700;">
-        <input type="checkbox" id="accountPayAsPart" style="width:18px; height:18px;">
+        <input type="checkbox" id="accountPayAsPart" style="width:18px; height:18px;" onchange="applyHourlyField()">
         薪資以工讀時薪計算
       </label>
       <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">職務角色/排班/權限不變，僅薪資頁改用工讀時薪模式輸入與計算（例：店長但以時薪計薪）。</div>
+    </div>
+    <div class="form-field" id="accountHourlyField" style="display:none;">
+      <label for="accountHourlyWage">轉工讀後時薪（元）</label>
+      <input type="number" id="accountHourlyWage" min="1" max="1000" step="1" inputmode="numeric">
+      <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">排班預估、人事上限和薪資頁都用這個時薪；原本的月薪會保留給特補休結清試算。</div>
     </div>
     <button class="save-btn" onclick="saveAccountSetting()">💾 儲存帳號設定</button>
     <button class="cancel-btn" onclick="closeModal('accountModal')">取消</button>

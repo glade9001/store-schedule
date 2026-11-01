@@ -361,6 +361,9 @@ async function openAccountModal(empName, store) {
     const canSetPay = ['owner','admin'].includes(currentUser.permission);
     document.getElementById('payModeField').style.display = canSetPay ? 'block' : 'none';
     document.getElementById('accountPayAsPart').checked = !!empData.payAsPartTime;
+    document.getElementById('accountPayAsPart').dataset.orig = empData.payAsPartTime ? '1' : '';
+    document.getElementById('accountHourlyWage').value = HOURLY_WAGE_DEFAULT;
+    applyHourlyField();
 
     // 顯示待生效職稱資訊
     const pendingRoleEl = document.getElementById('pendingRoleInfo');
@@ -446,6 +449,20 @@ function onRoleChange() {
   field.style.display = (original && selected !== original) ? 'block' : 'none';
   applyRoleEffDateMode();
   if(field.style.display === 'none') document.getElementById('roleEffectiveDate').value = '';
+  applyHourlyField();
+}
+
+// 主檔 wage 正職存月薪、工讀存時薪，轉工讀時一定要換成時薪（2026-11-01 月薪被當時薪乘工時，預估薪資 326 萬、首頁達標 675%）
+const HOURLY_WAGE_DEFAULT = 196, HOURLY_WAGE_MAX = 1000;
+function isConvertingToHourly() {
+  const pay = document.getElementById('accountPayAsPart');
+  const original = document.getElementById('accountRoleOriginal').value;
+  const toPartRole = !!original && original !== '工讀' && document.getElementById('accountRole').value === '工讀';
+  const payVisible = document.getElementById('payModeField').style.display !== 'none';
+  return toPartRole || (payVisible && pay.checked && !pay.dataset.orig);
+}
+function applyHourlyField() {
+  document.getElementById('accountHourlyField').style.display = isConvertingToHourly() ? 'block' : 'none';
 }
 
 /** 下個月 1 號（身份轉換未填生效日時的預設） */
@@ -472,6 +489,9 @@ async function saveAccountSetting() {
   if(pwd && pwd !== pwdC) { showToast('⚠️ 兩次密碼不一致'); return; }
   if(pwd && pwd.length < 6) { showToast('⚠️ 密碼至少6碼'); return; }
   if(!empName) { showToast('⚠️ 請選擇或輸入對應員工名稱'); return; }
+  const convertToHourly = isConvertingToHourly();
+  const hourlyWage = parseFloat(document.getElementById('accountHourlyWage').value);
+  if(convertToHourly && !(hourlyWage > 0 && hourlyWage <= HOURLY_WAGE_MAX)) { showToast('⚠️ 請填轉工讀後時薪（1～1000 元）'); return; }
 
   showLoading('儲存帳號設定中...');
   try {
@@ -642,6 +662,17 @@ async function saveAccountSetting() {
           upd.leaveSettledAt = firebase.firestore.FieldValue.delete(); // 新的一次轉換需重新結清
         } else if (!payAsPart && wasPart && upd.partTimeFrom === undefined) {
           upd.partTimeFrom = firebase.firestore.FieldValue.delete();
+        }
+      }
+      {
+        const d = empSnap.data() || {};
+        const stillPart = payFieldVisible ? payAsPart : !!d.payAsPartTime;
+        if (convertToHourly) {
+          upd.wage = hourlyWage;
+          if (!d.monthWage) upd.monthWage = d.wage || 0; // 下面的結清試算、取消轉換都要用原本的月薪
+        } else if (role !== '工讀' && !stillPart && d.monthWage) {
+          upd.wage = d.monthWage;
+          upd.monthWage = firebase.firestore.FieldValue.delete();
         }
       }
       if (Object.keys(upd).length) await empRef.update(upd);
@@ -996,7 +1027,7 @@ async function showSettlePrompt(store, empName, effectDate, kind) {
     const compRemaining = Math.max(0,(cd.earned||0)-(cd.used||0)) + carriedRem;
     calc = calcLeaveSettle({
       batches, annualUseDates, compRemaining,
-      monthWage: parseFloat(emp.wage||0),   // 試算用主檔月薪；實際以薪資頁的底薪＋全勤為準
+      monthWage: parseFloat(emp.monthWage||emp.wage||0),   // 試算用主檔月薪（轉工讀後 wage 已是時薪，月薪在 monthWage）；實際以薪資頁的底薪＋全勤為準
       hireDate: emp.startDate || null, effectDate
     });
   } catch(e) { /* 讀不到就只顯示導引 */ }
