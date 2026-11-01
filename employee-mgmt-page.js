@@ -470,10 +470,10 @@ function _nextMonthFirst() {
   const d = new Date(); d.setMonth(d.getMonth()+1, 1);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`;
 }
-// 到職日在未來 → 帳號先鎖打卡、補登、門市資料，到職日 00:00 自動解除（firestore.rules notPreStart）
+// 新人都寫：到職日在未來 → 帳號先鎖打卡、補登、門市資料，到職日 00:00 自動解除（firestore.rules notPreStart）。
+// 到職日已過也寫，事後改到職日才知道這是要跟著調的帳號（leave-page.js saveHireDate）；舊員工沒有這欄，不受影響。
 function _preStartField(startDate) {
-  const until = new Date(`${startDate}T00:00:00+08:00`);
-  return until > new Date() ? { preStartUntil: firebase.firestore.Timestamp.fromDate(until) } : {};
+  return { preStartUntil: firebase.firestore.Timestamp.fromDate(new Date(`${startDate}T00:00:00+08:00`)) };
 }
 
 // 新人訊息：店長建好帳號後直接複製貼給新人。密碼只在這裡出現一次，關掉就看不到（系統不存明碼）

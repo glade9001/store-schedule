@@ -793,6 +793,11 @@ async function saveHireDate() {
     const _st = emp.store || currentStore;
     const _isTransferIn = !!(emp.transferDate || emp.transferFrom);
     if(_st && !_isTransferIn) await window.db.collection('stores').doc(_st).collection('employees').doc(empName).set({ startDate: hireDate }, { merge:true });
+    // 到職前鎖定跟著新的到職日（只動新人帳號：有 preStartUntil 的才改）
+    const _us = await window.db.collection('users').where('empName','==',empName).get().catch(()=>null);
+    if(_us) for(const u of _us.docs) {
+      if(u.data().preStartUntil) await u.ref.update({ preStartUntil: firebase.firestore.Timestamp.fromDate(new Date(`${hireDate}T00:00:00+08:00`)) });
+    }
 
     showToast('✅ 已設定到職日並建立批次');
     closeModal('hireDateModal');
