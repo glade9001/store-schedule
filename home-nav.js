@@ -90,10 +90,12 @@ function hnFavKind(f) { var g = HN_GROUPS.find(function (x) { return x.key === f
 
 // 到職前（users.preStartUntil）：這些功能反灰不能點，真正的擋在 firestore.rules 與打卡函式
 var HN_PRESTART_LOCKED = ['myAttend', 'city', 'groupbuy', 'barcode', 'itemno', 'wds'];
-function hnPreStart() { return !!(hnUserDoc && hnUserDoc.preStartUntil > Date.now()); }
+var hnPreviewPreStart = 0;   // 角色預覽「到職前新人」（home-preview.js）
+function hnPreStartAt() { return hnPreviewPreStart || (hnUserDoc && hnUserDoc.preStartUntil) || 0; }
+function hnPreStart() { return hnPreStartAt() > Date.now(); }
 function hnLocked(id) { return hnPreStart() && HN_PRESTART_LOCKED.indexOf(id) >= 0; }
 function hnPreStartToast() {
-  var d = new Date(hnUserDoc.preStartUntil);
+  var d = new Date(hnPreStartAt());
   showToast((d.getMonth() + 1) + '/' + d.getDate() + ' 到職後才能使用');
 }
 // 首頁打卡卡片與門市工具不是走 hnGo，統一在這裡攔

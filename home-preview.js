@@ -9,7 +9,8 @@ const ROLE_PREVIEW_LABELS = {
   employee: '員工',
   manager: '店長',
   owner: '加盟主',
-  admin: '系統管理員'
+  admin: '系統管理員',
+  prestart: '到職前新人'
 };
 
 function openRolePreviewModal() {
@@ -31,7 +32,7 @@ function openRolePreviewModal() {
     restoreBtn.style.display = 'none';
   }
 
-  ['employee','manager','owner','admin'].forEach(r => {
+  ['employee','manager','owner','admin','prestart'].forEach(r => {
     const btn = document.getElementById(`rpBtn-${r}`);
     if(btn) btn.classList.toggle('selected', r === (previewRole || 'admin'));
   });
@@ -42,7 +43,7 @@ function openRolePreviewModal() {
 let selectedPreviewRole = null;
 function setPreviewRole(role) {
   selectedPreviewRole = role;
-  ['employee','manager','owner','admin'].forEach(r => {
+  ['employee','manager','owner','admin','prestart'].forEach(r => {
     const btn = document.getElementById(`rpBtn-${r}`);
     if(btn) btn.classList.toggle('selected', r === role);
   });
@@ -68,12 +69,15 @@ async function confirmRolePreview() {
   }
 
   previewRole = role;
+  const asEmp = role === 'employee' || role === 'prestart';
+  // 到職前只是畫面預覽（反灰、攔點擊）；資料權限還是管理者本人的，看不出 firestore.rules 的擋法
+  hnPreviewPreStart = role === 'prestart' ? Date.now() + 14 * 86400000 : 0;
   currentUser = {
     ...realUser,
-    permission: role,
-    role: role === 'employee' ? '工讀' : role === 'manager' ? '店長' : '加盟主',
+    permission: asEmp ? 'employee' : role,
+    role: asEmp ? '工讀' : role === 'manager' ? '店長' : '加盟主',
   };
-  if(role === 'employee') currentUser.store = realUser.store || (appConfig.stores && appConfig.stores[0]);
+  if(asEmp) currentUser.store = realUser.store || (appConfig.stores && appConfig.stores[0]);
 
   sessionStorage.setItem('currentUser', JSON.stringify(currentUser));
   sessionStorage.setItem('isPreviewMode', '1');
@@ -103,6 +107,7 @@ function restoreRealRole() {
   if(!realUser) return;
   currentUser = { ...realUser };
   previewRole = null;
+  hnPreviewPreStart = 0;
   realUser = null;
   selectedPreviewRole = null;
 
