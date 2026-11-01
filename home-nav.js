@@ -11,15 +11,17 @@ var HN_DS_INPUTTER = false;   // 是否為本店作帳人員（stores/{店}/conf
 var HN_TIER_LABEL = { owner: '加盟主', admin: '管理者' };   // 選單上的權限標籤（樣式見 home-page.css .nd-tier）
 
 // 順序＝抽屜顯示順序。門市工具是全員功能，要排在「管理功能」分隔線之前，否則看起來像管理專用
+// 2026-11-01 除了「我的」都收成一行（使用者覺得眼花撩亂）；hint 給收起來時也要看得到裡面有什麼的群組（☰ →「設定」的文案很多）
 var HN_GROUPS = [
   { key: 'me',     title: '我的',       fav: 'me' },
   { key: 'acct',   title: '作帳人員限定', fav: 'me' },   // 店長在每日營業頁指派的人才看得到（2026-10-11）
   { key: 'store',  title: '門市工具',   fav: '', fold: true },   // 首頁已固定顯示這幾個，抽屜裡預設收起來（狀態記在 localStorage）
-  { key: 'sched',  title: '排班・出勤', fav: 'mgmt' },
-  { key: 'people', title: '人事・薪資', fav: 'mgmt' },
+  { key: 'sched',  title: '排班・出勤', fav: 'mgmt', fold: true },
+  { key: 'people', title: '人事・薪資', fav: 'mgmt', fold: true },
   { key: 'ops',    title: '營運',       fav: 'mgmt', fold: true },
+  { key: 'docs',   title: '文件報表',   fav: 'mgmt', fold: true },
   { key: 'tools',  title: '管理工具',   fav: 'mgmt', fold: true },
-  { key: 'sys',    title: '帳號與系統', fav: '' },
+  { key: 'sys',    title: '系統',       fav: '', fold: true, hint: '設定、教學、登出' },
 ];
 
 function hnIsLead() { return ['manager', 'owner', 'admin'].includes(currentUser?.permission); }
@@ -40,8 +42,8 @@ var HOME_FEATURES = [
   { id: 'adminSchedule', group: 'sched',  icon: '📋', label: '排班',       sub: '排班、發布班表',             go: 'schedule-V2.html?mode=admin', show: hnIsLead },
   { id: 'autoSchedule',  group: 'sched',  icon: '🤖', label: '自動排班設定', sub: '時段人數需求、人員可上班別', go: 'auto-schedule.html?ref=home.html', show: hnIsLead, kw: 'AI 自動排班 需求 可上班別 寒暑假' },
   { id: 'attendance',    group: 'sched',  icon: '🗂️', label: '出勤管理',   sub: '打卡紀錄、補登審核、缺卡',   go: 'attendance.html', show: hnIsLead, kw: '打卡 補登 審核 遲到' },
-  { id: 'inspection',    group: 'sched',  icon: '📦', label: '盤點資料',   sub: '輪班表、出勤記錄表、薪資單', go: 'inspection.html?ref=home.html', show: hnIsLead },
-  { id: 'laborRecord',   group: 'sched',  icon: '🗃️', label: '勞檢出勤表', sub: '打卡系統實際紀錄・列印簽名／Excel', go: 'labor-record.html?ref=home.html', show: hnIsLead, kw: '勞檢 出勤紀錄 出勤表 匯出 簽名' },
+  { id: 'inspection',    group: 'docs',   icon: '📦', label: '盤點資料',   sub: '輪班表、出勤記錄表、薪資單', go: 'inspection.html?ref=home.html', show: hnIsLead },
+  { id: 'laborRecord',   group: 'docs',   icon: '🗃️', label: '勞檢出勤表', sub: '打卡系統實際紀錄・列印簽名／Excel', go: 'labor-record.html?ref=home.html', show: hnIsLead, kw: '勞檢 出勤紀錄 出勤表 匯出 簽名' },
   { id: 'salary',        group: 'people', icon: '💳', label: '算薪水',     sub: '每月薪資計算與發布',         go: 'salary.html', show: hnIsLead, kw: '薪資 匯出 月結 Excel PDF 簽收' },  // 薪資匯出 2026-10-10 併入（加盟主看得到「📤 月結與匯出」）
   { id: 'employees',     group: 'people', icon: '👥', label: '員工資料',   sub: '帳號、職位、調店、離職',     go: 'employee-mgmt.html', show: hnIsLead, kw: '員工 帳號 密碼 離職' },
   { id: 'leaveMgmt',     group: 'people', icon: '📆', label: '員工特補休', sub: '假別管理、紀錄查詢',         go: 'leave.html?mode=mgmt', show: hnIsLead, kw: '特休 補休' },
@@ -74,6 +76,11 @@ function hnFoldOpen(key) { try { return localStorage.getItem(hnFoldKey(key)) ===
 function hnToggleGroup(key) {
   try { localStorage.setItem(hnFoldKey(key), hnFoldOpen(key) ? '0' : '1'); } catch (e) { /* 無痕模式：這次展開，下次回到預設 */ }
   renderNavDrawer();
+}
+
+var hnPendingPages = [];   // 待處理事項連到的頁面（home-pending.js 寫入）：收起來的群組靠它亮紅點
+function hnGroupHasPending(items) {
+  return items.some(function (f) { return f.go && hnPendingPages.indexOf(f.go.split('?')[0]) >= 0; });
 }
 
 function hnFeature(id) { return HOME_FEATURES.find(function (f) { return f.id === id; }); }
@@ -278,7 +285,7 @@ function renderNavDrawer() {
       var open = hnFoldOpen(g.key);
       html += '<div class="nd-group nd-fold' + (open ? ' open' : '') + '" role="button" tabindex="0" aria-expanded="' + (open ? 'true' : 'false') + '"' +
         ' onclick="hnToggleGroup(\'' + g.key + '\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();hnToggleGroup(\'' + g.key + '\');}">' +
-        '<span>' + g.title + '<em>' + items.length + ' 項</em></span><span class="nd-chev">▸</span></div>';
+        '<span>' + g.title + '<em>' + (g.hint || items.length + ' 項') + '</em>' + (!open && hnGroupHasPending(items) ? '<i class="nd-pdot" aria-label="有待處理"></i>' : '') + '</span><span class="nd-chev">▸</span></div>';
       if (open) html += items.map(function (f) { return hnItemHtml(f, favs, false); }).join('');
       return;
     }

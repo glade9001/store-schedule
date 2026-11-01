@@ -381,20 +381,36 @@ async function loadPendingItems() {
     }
   }
 
-  const el = document.getElementById('pendingList');
   if(pendingCard) pendingCard.style.display = 'block';
-  if(pending.length === 0 && memoRows.length === 0) {
+  hnPendingPages = pending.map(p => String(p.link || '').split('?')[0]);
+  if(document.getElementById('navDrawer')?.classList.contains('active') && typeof renderNavDrawer === 'function') renderNavDrawer();
+  // 只露前幾筆（使用者 2026-11-01）：紅色的排前面；門市備忘收成一行，點進代辦頁看
+  const lateMemo = memoRows.filter(m => m.color === 'var(--danger)').length;
+  pendRows = [...pending].sort((a, b) => (b.color === 'var(--danger)') - (a.color === 'var(--danger)'));
+  if(memoRows.length) pendRows.push({ type:'門市備忘', desc:`${memoRows.length} 筆未結案${lateMemo ? `・<span style="color:var(--danger);font-weight:800;">⚠️ ${lateMemo} 筆要處理</span>` : ''}`,
+    link:'todo.html', color: lateMemo ? 'var(--danger)' : '#0f9d8a' });
+  renderPendingList();
+}
+
+var pendRows = [], pendShowAll = false, PEND_SHOW = 3;
+function togglePendingList() { pendShowAll = !pendShowAll; renderPendingList(); }
+function renderPendingList() {
+  const el = document.getElementById('pendingList');
+  if(!pendRows.length) {
     el.innerHTML = `<div style="text-align:center;padding:12px 0 4px;font-size:13px;color:var(--text-muted);font-weight:600;">✅ 目前無待辦事項</div>`;
-  } else {
-    el.innerHTML = [...pending, ...memoRows].map(p => `
+    return;
+  }
+  const rows = pendShowAll ? pendRows : pendRows.slice(0, PEND_SHOW);
+  const more = pendRows.length > PEND_SHOW
+    ? `<button type="button" onclick="togglePendingList()" style="width:100%;min-height:40px;border:0;background:none;font:inherit;font-size:13px;font-weight:800;color:var(--primary);cursor:pointer;">${pendShowAll ? '收合' : `看全部 ${pendRows.length} 筆`}</button>` : '';
+  el.innerHTML = rows.map(p => `
       <div class="notice-item" ${p.link ? `style="cursor:pointer;" onclick="window.location.href='${p.link}'"` : ''}>
         <div class="notice-dot" style="background:${p.color};"></div>
         <div style="flex:1;">
           <div class="notice-text"><strong>${p.type}</strong>：${p.desc}</div>
         </div>
         ${p.link ? `<div style="color:var(--primary); font-size:16px; font-weight:900; padding-left:8px;">›</div>` : ''}
-      </div>`).join('');
-  }
+      </div>`).join('') + more;
 }
 
 // ===== 離職員工清單 =====
