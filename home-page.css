@@ -625,5 +625,8 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 /* 推播彈窗樣式已搬到 home-push.css（首頁與設定頁共用） */
 
 /* 到職前：不能用的功能反灰（home-nav.js hnPreStart） */
-.nd-lock, .prestart #homeClockCard, .prestart .tool-item[data-prestart-lock] { opacity: 0.4; filter: grayscale(1); }
+.nd-lock, .prestart .tool-item[data-prestart-lock] { opacity: 0.4; filter: grayscale(1); }
+/* 打卡卡片疊在深色標題上，半透明會透出底色 → 改不透明的灰底 */
+.prestart #homeClockCard { filter: grayscale(1); background: #e2e8f0 !important; border-color: #cbd5e1 !important; box-shadow: none; }
+.prestart #homeClockCard, .prestart #homeClockCard * { color: #94a3b8 !important; }
 .prestart #gbDashCard { display: none !important; }
