@@ -10,6 +10,11 @@ service cloud.firestore {
     }
     function isOwnerOrAdmin() { return myPerm() in ['admin', 'owner']; }
     function isManagerUp() { return myPerm() in ['manager', 'admin', 'owner']; }
+    // 新人到職前（users.preStartUntil，到職日 00:00 自動失效）：可登入、劃休，但不可碰客人個資、作業資料、補登
+    function notPreStart() {
+      let until = get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('preStartUntil', null);
+      return until == null || request.time >= until;
+    }
     function myStore() {
       return request.auth != null
         ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('store', '')
@@ -107,11 +112,11 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('permission', '') == 'admin';
     }
     match /cityRecipes/{id} {
-      allow read: if request.auth != null;
+      allow read: if request.auth != null && notPreStart();
       allow write: if isCityAdmin();
     }
     match /citySpecs/{id} {
-      allow read: if request.auth != null;
+      allow read: if request.auth != null && notPreStart();
       allow write: if isCityAdmin();
     }
     match /{cityColl}/{id} {
@@ -141,7 +146,7 @@ service cloud.firestore {
     // 全店員工可建單、推進狀態；門市不可改；刪除限店長以上。
     // ⚠️ 必須被最下面的 catch-all 排除，否則任何登入者都能讀寫（users 的教訓）。
     match /storeMemos/{id} {
-      function memoStoreOk(st) { return st != '' && (st == myStore() || isOwnerOrAdmin()); }
+      function memoStoreOk(st) { return st != '' && notPreStart() && (st == myStore() || isOwnerOrAdmin()); }
       allow read: if request.auth != null && memoStoreOk(resource.data.get('store', ''));
       allow create: if request.auth != null && memoStoreOk(request.resource.data.get('store', ''))
                     && request.resource.data.get('status', -1) in [0, 1, 2, 3];
@@ -161,7 +166,8 @@ service cloud.firestore {
     }
     match /stores/{st}/{sub}/{rest=**} {
       allow read, update, delete: if request.auth != null && sub != 'salary';
-      allow create: if request.auth != null && sub != 'salary' && request.resource.data.get('source', '') != 'app';
+      allow create: if request.auth != null && sub != 'salary' && request.resource.data.get('source', '') != 'app'
+                    && (sub != 'attendanceRequests' || notPreStart());
     }
     // ── salary：一個月一份、records[] 含全店員工薪資 ──
     // 原本走 catch-all＝任何登入者都能讀（員工開 console 就看得到全店同事薪資）、甚至能改。
@@ -182,6 +188,7 @@ service cloud.firestore {
     function gbStaff() {
       return request.auth != null
         && myPerm() in ['employee', 'manager', 'owner', 'admin']
+        && notPreStart()
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('disabled', false) != true;
     }
     // 店長只能開／改「只開放自己店」的團購；跨店共用庫存的團只有加盟主／admin（使用者 2026-10-10 定案）

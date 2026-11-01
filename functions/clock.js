@@ -424,6 +424,12 @@ exports.scheduledMissingClock = onSchedule(
 // ✂️ scheduledClockRemind（上/下班打卡提醒）已整支移除（2026-09-07 用戶指示取消發送）。
 //    2026-08-17 起本來就以 CLOCK_REMIND_SUSPENDED 停用，這次連同排程一併刪除，不再每 5 分鐘空跑。
 //    clock-page.js 的同名常數保留（維持設定入口隱藏）。
+// 到職前不能打卡：到職前打的卡可能變成出勤紀錄（users.preStartUntil，到職日 00:00 自動失效）
+function assertStarted(user) {
+  const t = user.preStartUntil;
+  if (t && t.toMillis && t.toMillis() > Date.now()) throw new HttpsError("failed-precondition", "到職日後才能打卡");
+}
+
 // ============ 打卡 callable（伺服器權威：時間/圍欄/狀態全後端判定）============
 exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
   const auth = request.auth;
@@ -432,6 +438,7 @@ exports.clockPunch = onCall({ region: "asia-east1" }, async (request) => {
   const userSnap = await db.collection("users").doc(auth.uid).get();
   const user = userSnap.exists ? userSnap.data() : null;
   if (!user || !user.empName) throw new HttpsError("permission-denied", "查無使用者");
+  assertStarted(user);
   const empName = user.empName, homeStore = user.store || "", perm = user.permission || "employee";
   const cfgSnap = await db.collection("settings").doc("globalConfig").get();
   const conf = cfgSnap.exists ? cfgSnap.data() : {};
@@ -637,6 +644,7 @@ exports.clockPunchOffline = onCall({ region: "asia-east1", secrets: [LINE_TOKEN,
   const userSnap = await db.collection("users").doc(auth.uid).get();
   const user = userSnap.exists ? userSnap.data() : null;
   if (!user || !user.empName) throw new HttpsError("permission-denied", "查無使用者");
+  assertStarted(user);
   const empName = user.empName, homeStore = user.store || "", perm = user.permission || "employee";
   const cfgSnap = await db.collection("settings").doc("globalConfig").get();
   const conf = cfgSnap.exists ? cfgSnap.data() : {};

@@ -470,6 +470,46 @@ function _nextMonthFirst() {
   const d = new Date(); d.setMonth(d.getMonth()+1, 1);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`;
 }
+// 到職日在未來 → 帳號先鎖打卡、補登、門市資料，到職日 00:00 自動解除（firestore.rules notPreStart）
+function _preStartField(startDate) {
+  const until = new Date(`${startDate}T00:00:00+08:00`);
+  return until > new Date() ? { preStartUntil: firebase.firestore.Timestamp.fromDate(until) } : {};
+}
+
+// 新人訊息：店長建好帳號後直接複製貼給新人。密碼只在這裡出現一次，關掉就看不到（系統不存明碼）
+const APP_URL = 'https://glade9001.github.io/store-schedule/home.html?openExternalBrowser=1'; // 帶參數：從 LINE 點開才會跳到手機瀏覽器
+function newHireText({ store, name, username, password, startDate }) {
+  const d = startDate ? `${+startDate.slice(5, 7)}/${+startDate.slice(8)}` : '';
+  const future = startDate && new Date(`${startDate}T00:00:00+08:00`) > new Date();
+  return `${name} 你好，歡迎加入${store}！請先完成下面 3 步：
+
+1️⃣ 登入
+${APP_URL}
+帳號：${username}
+初始密碼：${password}
+（第一次登入會請你改密碼）
+
+2️⃣ 裝到手機桌面（建議）
+・iPhone：用 Safari 開上面的連結，按下方「分享」→「加入主畫面」
+・Android：用 Chrome 開，按右上角 ⋮ →「加到主畫面」或「安裝應用程式」
+
+3️⃣ 開啟通知（建議）
+從桌面圖示打開 App，看到邀請時按「開啟推播通知」，再選「允許」。
+班表、缺卡、薪資簽收都靠通知提醒你。iPhone 要從桌面圖示打開才能開通知。
+${future ? `\n你的到職日是 ${d}。到職前可以先劃休，打卡等功能到職當天才開放。\n` : ''}
+有問題再問店長，謝謝！`;
+}
+function openNewHireMsg(info) {
+  document.getElementById('newHireMsgText').value = newHireText(info);
+  openModal('newHireMsgModal');
+}
+async function copyNewHireMsg() {
+  const el = document.getElementById('newHireMsgText');
+  try { await navigator.clipboard.writeText(el.value); }
+  catch (e) { el.focus(); el.select(); document.execCommand('copy'); } // 舊版 iOS／LINE 內建瀏覽器沒有 clipboard
+  showToast('✅ 已複製，直接貼給新人');
+}
+
 async function saveAccountSetting() {
   const store    = document.getElementById('accountEmpStore').value;
   const username = document.getElementById('accountUsername').value.trim().toUpperCase();
@@ -846,11 +886,12 @@ async function saveNewEmployee() {
     await window.db.collection('account').add(accountData);
     // 新系統（users 集合，不存密碼）
     const { password: _pw, ...userDoc } = accountData;
-    await window.db.collection('users').doc(uid).set({ ...userDoc, disabled: false }, { merge: true });
+    await window.db.collection('users').doc(uid).set({ ...userDoc, disabled: false, ..._preStartField(startDate) }, { merge: true });
 
     closeModal('addEmpModal');
     await loadEmpAdminList(store);
     showToast(`✅ 已新增員工「${sysName}」（到職日 ${startDate}）${role.includes('工讀')?'':'，請至特補休系統建立特休批次'}`);
+    openNewHireMsg({ store, name: dispName || sysName, username, password, startDate });
   } catch(e) { showToast('❌ 新增失敗：' + e.message); }
   hideLoading();
 }
@@ -936,7 +977,7 @@ async function handleRehire(accDoc, form) {
     // 4) users 更新門市
     const us = await window.db.collection('users').where('ID','==',form.username).limit(1).get().catch(()=>null);
     // 店長改不動 users 的 permission/disabled（firestore.rules managerTargetOk）→ 只有加盟主／admin 才帶，免得整筆被拒、只改一半
-    if(us && !us.empty) await us.docs[0].ref.update({ store: form.store, role: form.role,
+    if(us && !us.empty) await us.docs[0].ref.update({ store: form.store, role: form.role, ..._preStartField(newHire),
       ...(canOwner() ? { permission: form.perm, disabled: false } : {}) });
     // 5) 重設到職日（年資重算）
     await window.db.collection('employees').doc(existName).collection('leaves').doc(curYear)
@@ -950,6 +991,7 @@ async function handleRehire(accDoc, form) {
     closeModal('addEmpModal');
     await loadEmpAdminList(form.store);
     showToast(`✅「${existName}」已重新入職到「${form.store}」（到職日 ${newHire}，年資重算，${existStore}歷史保留）`);
+    openNewHireMsg({ store: form.store, name: form.dispName || existName, username: form.username, password: form.password, startDate: newHire });
   } catch(e){ showToast('❌ 重新入職失敗：' + e.message); console.error('rehire', e); }
   hideLoading();
 }

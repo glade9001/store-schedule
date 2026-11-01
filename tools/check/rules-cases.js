@@ -7,12 +7,22 @@ const F=o=>({fields:Object.fromEntries(Object.entries(o).map(([k,v])=>[k,tv(v)])
 const enc=p=>p.split('/').map(encodeURIComponent).join('/');
 async function call(method,path,uid,body,mask){const h={'Content-Type':'application/json'};h.Authorization=uid==='ADMIN'?'Bearer owner':'Bearer '+jwt(uid);
  const u=B+'/'+enc(path)+(mask?'?'+mask.map(m=>'updateMask.fieldPaths='+encodeURIComponent(m)).join('&'):'');const r=await fetch(u,{method,headers:h,body:body?JSON.stringify(body):undefined});return r.status;}
-const seed=async()=>{await call('PATCH','users/emp1/notifications/n1','ADMIN',F({title:'t',read:false}));for(const [uid,perm,store] of [['emp1','employee','美德'],['mgr1','manager','美德'],['own1','owner','美德']])await call('PATCH',`users/${uid}`,'ADMIN',F({permission:perm,store,empName:uid}));
+const seed=async()=>{await call('PATCH','users/pre1','ADMIN',{fields:{permission:{stringValue:'employee'},store:{stringValue:'美德'},preStartUntil:{timestampValue:'2099-01-01T00:00:00Z'}}});await call('PATCH','users/pre2','ADMIN',{fields:{permission:{stringValue:'employee'},store:{stringValue:'美德'},preStartUntil:{timestampValue:'2020-01-01T00:00:00Z'}}});await call('PATCH','storeMemos/m1','ADMIN',F({store:'美德',status:0}));await call('PATCH','cityRecipes/r1','ADMIN',F({x:'1'}));await call('PATCH','gb_orders/o1','ADMIN',F({store:'x'}));await call('PATCH','users/emp1/notifications/n1','ADMIN',F({title:'t',read:false}));for(const [uid,perm,store] of [['emp1','employee','美德'],['mgr1','manager','美德'],['own1','owner','美德']])await call('PATCH',`users/${uid}`,'ADMIN',F({permission:perm,store,empName:uid}));
  await call('PATCH','employees/員工甲/leaveLog/2026-10','ADMIN',F({x:'1'}));await call('PATCH','settings/holidays/years/2026','ADMIN',F({x:'1'}));
  await call('PATCH','settings/globalConfig','ADMIN',F({stores:'美德',clockIn:{geo:{lat:'1'},tolByStore:{美德:5}}}));
  await call('PATCH','salaryAck/emp1_2026-09','ADMIN',F({m:'1'}));await call('PATCH','salaryAck/mgr1_2026-09','ADMIN',F({m:'1'}));await call('PATCH','todos/t1','ADMIN',F({x:'1'}));
  await call('PATCH','salaryEditLog/美德__2026-10','ADMIN',F({store:'美德',month:'2026-10'}));await call('PATCH','salaryEditLog/錦花__2026-10','ADMIN',F({store:'錦花',month:'2026-10'}));};
 const T=[ // [說明, method, path, uid, body, mask, 預期通過?]
+ ['到職前讀門市備忘','GET','storeMemos/m1','pre1',null,null,false],
+ ['到職後讀門市備忘','GET','storeMemos/m1','pre2',null,null,true],
+ ['現有員工讀門市備忘','GET','storeMemos/m1','emp1',null,null,true],
+ ['到職前讀CITY手順','GET','cityRecipes/r1','pre1',null,null,false],
+ ['現有員工讀CITY手順','GET','cityRecipes/r1','emp1',null,null,true],
+ ['到職前讀團購顧客','GET','gb_customers/c1','pre1',null,null,false],
+ ['到職前送補登','PATCH','stores/美德/attendanceRequests/q1','pre1',F({x:'1'}),null,false],
+ ['到職後送補登','PATCH','stores/美德/attendanceRequests/q2','pre2',F({x:'1'}),null,true],
+ ['到職前送劃休','PATCH','stores/美德/leaveRequests/l1','pre1',F({x:'1'}),null,true],
+ ['到職前自己拿掉標記','PATCH','users/pre1','pre1',F({preStartUntil:'x'}),['preStartUntil'],false],
  ['員工讀自己的通知','GET','users/emp1/notifications/n1','emp1',null,null,true],
  ['員工讀別人的通知','GET','users/emp1/notifications/n1','mgr1',null,null,false],
  ['加盟主讀別人的通知','GET','users/emp1/notifications/n1','own1',null,null,false],

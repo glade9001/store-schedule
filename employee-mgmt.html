@@ -152,6 +152,17 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
   </div>
 </div>
 
+<!-- ===== 新人訊息 Modal：新增員工後複製貼給新人 ===== -->
+<div class="modal-overlay" id="newHireMsgModal">
+  <div class="modal-box">
+    <div style="font-size:16px;font-weight:900;margin-bottom:6px;">📨 傳給新人</div>
+    <div style="font-size:12px;color:var(--text-muted);line-height:1.6;margin-bottom:10px;">內容含初始密碼，只顯示這一次。複製後貼到 LINE 私訊給本人。</div>
+    <textarea id="newHireMsgText" readonly rows="14" style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:10px;font-size:13px;line-height:1.6;resize:vertical;"></textarea>
+    <button class="save-btn" onclick="copyNewHireMsg()">📋 複製訊息</button>
+    <button class="cancel-btn" onclick="closeModal('newHireMsgModal')">關閉</button>
+  </div>
+</div>
+
 <!-- ===== 新增員工 Modal ===== -->
 <div class="modal-overlay" id="addEmpModal" onclick="if(event.target===this)closeModal('addEmpModal')">
   <div class="modal-box">

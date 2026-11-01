@@ -88,9 +88,24 @@ function hnFeature(id) { return HOME_FEATURES.find(function (f) { return f.id ==
 function hnVisible(f) { return !!f && (!f.show || !!f.show()); }
 function hnFavKind(f) { var g = HN_GROUPS.find(function (x) { return x.key === f.group; }); return g ? g.fav : ''; }
 
+// 到職前（users.preStartUntil）：這些功能反灰不能點，真正的擋在 firestore.rules 與打卡函式
+var HN_PRESTART_LOCKED = ['myAttend', 'city', 'groupbuy', 'barcode', 'itemno', 'wds'];
+function hnPreStart() { return !!(hnUserDoc && hnUserDoc.preStartUntil > Date.now()); }
+function hnLocked(id) { return hnPreStart() && HN_PRESTART_LOCKED.indexOf(id) >= 0; }
+function hnPreStartToast() {
+  var d = new Date(hnUserDoc.preStartUntil);
+  showToast((d.getMonth() + 1) + '/' + d.getDate() + ' 到職後才能使用');
+}
+// 首頁打卡卡片與門市工具不是走 hnGo，統一在這裡攔
+document.addEventListener('click', function (e) {
+  if (!hnPreStart() || !e.target.closest('#homeClockCard, .tool-item[data-prestart-lock]')) return;
+  e.preventDefault(); e.stopPropagation(); hnPreStartToast();
+}, true);
+
 function hnGo(id) {
   var f = hnFeature(id);
   if (!f) return;
+  if (hnLocked(id)) { hnPreStartToast(); return; }
   closeNavDrawer();
   if (f.run) { f.run(); return; }
   if (f.href && f.browser) { hpOpenInBrowser(f.href); return; }
@@ -136,7 +151,8 @@ function hnLoadUserDoc() {
       ]);
       if (snap && snap.exists) {
         var d = snap.data() || {};
-        hnUserDoc = { homeFavs: d.homeFavs || null, homeTour: d.homeTour || null, pushInvite: d.pushInvite || null, a2hsInvite: d.a2hsInvite || null };
+        hnUserDoc = { homeFavs: d.homeFavs || null, homeTour: d.homeTour || null, pushInvite: d.pushInvite || null, a2hsInvite: d.a2hsInvite || null,
+          preStartUntil: d.preStartUntil && d.preStartUntil.toMillis ? d.preStartUntil.toMillis() : 0 };
         hnFavs = hnUserDoc.homeFavs;
         try { localStorage.setItem(hnLocalKey(), JSON.stringify(hnUserDoc)); } catch (e) {}
       }
@@ -174,7 +190,7 @@ function renderQuickBtns() {
   var favs = hnCurrentFavs();
   var tile = function (id) {
     var f = hnFeature(id);
-    return '<button class="fav-btn" data-fid="' + f.id + '" onclick="hnGo(\'' + f.id + '\')"><span class="fav-ic">' + f.icon + '</span><span class="fav-label">' + f.label + '</span></button>';
+    return '<button class="fav-btn' + (hnLocked(f.id) ? ' nd-lock' : '') + '" data-fid="' + f.id + '" onclick="hnGo(\'' + f.id + '\')"><span class="fav-ic">' + f.icon + '</span><span class="fav-label">' + f.label + '</span></button>';
   };
   var fill = function (ids) {
     var shown = ids.filter(function (id) { return hnVisible(hnFeature(id)); });
@@ -205,7 +221,10 @@ function hnLoadDsInputter() {
 function initHomeNav() {
   renderQuickBtns();
   hnLoadDsInputter();
-  hnLoadUserDoc().then(function () { renderQuickBtns(); maybeAutoStartHomeTour(); });
+  hnLoadUserDoc().then(function () {
+    document.body.classList.toggle('prestart', hnPreStart());
+    renderQuickBtns(); maybeAutoStartHomeTour();
+  });
 }
 
 // ===== ☰ 抽屜 =====
@@ -242,7 +261,7 @@ function hnItemHtml(f, favs, showGroup) {
   // 加盟主／管理者專用項目上底色＋左側色條＋標籤：清單太長時一眼看出哪些不是店長層級的功能
   var tierCls = f.tier ? ' tier-' + f.tier : '';
   var tierTag = f.tier ? '<span class="nd-tier">' + HN_TIER_LABEL[f.tier] + '</span>' : '';
-  return '<div class="nd-item' + (f.danger ? ' danger' : '') + tierCls + '" role="button" tabindex="0" data-fid="' + f.id + '" onclick="hnGo(\'' + f.id + '\')" onkeydown="if(event.key===\'Enter\')hnGo(\'' + f.id + '\')">' +
+  return '<div class="nd-item' + (f.danger ? ' danger' : '') + tierCls + (hnLocked(f.id) ? ' nd-lock' : '') + '" role="button" tabindex="0"' + (hnLocked(f.id) ? ' aria-disabled="true"' : '') + ' data-fid="' + f.id + '" onclick="hnGo(\'' + f.id + '\')" onkeydown="if(event.key===\'Enter\')hnGo(\'' + f.id + '\')">' +
     '<span class="nd-ic">' + f.icon + '</span>' +
     '<span class="nd-text"><span class="nd-label">' + f.label + tierTag + '</span><span class="nd-sub">' + (g ? g.title + '・' : '') + f.sub + '</span></span>' +
     (f.href ? '<span class="nd-ext" aria-hidden="true">↗</span>' : '') + star + '</div>';

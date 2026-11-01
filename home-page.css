@@ -623,3 +623,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 /* 加入主畫面／推播通知（home-push.js） */
 .hpill-ic { font-size: 14px; line-height: 1; flex-shrink: 0; }
 /* 推播彈窗樣式已搬到 home-push.css（首頁與設定頁共用） */
+
+/* 到職前：不能用的功能反灰（home-nav.js hnPreStart） */
+.nd-lock, .prestart #homeClockCard, .prestart .tool-item[data-prestart-lock] { opacity: 0.4; filter: grayscale(1); }
+.prestart #gbDashCard { display: none !important; }
