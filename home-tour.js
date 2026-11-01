@@ -44,6 +44,12 @@ function homeTourSteps() {
       title: '班表在這裡看',
       text: '可以看本週、下週和整個月。首頁也會直接列出你這週的班。發布前的班表還會變動，以發布後的為準。',
     }),
+    {
+      before: function () { closeNavDrawer(); },
+      target: '.tool-item[href="groupbuy.html"]',
+      title: '團購在這裡',
+      text: '客人要補單或取貨時，到首頁「門市工具」的「團購」，可以補單和查取貨名單。',
+    },
     Object.assign(htPoint('mySalary'), {
       title: '薪資要簽收',
       text: '每月 5 號發薪（遇假日順延）。當月看得到的是上個月以前的薪資。收到通知後進去核對並簽收，沒簽的話每 3 天提醒一次，到 25 號為止。',
