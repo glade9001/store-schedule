@@ -242,6 +242,18 @@ exports.onPunchResolveMissFlag = onDocumentWritten(
 
 // ✂️ onAttendanceRequest（補登/加班申請被駁回 → 通知員工）已整支移除（2026-09-07 用戶指示取消發送）。
 //    駁回結果 App 內看得到；審核進度由 scheduledManagerDigest 每日摘要涵蓋。
+// 缺卡單要寫哪張：已有缺卡單 → null（不重開）。舊單被店長「修改」成打卡（2026-11-01 前的畫面允許）時單據還在，
+// 只看文件存不存在就永遠不會再開，另一張卡沒人管 → 改開 _2 那張。
+async function missFlagRef(col, flagId) {
+  const ref = col.doc(flagId);
+  const cur = await ref.get().catch(() => null);
+  if (!cur || !cur.exists) return ref;
+  if (cur.data().type === "缺卡") return null;
+  const alt = col.doc(flagId + "_2");
+  const second = await alt.get().catch(() => null);
+  return second && second.exists ? null : alt;
+}
+
 // C. 缺卡排程：每小時，班別結束後 2 小時仍無打卡 → 標記+通知(去重)
 exports.scheduledMissingClock = onSchedule(
   { schedule: "5 * * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [VAPID_PRIVATE] },
@@ -341,9 +353,8 @@ exports.scheduledMissingClock = onSchedule(
         if (hasIn && hasOut) continue;
         const info = await resolveEmpInfo(db, emp);
         const flagId = ("miss_" + ds + "_" + emp + "_" + sh.shift).replace(/[^\w一-龥]/g, "_");
-        const flagRef = db.collection("stores").doc(store).collection("attendance").doc(flagId);
-        const exist = await flagRef.get().catch(() => null);
-        if (exist && exist.exists) continue;
+        const flagRef = await missFlagRef(db.collection("stores").doc(store).collection("attendance"), flagId);
+        if (!flagRef) continue;
         const missWhat = (!hasIn && !hasOut) ? "整天未打卡" : (!hasIn ? "缺上班卡" : "缺下班卡");
         const dn = info.displayName;
         await flagRef.set({
@@ -393,9 +404,8 @@ exports.scheduledMissingClock = onSchedule(
           if (hasInY && hasOutT) continue;
           const info = await resolveEmpInfo(db, emp);
           const flagId = ("miss_" + dsY + "_" + emp + "_" + sh.shift).replace(/[^\w一-龥]/g, "_");
-          const flagRef = db.collection("stores").doc(store).collection("attendance").doc(flagId);
-          const exist = await flagRef.get().catch(() => null);
-          if (exist && exist.exists) continue;
+          const flagRef = await missFlagRef(db.collection("stores").doc(store).collection("attendance"), flagId);
+          if (!flagRef) continue;
           const missWhat = (!hasInY && !hasOutT) ? "整天未打卡" : (!hasInY ? "缺上班卡" : "缺下班卡");
           const dn = info.displayName;
           await flagRef.set({

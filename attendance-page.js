@@ -293,7 +293,11 @@ async function openEditPunch(id){
   if(!snap.exists){ alert('找不到這筆紀錄'); return; }
   _editId=id; _editRec=snap.data();
   document.getElementById('editInfo').innerHTML=`${empDisplay(_editRec.empName)}　${_editRec.date}　<b>${_editRec.type}</b>　原打卡時間 <b>${fmtT(_editRec.origTs||_editRec.deviceTs)}</b>`;
-  document.querySelector('input[name=editAct][value=edit]').checked=true;
+  // 缺卡單不能改成打卡：改了單據還在，排程看到就不再開缺卡單，另一張卡永遠沒人管（2026-11-01 查到 79 班只剩上班卡）。要補卡走「代補」
+  const isMiss=_editRec.type==='缺卡', editOpt=document.querySelector('input[name=editAct][value=edit]');
+  editOpt.disabled=isMiss;
+  document.querySelector(`input[name=editAct][value=${isMiss?'void':'edit'}]`).checked=true;
+  if(isMiss) document.getElementById('editInfo').innerHTML+='<br>這是缺卡單，只能註銷；要補打卡請關閉後按「代補」。';
   document.getElementById('editTime').value=fmtT(_editRec.deviceTs);
   document.getElementById('editType').value=(_editRec.type==='下班')?'下班':'上班';
   document.getElementById('editStatus').value=_editRec.status||'正常';
@@ -308,6 +312,7 @@ async function applyEditPunch(){
   const reason=document.getElementById('editReason').value.trim();
   if(!reason){ alert('請填寫修改／註銷原因（法規要求留存備查）'); return; }
   const act=document.querySelector('input[name=editAct]:checked').value;
+  if(act==='edit' && _editRec.type==='缺卡'){ alert('缺卡單不能改成打卡，請用「代補」'); return; }
   const ref=window.db.collection('stores').doc(curStore).collection('attendance').doc(_editId);
   const now=new Date().toISOString(), by=(currentUser.empName||currentUser.displayName||'');
   const AU=firebase.firestore.FieldValue.arrayUnion;
