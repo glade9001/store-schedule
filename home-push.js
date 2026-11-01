@@ -297,16 +297,16 @@ function hpCloseModal() {
   var el = document.getElementById('hpModal'); if (el) el.classList.remove('active');
 }
 
-// ===== 推播邀請（每週彈一次卡片，直到開啟為止）=====
+// ===== 推播邀請（每 3 天彈一次卡片，直到開啟為止，使用者 2026-11-01）=====
 // 對象：能收推播（Android／從主畫面開的 iPhone）、還沒訂閱、沒封鎖通知的人。
 // 時機：新版教學看完或不再自動跳之後（由 home-tour.js 呼叫），同一次開頁不會跟教學一起出現。
-// 頻率：users/{uid}.pushInvite.lastAt 距今滿 7 天才再彈（彈出當下就記，直接關 App 也算這週提醒過）；
+// 頻率：users/{uid}.pushInvite.lastAt 距今滿 3 天才再彈（彈出當下就記，直接關 App 也算提醒過）；
 //       沒有次數上限，開了推播就不再出現。skips 只做統計用。
-var HP_INVITE_EVERY_DAYS = 7;
+var HP_INVITE_EVERY_DAYS = 3;
 async function maybeShowPushInvite(attempt) {
   attempt = attempt || 0;
   try { if (sessionStorage.getItem('isPreviewMode') === '1') return; } catch (e) {}
-  // iPhone 用瀏覽器開：還不能開推播 → 改邀請先加入主畫面（同樣每週一次）
+  // iPhone 用瀏覽器開：還不能開推播 → 改邀請先加入主畫面（同樣每 3 天一次）
   if (hpPlatform() === 'ios' && !hpStandalone()) { maybeShowA2hsInvite(attempt); return; }
   if (!hpPushSupported()) return;
   if (Notification.permission === 'denied') return;
@@ -326,7 +326,7 @@ async function maybeShowPushInvite(attempt) {
       '<li>🔴 App 圖示會顯示待處理件數，一眼就知道有沒有事</li>' +
       '<li>🔕 隨時可以從左上角 ☰ →「設定」→「通知設定」關閉</li></ul>' +
     '<button class="hp-btn" id="hpEnableBtn" onclick="hpEnablePush()">開啟推播通知</button>' +
-    '<p class="hp-note">按下後手機會詢問是否允許通知，請選「<b>允許</b>」。沒開的話，每週會再提醒一次。</p>');
+    '<p class="hp-note">按下後手機會詢問是否允許通知，請選「<b>允許</b>」。沒開的話，3 天後會再提醒一次。</p>');
   var close = document.querySelector('#hpModal .hp-close');
   if (close) close.textContent = '以後再說';
 }
@@ -336,9 +336,9 @@ function hpBusy() {
     document.querySelector('.modal-overlay.active, .bottom-sheet.active, #resignedScreen, #htLayer.active, #hpModal.active'));
 }
 
-// ===== 加入主畫面邀請（iPhone 用瀏覽器開的人，每週彈一次）=====
+// ===== 加入主畫面邀請（iPhone 用瀏覽器開的人，每 3 天彈一次）=====
 // iPhone 要從主畫面打開才能收推播，所以這群人的「推播邀請」其實是先邀請加入主畫面。
-// 紀錄：users/{uid}.a2hsInvite.lastAt，滿 7 天才再彈；從主畫面打開後就改走推播邀請，不會再看到這張。
+// 紀錄：users/{uid}.a2hsInvite.lastAt，滿 3 天才再彈；從主畫面打開後就改走推播邀請，不會再看到這張。
 async function maybeShowA2hsInvite(attempt) {
   attempt = attempt || 0;
   var inv = (window.hnUserDoc && window.hnUserDoc.a2hsInvite) || {};
@@ -353,7 +353,7 @@ async function maybeShowA2hsInvite(attempt) {
   document.getElementById('hpModalTitle').textContent = '📲 把莉學加到手機桌面';
   document.getElementById('hpModalLead').textContent = '加入後像 App 一樣從桌面打開，還能開啟推播通知、在圖示上看到待處理件數。已經加過的話，之後請改從桌面的圖示打開。';
   var body = document.getElementById('hpModalBody');
-  if (body) body.insertAdjacentHTML('beforeend', '<p class="hp-note">還沒加的話，每週會再提醒一次。</p>');
+  if (body) body.insertAdjacentHTML('beforeend', '<p class="hp-note">還沒加的話，3 天後會再提醒一次。</p>');
   var close = document.querySelector('#hpModal .hp-close');
   if (close) close.textContent = '以後再說';
 }

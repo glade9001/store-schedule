@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#1a73e8">
+<title>📋 月結與月報</title>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+<script src="firebase-init.js"></script>
+<script src="utils.js"></script>
+<link rel="stylesheet" href="daily-sales-page.css">
+<style>
+.mr-bar{display:flex;gap:8px;align-items:center;margin-bottom:12px;}
+.mr-bar input{flex:0 0 auto;font:inherit;font-size:15px;font-weight:700;padding:8px 10px;border:1.5px solid var(--border);border-radius:10px;background:#fff;color:var(--text);}
+.mr-tabs{display:flex;flex:1;gap:6px;}
+.mr-tabs button{flex:1;font:inherit;font-size:14px;font-weight:800;min-height:44px;border:1.5px solid var(--border);border-radius:10px;background:#fff;color:var(--muted);cursor:pointer;}
+.mr-tabs button.on{background:var(--primary);border-color:var(--primary);color:#fff;}
+.mr-row{display:flex;align-items:center;gap:10px;width:100%;min-height:52px;padding:8px 2px;text-align:left;font:inherit;color:inherit;background:none;border:0;border-top:1px solid var(--border);}
+.mr-row:first-of-type{border-top:0;}
+.mr-row[data-go]{cursor:pointer;}
+.mr-ic{flex:0 0 22px;font-size:16px;text-align:center;}
+.mr-t{flex:1;min-width:0;font-size:14.5px;font-weight:700;}
+.mr-t small{display:block;margin-top:2px;font-size:12px;font-weight:500;color:var(--muted);}
+.mr-v{font-size:14px;font-weight:800;white-space:nowrap;}
+.mr-v.bad{color:var(--danger);}.mr-v.ok{color:var(--ok);}
+.mr-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}
+.mr-stat{background:var(--bg);border-radius:10px;padding:10px;}
+.mr-stat b{display:block;font-size:19px;font-variant-numeric:tabular-nums;}
+.mr-stat span{font-size:12px;color:var(--muted);}
+.mr-stat small{display:block;margin-top:2px;font-size:11.5px;color:var(--muted);}
+</style>
+</head>
+<body>
+<div id="loadingOverlay"><div class="spinner"></div><div id="loadingText">載入中…</div></div>
+<div class="header">
+  <button class="header-back" onclick="location.href='home.html'">← 返回</button>
+  <div class="header-title">📋 月結與月報</div>
+  <select id="mrStore" class="store-sel" onchange="mrLoad()" style="display:none;" aria-label="門市"></select>
+</div>
+<div class="wrap">
+  <div class="mr-bar">
+    <input type="month" id="mrMonth" onchange="mrLoad()" aria-label="月份">
+    <div class="mr-tabs" id="mrTabs"></div>
+  </div>
+  <div id="mrMain"></div>
+</div>
+<script src="month-report-page.js"></script>
+</body>
+</html>

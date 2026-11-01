@@ -49,6 +49,7 @@ var HOME_FEATURES = [
   { id: 'leaveMgmt',     group: 'people', icon: '📆', label: '員工特補休', sub: '假別管理、紀錄查詢',         go: 'leave.html?mode=mgmt', show: hnIsLead, kw: '特休 補休' },
   { id: 'performance',   group: 'ops',    icon: '📊', label: '經營績效',   sub: '每月門市損益輸入、同期比較', go: 'performance.html', show: hnIsLead, kw: '損益 營業額 盤損' },
   { id: 'dailySales',    group: 'ops',    icon: '🧾', label: '每日營業',   sub: '營業額、來客數輸入與分析', go: 'daily-sales.html', show: hnIsLead, kw: '營業額 來客 日結 客單價' },
+  { id: 'monthReport',   group: 'ops',    icon: '📋', label: '月結與月報', sub: '月底檢查、店長月報', go: 'month-report.html', show: hnIsLead, kw: '月結 結帳 月報 檢查 簽收' },
   { id: 'owner',         group: 'ops',    tier: 'owner', icon: '👑', label: '決策儀表板', sub: '三店總覽、人事分析、店長管理力',       go: 'owner-dashboard.html', show: hnIsOwner, kw: '加盟主 人事分析 人事成本 加班 跨店支援' },  // 人事分析 2026-10-10 併入儀表板〔人事〕分頁
   { id: 'cityAdmin',     group: 'tools',  tier: 'admin', icon: '🧾', label: 'CITY手順管理', sub: '確認每週同步的變動後發佈', go: 'city-admin.html', show: hnIsAdmin },
   { id: 'audit',         group: 'tools',  tier: 'admin', icon: '🩺', label: '資料健檢',   sub: '假別／到職日／跨店一致性',   go: 'data-audit.html', show: hnIsAdmin },
