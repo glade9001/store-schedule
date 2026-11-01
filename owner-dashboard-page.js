@@ -907,7 +907,7 @@ function renderLaborBudget(only){
   return `<div class="scroll"><table class="tbl" style="white-space:normal;"><thead><tr><th>門市</th><th>已排</th><th>整月上限</th><th>兩平 PDS</th></tr></thead><tbody>${rows}</tbody></table></div>
   <div style="font-size:11.5px;color:var(--muted);line-height:1.7;margin:8px 2px;">
     整月上限＝經營報酬先扣掉目標利潤，剩下的人事預算換算成工讀時數。目標利潤率＝經營報酬裡要先留下來當利潤的比例。「應 ≤」是按已排天數攤的上限。<br>
-    營收預估：月初用近 3 個月平均；這個月每日營業輸入滿 10 天後，改用本月實際業績推算（業績好上限放寬、變差收緊）。<br>
+    營收預估：月初用近 3 個月平均；這個月每日營業輸入滿 10 天後，改用本月實際業績推算（業績好上限放寬、變差收緊）；聯鑫週日業績有大小週，另外參考過去幾個月的走勢。<br>
     PDS＝平均每日營業額（含稅，同後台 PSD）＝損益表營業淨額 × 換算比例：${only.map(s=>{ const pi=lbDash[s]&&lbDash[s].ev.pdsInfo; if(!pi) return ''; return `${esc(s)} ${pi.ratio.toFixed(3)}（${pi.auto?pi.months.map(x=>+x.ym.slice(5)).join('、')+' 月實測':'預設，還沒有每天都輸入的完整月份'}）`; }).filter(Boolean).join('、')}。兩平＝近 3 月人事打平；達標＝照目前排法的人事，還留得下目標利潤。<br>
     ⚠️ 基本人力已超過上限：少排班達不到，要靠業績或盤損。店長在排班頁看得到時數、燈號與人事成本，看不到經營報酬與目標利潤率。
   </div>

@@ -22,6 +22,12 @@ var LB_LIVE_MIN_DAYS = 10;
 // 讀不到薪資時才用這個預設（三店 2026-07～09 實測：美德 15.1%、聯鑫 17.1%、錦花 17.7%，合計 16.5%）
 var LB_PT_BURDEN = 0.16;
 var LB_SALES_ERR_LIVE = 0.03;
+// 週日營業額有月內週期的店（聯鑫第 1～5 週週日 17／32／38／26／18 萬），日均×天數在月初一定低估：
+// 改用「已過日子通常佔整月多少」推整月，再依佔比跟近 3 月平均混合（2026-11-01 回測 2026-01～09）：
+// 聯鑫第 10 天 13.5%→5.3%、第 15 天 7.4→5.8%、第 20 天 4.8→3.1%；美德 2.8→3.3% 反而變差，所以只開聯鑫。
+var LB_LIVE_BLEND = { '聯鑫': 1 };
+var LB_SALES_ERR_BLEND = 0.06;
+var LB_POS_MONTHS = 6;   // 比重取最近 6 個完整月
 var LB_MIN_MONTHS = 8;                  // 損益少於 8 個月不做回歸
 var LB_TAX = 0;                         // 營業稅由總部隨發票付、加盟主轉繳 → 不影響（見檔頭）
 // PDS（平均每日營業額）用含稅表示，跟日結單、每日營業頁一致（使用者 2026-10-11）。
@@ -105,7 +111,8 @@ function lbPlan(model, ym, live) {
   var sales = prev.reduce(function (s, m) { return s + +model.pnl[m].netSales; }, 0) / prev.length;
   // 月中有實際業績（lbLiveSales）→ 改用本月實際推估的營業淨額（雙向：業績好上限放寬、差就收緊，使用者 2026-10-11 選）
   var err = LB_SALES_ERR;
-  if (live) { sales = live.sales; err = LB_SALES_ERR_LIVE; }
+  if (live && live.share != null) { sales = live.sales * live.share + sales * (1 - live.share); err = LB_SALES_ERR_BLEND; }
+  else if (live) { sales = live.sales; err = LB_SALES_ERR_LIVE; }
   var ly = model.pnl[lbAddMonth(ym, -12)];
   var elec = ly && +ly.elecCost > 0 ? +ly.elecCost
     : model.months.reduce(function (s, m) { return s + (+model.pnl[m].elecCost || 0); }, 0) / model.months.length;
@@ -258,11 +265,49 @@ function lbBigOn(ms) {
   };
   return sd(function (x) { return (x.s - x.big) / x.net; }) <= sd(function (x) { return x.s / x.net; });
 }
+/** 當月第幾個星期幾：同一格在每個月的位置，例 '0-2'＝第 3 個週日 */
+function lbDayPos(date) {
+  return new Date(+date.slice(0, 4), +date.slice(5, 7) - 1, +date.slice(8)).getDay() + '-' + Math.floor((+date.slice(8) - 1) / 7);
+}
+function lbMonthDates(ym) {
+  var r = [];
+  for (var i = 1; i <= lbDaysIn(ym); i++) r.push(ym + '-' + String(i).padStart(2, '0'));
+  return r;
+}
+/**
+ * 過去完整月份裡，每個位置是當月日均的幾倍。回傳 date → 倍數；完整月不到 3 個回 null。
+ * 沒出現過的位置（第 5 個週幾）用同星期幾的平均。
+ */
+function lbPosWeights(daily, ym, bigOn) {
+  var has = function (d) { return daily[d] && daily[d].sales != null && daily[d].sales !== ''; };
+  var seen = {};
+  Object.keys(daily || {}).forEach(function (d) { if (d.slice(0, 7) < ym) seen[d.slice(0, 7)] = 1; });
+  var ms = Object.keys(seen).filter(function (m) { return lbMonthDates(m).every(has); }).sort().slice(-LB_POS_MONTHS);
+  if (ms.length < 3) return null;
+  var sum = {}, cnt = {}, dsum = {}, dcnt = {};
+  ms.forEach(function (m) {
+    var prev = lbAddMonth(m, -1), win = {};
+    Object.keys(daily).forEach(function (d) { if (d.slice(0, 7) === m || d.slice(0, 7) === prev) win[d] = daily[d]; });
+    var big = lbBigDays(win, bigOn).big, ds = lbMonthDates(m);
+    var val = function (d) { return +daily[d].sales - (big[d] ? big[d].excess : 0); };
+    var avg = ds.reduce(function (t, d) { return t + val(d); }, 0) / ds.length;
+    ds.forEach(function (d) {
+      var p = lbDayPos(d), w = p.split('-')[0], x = val(d) / avg;
+      sum[p] = (sum[p] || 0) + x; cnt[p] = (cnt[p] || 0) + 1;
+      dsum[w] = (dsum[w] || 0) + x; dcnt[w] = (dcnt[w] || 0) + 1;
+    });
+  });
+  return function (d) {
+    var p = lbDayPos(d), w = p.split('-')[0];
+    return cnt[p] ? sum[p] / cnt[p] : dcnt[w] ? dsum[w] / dcnt[w] : 1;
+  };
+}
+
 /**
  * 本月實際業績推估整月營業淨額：（已輸入天數的營業額，扣大單）÷ 天數 × 整月天數 ÷ 換算比例
  * 輸入不滿 LB_LIVE_MIN_DAYS 天回 null（照舊用近 3 月平均）。
  */
-function lbLiveSales(daily, ym, ratio, bigOn) {
+function lbLiveSales(daily, ym, ratio, bigOn, blend) {
   var prevYm = lbAddMonth(ym, -1), win = {}, ds = [];
   Object.keys(daily || {}).forEach(function (d) {
     var m = d.slice(0, 7); if (m !== ym && m !== prevYm) return;
@@ -272,8 +317,14 @@ function lbLiveSales(daily, ym, ratio, bigOn) {
   if (ds.length < LB_LIVE_MIN_DAYS || !(ratio > 0)) return null;
   var big = lbBigDays(win, bigOn).big, cum = 0;
   ds.forEach(function (d) { cum += +daily[d].sales - (big[d] ? big[d].excess : 0); });
-  var n = lbDaysIn(ym);
-  return { days: ds.length, n: n, last: ds.sort()[ds.length - 1], psd: cum, sales: cum / ds.length * n / ratio };
+  var n = lbDaysIn(ym), res = { days: ds.length, n: n, last: ds.sort()[ds.length - 1], psd: cum, sales: cum / ds.length * n / ratio };
+  var wt = blend ? lbPosWeights(daily, ym, bigOn) : null;
+  if (wt) {
+    var done = ds.reduce(function (t, d) { return t + wt(d); }, 0), whole = lbMonthDates(ym).reduce(function (t, d) { return t + wt(d); }, 0);
+    res.sales = cum / done * whole / ratio;
+    res.share = done / whole; // lbPlan 依這個比例跟近 3 月平均混合
+  }
+  return res;
 }
 
 /**
@@ -341,7 +392,7 @@ function lbProjectedCost(model, sched, ym) {
 /** 一家店某月的完整結果（排班頁、儀表板都用這個） */
 function lbEvaluate(loaded, records, ym) {
   var R0 = loaded.pds ? loaded.pds.ratio : LB_PDS_RATIO;
-  var plan = lbPlan(loaded.model, ym, loaded.daily ? lbLiveSales(loaded.daily, ym, R0, loaded.pds ? loaded.pds.bigOn : true) : null);
+  var plan = lbPlan(loaded.model, ym, loaded.daily ? lbLiveSales(loaded.daily, ym, R0, loaded.pds ? loaded.pds.bigOn : true, !!LB_LIVE_BLEND[loaded.store]) : null);
   var m = loaded.model, sched = lbScheduledHours(records, ym, m && !m.err ? m.H0 / 30 : 0);
   var proj = lbProjectedCost(m, sched, ym), days = lbDaysIn(ym);
   var R = loaded.pds ? loaded.pds.ratio : LB_PDS_RATIO;
