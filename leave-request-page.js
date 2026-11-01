@@ -271,8 +271,12 @@ function lrNewestOpenSunday(){
 }
 function isNotYetOpen(dateStr){ return dateStr > lrNewestOpenSunday(); }
 
+// 還沒到職的日子不能劃休（使用者 2026-11-01）；店長以上要幫別人代劃，不套用自己的到職日
+function isBeforeStart(dateStr){ return !canSchedule() && !!lrStartDate && dateStr < lrStartDate; }
+
 function isDateLocked(dateStr){
   if(isNotYetOpen(dateStr)) return true; // 還沒開放
+  if(isBeforeStart(dateStr)) return true;
   const weekStr = dateToWeekStr(dateStr);
   const deadline = getDeadlineForWeek(weekStr);
   const locked = new Date() > deadline;
@@ -527,6 +531,8 @@ window.onload = async () => {
     await loadRequests();
 
     await lrCheckMissClock();
+    const meDoc = await window.db.collection('stores').doc(currentStore).collection('employees').doc(currentUser.empName || '-').get().catch(()=>null);
+    lrStartDate = (meDoc && meDoc.exists && meDoc.data().startDate) || '';
 
     document.getElementById('appShell').classList.add('active');
     renderTab();
@@ -538,7 +544,7 @@ window.onload = async () => {
 // ===== 缺卡未補：滿 5 天提醒、滿 7 天擋劃休（使用者 2026-11-01，全假別；只算當月、已送出補登不算）=====
 // 店長以上要用這頁審核，不擋整頁，只擋自己送出（代劃休不擋）。讀不到資料就不擋：不能因為網路問題讓人不能劃休。
 const LR_MISS_WARN = 5, LR_MISS_BLOCK = 7;
-let lrMissDays = 0;
+let lrMissDays = 0, lrStartDate = '';
 async function lrCheckMissClock(){
   const me = currentUser.empName; if(!me) return;
   const stores = (appConfig.stores||[]).filter(s=>s!=='人力支援');
@@ -895,6 +901,7 @@ function openApplyModal(dateStr){
   // 不能申請的日子 → 唯讀：只看當天劃休名單
   const roReason = isPast ? '這天已經過了'
     : (blockedDates.includes(dateStr) && !canSchedule()) ? '🚫 這天設為全店禁休'
+    : isBeforeStart(dateStr) ? `到職日 ${fmtDate(lrStartDate)} 以前不能劃休`
     : isNotYetOpen(dateStr) ? `還沒開放（每週一 16:00 開放新的一週，目前開放到 ${fmtDate(lrNewestOpenSunday())}）`
     : isDateLocked(dateStr) ? '這週的劃休已截止'
     : '';
