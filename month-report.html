@@ -12,6 +12,8 @@
 <script src="utils.js"></script>
 <link rel="stylesheet" href="daily-sales-page.css">
 <style>
+.header{padding-top:calc(12px + env(safe-area-inset-top,0px));} /* viewport-fit=cover：標題列要避開 iPhone 瀏海 */
+.wrap{padding-bottom:calc(40px + env(safe-area-inset-bottom,0px));}
 .mr-bar{display:flex;gap:8px;align-items:center;margin-bottom:12px;}
 .mr-bar input{flex:0 0 auto;font:inherit;font-size:15px;font-weight:700;padding:8px 10px;border:1.5px solid var(--border);border-radius:10px;background:#fff;color:var(--text);}
 .mr-tabs{display:flex;flex:1;gap:6px;}
