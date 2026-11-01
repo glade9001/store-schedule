@@ -526,11 +526,54 @@ window.onload = async () => {
     // 讀取申請資料
     await loadRequests();
 
+    await lrCheckMissClock();
+
     document.getElementById('appShell').classList.add('active');
     renderTab();
     hideLoading();
+    lrShowMissNotice();
   }catch(e){ hideLoading(); alert('載入失敗：'+e.message); }
 };
+
+// ===== 缺卡未補：滿 5 天提醒、滿 7 天擋劃休（使用者 2026-11-01，全假別；只算當月、已送出補登不算）=====
+// 店長以上要用這頁審核，不擋整頁，只擋自己送出（代劃休不擋）。讀不到資料就不擋：不能因為網路問題讓人不能劃休。
+const LR_MISS_WARN = 5, LR_MISS_BLOCK = 7;
+let lrMissDays = 0;
+async function lrCheckMissClock(){
+  const me = currentUser.empName; if(!me) return;
+  const stores = (appConfig.stores||[]).filter(s=>s!=='人力支援');
+  const read = async () => {
+    const recs=[], reqs=[];
+    await Promise.all(stores.map(async st=>{
+      const ref=window.db.collection('stores').doc(st);
+      const [a,r]=await Promise.all([
+        ref.collection('attendance').where('empName','==',me).get(),
+        ref.collection('attendanceRequests').where('empName','==',me).get()
+      ]);
+      a.forEach(d=>recs.push(d.data())); r.forEach(d=>reqs.push(d.data()));
+    }));
+    return lvOpenMissDays(recs, reqs, today().slice(0,7)).length;
+  };
+  try{ lrMissDays = await Promise.race([read(), new Promise(r=>setTimeout(()=>r(0),6000))]); }
+  catch(e){ console.warn('[劃休缺卡檢查]', e); lrMissDays = 0; }
+}
+function lrMissBlocked(){ return lrMissDays >= LR_MISS_BLOCK; }
+function lrShowMissNotice(){
+  if(lrMissDays < LR_MISS_WARN) return;
+  const block = lrMissBlocked() && !canSchedule();
+  const el=document.createElement('div');
+  el.style.cssText='position:fixed;inset:0;z-index:9000;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:16px;';
+  el.innerHTML=`<div style="background:#fff;border-radius:16px;padding:20px;max-width:360px;width:100%;">
+    <div style="font-size:17px;font-weight:900;margin-bottom:8px;">🔴 本月有 ${lrMissDays} 天缺卡還沒補登</div>
+    <div style="font-size:14px;line-height:1.7;margin-bottom:16px;">${lrMissBlocked() ? '補登後才能劃休。送出補登就會解除，不用等店長審核。' : `滿 ${LR_MISS_BLOCK} 天就不能劃休，請先補登。`}</div>
+    <button type="button" onclick="location.href='my-attendance.html'" style="width:100%;min-height:44px;border:0;border-radius:10px;background:var(--primary,#1a73e8);color:#fff;font-size:15px;font-weight:800;cursor:pointer;">去補登</button>
+    <button type="button" id="lrMissLater" style="width:100%;min-height:44px;border:0;background:none;font-size:14px;font-weight:700;color:#64748b;cursor:pointer;margin-top:6px;">${block ? '回首頁' : '知道了'}</button>
+  </div>`;
+  document.body.appendChild(el);
+  document.getElementById('lrMissLater').onclick = () => { if(block) location.href='home.html'; else el.remove(); };
+}
+// 補完按返回會回到快取的舊畫面，要重讀才會解除
+window.addEventListener('pageshow', e => { if(e.persisted && lrMissDays >= LR_MISS_WARN) location.reload(); });
 
 // ===== 讀取餘額 =====
 async function loadBalance(){
@@ -1040,6 +1083,7 @@ async function submitApply(){
 
   const target = lrApplyTarget();
   const isProxy = target !== currentUser.empName;
+  if(!isProxy && lrMissBlocked()){ showToast(`⚠️ 本月有 ${lrMissDays} 天缺卡未補登，補登後才能劃休`); return; }
   // 每日強制擋(排休/補休) + 每週上限(排休)— 統一由 isApplyBlocked 判定（特休永不擋）
   // 店長代劃休：店長自己就是做決定的人，不受名額／每週上限／餘額檢查擋
   if(!isProxy && isApplyBlocked()){

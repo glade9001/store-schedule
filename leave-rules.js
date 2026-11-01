@@ -37,6 +37,22 @@ function lvIsPayPartTime(emp) {
   return !!emp && (!!emp.payAsPartTime || String(emp.role || '').indexOf('工讀') >= 0);
 }
 
+/**
+ * 當月還沒處理的缺卡天數（劃休提醒與擋的依據，使用者 2026-11-01）：只算 ym 這個月，隔月自然歸零；
+ * 該補的卡都已送出補登（待審或已核准）的那天不算。判斷法同 my-attendance 的待補清單。
+ */
+function lvOpenMissDays(recs, reqs, ym) {
+  var sent = {};
+  (reqs || []).forEach(function (q) { if (q.status !== 'rejected') sent[(q.shiftDate || q.targetDate) + '|' + q.punchType] = 1; });
+  var need = function (note) { note = String(note || ''); return note.indexOf('下班') >= 0 ? ['下班'] : note.indexOf('上班') >= 0 ? ['上班'] : ['上班', '下班']; };
+  var days = {};
+  (recs || []).forEach(function (r) {
+    if (r.voided || r.type !== '缺卡' || String(r.date || '').slice(0, 7) !== ym) return;
+    if (need(r.note).some(function (t) { return !sent[r.date + '|' + t]; })) days[r.date] = 1;
+  });
+  return Object.keys(days).sort();
+}
+
 /** 某天國定假日補休的淨額（發放 − 撤銷）；不能只看有沒有 comp_earn（撤銷是追加 comp_cancel，原本那筆還在） */
 function lvHolidayCompNet(records, date) {
   var net = 0;

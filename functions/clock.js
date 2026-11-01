@@ -729,6 +729,10 @@ exports.clockPunchOffline = onCall({ region: "asia-east1", secrets: [LINE_TOKEN,
 // 與舊版差異：①跨日班的下班時間落在今天也提醒（舊版只看當天排班）②下班時連上班卡都沒有，改提醒「上下班都還沒打」（舊版不發）。
 const CLOCK_REMIND_DEFAULT = { inBefore: 10, outRemind: true }; // 沒設定過＝上班前 10 分鐘＋下班時間都提醒（前端 clock-page.js 同值）
 const CLOCK_REMIND_WIN = 15 * 60000; // 視窗 15 分鐘＋clockRemindLog 去重：排程晚跑也不漏、不重複
+// 2026-11-01 使用者定案：上班時間、上班後 10 分鐘還沒打卡各提醒一次；下班時間到超過 30 分鐘，每 10 分鐘一次（30 分是最後一次）
+const CLOCK_IN_LATE_MIN = [0, 10];
+const CLOCK_OUT_LATE_MIN = [0, 10, 20, 30];
+const CLOCK_CHAIN_WIN = 10 * 60000;  // 跟間隔一樣長：同一次排程不會一口氣補發好幾則
 exports.scheduledClockRemindPush = onSchedule(
   { schedule: "*/5 * * * *", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [VAPID_PRIVATE] },
   async () => {
@@ -778,9 +782,13 @@ exports.scheduledClockRemindPush = onSchedule(
             const at = shiftTimeMs(dd.ds, sp.startH) - inBefore * 60000;
             if (now >= at && now < at + CLOCK_REMIND_WIN) due.push({ kind: "in", emp, shift: r.shift, shiftDay: dd.ds, homeStore, inBefore });
           }
-          if (pref.outRemind) {
-            const at = shiftTimeMs(dd.ds, sp.endH);
-            if (now >= at && now < at + CLOCK_REMIND_WIN) due.push({ kind: "out", emp, shift: r.shift, shiftDay: dd.ds, homeStore });
+          if (inBefore > 0) for (const late of CLOCK_IN_LATE_MIN) {
+            const at = shiftTimeMs(dd.ds, sp.startH) + late * 60000;
+            if (now >= at && now < at + CLOCK_CHAIN_WIN) due.push({ kind: "inLate", emp, shift: r.shift, shiftDay: dd.ds, homeStore, late });
+          }
+          if (pref.outRemind) for (const late of CLOCK_OUT_LATE_MIN) {
+            const at = shiftTimeMs(dd.ds, sp.endH) + late * 60000;
+            if (now >= at && now < at + CLOCK_CHAIN_WIN) due.push({ kind: "out", emp, shift: r.shift, shiftDay: dd.ds, homeStore, late });
           }
         }
       }
@@ -795,18 +803,22 @@ exports.scheduledClockRemindPush = onSchedule(
         const mine = pool.filter((p) => p.empName === x.emp && !p.voided && p.type !== "缺卡" && p.status !== "到場" && (p.shiftDate || p.date) === x.shiftDay);
         const hasIn = mine.some((p) => p.type === "上班");
         const hasOut = mine.some((p) => p.type === "下班");
-        if (x.kind === "in" && hasIn) continue;
+        if ((x.kind === "in" || x.kind === "inLate") && hasIn) continue;
         if (x.kind === "out" && hasOut) continue;
         const logRef = db.collection("stores").doc(store).collection("clockRemindLog")
-          .doc(("remind_" + x.shiftDay + "_" + x.emp + "_" + x.shift + "_" + x.kind).replace(/[^\w一-龥]/g, "_"));
+          .doc(("remind_" + x.shiftDay + "_" + x.emp + "_" + x.shift + "_" + x.kind + (x.late ? "_" + x.late : "")).replace(/[^\w一-龥]/g, "_"));
         const created = await logRef.create({ empName: x.emp, date: x.shiftDay, shift: x.shift, kind: x.kind, channel: "push", ts: FieldValue.serverTimestamp() })
           .then(() => true).catch(() => false);
         if (!created) continue; // 已提醒過（create 遇到既有文件會失敗＝原子去重）
+        const passed = x.late ? `已超過 ${x.late} 分鐘` : "到了";
+        const tail = x.late ? `-${x.late}` : "";
         const payload = x.kind === "in"
           ? { title: "⏰ 上班打卡提醒", body: `${store} ${x.shift} 的班 ${x.inBefore} 分鐘後開始，記得到店打卡`, url: "clock.html", tag: `clock-in-${x.shiftDay}` }
-          : (hasIn
-            ? { title: "⏰ 下班打卡提醒", body: `${store} ${x.shift} 的班到下班時間了，記得打下班卡`, url: "clock.html", tag: `clock-out-${x.shiftDay}` }
-            : { title: "⏰ 今天還沒打卡", body: `${store} ${x.shift} 的班到下班時間了，上下班卡都還沒有紀錄，請打卡或補登`, url: "clock.html", tag: `clock-out-${x.shiftDay}` });
+          : x.kind === "inLate"
+            ? { title: "⏰ 還沒打上班卡", body: `${store} ${x.shift} 的班上班時間${passed}，記得打卡`, url: "clock.html", tag: `clock-in-late-${x.shiftDay}${tail}` }
+            : (hasIn
+              ? { title: "⏰ 下班打卡提醒", body: `${store} ${x.shift} 的班下班時間${passed}，記得打下班卡`, url: "clock.html", tag: `clock-out-${x.shiftDay}${tail}` }
+              : { title: "⏰ 今天還沒打卡", body: `${store} ${x.shift} 的班下班時間${passed}，上下班卡都還沒有紀錄，請打卡或補登`, url: "clock.html", tag: `clock-out-${x.shiftDay}${tail}` });
         await sendPushToUids(db, [pushUidOf(idx, x.emp, x.homeStore)], payload, vapid).catch((e) => console.warn("[clockRemind]", e.message));
       }
     }
