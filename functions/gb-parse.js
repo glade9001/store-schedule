@@ -53,4 +53,32 @@ function parsePlus(text) {
   if (qty == null || qty < 1 || qty > 99) return null;
   return { qty, opt: null, items: [{ opt: null, qty }], otherStore: om0 ? om0[1] : null };
 }
-module.exports = { parsePlus };
+// ---- 轉發的總部圖文 → 對應到哪一檔團購（2026-11-06 使用者：先建團購、再轉發總部圖文，客人回覆那則 +1 機器人對不到）----
+// 開團時「自動填表」貼的就是總部原文（campaign.description），轉發到群組的是同一段字 → 比對文字相似度。
+// 只留中英數字比（表情、標點、空白、換行在轉貼／自動填表時常被改掉）；兩段取「共同的兩字組 ÷ 較短那段」，
+// 所以只轉發一部分也對得到。太短（< POST_MIN_LEN 字）不比，避免聊天短句誤判。
+// Codex 2026-11-06：只拿一小段就命中太寬 → 至少 POST_MIN_LEN 字，且要有說明全文的 POST_COVER 以上長度
+const POST_MIN_LEN = 25, POST_MATCH = 0.6, POST_MARGIN = 0.1, POST_COVER = 0.4;
+function postNorm(s) { return String(s || "").normalize("NFKC").toLowerCase().replace(/[^0-9a-z\u3400-\u9fff]/g, ""); }
+function bigrams(s) { const b = new Set(); for (let i = 0; i < s.length - 1; i++) b.add(s.slice(i, i + 2)); return b; }
+/**
+ * @param {string} text 群組文字訊息
+ * @param {{key:string, desc:string}[]} list 候選（同一組規格／同系列要給同一個 key）
+ * @returns {string|null} 對到的 key；最像的兩檔太接近（POST_MARGIN 內）就不猜
+ */
+function postLongEnough(text) { return postNorm(text).length >= POST_MIN_LEN; }
+function matchPost(text, list) {
+  const a = postNorm(text); if (a.length < POST_MIN_LEN) return null;
+  const A = bigrams(a), best = {};
+  (list || []).forEach((x) => {
+    const b = postNorm(x.desc); if (b.length < POST_MIN_LEN || a.length < b.length * POST_COVER) return;
+    const B = bigrams(b); let n = 0; A.forEach((g) => { if (B.has(g)) n++; });
+    const sc = n / Math.min(A.size, B.size);
+    if (!(best[x.key] >= sc)) best[x.key] = sc;
+  });
+  const r = Object.entries(best).sort((x, y) => y[1] - x[1]);
+  if (!r.length || r[0][1] < POST_MATCH) return null;
+  if (r[1] && r[0][1] - r[1][1] < POST_MARGIN) return null;
+  return r[0][0];
+}
+module.exports = { parsePlus, matchPost, postLongEnough };

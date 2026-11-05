@@ -316,12 +316,16 @@ function ordersHtml(c) {
 function orderRow(c, o) {
   var off = o.status === 'cancelled';
   var can = o.status === 'active' && canChangeOrders(c);
-  return '<div class="orow' + (off ? ' off' : '') + '">' +
-    '<span class="nm">' + gbEsc(o.display_name) + '</span>' + gbNoShowTag(o) + '<span class="q">×' + (o.qty || 0) + '</span>' +
+  // 排版（2026-11-06 使用者：手機上按鈕亂跳行）：左邊第一行「名字 ×份數 狀態」、第二行「電話・來源・時間」，按鈕固定在右邊
+  // created_by_name 跟來源一樣（LINE 下單／群組 +1）就不重複寫
+  var src = GB_SOURCE[o.source] || o.source || '';
+  var bits = [gbPhoneHtml(o), src, o.created_by_name && o.created_by_name !== src ? gbEsc(o.created_by_name) : '', gbFmt(o.created_at), o.note ? gbEsc(o.note) : ''].filter(Boolean);
+  return '<div class="orow ord' + (off ? ' off' : '') + (can ? '' : ' nobtn') + '">' +
+    '<div class="oh"><span class="nm">' + gbEsc(o.display_name) + '</span>' + gbNoShowTag(o) + '<span class="q">×' + (o.qty || 0) + '</span>' +
     '<span class="st st-' + (o.status === 'active' ? 'open' : o.status === 'picked_up' ? 'success' : o.status === 'no_show' ? 'failed' : 'draft') + '">' + (GB_ORDER_STATUS[o.status] || o.status) + '</span>' +
-    (o.paid ? '<span class="st st-success">已付款</span>' : '') +
-    '<span class="sub">' + (gbPhoneHtml(o) ? gbPhoneHtml(o) + '・' : '') + (GB_SOURCE[o.source] || o.source || '') + (o.created_by_name ? '・' + gbEsc(o.created_by_name) : '') + '・' + gbFmt(o.created_at) + (o.note ? '・' + gbEsc(o.note) : '') + '</span>' +
-    (can ? '<button class="mini" onclick="openQtyForm(\'' + c.id + '\',\'' + o.id + '\')">改數量</button><button class="mini d" onclick="cancelOrder(\'' + c.id + '\',\'' + o.id + '\')">取消</button>' : '') +
+    (o.paid ? '<span class="st st-success">已付款</span>' : '') + '</div>' +
+    (can ? '<div class="ob"><button class="mini" onclick="openQtyForm(\'' + c.id + '\',\'' + o.id + '\')">改數量</button><button class="mini d" onclick="cancelOrder(\'' + c.id + '\',\'' + o.id + '\')">取消</button></div>' : '') +
+    '<div class="sub">' + bits.join('・') + '</div>' +
   '</div>';
 }
 

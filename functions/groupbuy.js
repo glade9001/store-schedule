@@ -286,7 +286,43 @@ const crypto = require("crypto");
 const { onRequest } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { defineSecret } = require("firebase-functions/params");
-const { parsePlus } = require("./gb-parse");
+const { parsePlus, matchPost, postLongEnough } = require("./gb-parse");
+
+// ---- 貼文對應：圖文一起轉發（2026-11-06）----
+// 總部圖文轉到群組通常是「圖片＋文字」兩則，客人常引用圖片回 +1。同一個人 POST_MEDIA_MS 內貼的圖片／影片，
+// 跟最近的那則已對應貼文（含連結的文案、或比對到總部原文的轉發）算同一篇；圖片在文字前後都可以，取時間最近的。
+// gb_post_media/{groupId}：只放訊息 ID、userId 雜湊、時間，最多 12 筆、3 分鐘內有效；不存圖片內容。
+const POST_MEDIA_MS = 3 * 60000;
+const mediaRef = (db, gid) => db.collection("gb_post_media").doc(gid);
+// 圖文一起轉發時兩則的 webhook 幾乎同時到 → 一律用 transaction（Codex 2026-11-06：讀改寫會互蓋）；
+// 時間用 LINE 事件的 timestamp（不是函式收到的時間），重送、亂序也算得對
+async function mapMedia(tx, db, msgId, cid, store, dist, cur) {
+  if (cur && !(cur.via === "media" && cur.media_dist > dist)) return;   // 已有更近的對應，或本來就是文案本身
+  tx.set(db.collection("gb_post_map").doc(msgId), { campaign_id: cid, store, posted_at: FieldValue.serverTimestamp(), via: "media", media_dist: dist });
+}
+async function notePostMedia(db, src, msgId, store, ts) {
+  if (!src.userId) return;
+  const u = recentKey(src.userId), ref = mediaRef(db, src.groupId), mref = db.collection("gb_post_map").doc(msgId);
+  await db.runTransaction(async (tx) => {
+    const [ds, ms] = await Promise.all([tx.get(ref), tx.get(mref)]);
+    const d = ds.exists ? ds.data() : {}, lp = d.last_post;
+    if (lp && lp.u === u && Math.abs(ts - lp.t) < POST_MEDIA_MS) await mapMedia(tx, db, msgId, lp.cid, store, Math.abs(ts - lp.t), ms.exists ? ms.data() : null);
+    const items = (d.items || []).filter((x) => Math.abs(ts - x.t) < POST_MEDIA_MS).concat([{ id: msgId, u, t: ts }]).slice(-12);
+    tx.set(ref, { items, t: ts }, { merge: true });
+  });
+}
+async function linkPostMedia(db, src, cid, store, ts) {
+  if (!src.userId) return;
+  const u = recentKey(src.userId), ref = mediaRef(db, src.groupId);
+  await db.runTransaction(async (tx) => {
+    const ds = await tx.get(ref), d = ds.exists ? ds.data() : {};
+    const mine = (d.items || []).filter((y) => y.u === u && Math.abs(ts - y.t) < POST_MEDIA_MS);
+    const cur = await Promise.all(mine.map((x) => tx.get(db.collection("gb_post_map").doc(x.id))));
+    for (let i = 0; i < mine.length; i++) await mapMedia(tx, db, mine[i].id, cid, store, Math.abs(ts - mine[i].t), cur[i].exists ? cur[i].data() : null);
+    const lp = d.last_post;
+    if (!lp || ts >= lp.t) tx.set(ref, { last_post: { u, cid, t: ts }, t: ts }, { merge: true });
+  });
+}
 const GB_SECRET = defineSecret("LINE_GB_CHANNEL_SECRET");
 const GB_TOKEN = defineSecret("LINE_GB_ACCESS_TOKEN");
 const NAME_CODE = { "美德": "meide", "聯鑫": "lianxin", "錦花": "jinhua" };
@@ -400,6 +436,11 @@ async function handleEvent(ev) {
     return;
   }
   if (ev.type === "leave") { await gRef.set({ status: "left", left_at: FieldValue.serverTimestamp() }, { merge: true }); return; }
+  if (ev.type === "message" && ev.message && (ev.message.type === "image" || ev.message.type === "video")) {
+    const g0 = (await gRef.get()).data();
+    if (g0 && (g0.status === "approved" || g0.status === "pending")) await notePostMedia(db, src, ev.message.id, g0.store || "", Number(ev.timestamp) || Date.now());
+    return;
+  }
   if (ev.type !== "message" || !ev.message || ev.message.type !== "text") return;
   const gs = await gRef.get();
   const g = gs.exists ? gs.data() : null;
@@ -414,6 +455,7 @@ async function handleEvent(ev) {
     let cid = lm[1];
     if (cid.length <= 6) { const q = await db.collection("gb_campaigns").where("short", "==", cid).limit(1).get(); if (!q.empty) cid = q.docs[0].id; }
     await db.collection("gb_post_map").doc(msgId).set({ campaign_id: cid, store, posted_at: FieldValue.serverTimestamp() });
+    await linkPostMedia(db, src, cid, store, Number(ev.timestamp) || Date.now());
     return;
   }
   if (!g || g.status !== "approved" || g.mode !== "store_listen" || !STORES[g.store]) return;   // 白名單外一律丟棄
@@ -423,7 +465,20 @@ async function handleEvent(ev) {
   // 代發文字本身已經帶成團倒數／已訂份數（2026-10-11），機器人不用再回
   if (/^✅\s*已登記/.test(text)) return;
   const p = parsePlus(text);
-  if (!p) return;                                              // 不是 +1：不存檔、不回應
+  if (!p) {                                                    // 不是 +1：不存檔、不回應
+    // 轉發的總部原文（2026-11-06）：跟開放中團購的說明比對，對到就記成那檔的貼文（只記訊息 ID→團購，不存文字）
+    if (!postLongEnough(text)) return;                       // 短句（聊天）不查資料庫
+    const sn0 = await db.collection("gb_campaigns").where("status", "==", "open").get();
+    const cand = sn0.docs.filter((d) => isOpen(d.data()) && (d.data().is_test === true) === (g.is_test === true) && (d.data().available_stores || []).includes(store));
+    const keyOf = (d) => d.data().opt_group || d.data().series_id || d.id;
+    const hit = matchPost(text, cand.map((d) => ({ key: keyOf(d), desc: d.data().description || "" })));
+    if (hit) {
+      const cid = cand.filter((d) => keyOf(d) === hit).sort((a, b) => (a.data().round || 1) - (b.data().round || 1))[0].id;
+      await db.collection("gb_post_map").doc(msgId).set({ campaign_id: cid, store, posted_at: FieldValue.serverTimestamp(), via: "desc" });
+      await linkPostMedia(db, src, cid, store, Number(ev.timestamp) || Date.now());
+    }
+    return;
+  }
   const userId = src.userId || "";
   let prof = {};
   if (userId) { try { prof = await lineApi(`/v2/bot/group/${src.groupId}/member/${userId}`); } catch (e) {} }
@@ -653,8 +708,10 @@ async function purgeOldGb(db, { dry }) {
   const old = Timestamp.fromMillis(cutoff);
   const ps = (await db.collection("gb_pending_plus").where("received_at", "<", old).get()).docs;
   const ms = (await db.collection("gb_post_map").where("posted_at", "<", old).get()).docs;
-  rep.pending += ps.length; rep.postMap += ms.length;
-  if (!dry) await deleteDocs(db, [...ps, ...ms]);
+  // gb_post_media（圖文轉發的暫存：訊息 ID＋userId 雜湊＋時間）只需要 3 分鐘，超過 1 天整份刪掉
+  const md = (await db.collection("gb_post_media").get()).docs.filter((d) => !(Date.now() - (Number(d.data().t) || 0) < 86400000));
+  rep.pending += ps.length; rep.postMap += ms.length; rep.postMedia = md.length;
+  if (!dry) await deleteDocs(db, [...ps, ...ms, ...md]);
   return rep;
 }
 // 每天 04:30 由 index.js 的 scheduledDailyCleanup 呼叫（2026-10-15 併排程省費用）。

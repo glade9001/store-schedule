@@ -404,6 +404,20 @@ async function lfShareLow(key) {
     else if (!r) gbToast('已取消分享');
   } catch (e) { gbToast('分享失敗：' + lfErr(e)); }
 }
+// ===== 單品分享（2026-11-06 使用者）：詳細頁一鍵分享這一檔，大圖卡片＋各規格「＋1」按鈕（同 lfFlexBubble）=====
+// 快賣完時改出現上面的紅色「只剩 N 份」分享，不會兩個按鈕一起出現。
+async function lfShareOne(key) {
+  var it = lfItems[key]; if (!it) return;
+  if (lfNeedLine({ c: it.c.short || it.c.id })) return;
+  if (!liff.isApiAvailable('shareTargetPicker')) { gbToast('請在 LINE 裡打開這個頁面才能分享（或 LIFF 尚未開啟分享功能）'); return; }
+  try {
+    var b = lfFlexBubble(it); b.size = 'mega';
+    var msg = { type: 'flex', altText: ('🛒 團購：' + (it.c.base_title || it.c.title || '')).slice(0, 300), contents: b };
+    var r = await liff.shareTargetPicker([msg], { isMultiple: true });
+    if (r && r.status === 'success') gbToast('✅ 已分享');
+    else if (!r) gbToast('已取消分享');
+  } catch (e) { gbToast('分享失敗：' + lfErr(e)); }
+}
 // 列表小字（2026-10-11 使用者：增加 +1 慾望）：成團進度／已訂份數＋快截單、快賣完
 // 格子上的截單日（2026-10-10 使用者）：同組取最早截單；今天截單才加時間
 function lfTileEnd(ms) {
@@ -433,7 +447,8 @@ function lfShowDetail(key, refresh) {
   var box = document.getElementById('lfDetail');
   var low = lfLowLeft(it);
   document.getElementById('lfDetailBody').innerHTML = (lfItemInStore(it) ? '<div class="lf-instore">🏪 ' + gbEsc(gbStoreName(lfStore)) + '門市有現貨，+1 後即可到門市取貨付款</div>' : '') + it.html() + lfRecentHtml(it) +
-    (low ? '<button class="lf-share lf-share-low" onclick="lfShareLow(\'' + it.key + '\')">🔥 ' + (lfLowRound(it) ? '這一團' : '') + '只剩 ' + low + ' 份！分享到其他門市群組</button>' : '');
+    (low ? '<button class="lf-share lf-share-low" onclick="lfShareLow(\'' + it.key + '\')">🔥 ' + (lfLowRound(it) ? '這一團' : '') + '只剩 ' + low + ' 份！分享到其他門市群組</button>'
+      : !it.sold ? '<button class="lf-share" onclick="lfShareOne(\'' + it.key + '\')">📤 分享這個商品到 LINE</button>' : '');
   if (!refresh) {
     lfDetailKey = key; box.hidden = false; box.scrollTop = 0;
     try { history.pushState({ lfDetail: 1 }, ''); } catch (e) {}   // 手機返回鍵＝回列表
