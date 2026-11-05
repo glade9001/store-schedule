@@ -355,7 +355,7 @@ async function dsRenderAna(store, ym) {
     ${kpi('日均來客', Cn ? dsMoney(C / Cn) + ' 人' : '—', Cn ? `客單價 ${dsMoney(sCust / C)} 元` : '')}
     ${kpi('每工時營業額', H ? dsMoney(SH / H) + ' 元' : '—', H ? `班表 ${dsMoney(H)} 小時` : '班表沒有對應的班')}
   </div><div class="note">營業額＝111 本日實際銷貨收入（含稅、含代銷隨取）。工時用班表排定時數，晚班、大夜算到隔天的營業日。</div></div>`
-    + dsAnaProgress(cur, lb, ym, W, ctx) + dsAnaWeekday([p2, p1, cur]) + dsAnaTrend(cur, p1, ym, W, ctx) + dsAnaChange(cur, p1, ym, ctx);
+    + dsAnaProgress(cur, lb, ym, W, ctx) + (dsRole === 'lead' ? dsAnaReward(cur, lb, ym, store) : '') + dsAnaWeekday([p2, p1, cur]) + dsAnaTrend(cur, p1, ym, W, ctx) + dsAnaChange(cur, p1, ym, ctx);
 }
 
 // ── ① 業績進度 ──
@@ -415,6 +415,45 @@ function dsAnaProgress(cur, lb, ym, W, ctx) {
     ${dsLegend([['#1a73e8', '累計超前（線在 0 以上）／落後（0 以下）'], ['#94a3b8', '剛好達標', 'dash']])}
     ${dsLineChart({ W, n, xl: i => String(i + 1), tips, dots: true, refs: [{ v: 0 }], series: [{ vals: gapV, color: '#1a73e8' }] })}
     <div class="note">達標＝每天 ${dsWan(tgt)}，跟排班頁「工時上限」同一個算法（依過去損益與這個月的排班推算），僅供參考。</div></details></div>`;
+}
+
+// ── 本月經營報酬預估（2026-11-06 使用者定案：只給店長以上、只露經營報酬，看不到人事與加盟主留下）──
+// 營業淨額＝lbPlan 的本月推估（每日營業滿 LB_LIVE_MIN_DAYS 天，跟工時上限同一個數字）；
+// 經營報酬（沒盤點）＝a＋b×營業淨額−去年同月電費（同 tools/report/forecast.js「現行」）。
+// 範圍＝營業額誤差×b 與回歸殘差（RMSE）合成，約 2/3 的月份會落在裡面。
+// 勾「這個月有盤點」→ 再扣近 4 次盤點的平均盤損（盤點 60～90 天一次，月中看不到實際盤損）。
+const DS_INV_RECENT = 4;
+const dsInvKey = (s, ym) => 'dsInv:' + s + '|' + ym;
+function dsInvOn(s, ym) { try { return localStorage.getItem(dsInvKey(s, ym)) === '1'; } catch (e) { return false; } }
+function dsSetInv(s, ym, on) { try { localStorage.setItem(dsInvKey(s, ym), on ? '1' : '0'); } catch (e) {} dsRenderTab(); }
+function dsAnaReward(cur, lb, ym, store) {
+  const title = `<div class="card-title">💰 ${+ym.slice(5)}月經營報酬預估</div>`;
+  const m = lb && lb.model;
+  if (!m || m.err || typeof lbEvaluate !== 'function') return `<div class="card">${title}<div class="empty">損益資料不足，算不出預估</div></div>`;
+  const act = m.pnl[ym];
+  if (act && act.operatingReward != null && act.operatingReward !== '') {
+    return `<div class="card"><div class="card-title">💰 ${+ym.slice(5)}月經營報酬</div><div class="say">損益表已輸入：經營報酬 <b>${dsWan(+act.operatingReward)}</b>。</div></div>`;
+  }
+  const p = lbEvaluate(lb, cur.recs || [], ym).plan;
+  if (!p || !p.live) {
+    const k = dsSalesDays(cur).length;
+    return `<div class="card">${title}<div class="empty">每日營業輸入滿 ${LB_LIVE_MIN_DAYS} 天後顯示（目前 ${k} 天）</div></div>`;
+  }
+  const est = m.a + m.b * p.sales - p.elec;
+  const resid = m.months.map(x => +m.pnl[x].operatingReward - (+m.pnl[x].invResult || 0) + (+m.pnl[x].elecCost || 0) - m.a - m.b * +m.pnl[x].netSales);
+  const rmse = Math.sqrt(resid.reduce((t, r) => t + r * r, 0) / resid.length);
+  const err = p.live.share != null ? LB_SALES_ERR_BLEND : LB_SALES_ERR_LIVE;
+  const band = Math.sqrt(Math.pow(m.b * p.sales * err, 2) + rmse * rmse);
+  const invs = m.months.filter(x => m.pnl[x].invResult != null && m.pnl[x].invResult !== '').slice(-DS_INV_RECENT).map(x => +m.pnl[x].invResult);
+  const invAvg = invs.length ? invs.reduce((a, b) => a + b, 0) / invs.length : null;
+  const on = invAvg != null && dsInvOn(store, ym), v = est + (on ? invAvg : 0);
+  const ly = m.pnl[lbAddMonth(ym, -12)];
+  const sid = dsEsc(store).replace(/'/g, '');
+  return `<div class="card">${title}
+    <div class="big">約 ${dsWan(v)}</div>
+    <div class="say">可能範圍 ${dsWan(v - band)}～${dsWan(v + band)}${ly && ly.operatingReward != null ? `｜去年同月 ${dsWan(+ly.operatingReward)}` : ''}</div>
+    ${invAvg != null ? `<label class="say" style="display:flex;align-items:center;gap:6px;"><input type="checkbox" style="width:auto;"${on ? ' checked' : ''} onchange="dsSetInv('${sid}','${ym}',this.checked)">這個月有盤點（扣平均盤損 ${dsWan(Math.abs(invAvg))}）</label>` : ''}
+    <div class="note">用到 ${dsMd(p.live.last)} 的每日營業推估整月營業淨額約 ${dsWan(p.sales)}，再依過去損益換算。毛利率和盤損月中看不到，僅供參考；損益表輸入後改顯示實際數字。</div></div>`;
 }
 
 // ── ② 星期幾 × 人力（近 3 個月）──
