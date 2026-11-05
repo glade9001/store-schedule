@@ -381,6 +381,19 @@ function renderOverview(m,only){
     if(pnY&&pfY){ surY+=n(pnY.operatingReward)-n(pfY.laborCost); }
   });
   const rate=rateDen>0?(rateNum/rateDen*100):null;
+  // 門市餘裕 vs 目標利潤率（2026-11-06 使用者定案）：目標＝經營報酬 × 工時上限區的目標利潤率（config/laborBudget.ownerPct，跟 lbPlan 同口徑）。
+  // 百分比的分母是「經營報酬」，跟計分卡「餘裕率」（÷營收）不同，所以字面一定寫「佔經營報酬」。
+  // 目標比例用目前設定（沒有歷史紀錄），改了設定過去月份的比較會跟著變；lbDash 還沒載入就先不顯示。
+  let tgt=null, rewL=0;
+  if(lbDash&&only.every(s=>lbDash[s])){
+    only.forEach(s=>{ const pn=pnlOf(s,m), pf=perfOf(s,m); if(pn&&pf){ tgt=(tgt||0)+n(pn.operatingReward)*(lbDash[s].loaded.ownerPct||0); rewL+=n(pn.operatingReward); } });
+  }
+  let surVsTgt='';
+  if(tgt!=null&&rewL>0){
+    const share=sur/rewL*100, tp=tgt/rewL*100, d=sur-tgt;
+    const tpTxt=Math.round(tp*10)/10+'%';
+    surVsTgt=`<div class="kpi-yoy" style="color:${d>=0?'#137333':'#c5221f'};">佔經營報酬 ${share.toFixed(1)}%｜目標 ${tp>0?tpTxt:'打平'}，${d>=0?'多':'少'} ${wan(Math.abs(d))}</div>`;
+  }
   // 上月（門市餘裕、人事費率沒有去年同期的人事資料，改跟上月比）
   const pm=prevYm(m); let surP=null, rateNP=0, rateDP=0;
   only.forEach(s=>{ const pn=pnlOf(s,pm), pf=perfOf(s,pm); if(pn&&pf){ surP=(surP||0)+n(pn.operatingReward)-n(pf.laborCost); rateNP+=n(pf.laborCost); rateDP+=n(pn.netSales); } });
@@ -397,7 +410,7 @@ function renderOverview(m,only){
   <div class="kpi-grid" style="margin-bottom:10px;">
     <div class="kpi"><div class="kpi-label">${P}營業淨額</div><div class="kpi-val">${wan(net)}</div>${yoy(net,netY)}${spNet}</div>
     <div class="kpi"><div class="kpi-label">${P}經營報酬</div><div class="kpi-val">${wan(rew)}</div>${yoy(rew,rewY)}${spRew}</div>
-    <div class="kpi"><div class="kpi-label">${P}門市餘裕<span style="font-weight:600;color:var(--muted);">(含支援)</span></div><div class="kpi-val" style="color:${sur>=0?'#137333':'#c5221f'}">${wan(sur)}</div>${mom(sur,surP,wan,true)}${spSur}</div>
+    <div class="kpi"><div class="kpi-label">${P}門市餘裕<span style="font-weight:600;color:var(--muted);">(含支援)</span></div><div class="kpi-val" style="color:${sur>=0?'#137333':'#c5221f'}">${wan(sur)}</div>${surVsTgt}${mom(sur,surP,wan,true)}${spSur}</div>
     <div class="kpi"><div class="kpi-label">${one?'人事費率':'平均人事費率'}</div><div class="kpi-val">${rate!=null?rate.toFixed(1)+'%':'—'}</div>${mom(rate,rateP,v=>v.toFixed(1)+'%',false)}${spRate}</div>
   </div>`;
 }
