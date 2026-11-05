@@ -37,7 +37,7 @@ async function gbSetTab(t) {
   document.getElementById('newBtn').hidden = t !== 'camp' || !gbCanCreate;
   if (t === 'pick') await pkInit(gbUser);
   else if (t === 'set') await loadLiffSettings();
-  else if (!gbCampLoaded) { gbCampLoaded = true; await loadCampaigns(); loadPending(); }
+  else if (!gbCampLoaded) { gbCampLoaded = true; await loadCampaigns(); loadPending(); loadNight(); }
 }
 
 async function loadCampaigns() {
@@ -49,6 +49,73 @@ async function loadCampaigns() {
     return;
   }
   render();
+}
+
+// ===== 🌙 昨晚 +1 整理（2026-11-06 使用者）=====
+// 安靜時段（21:30～08:00）機器人不在群組回覆、下單頁也不代發「✅ 已登記」，客人不知道有沒有登記到。
+// 早上 08:00 後在團購頁整理好「昨晚登記的名單」，店員複製貼到門市群組（貼文是店員發的，不花推播額度）。
+// 範圍：剛結束的那段安靜時段裡建立、還有效的群組 +1／LINE 下單；暱稱遮成「頭○尾」（同下單頁「最近 +1」）。
+// 讀法：只查截單時間在安靜時段開始之後的團（開放中＋夜裡剛截單的），每檔用 campaign_id(＋store) 查，不用新索引。
+function gbMaskName(n) {
+  var a = Array.from(String(n || '').replace(/\s+/g, ''));
+  if (!a.length) return 'LINE 用戶';
+  return a.length <= 2 ? a[0] + '○' : a[0] + '○' + a[a.length - 1];
+}
+function gbNightWindow(now) {
+  now = now || Date.now();
+  if (gbQuietNow(now)) return null;                                  // 還在安靜時段：等 08:00 再整理
+  var tw = new Date(now + 8 * 3600000);                               // 台灣日期
+  var end = Date.UTC(tw.getUTCFullYear(), tw.getUTCMonth(), tw.getUTCDate(), 8, 0) - 8 * 3600000;
+  return { from: end - 10.5 * 3600000, to: end };                     // 前一天 21:30 ～ 今天 08:00
+}
+async function loadNight() {
+  var el = document.getElementById('nightBox'); if (!el) return;
+  var w = gbNightWindow(); if (!w) { el.innerHTML = ''; return; }
+  var camps = gbCamps.filter(function (c) {
+    var e = gbToDate(c.end_time);
+    return e && e.getTime() >= w.from && ['open', 'closed', 'success', 'arrived'].indexOf(c.status) >= 0 && !c.is_test &&
+      (gbIsOwner(gbUser) || (c.available_stores || []).indexOf(gbMyCode) >= 0);
+  });
+  var rows = [];
+  try {
+    await Promise.all(camps.map(async function (c) {
+      var q = window.db.collection('gb_orders').where('campaign_id', '==', c.id);
+      if (!gbIsOwner(gbUser)) q = q.where('store', '==', gbMyCode);
+      (await gbTimeout(q.get())).docs.forEach(function (d) {
+        var o = d.data(), t = gbToDate(o.created_at);
+        if (!t || t.getTime() < w.from || t.getTime() >= w.to) return;
+        if (o.status !== 'active' || (o.source !== 'group_text' && o.source !== 'liff')) return;
+        rows.push({ c: c, o: o, t: t.getTime() });
+      });
+    }));
+  } catch (e) { el.innerHTML = ''; return; }
+  if (!rows.length) { el.innerHTML = ''; return; }
+  var stores = [];
+  rows.forEach(function (r) { if (stores.indexOf(r.o.store) < 0) stores.push(r.o.store); });
+  gbNightTexts = {};
+  var blocks = stores.map(function (s) {
+    var by = {}, order = [];
+    rows.filter(function (r) { return r.o.store === s; }).sort(function (a, b) { return a.t - b.t; }).forEach(function (r) {
+      var k = r.c.base_title || r.c.title || '';
+      if (!by[k]) { by[k] = []; order.push(k); }
+      by[k].push(gbMaskName(r.o.display_name) + (r.c.opt_code ? ' ' + r.c.opt_code : '') + ' ×' + (r.o.qty || 0));
+    });
+    var txt = '🌙 昨晚 21:30 之後的 +1 都已經登記囉 👍\n' + order.map(function (k) { return '【' + k + '】' + by[k].join('、'); }).join('\n') +
+      '\n\n名單裡沒有你的話，請再 +1 一次或私訊門市 🙏';
+    gbNightTexts[s] = txt;
+    var n = rows.filter(function (r) { return r.o.store === s; }).length;
+    return '<div style="margin-top:8px;">' + (stores.length > 1 || gbIsOwner(gbUser) ? '<div class="og-title">' + gbStoreName(s) + '・' + n + ' 筆</div>' : '') +
+      '<pre style="white-space:pre-wrap;font-family:inherit;font-size:12.5px;background:#f8fafc;border-radius:8px;padding:8px 10px;margin:4px 0 6px;">' + gbEsc(txt) + '</pre>' +
+      '<button class="mini" onclick="copyNight(\'' + s + '\')">📋 複製，貼到' + gbStoreName(s) + '群組</button></div>';
+  }).join('');
+  el.innerHTML = '<div class="card" style="border:1.5px solid #a5b4fc;"><div style="font-size:15px;font-weight:900;">🌙 昨晚 +1 整理 <span class="st st-open">' + rows.length + '</span></div>' +
+    '<div style="font-size:12px;color:var(--muted);">機器人晚上不回覆，貼這段讓客人知道有登記到（名字中間已遮住）</div>' + blocks + '</div>';
+}
+var gbNightTexts = {};
+async function copyNight(s) {
+  var t = gbNightTexts[s]; if (!t) return;
+  try { await navigator.clipboard.writeText(t); gbToast('✅ 已複製，貼到門市群組就好'); }
+  catch (e) { gbToast('請長按上面的文字自行複製'); }
 }
 
 // ---- 權限 ----
