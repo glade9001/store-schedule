@@ -328,8 +328,8 @@ async function dsLoadRange(store, from, to) {
 
 async function dsRenderAna(store, ym) {
   const first = ym + '-01', lastDay = ym + '-' + dsPad(dsDaysIn(ym));
-  const [cur, p1, p2, lb, lyDays, hol] = await Promise.all([dsLoadMonth(store, ym), dsLoadMonth(store, dsAddMonth(ym, -1)), dsLoadMonth(store, dsAddMonth(ym, -2)), dsLb(store),
-    dsLoadRange(store, dsLyDate(first), dsLyDate(lastDay)), dsHolidays(ym)]);
+  const [cur, p1, p2, lb, lyDays, hol, cg] = await Promise.all([dsLoadMonth(store, ym), dsLoadMonth(store, dsAddMonth(ym, -1)), dsLoadMonth(store, dsAddMonth(ym, -2)), dsLb(store),
+    dsLoadRange(store, dsLyDate(first), dsLyDate(lastDay)), dsHolidays(ym), dsRole === 'lead' ? dsCg(store) : null]);
   // 大單日（labor-budget.js lbBigDays）：今年用上月＋本月當基準，去年用去年那段；大單有進損益表的店（聯鑫）不扣（lbBigOn）
   const bigOn = !(lb && lb.pds && lb.pds.bigOn === false);
   const bigCur = typeof lbBigDays === 'function' ? lbBigDays(Object.assign({}, p1.days, cur.days), bigOn).big : {};
@@ -355,7 +355,7 @@ async function dsRenderAna(store, ym) {
     ${kpi('日均來客', Cn ? dsMoney(C / Cn) + ' 人' : '—', Cn ? `客單價 ${dsMoney(sCust / C)} 元` : '')}
     ${kpi('每工時營業額', H ? dsMoney(SH / H) + ' 元' : '—', H ? `班表 ${dsMoney(H)} 小時` : '班表沒有對應的班')}
   </div><div class="note">營業額＝111 本日實際銷貨收入（含稅、含代銷隨取）。工時用班表排定時數，晚班、大夜算到隔天的營業日。</div></div>`
-    + dsAnaProgress(cur, lb, ym, W, ctx) + (dsRole === 'lead' ? dsAnaReward(cur, lb, ym, store) : '') + dsAnaWeekday([p2, p1, cur]) + dsAnaTrend(cur, p1, ym, W, ctx) + dsAnaChange(cur, p1, ym, ctx);
+    + dsAnaProgress(cur, lb, ym, W, ctx) + (dsRole === 'lead' ? dsAnaReward(cur, lb, ym, store) + dsAnaCat(cg, ym) : '') + dsAnaWeekday([p2, p1, cur]) + dsAnaTrend(cur, p1, ym, W, ctx) + dsAnaChange(cur, p1, ym, ctx);
 }
 
 // ── ① 業績進度 ──
@@ -454,6 +454,34 @@ function dsAnaReward(cur, lb, ym, store) {
     <div class="say">可能範圍 ${dsWan(v - band)}～${dsWan(v + band)}${ly && ly.operatingReward != null ? `｜去年同月 ${dsWan(+ly.operatingReward)}` : ''}</div>
     ${invAvg != null ? `<label class="say" style="display:flex;align-items:center;gap:6px;"><input type="checkbox" style="width:auto;"${on ? ' checked' : ''} onchange="dsSetInv('${sid}','${ym}',this.checked)">這個月有盤點（扣平均盤損 ${dsWan(Math.abs(invAvg))}）</label>` : ''}
     <div class="note">用到 ${dsMd(p.live.last)} 的每日營業推估整月營業淨額約 ${dsWan(p.sales)}，再依過去損益換算。毛利率和盤損月中看不到，僅供參考；損益表輸入後改顯示實際數字。</div></div>`;
+}
+
+// ── 類別毛利：這個月要顧的 3 個數字＋下個月季節提醒（2026-11-06 使用者選 E＋F；只給店長以上、只有拍照匯入過的門市才出現）──
+// 只顯示百分比（占營收、毛利率），不出現金額。資料與算法見 category-gp.js。
+let dsCgCache = {};
+function dsCg(store) {
+  if (typeof cgLoad !== 'function') return Promise.resolve(null);
+  if (!dsCgCache[store]) dsCgCache[store] = cgLoad(window.db, store);
+  return dsCgCache[store];
+}
+function dsAnaCat(cg, ym) {
+  if (!cg || !cgLatest(cg)) return '';
+  const f = cgFocus(cg, ym), s = cgSeason(cg, ym);
+  let html = '';
+  if (f) {
+    const pct = v => v == null ? '—' : v.toFixed(1) + '%';
+    const rows = f.items.map(it => {
+      const d = it.prev == null ? '' : it.v > it.prev ? '▲' : it.v < it.prev ? '▼' : '';
+      return `<tr><td>${it.label}</td><td><b>${pct(it.v)}</b> <small>${d}</small></td><td>${pct(it.prev)}</td><td>${pct(it.ly)}</td></tr>`;
+    }).join('');
+    html += `<div class="card"><div class="card-title">📋 ${+ym.slice(5)}月要顧的 3 個數字</div>
+      <div style="overflow-x:auto"><table class="tbl"><thead><tr><th></th><th>${cgMon(f.latest)}</th><th>${cgMon(f.prevYm)}</th><th>去年 ${cgMon(f.lyYm)}</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="note">目標是接近「去年 ${cgMon(f.lyYm)}」：米飯、零食占比太低先看有沒有缺貨，關東煮毛利率太低先看報廢。資料：總部類別毛利表（每月初更新）。</div></div>`;
+  }
+  if (s && s.tips.length) {
+    html += `<div class="card"><div class="card-title">🗓️ 下個月季節提醒</div>${s.tips.map(t => `<div class="say">・${cgTipText(t, s.nextM)}</div>`).join('')}</div>`;
+  }
+  return html;
 }
 
 // ── ② 星期幾 × 人力（近 3 個月）──

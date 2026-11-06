@@ -83,6 +83,7 @@ async function loadAll(){
     try{const q=await window.db.collection('stores').doc(s).collection('perfSnapshot').get();q.forEach(d=>DATA[s].perf[d.id]=d.data());}catch(e){}
     try{const mo=await window.db.collection('stores').doc(s).collection('monthly').get();mo.forEach(d=>DATA[s].monthly[d.id]=d.data());}catch(e){}
     DATA[s].amort=window.PnlLoss?window.PnlLoss.build(DATA[s].pnl):{};
+    DATA[s].cg=typeof cgLoad==='function'?await cgLoad(window.db,s):{};   // 類別毛利（目前只有美德有）
   }
 }
 function allMonths(){const set=new Set();STORES.forEach(s=>Object.keys(DATA[s].pnl||{}).forEach(k=>{if(/^\d{4}-\d{2}$/.test(k))set.add(k);}));return[...set].sort();}
@@ -138,6 +139,10 @@ async function renderAll(m){
   let html=renderTodo(m,al,scope)+renderOverview(m,only);
   html+= scope ? renderStoreCharts(m,scope,c.extra) : renderGroupCharts(m);
   html+=renderLeaveEstimate(scope);
+  const ol=outlookRows(only);
+  if(ol.length) html+=fold('outlook','📅','接下來 3 個月',outlookSummary(ol),renderOutlook(ol));
+  const cgs=only.filter(s=>DATA[s]&&cgLatest(DATA[s].cg));
+  if(cgs.length) html+=fold('cg','🏷️','類別毛利',cgSummary(cgs),cgs.map(renderCatGp).join(''));
   html+=fold('lb','⏱️',`${lbDash?+lbDash._ym.slice(5)+'月':'本月'}工時上限`,lbSummary(only),renderLaborBudget(only));
   const dsRows=odDailyRows(only); // 沒有店輸入每日營業就整區不出現
   if(dsRows.length) html+=fold('ds','🧾',`${+lbDash._ym.slice(5)}月每日營業`,dsDashSummary(dsRows),renderDailyDash(dsRows));
@@ -228,6 +233,67 @@ function fold(id,ic,title,summary,body){
   return `<details class="fold" ${foldOpen(id)?'open':''} ontoggle="foldToggle('${id}',this)"><summary><span class="fold-t">${ic} ${title}</span><span class="fold-s">${summary||''}</span></summary><div class="fold-b">${body}</div></details>`;
 }
 
+// ===== 📅 接下來 3 個月（2026-11-06 使用者選 A＋B）=====
+// 預估經營報酬＝去年同月（不含盤損）×「近 3 個月比去年」的比例；預估留下＝預估經營報酬 − 近 3 個月平均人事。
+// 盤點月份事前不知道，一律當作沒盤點，畫面註明。去年同月沒有損益就不估（不補 0）。
+function obAdj(p){ return p&&p.operatingReward!=null&&p.operatingReward!=='' ? n(p.operatingReward)-n(p.invResult) : null; }
+function outlookRows(only){
+  const now=new Date(), cur=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  return only.map(s=>{
+    const ms=Object.keys(DATA[s].pnl||{}).filter(m=>/^\d{4}-\d{2}$/.test(m)&&obAdj(pnlOf(s,m))!=null).sort();
+    const last3=ms.slice(-3); if(last3.length<3) return null;
+    const ly=m=>pnlOf(s,ymMinus12(m));
+    if(!last3.every(m=>obAdj(ly(m))!=null&&n(ly(m).netSales)>0)) return null;
+    const sum=(arr,f)=>arr.reduce((t,m)=>t+f(m),0);
+    const rR=sum(last3,m=>obAdj(pnlOf(s,m)))/sum(last3,m=>obAdj(ly(m)));
+    const rS=sum(last3,m=>n(pnlOf(s,m).netSales))/sum(last3,m=>n(ly(m).netSales));
+    const pf=last3.map(m=>perfOf(s,m)).filter(x=>x&&n(x.laborCost)>0);
+    const labor=pf.length?pf.reduce((t,x)=>t+n(x.laborCost),0)/pf.length:null;
+    const pct=lbDash&&lbDash[s]?(lbDash[s].loaded.ownerPct||0):null;
+    const start=cur;   // 從這個月起 3 個月（三店同一組欄位；11 月初＝11、12、1 月）
+    const months=[0,1,2].map(k=>{ const fm=lbAddMonth(start,k), b=obAdj(ly(fm)); if(b==null) return {fm,est:null};
+      const est=b*rR; return {fm,est,keep:labor!=null?est-labor:null,tgt:pct!=null?est*pct:null,lyInv:n(ly(fm).invResult)}; });
+    return {s,last3,rR,rS,labor,months};
+  }).filter(Boolean);
+}
+function outlookSummary(rows){
+  let worst=null; rows.forEach(r=>r.months.forEach(x=>{ if(x.keep!=null&&(!worst||x.keep<worst.keep)) worst={s:r.s,...x}; }));
+  if(!worst) return '資料不足';
+  return worst.keep<0?`⚠️ ${worst.s} ${+worst.fm.slice(5)} 月可能虧 ${wan(-worst.keep)}`:'預估都有賺';
+}
+function renderOutlook(rows){
+  const sg=v=>(v>=1?'+':'−')+Math.abs(v*100-100).toFixed(1)+'%';
+  const head=rows[0].months.map(x=>`<th>${+x.fm.slice(5)} 月</th>`).join('');
+  const body=rows.map(r=>{
+    const cells=r.months.map(x=>{
+      if(x.est==null) return '<td>—</td>';
+      const k=x.keep, col=k==null?'':k<0?'#c5221f':(x.tgt!=null&&k<x.tgt?'#a15c00':'#137333');
+      return `<td style="white-space:nowrap;"><b style="color:${col}">${k==null?'—':(k<0?'虧 ':'')+wan(Math.abs(k))}</b><div style="font-size:10.5px;color:var(--muted);">報酬 ${wan(x.est)}</div></td>`;
+    }).join('');
+    const tone=(r.rS<1&&r.rR>=r.rS)?'：靠毛利撐住':'';
+    return `<tr><td style="text-align:left;"><b>${esc(r.s)}</b><div style="font-size:10.5px;color:var(--muted);white-space:normal;">近 3 月比去年：營業額 ${sg(r.rS*1)}、經營報酬 ${sg(r.rR*1)}${tone}</div></td>${cells}</tr>`;
+  }).join('');
+  const lab=rows.map(r=>`${r.s} ${r.labor!=null?wan(r.labor):'—'}`).join('、');
+  return `<div class="scroll"><table class="tbl"><thead><tr><th style="text-align:left;">門市</th>${head}</tr></thead><tbody>${body}</tbody></table></div>
+  <div style="font-size:11.5px;color:var(--muted);line-height:1.6;margin-top:6px;">粗字＝預估加盟主實際留下（經營報酬 − 人事）。經營報酬＝去年同月（不含盤損）×近 3 個月比去年的比例；人事用近 3 個月平均（${lab}）。<span style="color:#c5221f;">紅＝虧</span>、<span style="color:#a15c00;">橘＝低於目標利潤率</span>。沒算盤點：盤點那個月再少約 1～3 萬。</div>`;
+}
+
+// ===== 🏷️ 類別毛利（2026-11-06 使用者選 D）：總部類別毛利表，只有拍照匯入過的門市才出現 =====
+function cgSummary(stores){
+  return stores.map(s=>{ const L=cgLatest(DATA[s].cg), t=DATA[s].cg[L].total||{}; return `${s} ${+L.slice(5)}月 ${(+t.gp).toFixed(2)}%`; }).join('・');
+}
+function renderCatGp(s){
+  const data=DATA[s].cg, L=cgLatest(data), doc=data[L], t=doc.total||{};
+  const yo=v=>v==null?'':`<span style="color:${v>=0?'#137333':'#c5221f'};font-weight:800;">${v>=0?'+':'−'}${Math.abs(v).toFixed(2)}</span>`;
+  const mix=[cgAddMonth(L,-2),cgAddMonth(L,-1),L].filter(m=>data[m]).map(m=>`${+m.slice(5)}月 ${cgCafeMix(data[m]).toFixed(2)}`).join('、');
+  const top=cgTop(doc,3).map(r=>`<li>${esc(r.name)}：占營收 ${(+r.share).toFixed(1)}%、毛利率 ${(+r.gp).toFixed(1)}%、貢獻 <b>${(+r.contrib).toFixed(2)}</b></li>`).join('');
+  const al=cgAlerts(doc).map(r=>`<li>${esc(r.name)}：毛利率 ${(+r.gp).toFixed(1)}%（比去年 ${yo(+r.yoy_gp)}）</li>`).join('');
+  return `<div style="margin-bottom:10px;"><div class="og-title" style="font-weight:900;">${esc(s)}・${+L.slice(0,4)} 年 ${+L.slice(5)} 月</div>
+  <div style="font-size:13px;line-height:1.7;">合計毛利率 <b>${(+t.gp).toFixed(2)}%</b>（比去年 ${yo(+t.yoy_gp)}）・促銷折扣 ${(+(cgRow(doc,'96')||{}).share).toFixed(1)}%・壞品 ${(+(cgRow(doc,'97')||{}).share).toFixed(1)}%</div>
+  <div style="font-size:12.5px;margin-top:6px;font-weight:800;">賺錢前 3 類</div><ul style="margin:2px 0 0;padding-left:1.2em;font-size:12.5px;line-height:1.7;">${top}</ul>
+  ${al?`<div style="font-size:12.5px;margin-top:6px;font-weight:800;color:#c5221f;">毛利率比去年掉 5 個百分點以上</div><ul style="margin:2px 0 0;padding-left:1.2em;font-size:12.5px;line-height:1.7;">${al}</ul>`:''}
+  <div style="font-size:11.5px;color:var(--muted);line-height:1.6;margin-top:6px;">咖啡＋促銷折扣合計貢獻（咖啡優惠記帳位置不固定，要合起來看）：${mix}。合計毛利率已扣促銷折扣與壞品，跟損益表毛利率口徑不同。資料：總部類別進貨毛利分析表 II，每月拍照匯入。</div></div>`;
+}
 // ===== 單店成本體檢（每工時人事成本／加班佔比／合理帶／決策提示；讀 monthly 聚合，缺則 perfSnapshot）=====
 function renderHealthSection(fixed){
   if(!curHealthStore) curHealthStore=STORES[0]||'';
