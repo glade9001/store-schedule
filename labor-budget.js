@@ -105,6 +105,8 @@ function lbBuildModel(pnl, perf, opts) {
 }
 
 /** 某月的預估：營收、人事預算、時數上限（含 ±誤差範圍）、兩平營收 */
+/** 本月經營報酬預估（沒有盤點）＝a＋b×營業淨額−電費；每日營業頁卡片與儀表板「接下來 3 個月」的當月共用（2026-11-06） */
+function lbRewardEst(model, plan) { return model.a + model.b * plan.sales - plan.elec; }
 function lbPlan(model, ym, live) {
   if (!model || model.err) return null;
   var prev = model.months.filter(function (m) { return m < ym; }).slice(-3);

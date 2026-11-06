@@ -251,8 +251,12 @@ function outlookRows(only){
     const labor=pf.length?pf.reduce((t,x)=>t+n(x.laborCost),0)/pf.length:null;
     const pct=lbDash&&lbDash[s]?(lbDash[s].loaded.ownerPct||0):null;
     const start=cur;   // 從這個月起 3 個月（三店同一組欄位；11 月初＝11、12、1 月）
-    const months=[0,1,2].map(k=>{ const fm=lbAddMonth(start,k), b=obAdj(ly(fm)); if(b==null) return {fm,est:null};
-      const est=b*rR; return {fm,est,keep:labor!=null?est-labor:null,tgt:pct!=null?est*pct:null,lyInv:n(ly(fm).invResult)}; });
+    // 當月：每日營業滿 10 天後改用跟每日營業頁「本月經營報酬預估」同一個數字（2026-11-06 使用者：兩邊要一致、每天更新）
+    const lb=lbDash&&lbDash._ym===start&&lbDash[s], pl=lb&&lb.ev&&lb.ev.plan, md=lb&&lb.loaded.model;
+    const liveEst=pl&&pl.live&&md&&!md.err?lbRewardEst(md,pl):null;
+    const months=[0,1,2].map(k=>{ const fm=lbAddMonth(start,k), b=obAdj(ly(fm));
+      const live=k===0&&liveEst!=null; if(b==null&&!live) return {fm,est:null};
+      const est=live?liveEst:b*rR; return {fm,est,live:live?pl.live.days:0,keep:labor!=null?est-labor:null,tgt:pct!=null?est*pct:null}; });
     return {s,last3,rR,rS,labor,months};
   }).filter(Boolean);
 }
@@ -268,14 +272,14 @@ function renderOutlook(rows){
     const cells=r.months.map(x=>{
       if(x.est==null) return '<td>—</td>';
       const k=x.keep, col=k==null?'':k<0?'#c5221f':(x.tgt!=null&&k<x.tgt?'#a15c00':'#137333');
-      return `<td style="white-space:nowrap;"><b style="color:${col}">${k==null?'—':(k<0?'虧 ':'')+wan(Math.abs(k))}</b><div style="font-size:10.5px;color:var(--muted);">報酬 ${wan(x.est)}</div></td>`;
+      return `<td style="white-space:nowrap;"><b style="color:${col}">${k==null?'—':(k<0?'虧 ':'')+wan(Math.abs(k))}</b><div style="font-size:10.5px;color:var(--muted);">報酬 ${wan(x.est)}</div>${x.live?`<div style="font-size:10px;color:#1a73e8;">依本月 ${x.live} 天營業</div>`:''}</td>`;
     }).join('');
     const tone=(r.rS<1&&r.rR>=r.rS)?'：靠毛利撐住':'';
     return `<tr><td style="text-align:left;"><b>${esc(r.s)}</b><div style="font-size:10.5px;color:var(--muted);white-space:normal;">近 3 月比去年：營業額 ${sg(r.rS*1)}、經營報酬 ${sg(r.rR*1)}${tone}</div></td>${cells}</tr>`;
   }).join('');
   const lab=rows.map(r=>`${r.s} ${r.labor!=null?wan(r.labor):'—'}`).join('、');
   return `<div class="scroll"><table class="tbl"><thead><tr><th style="text-align:left;">門市</th>${head}</tr></thead><tbody>${body}</tbody></table></div>
-  <div style="font-size:11.5px;color:var(--muted);line-height:1.6;margin-top:6px;">粗字＝預估加盟主實際留下（經營報酬 − 人事）。經營報酬＝去年同月（不含盤損）×近 3 個月比去年的比例；人事用近 3 個月平均（${lab}）。<span style="color:#c5221f;">紅＝虧</span>、<span style="color:#a15c00;">橘＝低於目標利潤率</span>。沒算盤點：盤點那個月再少約 1～3 萬。</div>`;
+  <div style="font-size:11.5px;color:var(--muted);line-height:1.6;margin-top:6px;">粗字＝預估加盟主實際留下（經營報酬 − 人事）。經營報酬＝去年同月（不含盤損）×近 3 個月比去年的比例（當月每日營業滿 10 天後，改用每日營業推估，跟每日營業頁同一個數字）；人事用近 3 個月平均（${lab}）。<span style="color:#c5221f;">紅＝虧</span>、<span style="color:#a15c00;">橘＝低於目標利潤率</span>。沒算盤點：盤點那個月再少約 1～3 萬。</div>`;
 }
 
 // ===== 🏷️ 類別毛利（2026-11-06 使用者選 D）：總部類別毛利表，只有拍照匯入過的門市才出現 =====

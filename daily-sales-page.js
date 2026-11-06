@@ -439,7 +439,7 @@ function dsAnaReward(cur, lb, ym, store) {
     const k = dsSalesDays(cur).length;
     return `<div class="card">${title}<div class="empty">每日營業輸入滿 ${LB_LIVE_MIN_DAYS} 天後顯示（目前 ${k} 天）</div></div>`;
   }
-  const est = m.a + m.b * p.sales - p.elec;
+  const est = lbRewardEst(m, p);
   const resid = m.months.map(x => +m.pnl[x].operatingReward - (+m.pnl[x].invResult || 0) + (+m.pnl[x].elecCost || 0) - m.a - m.b * +m.pnl[x].netSales);
   const rmse = Math.sqrt(resid.reduce((t, r) => t + r * r, 0) / resid.length);
   const err = p.live.share != null ? LB_SALES_ERR_BLEND : LB_SALES_ERR_LIVE;
