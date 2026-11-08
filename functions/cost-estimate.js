@@ -9,9 +9,12 @@ const PROJECT = "store-schedule-3b056";
 const RATE = 32.5;
 const OTHER_ACCOUNT_JOBS = 1;   // 同一付費帳戶其他專案的排程數（moneyview-landing 1）；那邊增減排程要改這裡
 
+// 存取權杖：用 firebase-admin 初始化時的預設憑證（2026-11-08 上線時直接打 metadata 端點回的不是 JSON，改用這個）
 async function token() {
-  const r = await fetch("http://metadata.google.internal/computeMetadata/v1/instance/service-account/default/token", { headers: { "Metadata-Flavor": "Google" } });
-  return (await r.json()).access_token;
+  const { getApp } = require("firebase-admin/app");
+  const cred = getApp().options.credential;
+  if (!cred || !cred.getAccessToken) throw new Error("沒有預設憑證");
+  return (await cred.getAccessToken()).access_token;
 }
 async function series(tok, metric, startIso, endIso, period) {
   const p = new URLSearchParams({
