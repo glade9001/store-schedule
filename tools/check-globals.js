@@ -30,7 +30,7 @@ const KNOWN = new Set([
   'XMLHttpRequest','FormData','Blob','File','FileReader','URL','URLSearchParams','AbortController',
   'Image','Audio','Event','CustomEvent','MutationObserver','IntersectionObserver','ResizeObserver',
   'ArrayBuffer','Uint8Array','Int8Array','Float32Array','DataView','TextEncoder','TextDecoder',
-  'firebase','XLSX','html2canvas','Chart','jspdf','QRCode',
+  'firebase','XLSX','html2canvas','Chart','jspdf','QRCode','JsBarcode',
   // 語法關鍵字（會被 IDENT( 誤抓）
   'if','for','while','switch','catch','return','typeof','function','new','do','else','delete','void',
   'in','of','instanceof','await','async','yield','throw','case','with','super','this','import','export',
