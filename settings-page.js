@@ -53,13 +53,14 @@ window.onload = async () => {
   // ⚠️ 顯示時要還原成 ''（讓 CSS 決定），不能寫死 'block'——設定項現在有些是 flex 版面的 menu-item
   const showEl=(id,ok)=>{const el=document.getElementById(id);if(el)el.style.display=ok?'':'none';};
   // 各設定項依權限顯示（分類分組）
-  showEl('itemClock', canAdmin()); showEl('itemShare', canAdmin()); showEl('itemCity', canAdmin()); showEl('itemMaint', canAdmin()); showEl('itemLineKw', canAdmin()); showEl('itemStats', canAdmin());
+  showEl('itemClock', canAdmin()); showEl('itemShare', canAdmin()); showEl('itemCity', canAdmin()); showEl('itemMaint', canAdmin()); showEl('itemLineKw', false);   /* 2026-11-08 使用者：LINE 群組關鍵字回覆用不到，先隱藏（程式保留） */ showEl('itemStats', canAdmin());
   showEl('itemShift', canManager());
   showEl('itemInsurance', canOwner()); showEl('itemHoliday', canOwner());
   showEl('itemChangelog', true);
   // 👤 我的：所有人都有；「加入主畫面」只對還沒裝成 App 的人顯示（同 ☰ 的判斷）
   showEl('itemA2hs', typeof hpStandalone === 'function' ? !hpStandalone() : false);
-  if(canAdmin()){ loadScheduleShares(); loadLineKeywords(); loadMaintenanceState(); loadClockConfig(); loadCitySummary(); loadNoticeStats(); loadTourStats(); loadAppUsageStats(); }
+  if(canAdmin()){ loadScheduleShares(); loadMaintenanceState(); loadClockConfig(); loadCitySummary(); loadTourStats(); loadAppUsageStats(); }
+  showEl('grpCost', canOwner()); if(canOwner()) loadCostEstimate();
   // 群組標題：該類任一項可見才顯示整組
   [['grpOps',['itemClock','itemShare','itemShift','itemCity']],['grpPayLaw',['itemInsurance','itemHoliday']],['grpSystem',['itemMaint','itemLineKw','itemStats']]]
     .forEach(([g,items])=>{ const any=items.some(id=>{const el=document.getElementById(id);return el&&el.style.display!=='none';}); showEl(g,any); });
@@ -158,13 +159,19 @@ async function loadAppUsageStats() {
         roster.push({ name: d.id, store: st, disp: e.displayName || d.id });
       });
     }
-    const [us, ps] = await Promise.all([window.db.collection('users').get(), window.db.collection('pushSubs').get()]);
+    const [us, ps, sd] = await Promise.all([window.db.collection('users').get(), window.db.collection('pushSubs').get(), window.db.collection('settings').doc('usageStats').get().catch(() => null)]);
+    // 重新統計（2026-11-08 使用者）：按下後只算 since 之後有開過 App／推播裝置還在用的（舊紀錄不刪）
+    const since = sd && sd.exists && sd.data().since && sd.data().since.toMillis ? sd.data().since.toMillis() : 0;
     const usageBy = new Map(); const uidBy = new Map();
     us.forEach(d => { const u = d.data() || {}; if(u.empName) { usageBy.set(u.empName, u.appUsage || null); uidBy.set(u.empName, d.id); } });
     const pushCount = {}; const origins = {};
-    ps.forEach(d => { const p = d.data() || {}; pushCount[p.uid] = (pushCount[p.uid] || 0) + 1; origins[p.origin || '?'] = (origins[p.origin || '?'] || 0) + 1; });
+    let devN = 0;
+    ps.forEach(d => { const p = d.data() || {};
+      const seen = Math.max(p.lastSeenAt && p.lastSeenAt.toMillis ? p.lastSeenAt.toMillis() : 0, p.createdAt && p.createdAt.toMillis ? p.createdAt.toMillis() : 0);
+      if(since && seen < since) return;   // 重新統計後沒再開過的裝置不算
+      devN++; pushCount[p.uid] = (pushCount[p.uid] || 0) + 1; origins[p.origin || '?'] = (origins[p.origin || '?'] || 0) + 1; });
     const ms = (ts) => ts && ts.toMillis ? ts.toMillis() : 0;
-    const d30 = Date.now() - 30 * 86400000;
+    const d30 = Math.max(Date.now() - 30 * 86400000, since);
     const g = { home: [], browser: [], none: [] };
     let pushOn = 0;
     roster.forEach(r => {
@@ -173,7 +180,7 @@ async function loadAppUsageStats() {
       if(push) pushOn++;
       const tag = `${_esc(r.disp)}${push ? '🔔' : ''}${a && a.platform ? `<span style="color:var(--text-muted);">(${a.platform === 'ios' ? 'iPhone' : a.platform === 'android' ? 'Android' : '電腦'})</span>` : ''}`;
       if(a && ms(a.lastStandaloneAt) > d30) g.home.push({ ...r, tag });
-      else if(a && ms(a.lastBrowserAt)) g.browser.push({ ...r, tag });
+      else if(a && ms(a.lastBrowserAt) > since) g.browser.push({ ...r, tag });
       else g.none.push({ ...r, tag });
     });
     const byStore = (list) => {
@@ -182,15 +189,44 @@ async function loadAppUsageStats() {
     };
     box.innerHTML = `<div style="border:1.5px solid var(--border);border-radius:12px;padding:10px 12px;line-height:1.7;">
       <div>從主畫面開：<b style="font-size:18px;color:var(--primary);">${g.home.length}</b>　只用瀏覽器：<b>${g.browser.length}</b>　還沒有紀錄：<b>${g.none.length}</b>　／ 在職 ${roster.length} 人</div>
-      <div>開啟推播：<b style="font-size:18px;color:var(--primary);">${pushOn}</b> 人（共 ${ps.size} 台裝置${ps.size ? '；' + Object.entries(origins).map(([o, n]) => `${_esc(o)} ${n}`).join('、') : ''}）</div>
+      <div>開啟推播：<b style="font-size:18px;color:var(--primary);">${pushOn}</b> 人（共 ${devN} 台裝置${devN ? '；' + Object.entries(origins).map(([o, n]) => `${_esc(o)} ${n}`).join('、') : ''}）</div>
       ${g.home.length ? `<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">主畫面：${byStore(g.home)}</div>` : ''}
       ${g.browser.length ? `<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">只用瀏覽器：${byStore(g.browser)}</div>` : ''}
       ${g.none.length ? `<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">還沒有紀錄：${byStore(g.none)}</div>` : ''}
-      <div style="font-size:11.5px;color:var(--text-muted);margin-top:4px;">🔔＝已開推播。紀錄從 2026-09-15 起，員工打開新版首頁後才會出現。</div>
+      <div style="font-size:11.5px;color:var(--text-muted);margin-top:4px;">🔔＝已開推播。${since ? `從 ${new Date(since).getMonth()+1}/${new Date(since).getDate()} 重新統計：之後有打開 App 的人才會算進來（推播也是）。` : '紀錄從 2026-09-15 起，員工打開新版首頁後才會出現。'}</div>
     </div>`;
   } catch(e) {
     box.textContent = '讀取失敗：' + e.message;
   }
+}
+
+// 重新統計（2026-11-08 使用者）：只記一個起算時間，不刪任何人的紀錄
+async function resetAppUsageStats() {
+  if(!confirm('從現在起重新統計「主畫面與推播」？\n之後有打開 App 的人才會算進來，舊紀錄不會刪除。')) return;
+  try {
+    await window.db.collection('settings').doc('usageStats').set({ since: firebase.firestore.FieldValue.serverTimestamp(), by: currentUser.empName || '' }, { merge: true });
+    showToast('已重新統計'); loadAppUsageStats();
+  } catch(e) { showToast('失敗：' + e.message); }
+}
+
+// ===== 💰 系統費用（2026-11-08 使用者：加盟主以上）=====
+// settings/costEstimate 由 functions/cost-estimate.js 每天 04:30 寫入；估算口徑見該檔（偏高估）
+async function loadCostEstimate() {
+  const box = document.getElementById('costBox'); if(!box) return;
+  try {
+    const d = await window.db.collection('settings').doc('costEstimate').get();
+    if(!d.exists) { box.textContent = '還沒有資料（每天 04:30 更新）'; return; }
+    const c = d.data(), m = s => +String(s).slice(5);
+    const lab = { firestore: '資料庫讀寫', scheduler: '排程', functions: '雲端函式', hosting: '網站流量', storage: '檔案儲存' };
+    const parts = Object.entries(c.projected.parts || {}).filter(([,v]) => v > 0).sort((a,b) => b[1]-a[1]).map(([k,v]) => `${lab[k]||k} ${v}`).join('、');
+    const up = c.updatedAt && c.updatedAt.toDate ? c.updatedAt.toDate() : null;
+    box.innerHTML = `<div class="card" style="padding:12px 14px;line-height:1.8;">
+      <div>${m(c.month)} 月預估 <b style="font-size:20px;color:var(--primary);">NT$${c.projected.twd}</b><span style="color:var(--text-muted);">（到目前 NT$${c.soFar.twd}，第 ${Math.floor(c.daysElapsed)} 天）</span></div>
+      <div>${m(c.prevMonth)} 月 <b>NT$${c.prev.twd}</b></div>
+      <div style="font-size:12px;color:var(--text-muted);">${m(c.month)} 月組成：${parts || '都在免費額度內'}（元）</div>
+      <div style="font-size:11.5px;color:var(--text-muted);margin-top:4px;line-height:1.6;">估算：用量扣掉免費額度 × 公開定價（匯率 ${c.rate}），資料庫用較貴的美國價所以偏高；實際以 Google 帳單為準。排程每月固定約 NT$${c.projected.parts.scheduler}；資料庫每天讀取超過 5 萬次才收費（本月平均每天 ${Number(c.readsPerDay).toLocaleString()} 次）。${up ? `更新於 ${up.getMonth()+1}/${up.getDate()} ${String(up.getHours()).padStart(2,'0')}:${String(up.getMinutes()).padStart(2,'0')}` : ''}</div>
+    </div>`;
+  } catch(e) { box.textContent = '讀取失敗：' + e.message; }
 }
 
 // ===== 新版首頁教學完成率（users/{uid}.homeTour，見 home-tour.js）=====

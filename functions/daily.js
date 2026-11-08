@@ -518,6 +518,8 @@ exports.scheduledDailyCleanup = onSchedule(
       console.log("[gbPurge]", JSON.stringify({ campaigns: rep.campaigns.length, orders: rep.orders, pending: rep.pending, postMap: rep.postMap }));
     } catch (e) { console.error("[dailyCleanup] gbPurge", e); errors.push(e); }
     try { await notificationsCleanup(db); } catch (e) { console.error("[dailyCleanup] notifications", e); errors.push(e); }
+    // 系統費用估算（2026-11-08）：寫 settings/costEstimate，設定頁給加盟主以上看；失敗不影響清理
+    try { const c = await require("./cost-estimate").updateCostEstimate(); console.log("[costEstimate]", c.month, c.projected.twd, c.prevMonth, c.prev.twd); } catch (e) { console.error("[dailyCleanup] costEstimate", e); }
     if (errors.length) throw errors[0];
   }
 );

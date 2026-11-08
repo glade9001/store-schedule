@@ -209,6 +209,12 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
       </div>
     </div>
 
+  <!-- ═══ 💰 系統費用（2026-11-08）：加盟主以上；資料由 scheduledDailyCleanup 每天 04:30 寫 settings/costEstimate（functions/cost-estimate.js）═══ -->
+  <div id="grpCost" class="set-item" style="display:none;">
+    <div class="set-grp set-head" onclick="toggleSet(this)">💰 系統費用<span class="perm-badge perm-owner">加盟主</span><span class="set-chev">▸</span></div>
+    <div id="costBox" style="font-size:13px;">載入中...</div>
+  </div>
+
   <!-- ═══ ⚙️ 系統 ═══ -->
   <div id="grpSystem" class="set-item" style="display:none;">
     <div class="set-grp set-head" onclick="toggleSet(this)">⚙️ 系統<span class="perm-badge perm-admin">管理者</span><span class="set-chev">▸</span></div>
@@ -249,12 +255,8 @@ html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC
       <div class="card-title set-head" onclick="toggleSet(this)" style="padding:0 0 8px;">📊 使用狀況統計
         <span class="perm-badge perm-admin">管理者</span><span class="set-chev">▸</span>
       </div>
-      <div id="itemNotice" style="margin-bottom:14px;">
-        <div class="stat-sub">📢 系統公告已讀</div>
-        <div id="noticeStats" style="font-size:13px;">載入中...</div>
-      </div>
       <div id="itemAppUsage" style="margin-bottom:14px;">
-        <div class="stat-sub">📱 主畫面與推播</div>
+        <div class="stat-sub" style="display:flex;align-items:center;gap:8px;">📱 主畫面與推播<button id="usageResetBtn" onclick="resetAppUsageStats()" style="margin-left:auto;border:1.5px solid var(--border);background:#fff;border-radius:8px;padding:3px 10px;font-size:12px;font-weight:700;color:var(--primary);cursor:pointer;">重新統計</button></div>
         <div id="appUsageStats" style="font-size:13px;">載入中...</div>
       </div>
       <div id="itemTour">
