@@ -16,6 +16,7 @@ var HN_GROUPS = [
   { key: 'me',     title: '我的',       fav: 'me' },
   { key: 'acct',   title: '作帳人員限定', fav: 'me' },   // 店長在每日營業頁指派的人才看得到（2026-10-11）
   { key: 'store',  title: '門市工具',   fav: '', fold: true },   // 首頁已固定顯示這幾個，抽屜裡預設收起來（狀態記在 localStorage）
+  { key: 'goods',  title: '商品查詢',   fav: '', fold: true },   // 2026-11-08 使用者：商品相關三個工具（報廢條碼、條碼查詢、品號查詢）收成一組
   { key: 'sched',  title: '排班・出勤', fav: 'mgmt', fold: true },
   { key: 'people', title: '人事・薪資', fav: 'mgmt', fold: true },
   { key: 'ops',    title: '營運',       fav: 'mgmt', fold: true },
@@ -58,8 +59,9 @@ var HOME_FEATURES = [
   { id: 'city',    group: 'store', icon: '☕', label: 'CITY手順',   sub: '飲品製作手順',   go: 'city.html' },
   // 團購（2026-10-10 第 1 階段）：全員可用——員工補本店單、看取貨名單；開團／編輯在頁面內依角色開放
   { id: 'groupbuy',  group: 'store', icon: '🛒', label: '團購',     sub: '開團、補單、取貨名單',     go: 'groupbuy.html', show: function () { return !!currentUser?.empName; }, kw: '團購 補單 開團 +1 取貨 付款 棄單' },
-  { id: 'barcode', group: 'store', icon: '▥',  label: '條碼查詢',   sub: '外部網站',       href: 'https://bk-bc.github.io/Barcode/' },
-  { id: 'itemno',  group: 'store', icon: '🔍', label: '品號查詢',   sub: '外部網站・品號／PMA類別', href: 'https://7-11howhowfun.netlify.app/', kw: '品號 商品號 PMA 7-11' },
+  { id: 'wasteBc', group: 'goods', icon: '🗑️', label: '報廢條碼',   sub: '自助區商品・報廢時掃或 KEY', go: 'waste-barcode.html', kw: '報廢 條碼 品號 滷味 熱食 關東煮 熱狗 蒸煮' },
+  { id: 'barcode', group: 'goods', icon: '▥',  label: '條碼查詢',   sub: '外部網站',       href: 'https://bk-bc.github.io/Barcode/' },
+  { id: 'itemno',  group: 'goods', icon: '🔍', label: '品號查詢',   sub: '外部網站・品號／PMA類別', href: 'https://7-11howhowfun.netlify.app/', kw: '品號 商品號 PMA 7-11' },
   { id: 'wds',     group: 'store', icon: '💬', label: '大智通小智', sub: '外部網站',       href: 'https://www.wds.com.tw/webchat/?action=dispatch2&bb=2&openExternalBrowser=1' },
   { id: 'learn',   group: 'store', icon: '📚', label: '學習平台',   sub: '外部網站・線上課程', href: 'https://e-learning.unipcsc.com.tw/eHRD/eHRDOrg', browser: true, kw: '教育訓練 課程 e-learning' },
   // ── 帳號與系統 ──
@@ -89,7 +91,7 @@ function hnVisible(f) { return !!f && (!f.show || !!f.show()); }
 function hnFavKind(f) { var g = HN_GROUPS.find(function (x) { return x.key === f.group; }); return g ? g.fav : ''; }
 
 // 到職前（users.preStartUntil）：這些功能反灰不能點，真正的擋在 firestore.rules 與打卡函式
-var HN_PRESTART_LOCKED = ['myAttend', 'city', 'groupbuy', 'barcode', 'itemno', 'wds'];
+var HN_PRESTART_LOCKED = ['myAttend', 'city', 'groupbuy', 'wasteBc', 'barcode', 'itemno', 'wds'];
 var hnPreviewPreStart = 0;   // 角色預覽「到職前新人」（home-preview.js）
 function hnPreStartAt() { return hnPreviewPreStart || (hnUserDoc && hnUserDoc.preStartUntil) || 0; }
 function hnPreStart() { return hnPreStartAt() > Date.now(); }
@@ -103,6 +105,22 @@ document.addEventListener('click', function (e) {
   if (!hnPreStart() || !e.target.closest('#homeClockCard, .tool-item[data-prestart-lock]')) return;
   e.preventDefault(); e.stopPropagation(); hnPreStartToast();
 }, true);
+
+// 首頁門市工具「商品查詢」圓鈕（2026-11-08）：底部選單列出 goods 分組的三個工具
+function hnOpenGoods() {
+  if (hnPreStart()) { hnPreStartToast(); return; }
+  var items = HOME_FEATURES.filter(function (f) { return f.group === 'goods' && hnVisible(f); });
+  document.getElementById('goodsBody').innerHTML = items.map(function (f) {
+    return '<div class="bs-item" role="button" tabindex="0" onclick="hnCloseGoods();hnGo(\'' + f.id + '\')"><div class="bs-item-icon" style="background:#eef2ff;">' + f.icon + '</div>' +
+      '<div class="bs-item-text"><div class="bs-item-label">' + f.label + '</div><div class="bs-item-sub">' + f.sub + '</div></div><div class="bs-item-arrow">' + (f.href ? '↗' : '›') + '</div></div>';
+  }).join('');
+  document.getElementById('goodsOverlay').classList.add('active');
+  document.getElementById('goodsSheet').classList.add('active');
+}
+function hnCloseGoods() {
+  document.getElementById('goodsOverlay').classList.remove('active');
+  document.getElementById('goodsSheet').classList.remove('active');
+}
 
 function hnGo(id) {
   var f = hnFeature(id);

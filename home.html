@@ -284,17 +284,12 @@
             </span></span>
             <span class="tool-label">團購</span>
           </a>
-          <a class="tool-item" data-prestart-lock="1" href="https://bk-bc.github.io/Barcode/" target="_blank" rel="noopener">
+          <!-- 商品查詢（2026-11-08）：報廢條碼、條碼查詢、品號查詢收成一顆，點開底部選單（home-nav.js hnOpenGoods） -->
+          <a class="tool-item" data-prestart-lock="1" href="#" onclick="hnOpenGoods(); return false;">
             <span class="tool-ring ring-barcode"><span class="tool-face">
               <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="3" y="5" width="2" height="14"/><rect x="6.5" y="5" width="1" height="14"/><rect x="9" y="5" width="2.5" height="14"/><rect x="13" y="5" width="1" height="14"/><rect x="15.5" y="5" width="2" height="14"/><rect x="19" y="5" width="1.5" height="14"/></svg>
             </span></span>
-            <span class="tool-label">條碼查詢</span>
-          </a>
-          <a class="tool-item" data-prestart-lock="1" href="https://7-11howhowfun.netlify.app/" target="_blank" rel="noopener">
-            <span class="tool-ring ring-itemno"><span class="tool-face">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/><path d="M9 7.5l-1 6M12.5 7.5l-1 6M7.2 9.3h5.8M6.8 11.8h5.8"/></svg>
-            </span></span>
-            <span class="tool-label">品號查詢</span>
+            <span class="tool-label">商品查詢</span>
           </a>
           <a class="tool-item" data-prestart-lock="1" href="https://www.wds.com.tw/webchat/?action=dispatch2&amp;bb=2&amp;openExternalBrowser=1" target="_blank" rel="noopener">
             <span class="tool-ring ring-wds"><span class="tool-face">
@@ -382,6 +377,15 @@
   </div>
   <div class="nd-body" id="ndBody"></div>
 </aside>
+
+<!-- ===== 商品查詢（首頁門市工具圓鈕）===== -->
+<div class="bottom-sheet-overlay" id="goodsOverlay" onclick="hnCloseGoods()"></div>
+<div class="bottom-sheet" id="goodsSheet" role="dialog" aria-label="商品查詢">
+  <div class="bs-handle"></div>
+  <div class="bs-title">商品查詢</div>
+  <div id="goodsBody"></div>
+  <div style="height:12px;"></div>
+</div>
 
 <!-- ===== 編輯常用 ===== -->
 <div class="bottom-sheet-overlay" id="favEditOverlay" onclick="closeFavEditor()"></div>

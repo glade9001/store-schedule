@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#1a73e8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>報廢條碼 - 莉學商行</title>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+<script src="firebase-init.js"></script>
+<script>window.db.settings({ experimentalForceLongPolling: true });</script>
+<!-- 條碼繪製：同外部「條碼查詢」網站用的 JsBarcode 3.11.6（尺寸參數也照它：height 35、width 1.5、卡片最高 60px） -->
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+<style>
+*,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root { --primary:#1a73e8; --primary-dark:#1557b0; --bg:#f0f4ff; --card:#fff; --text:#1e293b; --text-muted:#64748b; --border:#e2e8f0; }
+html, body { min-height: 100%; background: var(--bg); font-family: "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif; color: var(--text); -webkit-text-size-adjust: 100%; }
+[hidden] { display: none !important; }
+button { font-family: inherit; }
+.header { background: linear-gradient(135deg,var(--primary),var(--primary-dark)); color: #fff; padding: 0 16px; height: 52px; display: flex; align-items: center; gap: 10px; }
+.header-back { background: rgba(255,255,255,.2); border: none; color: #fff; height: 32px; border-radius: 9px; font-size: 13px; font-weight: 700; cursor: pointer; padding: 0 12px; flex-shrink: 0; }
+.header-title { font-size: 16px; font-weight: 800; flex: 1; }
+.search-bar { position: sticky; top: 0; z-index: 50; background: var(--bg); padding: 10px 16px 6px; box-shadow: 0 1px 0 var(--border); }
+.search-bar input[type=search] { width: 100%; padding: 11px 14px; border: 1.5px solid var(--border); border-radius: 12px; font-size: 16px; background: #fff; outline: none; }
+.search-bar input[type=search]:focus { border-color: var(--primary); }
+.tabs { display: flex; gap: 6px; overflow-x: auto; padding: 8px 0 2px; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { flex-shrink: 0; padding: 6px 12px; border-radius: 18px; border: 1.5px solid var(--border); background: #fff; color: var(--text-muted); font-size: 13px; font-weight: 800; cursor: pointer; white-space: nowrap; }
+.tab .n { font-weight: 700; opacity: .7; margin-left: 3px; }
+.tab.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+.content { max-width: 900px; margin: 0 auto; padding: 8px 12px 40px; }
+.state { text-align: center; color: var(--text-muted); font-size: 14px; padding: 48px 12px; line-height: 1.7; }
+.note { font-size: 12px; color: var(--text-muted); margin: 2px 4px 8px; line-height: 1.6; }
+.cat { font-size: 13px; font-weight: 900; color: var(--primary-dark); margin: 14px 4px 6px; }
+/* 手機兩欄、平板以上四欄（照外部條碼查詢網站） */
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+@media (min-width: 700px) { .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 8px 8px 6px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.nm { font-size: 13.5px; font-weight: 800; line-height: 1.35; overflow-wrap: anywhere; }
+.no { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.no b { color: var(--text); font-size: 15px; letter-spacing: .03em; }
+.bc { background: #fff; border-radius: 4px; padding: 4px 2px 0; }
+.bc svg { width: 100% !important; height: auto !important; max-height: 60px; display: block; }
+mark { background: #fff59d; color: inherit; border-radius: 2px; }
+</style>
+</head>
+<body>
+<div class="header">
+  <button class="header-back" onclick="window.location.href='home.html'">← 首頁</button>
+  <div class="header-title">🗑️ 報廢條碼</div>
+</div>
+<div class="search-bar">
+  <input type="search" id="q" placeholder="搜尋品名或品號" autocomplete="off" oninput="wbRender()">
+  <nav class="tabs" id="tabs" aria-label="類別"></nav>
+</div>
+<main class="content">
+  <div id="state" class="state">載入中...</div>
+  <div id="app" hidden>
+    <div class="note" id="meta"></div>
+    <div id="list"></div>
+  </div>
+</main>
+<script src="waste-barcode-page.js"></script>
+</body>
+</html>
