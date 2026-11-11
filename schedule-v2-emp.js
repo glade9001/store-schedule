@@ -134,8 +134,11 @@ async function loadEmpView() {
           emps.push({ name: d.id, ...data }); return;
         }
 
-        // 離職：永遠隱藏
-        if(status === '離職') return;
+        // 離職：離職日當週（含）以前仍顯示，離職日起的格子由 drawScheduleCanvas 畫空白；之後的週隱藏（同排班頁 schedule-v2-save.js）
+        if(status === '離職') {
+          if(data.retireDate && evWeekMonStr < data.retireDate) emps.push({ name: d.id, ...data });
+          return;
+        }
 
         // 調走：依 transferDate 判斷
         const effectDate = data.transferDate;

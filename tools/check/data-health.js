@@ -113,8 +113,23 @@ async function passbook() {
   issues.length ? bad('特補休存摺餘額', issues.join('；')) : ok('特補休存摺餘額', names.size + ' 人與劃休頁／帳本一致');
 }
 
+// 離職日（含）之後、今天以後還有班（離職時自動清班沒清完的殘留）。過去的班不算（歷史資料不動）。
+async function retiredShifts() {
+  const src = fs.readFileSync(path.join(ROOT, 'schedule-draw.js'), 'utf8');
+  const c = { Date, String, Number }; vm.createContext(c); vm.runInContext(src.match(/function _drawCellDate[\s\S]*?\n}\n/)[0], c);
+  const ret = {};
+  for (const s of STORES) (await list(`stores/${s}/employees`)).forEach(e => { if (e.data.status === '離職' && e.data.retireDate) ret[`${s}-${e.id}`] = e.data.retireDate; });
+  const today = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10), hits = [];
+  for (const s of STORES) for (const w of await list(`stores/${s}/weeks`)) (w.data.records || []).forEach(r => {
+    const dt = c._drawCellDate(w.id, WD.indexOf(r.day)); if (!dt || dt < today) return;
+    const rd = ret[`${s}-${r.name}`]; if (rd && dt >= rd) hits.push(`${s} ${tag(r.name)} ${dt} ${r.shift || ''}`);
+    const sd = r.supportEmp && ret[r.supportEmp]; if (sd && dt >= sd) hits.push(`${s} 支援 ${tag(r.supportEmp.split('-')[1])} ${dt}`);
+  });
+  hits.length ? bad('離職後還有班', hits.slice(0, 10).join('；') + (hits.length > 10 ? ` …共 ${hits.length} 格` : '')) : ok('離職後還有班', '0 格');
+}
+
 module.exports = async function run() {
   console.log('④ 資料健檢（正式資料、唯讀）');
-  await groupbuy(); await leaveStats(); await holidayComp(); await annualBatches(); await passbook(); await dailySales();
+  await groupbuy(); await leaveStats(); await holidayComp(); await annualBatches(); await passbook(); await dailySales(); await retiredShifts();
 };
 if (require.main === module) module.exports().then(() => require('./lib').done(), e => { console.error(e); process.exit(1); });

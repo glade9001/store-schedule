@@ -1039,10 +1039,90 @@ async function confirmRetire() {
     });
     closeModal('retireModal');
     await loadEmpAdminList(store);
-    showToast(`✅ 已設定離職，生效日：${date}`);
+    // 離職日（含）起已排的班自動清掉；失敗不影響離職本身（排班頁的鎖死格存檔時仍會清空）
+    let cleared = null;
+    try { cleared = await clearShiftsFromRetire(store, empId, date); }
+    catch(e) { console.warn('清除離職後班表失敗:', e); }
+    if(cleared === null) showToast(`✅ 已設定離職，生效日：${date}（⚠️ 之後的班沒清到，請到排班頁確認）`);
+    else if(cleared.removed || cleared.released) showToast(`✅ 已設定離職，生效日：${date}；已刪除之後的班 ${cleared.removed} 格${cleared.released ? `、退回他店支援 ${cleared.released} 格` : ''}`);
+    else showToast(`✅ 已設定離職，生效日：${date}`);
     await showSettlePrompt(store, empId, date, '離職');
   } catch(e) { showToast('❌ 操作失敗：' + e.message); }
   hideLoading();
+}
+
+// 離職日（含）起的排班自動刪除（2026-11-11）
+// 例：11/9～11/15 已排好，11/12 離職 → 12～15 這幾格刪掉。離職日當天就算不上班（跟排班頁鎖死格同一條規則：cellDate >= retireDate）。
+// ・本店：刪掉這個人在那幾天的班（含排休、特休、補休）。特休／補休同時刪掉帳本那天的紀錄，
+//         特休批次與補休統計由後端 recomputeLeaveStats 自動重算（不然離職結清會少算）。
+// ・他店：這個人認領的支援格（supportEmp='本店-工號'）退回待補，讓缺工店重新找人。
+// ・不動今天以前的班（歷史資料不可變；倒填離職日時過去的班留給店長自己判斷）。
+// 只看離職週起、週次 doc id ≥ 該週的文件（id 格式 YYYY-Www 補零，字串大小＝時間先後）。
+async function clearShiftsFromRetire(store, empName, retireDate) {
+  const today = new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().split('T')[0];
+  const from = retireDate > today ? retireDate : today;
+  const [fy, fm, fd] = from.split('-').map(Number);
+  const startWk = SalaryCalc.weekStrOfDate(new Date(fy, fm-1, fd));
+  const DAYS = ['週一','週二','週三','週四','週五','週六','週日'];
+  const dateOf = (wk, day) => {
+    const i = DAYS.indexOf(day); if(i < 0) return '';
+    const [y, w] = String(wk).split('-W').map(Number); if(!y || !w) return '';
+    const d = SalaryCalc.week1MondayOf(y); d.setDate(d.getDate() + (w-1)*7 + i);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  };
+  const supKey = `${store}-${empName}`;
+  // 店別清單讀不到就不做（不然只清本店、他店支援格靜靜殘留）→ 回 null 讓呼叫端提示去排班頁確認
+  const cfgStores = (appConfig && appConfig.stores) || [];
+  if(!cfgStores.length) return null;
+  const stores = [...new Set([store, ...cfgStores])];
+  const nowIso = new Date().toISOString();
+  let removed = 0, released = 0;
+  const annualDates = new Set(), compDates = new Set();
+
+  for(const st of stores) {
+    const qs = await window.db.collection('stores').doc(st).collection('weeks')
+      .where(firebase.firestore.FieldPath.documentId(), '>=', startWk).get();
+    for(const doc of qs.docs) {
+      const wk = doc.id;
+      // 交易內重讀，避免跟正在排班的人互相蓋掉；回傳值＝最後一次成功那輪的結果（重試不會重複計數）
+      const res = await window.db.runTransaction(async tx => {
+        const out = { rm: 0, rel: 0, ann: [], comp: [] };
+        const snap = await tx.get(doc.ref);
+        if(!snap.exists) return out;
+        const recs = snap.data().records || [];
+        const next = [];
+        let changed = false;
+        for(const r of recs) {
+          const dt = r && dateOf(wk, r.day);
+          if(!dt || dt < from) { next.push(r); continue; }
+          if(st === store && r.name === empName) {
+            const sh = String(r.shift || '').trim();
+            if(sh === '特休') out.ann.push(dt);
+            if(sh === '補休') out.comp.push(dt);
+            if(sh) out.rm++;
+            changed = true;
+            continue;   // 整筆拿掉
+          }
+          if(r.supportEmp === supKey && String(r.name || '').startsWith('🆘')) {   // 只退「待補」列上的認領
+            next.push({ ...r, supportEmp: '', approvalStatus: '', claimedBy: '', supportUpdatedAt: nowIso });
+            out.rel++; changed = true; continue;
+          }
+          next.push(r);
+        }
+        if(changed) tx.update(doc.ref, { records: next });
+        return out;
+      });
+      removed += res.rm; released += res.rel;
+      res.ann.forEach(d => annualDates.add(d));
+      res.comp.forEach(d => compDates.add(d));
+    }
+  }
+
+  // 特休／補休帳本：那幾天的使用紀錄刪掉（後端觸發器會重算批次已用與統計欄）
+  const empRef = window.db.collection('employees').doc(empName);
+  for(const d of annualDates) await empRef.collection('annualUsage').doc(d).delete();
+  for(const d of compDates)   await empRef.collection('compUsage').doc(d).delete();
+  return { removed, released };
 }
 
 // 標記離職／身份轉換後跳出的特補休結清摘要（唯讀試算＋導引）

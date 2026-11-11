@@ -46,6 +46,14 @@ function canvasDrawWrappedText(ctx, text, cx, startY, maxWidth, lineHeight) {
   }
 }
 
+// 週次 YYYY-Www 的第 i 天（0=週一）→ YYYY-MM-DD。週次定義同 salary-calc.js weekStrOfDate（第 1 週＝含 1/4 那週的週一起）
+function _drawCellDate(weekStr, i) {
+  const [y, w] = String(weekStr || '').split('-W').map(Number);
+  if(!y || !w) return '';
+  const d = new Date(y, 0, 1), wd = d.getDay();
+  d.setDate(d.getDate() + (wd <= 4 ? 1 - wd : 8 - wd) + (w - 1) * 7 + i);
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
 function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, allStoresRecs, opts) {
   // allStoresRecs: 全部門市的記錄，用來查跨店支援
   // opts.changes（選填，班表分享頁用）：{ '姓名|週一': '10/12 14:30 某某' } → 該格黃底＋底部小字標出異動
@@ -185,7 +193,9 @@ function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, al
 
     dayNames.forEach((day, i) => {
       const cx = margin + nameColW + i * dataColW + dataColW / 2;
-      let rec = records.find(r => r.name === emp.name && r.day === day) || {};
+      // 離職日（含）之後：整格空白（離職當週人還在，只是後面幾天沒有班；跟排班頁鎖死格同一條規則）
+      const _retired = !!(emp.retireDate && !emp.name.startsWith('🆘') && _drawCellDate(weekStr, i) >= emp.retireDate);
+      let rec = _retired ? {} : (records.find(r => r.name === emp.name && r.day === day) || {});
       const shift = rec.shift || '';
       const note = rec.note || '';
       const loc = (rec.location && rec.location !== '本店') ? rec.location : '';
@@ -197,7 +207,7 @@ function drawScheduleCanvas(canvas, store, weekStr, records, emps, weekDates, al
 
       // 跨店支援：本店員工當天去他店支援（新模型下支援者本店多為休假，故不要求本店有班也要顯示）
       let supportOut = null;
-      if(!emp.name.startsWith('🆘') && !recIsSupportOut) {
+      if(!emp.name.startsWith('🆘') && !recIsSupportOut && !_retired) {
         supportOut = allRecs.find(r =>
           r.supportEmp === `${store}-${emp.name}` && r.day === day && r.week === weekStr && r.approvalStatus === 'approved'
         );

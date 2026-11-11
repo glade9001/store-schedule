@@ -13,7 +13,7 @@ function buildCellButton(emp, eIdx, day, store, weekStr, isReadonly) {
       lb.dataset.emp=emp.name; lb.dataset.day=day; lb.dataset.week=weekStr; lb.dataset.eidx=eIdx;
       lb.dataset.shift=''; lb.dataset.hours=0; lb.dataset.loc='本店'; lb.dataset.note='';
       lb.dataset.ot=false; lb.dataset.hourly=false; lb.dataset.support=''; lb.dataset.approval=''; lb.dataset.reqoff=false; lb.dataset.lawoverrides=''; lb.dataset.badges='';
-      lb.innerHTML='🔒'; lb.disabled=true;
+      lb.innerHTML=''; lb.disabled=true;   // 使用者 2026-11-11：離職後的日期顯示空白
       lb.title=`${getDisplayName(emp.name)} 已於 ${emp.retireDate} 離職，此日之後不可排班`;
       return lb;
     }

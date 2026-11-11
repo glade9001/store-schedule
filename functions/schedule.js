@@ -315,7 +315,11 @@ exports.getScheduleShare = onRequest({ region: "asia-east1" }, async (req, res) 
           if (st && sunStr < st) return;
           emps.push(row); return;
         }
-        if (status === "離職") return;
+        // 離職：離職日當週（含）以前仍顯示，離職日起的格子由畫圖端畫空白（同排班頁）
+        if (status === "離職") {
+          if (e.retireDate && monStr < e.retireDate) { row.retireDate = e.retireDate; emps.push(row); }
+          return;
+        }
         const eff = e.transferDate;
         if (!eff) return;
         if ((published && eff >= monStr) || eff > sunStr || (eff >= monStr && eff <= sunStr)) emps.push(row);
@@ -328,7 +332,7 @@ exports.getScheduleShare = onRequest({ region: "asia-east1" }, async (req, res) 
       const lastChangeAt = Object.values(changes).reduce((m, c) => Math.max(m, c.at), 0) || null;
       return {
         store: s, visible: true, published, publishedAt: d.publishedAt || null, publishedBy: d.publishedBy || "",
-        records, cross, emps: emps.map((e) => ({ name: e.name })), changes, lastChangeAt,
+        records, cross, emps: emps.map((e) => (e.retireDate ? { name: e.name, retireDate: e.retireDate } : { name: e.name })), changes, lastChangeAt,
       };
     });
     weeks.push({ weekStr: wk, dates, stores: storeOut });
