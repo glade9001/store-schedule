@@ -1,7 +1,7 @@
 // ===== 莉學商行 Service Worker =====
 // 策略：HTML 永遠走網路，靜態資源才快取
 
-const CACHE_NAME = 'lixue-static-v17';
+const CACHE_NAME = 'lixue-static-v18';   // v18（2026-11-11）：清掉被誤存的雲端函式回應（分享連結卡在舊週）
 
 // 快取靜態資源（相對於 sw.js 位置，故 web.app 與 github.io 皆適用）
 const STATIC_ASSETS = [
@@ -49,6 +49,12 @@ self.addEventListener('fetch', event => {
 
   // 非 http/https 請求（例如 chrome-extension://）：完全不攔截
   if(!event.request.url.startsWith('http')) return;
+
+  // 別的網域、非 GET：完全不攔截（2026-11-11）
+  // ⚠️ 原本只排除網址含 firebase/google 的，雲端函式網址 *.cloudfunctions.net 不在其中 →
+  //    分享頁的 getScheduleShare?t=… 掉進最下面的 Cache First，第一次的回應被永久存著，
+  //    用 Safari/Chrome 開過 App 的裝置看分享連結永遠停在第一次打開那週（使用者回報「卡在上週」）。
+  if(url.origin !== self.location.origin || event.request.method !== 'GET') return;
 
   // Firebase / Google 請求：完全不攔截
   if(url.hostname.includes('firebase') ||

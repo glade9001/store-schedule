@@ -20,7 +20,8 @@ async function shareLoad() {
   if (shareLoading) return;
   shareLoading = true;
   try {
-    var res = await fetch(SHARE_API + '?t=' + encodeURIComponent(t), { cache: 'no-store' });
+    // &_= 每次不同：舊版 sw.js（v17 以前）會把這個跨網域 GET 永久快取，網址不同才會真的去問後端
+    var res = await fetch(SHARE_API + '?t=' + encodeURIComponent(t) + '&_=' + Date.now(), { cache: 'no-store' });
     if (res.status === 404) { shareMsg('🚫', '這個連結已失效', '請向系統管理員索取新的連結'); return; }
     if (!res.ok) throw new Error('HTTP ' + res.status);
     var fresh = await res.json();
