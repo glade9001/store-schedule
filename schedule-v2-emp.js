@@ -241,9 +241,28 @@ function renderEmpCanvas(store, weekStr, records, emps, allRecs) {
   const virtualRows = [...new Set(records.map(r=>r.name).filter(n=>n&&n.startsWith('🆘')))];
   const allEmpsWithVirtual = [...emps];
   virtualRows.forEach(n => { if(!allEmpsWithVirtual.find(e=>e.name===n)) allEmpsWithVirtual.push({ name:n, role:'待補' }); });
-  drawScheduleCanvas(canvas, store, weekStr, records, allEmpsWithVirtual, dates, allRecs || records);
-  canvas.style.maxWidth = '100%';
-  canvas.style.height = 'auto';
+  const draw = (changes) => {
+    drawScheduleCanvas(canvas, store, weekStr, records, allEmpsWithVirtual, dates, allRecs || records, changes ? { changes } : undefined);
+    canvas.style.maxWidth = '100%';
+    canvas.style.height = 'auto';
+  };
+  draw(null);
+  const hint = document.getElementById('empChangeHint');
+  if(hint) hint.style.display = 'none';
+  // 發布後有異動的格子黃底（同分享連結，但不顯示時間／修改者）；那週過完後端就回空。
+  // 先畫沒黃底的版本，標記回來再重畫；期間換了週/店就丟掉這次結果。讀不到就維持原樣。
+  const token = (renderEmpCanvas._seq = (renderEmpCanvas._seq || 0) + 1);
+  const fn = firebase.app().functions('asia-east1').httpsCallable('getScheduleChangeMarks');
+  Promise.race([fn({ store, weekStr }), new Promise((_, rj) => setTimeout(() => rj(new Error('timeout')), 8000))])
+    .then(res => {
+      if(token !== renderEmpCanvas._seq) return;
+      const marks = (res && res.data && res.data.marks) || [];
+      if(!marks.length) return;
+      const changes = {}; marks.forEach(k => { changes[k] = true; });   // true＝只塗黃、不寫字
+      draw(changes);
+      if(hint) hint.style.display = 'block';
+    })
+    .catch(e => console.warn('getScheduleChangeMarks:', e && e.message));
 }
 
 

@@ -1,7 +1,7 @@
 // 班表分享頁（免登入）：資料一律由 getScheduleShare 函式驗證代碼後回傳，本頁不碰 Firestore。
 // 畫法共用 schedule-draw.js 的 drawScheduleCanvas，與排班頁「查閱班表」同一套輸入（records＋待補列＋他店支援記錄）。
 var SHARE_API = 'https://asia-east1-store-schedule-3b056.cloudfunctions.net/getScheduleShare';
-var shareData = null, shareWeek = 0, shareStore = 0, shareLoadedAt = 0, shareZoom = false;
+var shareData = null, shareWeek = 0, shareStore = 0, shareLoadedAt = 0, shareZoom = false, shareStale = false, shareLoading = false;
 
 function shareEsc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function shareFmt(ms) {
@@ -17,16 +17,25 @@ window.getDisplayName = function (n) { return (shareData && shareData.names && s
 async function shareLoad() {
   var t = new URLSearchParams(location.search).get('t') || '';
   if (!t) { shareMsg('🔗', '連結不完整', '請確認網址有完整複製'); return; }
+  if (shareLoading) return;
+  shareLoading = true;
   try {
     var res = await fetch(SHARE_API + '?t=' + encodeURIComponent(t), { cache: 'no-store' });
     if (res.status === 404) { shareMsg('🚫', '這個連結已失效', '請向系統管理員索取新的連結'); return; }
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    shareData = await res.json();
+    var fresh = await res.json();
+    // 換週了要回到「本週」頁籤（原本停在下週的話，下週已經變本週）
+    if (shareData && shareData.weeks && fresh.weeks && shareData.weeks[0].weekStr !== fresh.weeks[0].weekStr) shareWeek = 0;
+    shareData = fresh;
     shareLoadedAt = Date.now();
+    shareStale = false;
   } catch (e) {
-    if (!shareData) { shareMsg('📶', '載入失敗', '請檢查網路後重新整理'); }
+    // 2026-11-11：原本重抓失敗就安靜留著舊資料，使用者以為是最新（回報「卡在上週」）→ 改成畫面上明講
+    if (!shareData) { shareMsg('📶', '載入失敗', '請檢查網路後重新整理'); return; }
+    shareStale = true;
+    shareRender();
     return;
-  }
+  } finally { shareLoading = false; }
   if (shareData.title) document.getElementById('headSub').textContent = shareData.title + '・本週與下週，打開時自動顯示最新版本';
   try { var saved = parseInt(localStorage.getItem('shareStore') || '0', 10); if (saved >= 0 && saved < shareData.weeks[0].stores.length) shareStore = saved; } catch (e) {}
   shareRender();
@@ -55,7 +64,8 @@ function shareRender() {
   }
   var pub = st.publishedAt ? ('已發布 ' + shareFmt(st.publishedAt) + (st.publishedBy ? '・' + shareEsc(st.publishedBy) : '')) : '週五 18:00 自動發布';
   var nChg = Object.keys(st.changes || {}).length;
-  html += '<div class="info">' + pub +
+  if (shareStale) html += '<div class="info" style="background:#fdecea;color:#b3261e;font-weight:700;">⚠️ 連不上，下面是 ' + shareFmt(shareLoadedAt) + ' 的班表，請重新整理</div>';
+  html += '<div class="info">' + pub + '<br><small>資料更新於 ' + shareFmt(shareLoadedAt) + '</small>' +
     (nChg ? '<div class="chg"><i></i>發布後有 ' + nChg + ' 格異動，最後一次在 ' + shareFmt(st.lastChangeAt) + '（黃底格）</div>' : '') + '</div>';
   // 手機上整張 1500px 圖縮到螢幕寬，異動小字會看不清 → 點一下切換放大（可左右滑）
   html += '<div class="canvas-wrap' + (shareZoom ? ' zoom' : '') + '" onclick="shareZoom=!shareZoom;this.classList.toggle(\'zoom\',shareZoom)"><canvas id="shareCanvas"></canvas></div>' +
@@ -78,7 +88,18 @@ function shareRender() {
 function shareSaveStore() { try { localStorage.setItem('shareStore', String(shareStore)); } catch (e) {} }
 
 // 從背景切回來超過 1 分鐘就重抓（連結常開著放，避免看到舊班表）
-document.addEventListener('visibilitychange', function () {
-  if (document.visibilityState === 'visible' && shareData && Date.now() - shareLoadedAt > 60000) shareLoad();
-});
+// 2026-11-11：LINE 內建瀏覽器／iOS 返回頁面（bfcache）不一定觸發 visibilitychange → 加 pageshow、focus，
+//             另外開著時每分鐘檢查一次：超過 5 分鐘或手機日期已經換週就重抓。
+function shareMaybeReload(maxAgeMs) {
+  if (document.visibilityState !== 'visible' || !shareData) return;
+  var age = Date.now() - shareLoadedAt;
+  var tp = new Date(Date.now() + 8 * 3600000), mon = new Date(tp); mon.setUTCDate(tp.getUTCDate() - ((tp.getUTCDay() + 6) % 7));
+  var monLabel = (mon.getUTCMonth() + 1) + '/' + mon.getUTCDate();
+  var weekChanged = shareData.weeks && shareData.weeks[0].dates[0] !== monLabel;   // 本週頁籤的週一 ≠ 今天所在週的週一
+  if (weekChanged || age > maxAgeMs) shareLoad();
+}
+document.addEventListener('visibilitychange', function () { shareMaybeReload(60000); });
+window.addEventListener('pageshow', function (e) { if (e.persisted) shareMaybeReload(0); });
+window.addEventListener('focus', function () { shareMaybeReload(60000); });
+setInterval(function () { shareMaybeReload(5 * 60000); }, 60000);
 shareLoad();

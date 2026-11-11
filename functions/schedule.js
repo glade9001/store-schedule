@@ -201,6 +201,69 @@ exports.onScheduleCellLog = onDocumentWrittenWithAuthContext(
   }
 );
 
+// 每店「淨異動」：同一格取最早的 from 與最後一次的時間／修改者；最後結果與原本相同（改回去）就不算
+// 待補格被認領／取消時，被派去支援的人在「他自己店」的那一格也要標（crossMarks，最後套上）
+// 分享頁（getScheduleShare）與查看班表（getScheduleChangeMarks）共用，兩邊黃底才會一致。
+// 回傳 [ { '姓名|週一': { at, by } }, ... ]，順序同 stores
+function netScheduleChanges(stores, wkData, chSnaps) {
+  const crossMarks = [];
+  const netByStore = stores.map((s, si) => {
+    const out = {};
+    const items = (chSnaps[si] && chSnaps[si].exists ? chSnaps[si].data().items : []) || [];
+    const cur = shareCellMap(wkData[si].records);
+    const byKey = {};
+    items.slice().sort((a, b) => (a.at - b.at) || (a.seq - b.seq)).forEach((it) => {
+      const k = `${it.name}|${it.day}`;
+      if (!byKey[k]) byKey[k] = { day: it.day, from: it.from, at: it.at, by: it.by };
+      else { byKey[k].at = it.at; byKey[k].by = it.by; }
+    });
+    for (const k in byKey) {
+      const c = byKey[k];
+      const curRec = cur.get(k);
+      if (c.from === shareCellSig(curRec)) continue;
+      out[k] = { at: c.at, by: c.by };
+      const oldSup = String(c.from).split("|")[4] || "";
+      const newSup = curRec && curRec.approvalStatus === "approved" ? (curRec.supportEmp || "") : "";
+      if (oldSup === newSup) continue;
+      for (const sup of [oldSup, newSup]) {
+        const dash = sup.indexOf("-");
+        const hi = dash > 0 ? stores.indexOf(sup.slice(0, dash)) : -1;
+        if (hi >= 0) crossMarks.push({ hi, key: `${sup.slice(dash + 1)}|${c.day}`, at: c.at, by: c.by });
+      }
+    }
+    return out;
+  });
+  crossMarks.forEach(({ hi, key, at, by }) => {
+    const prev = netByStore[hi][key];
+    if (!prev || prev.at < at) netByStore[hi][key] = { at, by };
+  });
+  return netByStore;
+}
+
+// 查看班表（員工視角）：發布後有異動的格子黃底。只回傳「哪幾格」，不給時間、修改者、改前內容（scheduleChanges 前端仍不可讀）。
+// 那週過完（台北時間過了週日）就不再標。
+exports.getScheduleChangeMarks = onCall({ region: "asia-east1" }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "請先登入");
+  const store = fixStoreName((request.data && request.data.store) || "");
+  const wk = String((request.data && request.data.weekStr) || "");
+  if (!store || !/^\d{4}-W\d{2}$/.test(wk)) throw new HttpsError("invalid-argument", "缺少 store / weekStr");
+  const db = getFirestore();
+  const now = Date.now();
+  const sunEnd = shareWeekMondayUTC(wk).getTime() + 7 * 86400000 - 8 * 3600000; // 台北週一 00:00 起算 7 天
+  if (now >= sunEnd) return { marks: [] };
+  const cfg = await db.collection("settings").doc("globalConfig").get().catch(() => null);
+  const stores = ((cfg && cfg.exists ? cfg.data().stores : []) || []).filter((s) => s && s !== "人力支援");
+  const si = stores.indexOf(store);
+  if (si < 0) return { marks: [] };
+  const [wkSnaps, chSnaps] = await Promise.all([
+    Promise.all(stores.map((s) => db.collection("stores").doc(s).collection("weeks").doc(wk).get().catch(() => null))),
+    Promise.all(stores.map((s) => db.collection("scheduleChanges").doc(`${s}__${wk}`).get().catch(() => null))),
+  ]);
+  const wkData = wkSnaps.map((x) => (x && x.exists ? x.data() : {}));
+  if (!(wkData[si].published === true || shareAutoPublished(wk, now))) return { marks: [] };
+  return { marks: Object.keys(netScheduleChanges(stores, wkData, chSnaps)[si]) };
+});
+
 // 分享頁讀資料：GET ?t=<token>
 exports.getScheduleShare = onRequest({ region: "asia-east1" }, async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
@@ -251,39 +314,7 @@ exports.getScheduleShare = onRequest({ region: "asia-east1" }, async (req, res) 
     const wkData = wkSnaps.map((s) => (s && s.exists ? s.data() : {}));
     const visible = wkData.map((d) => d.published === true || shareAutoPublished(wk, now));
 
-    // 每店「淨異動」：同一格取最早的 from 與最後一次的時間／修改者；最後結果與原本相同（改回去）就不算
-    // 待補格被認領／取消時，被派去支援的人在「他自己店」的那一格也要標（crossMarks，最後套上）
-    const crossMarks = [];
-    const netByStore = stores.map((s, si) => {
-      const out = {};
-      const items = (chSnaps[si] && chSnaps[si].exists ? chSnaps[si].data().items : []) || [];
-      const cur = shareCellMap(wkData[si].records);
-      const byKey = {};
-      items.slice().sort((a, b) => (a.at - b.at) || (a.seq - b.seq)).forEach((it) => {
-        const k = `${it.name}|${it.day}`;
-        if (!byKey[k]) byKey[k] = { day: it.day, from: it.from, at: it.at, by: it.by };
-        else { byKey[k].at = it.at; byKey[k].by = it.by; }
-      });
-      for (const k in byKey) {
-        const c = byKey[k];
-        const curRec = cur.get(k);
-        if (c.from === shareCellSig(curRec)) continue;
-        out[k] = { at: c.at, by: c.by };
-        const oldSup = String(c.from).split("|")[4] || "";
-        const newSup = curRec && curRec.approvalStatus === "approved" ? (curRec.supportEmp || "") : "";
-        if (oldSup === newSup) continue;
-        for (const sup of [oldSup, newSup]) {
-          const dash = sup.indexOf("-");
-          const hi = dash > 0 ? stores.indexOf(sup.slice(0, dash)) : -1;
-          if (hi >= 0) crossMarks.push({ hi, key: `${sup.slice(dash + 1)}|${c.day}`, at: c.at, by: c.by });
-        }
-      }
-      return out;
-    });
-    crossMarks.forEach(({ hi, key, at, by }) => {
-      const prev = netByStore[hi][key];
-      if (!prev || prev.at < at) netByStore[hi][key] = { at, by };
-    });
+    const netByStore = netScheduleChanges(stores, wkData, chSnaps);
 
     const storeOut = stores.map((s, si) => {
       const d = wkData[si];
