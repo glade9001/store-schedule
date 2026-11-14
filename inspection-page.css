@@ -158,9 +158,11 @@ table.doc-tbl th.rot{font-size:10.5px;padding:4px 2px;}
   .doc{box-shadow:none;margin:0;padding:0;max-width:none;page-break-after:always;}
   .doc:last-child{page-break-after:auto;}
   @page{size:A4 portrait;margin:10mm;}
-  /* 輪班表是 1500px 寬的產圖，直式印會縮到很小 → 指定橫式頁 */
-  @page shift-land{size:A4 landscape;margin:8mm;}
-  .doc-shift{page:shift-land;padding:0;}
+  /* 輪班表產圖是直的（1500 寬 × 約 2000+ 高，人多更高）→ A4 直式、整張縮進一頁。
+     ⚠️ 不可再用橫式＋寬度撐滿：高度會變約 40cm（像 A3），一週被切成兩頁（2026-11-14 修） */
+  @page shift-a4{size:A4 portrait;margin:8mm;}
+  .doc-shift{page:shift-a4;padding:0;break-inside:avoid;page-break-inside:avoid;text-align:center;}
+  .doc-shift img{width:auto !important;max-width:100% !important;max-height:279mm !important;margin:0 auto;display:block;}
   .doc-img{padding:0;}
   .doc.lscape-page{page-break-after:always;}
   /* 薪資單：一張 A4 兩人，上下各半 */
