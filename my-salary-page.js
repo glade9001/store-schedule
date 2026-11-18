@@ -131,8 +131,11 @@ function calcGross(rec) {
   const rph = isPart ? 0 : hourlyRate(rec);
   const totalH = isPart ? calcEmpHours(rec.empName || rec.name || '').totalH : 0;
   const hourlySupportAmt = isPart ? 0 : Math.round(calcHourlySupportHours(rec.empName || '') * parseFloat(rec.hourlySupportRate || 0));
-  return SalaryCalc.grossFromParts(rec, { role, totalH, hourlySupportAmt, rph });
+  return SalaryCalc.grossFromParts(rec, { role, totalH, hourlySupportAmt, rph, ptmParts: rec.ptm ? ptmParts(rec) : null });
 }
+// 部分工時月薪：店長存檔時已存明細快照（rec.ptmCalc），員工端照快照顯示；沒有快照才即時算
+function ptmParts(rec) { return SalaryCalc.calcPtmParts(rec.empName || rec.name || '', { scheduleData, currentMonth, holidays: TW_HOLIDAYS }); }
+function ptmView(rec) { return rec.ptmCalc || SalaryCalc.ptmBreakdown(rec, ptmParts(rec)); }
 function calcDeduct(rec) { return rec.deductAmt != null ? rec.deductAmt : SalaryCalc.calcDeduct(rec); }
 
 function calcTotal(rec) {
@@ -546,7 +549,10 @@ function renderSalaryForm(emp, rec, idx, readonly) {
   // --- 欄位 2：薪資 ---
   let col2 = `<div class="col-card">
     <div class="col-header c1">2. 薪資項目</div>
-    ${isPart ? `<div class="salary-row"><span class="salary-row-label">本薪 (${totalH}h)</span><span class="salary-row-val">$${Math.round(totalH*(rec.wage||0)).toLocaleString()}</span></div>` : `<div class="salary-row"><span class="salary-row-label">本薪 (底薪)</span><span class="salary-row-val">$${(rec.baseSalary||0).toLocaleString()}</span></div>`}
+    ${rec.ptm ? (() => { const b = ptmView(rec);
+        return `<div style="font-size:12px;color:var(--text-muted);padding-bottom:6px;">約定 ${b.agreed} 天，本月算出勤 ${b.creditDays} 天${b.waivedDays > 0 ? `（其中 ${b.waivedDays} 天店家未排、不扣）` : ''}</div>`
+          + b.items.map(x => `<div class="salary-row"><span class="salary-row-label">${x.label}</span><span class="salary-row-val">${x.amt < 0 ? '−' : ''}$${Math.abs(x.amt).toLocaleString()}</span></div>`).join(''); })()
+    : `${isPart ? `<div class="salary-row"><span class="salary-row-label">本薪 (${totalH}h)</span><span class="salary-row-val">$${Math.round(totalH*(rec.wage||0)).toLocaleString()}</span></div>` : `<div class="salary-row"><span class="salary-row-label">本薪 (底薪)</span><span class="salary-row-val">$${(rec.baseSalary||0).toLocaleString()}</span></div>`}
     ${isPart ? fieldIfExist(`國假加給 (${rec.holidayHours||0}h×1)`, Math.round((rec.wage||0) * parseFloat(rec.holidayHours||0))) : ''}
     ${isPart ? fieldIfExist(`額外時數 (${rec.extraHours||0}h)`, Math.round((rec.wage||0) * parseFloat(rec.extraHours||0))) : ''}
     ${fieldIfExist('全勤獎金', rec.fullAttendBonus)}
@@ -558,7 +564,7 @@ function renderSalaryForm(emp, rec, idx, readonly) {
       return fieldIfExist('平日加班費', Math.ceil(otRate * otMult * parseFloat(rec.otHours||0)));
     })()}
     ${fieldIfExist('時薪支援費', Math.round(calcHourlySupportHours(rec.empName||emp.name||'') * parseFloat(rec.hourlySupportRate||0)))}
-    ${fieldIfExist('補貼/其他', (parseFloat(rec.nightAllowance||0) + parseFloat(rec.laborAllowance||0) + parseFloat(rec.otherBonus||0)))}
+    ${fieldIfExist('補貼/其他', (parseFloat(rec.nightAllowance||0) + parseFloat(rec.laborAllowance||0) + parseFloat(rec.otherBonus||0)))}`}
     <div class="salary-total-row">
       <span class="salary-total-label">應發薪資總計</span>
       <span class="salary-total-val" style="color:var(--primary);">$${gross.toLocaleString()}</span>
@@ -571,6 +577,7 @@ function renderSalaryForm(emp, rec, idx, readonly) {
     <div class="salary-row"><span class="salary-row-label">勞保費</span><span class="salary-row-val">$${(rec.laborInsurance||0).toLocaleString()}</span></div>
     <div class="salary-row"><span class="salary-row-label">健保費 (含眷屬)</span><span class="salary-row-val">$${((rec.healthInsurance||0) + (rec.dependentInsurance||0)).toLocaleString()}</span></div>
     <div class="salary-row"><span class="salary-row-label">勞退個人自提</span><span class="salary-row-val">$${(rec.laborPension||0).toLocaleString()}</span></div>
+    ${fieldIfExist('自願提高投保級距差額', rec.insExtraDeduct)}
     ${fieldIfExist('其他扣款', rec.otherDeduction)}
     <div class="salary-total-row">
       <span class="salary-total-label">代扣合計</span>

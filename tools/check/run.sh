@@ -15,5 +15,8 @@ echo
 echo "⑤ 薪資驗算（已發布月份用現在的公式重算，要跟基準一樣）"
 node tools/check/salary-golden.js --compare || fail=1
 echo
+echo "⑥ 部分工時月薪公式（合約情境手算對照）"
+node tools/check/ptm-check.js || fail=1
+echo
 (( fail )) && echo "❌ 上線前檢查沒過，先修好再上線" || echo "✅ 上線前檢查全部通過"
 exit $fail

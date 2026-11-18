@@ -1249,7 +1249,16 @@ function buildPayslipRows(rec, emp, rate, isPartTime) {
   const otMult2 = hasCustomOt2 ? (rec.customOtX134 !== false ? 1.34 : 1) : 1.34;
   const wdOtAmt2 = isPartTime ? 0 : Math.ceil(otRate2 * otMult2 * parseFloat(rec.otHours||0));
 
-  if(isPartTime) {
+  if(isPartTime && rec.ptm) {
+    const b = (salaryData.status === 'published' && rec.ptmCalc) || ptmBreak(rec); // 已發布讀快照，草稿即時算
+    const ded = [['勞保費', `$${rec.laborInsurance||0}`], [`健保費${rec.hasDependent?'（有眷）':''}`, `$${((rec.healthInsurance||0)+(rec.dependentInsurance||0)).toLocaleString()}`],
+      ['勞退自提', `$${rec.laborPension||0}`]];
+    if(parseFloat(rec.insExtraDeduct||0)>0) ded.push(['自願提高級距差額', `$${parseFloat(rec.insExtraDeduct).toLocaleString()}`]);
+    if(parseFloat(rec.otherDeduction||0)>0) ded.push([rec.otherDeductionNote||'其他扣款', `$${parseFloat(rec.otherDeduction).toLocaleString()}`]);
+    const earn = b.items.map(x => [x.label, `${x.amt<0?'-':''}$${Math.abs(x.amt).toLocaleString()}`]);
+    earn.push([`出勤 ${b.creditDays} 天／約定 ${b.agreed} 天`, '']);
+    for(let i = 0; i < Math.max(earn.length, ded.length); i++) rows.push([...(earn[i]||['','']), ...(ded[i]||['',''])]);
+  } else if(isPartTime) {
     const { totalH } = calcEmpHours(emp.name);
     const wage = parseFloat(rec.wage||0);
     rows.push(['時薪', `$${wage}`, '勞保費', `$${rec.laborInsurance||0}`]);
@@ -1359,7 +1368,35 @@ function calcGross(rec) {
   const rph = isPart ? 0 : hourlyRate(rec);
   const totalH = isPart ? calcEmpHours(rec.empName || rec.name || '').totalH : 0;
   const hourlySupportAmt = isPart ? 0 : Math.round(calcHourlySupportHours(rec.empName || '') * parseFloat(rec.hourlySupportRate || 0));
-  return SalaryCalc.grossFromParts(rec, { role, totalH, hourlySupportAmt, rph });
+  return SalaryCalc.grossFromParts(rec, { role, totalH, hourlySupportAmt, rph, ptmParts: rec.ptm ? calcPtmParts(rec.empName || rec.name || '') : null });
+}
+// 部分工時月薪：本月出勤明細與每一項金額（salary-calc.js）
+function calcPtmParts(empName) { return SalaryCalc.calcPtmParts(empName, { scheduleData, currentMonth, holidays: TW_HOLIDAYS }); }
+function ptmBreak(rec) { return SalaryCalc.ptmBreakdown(rec, calcPtmParts(rec.empName || rec.name || '')); }
+// 主檔有設部分工時月薪 → 這個月的設定（發布後不跟主檔連動）
+function ptmFromEmp(emp, prevPtm) {
+  if(!emp || !emp.ptMonthly) return null;
+  return { monthly: SalaryCalc.ptmMonthlyFor(emp.ptMonthly, currentMonth), agreedDays: parseFloat(emp.ptMonthly.agreedDays) || 15, waiveDays: 0,
+    baseGradeIdx: prevPtm && prevPtm.baseGradeIdx != null ? prevPtm.baseGradeIdx : null };
+}
+// 員工自願提高投保級距：公司多付的差額由員工負擔（勞保＋健保＋勞退），依「實際薪資應投保級距」計算
+function syncInsExtra(rec) {
+  if(!rec.ptm) { rec.insExtraDeduct = 0; return; }
+  const grades = insuranceGradesData?.grades || [];
+  const chosen = rec.insuranceGrade >= 0 ? grades[rec.insuranceGrade] : null;
+  const base = rec.ptm.baseGradeIdx != null && rec.ptm.baseGradeIdx >= 0 ? grades[rec.ptm.baseGradeIdx] : null;
+  rec.insExtraDeduct = SalaryCalc.insExtraFor(chosen, base);
+}
+function onPtmBaseGradeChange(empName, value) {
+  const rec = getSalaryRecord(empName); if(!rec || !rec.ptm) return;
+  rec.ptm.baseGradeIdx = value === '' ? null : parseInt(value);
+  syncInsExtra(rec);
+  _rerenderModal(empName, rec);
+}
+function onPtmWaiveChange(empName, value) {
+  const rec = getSalaryRecord(empName); if(!rec || !rec.ptm) return;
+  rec.ptm.waiveDays = Math.max(0, parseFloat(value) || 0);
+  _rerenderModal(empName, rec);
 }
 
 function calcDeduct(rec) {
@@ -1459,6 +1496,24 @@ function renderInsuranceSection(empName, rec, idx) {
     ? `<div style="font-size:11px;color:#94a3b8;text-align:right;margin-top:-6px;padding-bottom:4px;">
          雇主勞退提撥：$${rec.pensionEr.toLocaleString()}</div>` : '';
 
+  // ── 部分工時月薪：員工自願提高級距，差額由員工負擔 ──
+  let insExtraRow = '';
+  if(rec.ptm) {
+    const bIdx = rec.ptm.baseGradeIdx;
+    const bObj = bIdx != null && bIdx >= 0 ? grades[bIdx] : null;
+    const bLabel = g => g.type === 'partTime' ? `月薪 ${g.wageMin.toLocaleString()}~${g.wageMax.toLocaleString()}` : `$${g.insuredSalary.toLocaleString()}`;
+    insExtraRow = (ro
+      ? `<div class="salary-row"><span class="salary-row-label">依實際薪資應投保級距</span><span class="salary-row-val">${bObj ? bLabel(bObj) : '—'}</span></div>`
+      : `<div class="salary-row"><span class="salary-row-label">依實際薪資應投保級距</span>
+          <select class="salary-input" style="width:150px;font-size:12px;" onchange="onPtmBaseGradeChange('${empName}',this.value)">
+            <option value="">— 跟上面一樣 —</option>
+            <optgroup label="── 部分工時 ──">${ptGrades.map(g=>`<option value="${g.i}" ${bIdx===g.i?'selected':''}>${bLabel(g)}</option>`).join('')}</optgroup>
+            <optgroup label="── 月薪制 ──">${ftGrades.map(g=>`<option value="${g.i}" ${bIdx===g.i?'selected':''}>${bLabel(g)}</option>`).join('')}</optgroup>
+          </select></div>`)
+      + `<div class="salary-row"><span class="salary-row-label">自願提高級距差額 <span style="font-size:10px;color:var(--text-muted);">公司多付的勞保＋健保＋勞退，由員工負擔</span></span>
+          <span class="salary-row-val">$${(rec.insExtraDeduct||0).toLocaleString()}</span></div>`;
+  }
+
   return `<div class="salary-section" style="background:#fef2f2;border-radius:10px;padding:12px;">
     <div class="salary-section-title" style="color:#991b1b;">代扣項目${ro&&!canApprove()?'<span style="font-size:10px;font-weight:500;color:#b91c1c;margin-left:6px;">送審後不可修改</span>':''}</div>
     ${gradeSelector}
@@ -1467,6 +1522,7 @@ function renderInsuranceSection(empName, rec, idx) {
     ${depRow}
     ${pensionRow}
     ${pensionErRow}
+    ${insExtraRow}
   </div>`;
 }
 
@@ -1501,6 +1557,7 @@ function onInsuranceGradeChange(empName, value, idx) {
   const dc = rec.dependentCount || 0;
   rec.dependentInsurance = (rec.healthInsurance || 0) * dc;
   rec.hasDependent = dc > 0;
+  syncInsExtra(rec);
   _rerenderModal(empName, rec);
 }
 
@@ -1826,7 +1883,19 @@ function buildSinglePayslipHtml(emp, y, m) {
   let deductItemRows = '';
   let attendRows = '';
 
-  if(isPartTime) {
+  if(isPartTime && rec.ptm) {
+    const b = (salaryData.status === 'published' && rec.ptmCalc) || ptmBreak(rec); // 已發布讀快照，草稿即時算
+    b.items.forEach(x => { earningRows += row(x.label, `${x.amt<0?'-':''}$${Math.abs(x.amt).toLocaleString()}`); });
+    deductItemRows += row('勞保費', `$${(rec.laborInsurance||0).toLocaleString()}`);
+    deductItemRows += row('健保費', `$${((rec.healthInsurance||0)+(rec.dependentInsurance||0)).toLocaleString()}`);
+    deductItemRows += row('勞退個人自提', `$${(rec.laborPension||0).toLocaleString()}`);
+    if(parseFloat(rec.insExtraDeduct||0)>0) deductItemRows += row('自願提高投保級距差額', `$${parseFloat(rec.insExtraDeduct).toLocaleString()}`);
+    deductItemRows += row(rec.otherDeductionNote||'其他扣款', `$${(parseFloat(rec.otherDeduction)||0).toLocaleString()}`);
+    attendRows += row('約定出勤日數', `${b.agreed} 天`);
+    attendRows += row('實際出勤日數', `${b.creditDays} 天`);
+    if(b.waivedDays > 0) attendRows += row('店家未排、不扣', `${b.waivedDays} 天`);
+    attendRows += row('日薪／時薪', `$${b.dayRate.toLocaleString()}／$${b.hourRate.toLocaleString()}`);
+  } else if(isPartTime) {
     earningRows += row('本薪', `$${Math.round((rec.wage||0)*totalH).toLocaleString()}`);
     earningRows += row('全勤獎金', '$0');
     earningRows += row('職務津貼', `$${(rec.roleBonus||0).toLocaleString()}`);
@@ -2602,7 +2671,8 @@ function buildDefaultRecord(emp) {
       insuranceGrade: prev.insuranceGrade || null,
       laborEr: prev.laborEr || 0, healthEr: prev.healthEr || 0, pensionEr: prev.pensionEr || 0,
       personalSickLeave: 0,
-      otherDeduction: 0, otherDeductionNote: '', otherBonusNote: ''
+      otherDeduction: 0, otherDeductionNote: '', otherBonusNote: '',
+      ...(emp.ptMonthly ? { ptm: ptmFromEmp(emp, prev.ptm), insExtraDeduct: prev.insExtraDeduct || 0 } : {})
     };
   } else {
     // 正職/店長預設
@@ -2635,6 +2705,12 @@ function renderSalaryForm(emp, rec, idx, readonly) {
   const currentRole = emp.role || rec.role || ROLE_PART;
   if(rec.role !== currentRole) rec.role = currentRole; // 同步修正記錄內的職稱（存實際職務）
   rec.payAsPartTime = !!emp.payAsPartTime; // 存計薪模式旗標，供查看薪水/分析讀取
+  // 部分工時月薪：草稿月份跟著主檔設定（月薪、約定天數）；已發布月份不動
+  if(!readonly && salaryData.status !== 'published') {
+    const fresh = ptmFromEmp(emp, rec.ptm);
+    if(fresh) rec.ptm = { ...fresh, waiveDays: rec.ptm?.waiveDays || 0 };
+    else if(rec.ptm) { delete rec.ptm; rec.insExtraDeduct = 0; }
+  }
   const isPart = effSalaryRole(emp, rec) === ROLE_PART; // 計薪模式：payAsPartTime 亦視為工讀
   const isMgr = currentRole === ROLE_MANAGER && !isPart; // 以工讀計薪者不套用店長薪資欄位
   const ro = readonly;
@@ -2655,7 +2731,31 @@ function renderSalaryForm(emp, rec, idx, readonly) {
 
   // === 第一欄：薪資考勤項目 ===
   let col1 = `<div class="col-card"><div class="col-header c1"><span>2. 薪資考勤項目</span><span style="font-size:11px;">(加減項)</span></div>`;
-  if(isPart) {
+  if(isPart && rec.ptm) {
+    const b = ptmBreak(rec), p = b.parts;
+    const money = v => `${v < 0 ? '−' : ''}$${Math.abs(v).toLocaleString()}`;
+    col1 += `<div class="salary-row"><span class="salary-row-label">部分工時月薪 <span style="font-size:10px;color:var(--text-muted);">日薪 $${b.dayRate.toLocaleString()}・時薪 $${b.hourRate.toLocaleString()}</span></span>
+             <span class="salary-row-val">$${(rec.ptm.monthly||0).toLocaleString()}</span></div>`;
+    col1 += `<div style="font-size:12px;color:var(--text-muted);padding:2px 0 6px;">本月算出勤 ${b.creditDays} 天（上班 ${p.workDays} 天 ${p.workH}h${p.leaveDays ? `＋特補休 ${p.leaveDays} 天` : ''}）／約定 ${b.agreed} 天</div>`;
+    b.items.filter(x => ['extra','short','ot1','ot2','holiday','manual'].includes(x.key)).forEach(x => {
+      col1 += `<div class="salary-row"><span class="salary-row-label">${x.label}</span><span class="salary-row-val" style="color:${x.amt<0?'var(--danger,#d93025)':'var(--accent)'};">${money(x.amt)}</span></div>`;
+    });
+    if(b.shortDays > 0) {
+      col1 += ro
+        ? (b.waivedDays > 0 ? `<div class="salary-row"><span class="salary-row-label">店家沒排、不扣</span><span class="salary-row-val">${b.waivedDays} 天</span></div>` : '')
+        : `<div style="background:#fff7ed;border-radius:8px;padding:8px;margin:4px 0;font-size:12px;">
+             少 ${b.shortDays} 天。她請假或自己劃假就照扣；<b>如果是店家沒排給她</b>，在這裡填不扣的天數：
+             <input class="salary-input" type="number" min="0" step="0.5" value="${rec.ptm.waiveDays||''}" placeholder="0" style="width:70px;" onchange="onPtmWaiveChange('${emp.name}',this.value)"> 天
+           </div>`;
+    }
+    col1 += `<div class="salary-row">
+      <span class="salary-row-label">手動調整時數 <span style="font-size:10px;color:var(--text-muted);">× $${b.hourRate}/h，可填負數</span></span>
+      ${ro ? `<span class="salary-row-val">${rec.extraHours||0}h</span>`
+           : `<input class="salary-input" type="number" value="${rec.extraHours||''}" placeholder="0" style="width:80px;" onchange="updateFieldModal('${emp.name}','extraHours',this.value)">`}</div>`;
+    col1 += inp('roleBonus', rec.roleBonus, '職務津貼');
+    if(canApprove() && !ro) col1 += `<div style="text-align:right;margin:4px 0 8px;"><button class="btn-sm" onclick="openPtmSetting('${emp.name}')">部分工時月薪設定</button></div>`;
+  } else if(isPart) {
+    if(canApprove() && !ro) col1 += `<div style="text-align:right;margin:0 0 6px;"><button class="btn-sm" onclick="openPtmSetting('${emp.name}')">改成部分工時月薪</button></div>`;
     col1 += inp('wage', rec.wage, '時薪（元/hr）');
     col1 += `<div class="salary-row"><span class="salary-row-label">本薪小計 <span style="font-size:10px;color:var(--text-muted);">${totalH}h × $${rec.wage||0}</span></span>
              <span class="salary-row-val">$${Math.round(totalH*(rec.wage||0)).toLocaleString()}</span></div>`;
@@ -3474,7 +3574,7 @@ function cyrb53(str, seed=0){
   h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909);
   return (h2>>>0).toString(16).padStart(8,'0')+(h1>>>0).toString(16).padStart(8,'0');
 }
-const PAYHASH_FIELDS = ['baseSalary','fullAttendBonus','mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader','laborAllowance','performance','nightAllowance','roleBonus','otherBonus','annualLeaveEncash','compLeaveEncash','otHours','restDayOtPay','holidayOtPay','hourlySupportRate','hourlySupportAmt','wage','extraHours','holidayHours','lateMinutes','personalSickLeave','laborInsurance','healthInsurance','dependentInsurance','laborPension','otherDeduction'];
+const PAYHASH_FIELDS = ['insExtraDeduct','baseSalary','fullAttendBonus','mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader','laborAllowance','performance','nightAllowance','roleBonus','otherBonus','annualLeaveEncash','compLeaveEncash','otHours','restDayOtPay','holidayOtPay','hourlySupportRate','hourlySupportAmt','wage','extraHours','holidayHours','lateMinutes','personalSickLeave','laborInsurance','healthInsurance','dependentInsurance','laborPension','otherDeduction'];
 function computePayHash(rec){
   const parts = PAYHASH_FIELDS.map(k => `${k}=${rec[k]!=null?rec[k]:''}`);
   parts.push(`_gross=${calcGross(rec)}`);
@@ -3483,8 +3583,10 @@ function computePayHash(rec){
 }
 function stampPayHashes(){
   (salaryData.records||[]).forEach(rec => {
+    if(rec.ptm && salaryData.status !== 'published') syncInsExtra(rec); // 差額先更新，指紋才會包含它
     rec.payHash = computePayHash(rec);
     // 存實發金額快照：my-salary／analytics 直接讀「發給員工多少」，不再各自重算（免飄移/四捨五入分歧）
+    if(rec.ptm) { if(salaryData.status !== 'published' || !rec.ptmCalc) rec.ptmCalc = JSON.parse(JSON.stringify(ptmBreak(rec))); } else delete rec.ptmCalc;
     rec.grossAmt  = calcGross(rec);
     rec.deductAmt = calcDeduct(rec);
     rec.netAmt    = rec.grossAmt - rec.deductAmt;
@@ -4148,4 +4250,73 @@ function toggleCostSection(id) {
   const open = detail.style.display === 'none';
   detail.style.display = open ? 'block' : 'none';
   if(arrow) { arrow.textContent = open ? '⌄' : '›'; arrow.style.transform = open ? 'rotate(90deg)' : ''; }
+}
+
+
+// ===== 部分工時月薪設定（加盟主／admin）=====
+function ptmRowHtml(r) {
+  return `<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
+      <input type="month" class="salary-input ptm-from" value="${r.from||''}" style="width:150px;"> 起
+      <input type="number" class="salary-input ptm-amt" value="${r.amount||''}" placeholder="月薪" style="width:110px;"> 元
+      <button class="btn-sm" type="button" onclick="this.parentElement.remove()">刪</button></div>`;
+}
+function addPtmRow() { document.getElementById('ptmRows').insertAdjacentHTML('beforeend', ptmRowHtml({ from: '', amount: '' })); }
+// 存在員工主檔 employees/{名字}.ptMonthly：約定天數＋各生效月份的月薪。
+// 草稿月份會跟著改；已發布的月份是快照，不受影響（歷史不可變）。
+function openPtmSetting(empName) {
+  const emp = empList.find(e => e.name === empName); if(!emp) return;
+  const cfg = emp.ptMonthly || { agreedDays: 15, monthly: [{ from: currentMonth, amount: 0 }] };
+  const rows = (cfg.monthly || []).slice().sort((a, b) => a.from.localeCompare(b.from));
+  const rowHtml = ptmRowHtml;
+  const box = document.createElement('div');
+  box.id = 'ptmSettingOverlay';
+  box.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:3000;display:flex;align-items:center;justify-content:center;padding:16px;';
+  box.innerHTML = `<div style="background:#fff;border-radius:12px;max-width:460px;width:100%;padding:18px;max-height:90vh;overflow:auto;">
+    <h3 style="margin:0 0 6px;">部分工時月薪：${getDisplayName(empName)}</h3>
+    <p style="font-size:13px;color:#64748b;margin:0 0 12px;">照勞動契約填。日薪＝月薪÷約定天數、時薪＝日薪÷8；多上一天加一日薪、少一天扣一日薪。已發布的月份不會改。</p>
+    <label style="display:block;margin-bottom:10px;">每月約定天數 <input type="number" id="ptmAgreed" class="salary-input" value="${cfg.agreedDays||15}" min="1" max="31" style="width:80px;"> 天（每天 8 小時）</label>
+    <div style="font-weight:700;margin-bottom:6px;">月薪（可以先填好之後的調薪）</div>
+    <div id="ptmRows">${rows.map(rowHtml).join('')}</div>
+    <button class="btn-sm" type="button" onclick="addPtmRow()">加一筆調薪</button>
+    <div id="ptmErr" style="color:#d93025;font-size:13px;margin-top:8px;"></div>
+    <div style="display:flex;gap:8px;justify-content:space-between;margin-top:16px;">
+      ${emp.ptMonthly ? `<button class="btn-sm" type="button" style="color:#d93025;" onclick="savePtmSetting('${empName}', true)">取消部分工時月薪（回到時薪）</button>` : '<span></span>'}
+      <span><button class="btn-sm" type="button" onclick="document.getElementById('ptmSettingOverlay').remove()">先不要</button>
+      <button class="btn-sm primary" type="button" onclick="savePtmSetting('${empName}', false)">儲存</button></span>
+    </div></div>`;
+  document.getElementById('ptmSettingOverlay')?.remove();
+  document.body.appendChild(box);
+}
+
+async function savePtmSetting(empName, remove) {
+  const emp = empList.find(e => e.name === empName); if(!emp) return;
+  const err = document.getElementById('ptmErr');
+  let value = null;
+  if(!remove) {
+    const agreed = parseInt(document.getElementById('ptmAgreed').value);
+    const monthly = [...document.querySelectorAll('#ptmRows > div')].map(d => ({
+      from: d.querySelector('.ptm-from').value, amount: Math.round(parseFloat(d.querySelector('.ptm-amt').value) || 0) }))
+      .filter(r => r.from || r.amount);
+    if(!(agreed >= 1 && agreed <= 31)) { err.textContent = '約定天數要在 1～31 天之間'; return; }
+    if(!monthly.length || monthly.some(r => !/^\d{4}-\d{2}$/.test(r.from) || !(r.amount > 0))) { err.textContent = '每一筆月薪都要有生效月份和金額'; return; }
+    if(new Set(monthly.map(r => r.from)).size !== monthly.length) { err.textContent = '同一個月份不能填兩筆'; return; }
+    monthly.sort((a, b) => a.from.localeCompare(b.from));
+    value = { agreedDays: agreed, monthly };
+  }
+  try {
+    const ref = window.db.collection('stores').doc(currentStore).collection('employees').doc(empName);
+    await ref.update({ ptMonthly: value ? value : firebase.firestore.FieldValue.delete() });
+    if(value) emp.ptMonthly = value; else delete emp.ptMonthly;
+    document.getElementById('ptmSettingOverlay')?.remove();
+    const rec = getSalaryRecord(empName);
+    if(rec && salaryData.status !== 'published') {
+      if(value) rec.ptm = ptmFromEmp(emp, rec.ptm); else { delete rec.ptm; rec.insExtraDeduct = 0; }
+      syncInsExtra(rec);
+      _rerenderModal(empName, rec);
+      triggerAutoSave();
+    }
+    showToast(value ? '已儲存部分工時月薪設定' : '已改回時薪計算');
+  } catch(e) {
+    err.textContent = '沒有存成功：' + (e.message || e.code || e);
+  }
 }

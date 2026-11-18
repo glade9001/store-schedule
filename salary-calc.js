@@ -34,7 +34,8 @@ window.SalaryCalc = (function(){
   }
 
   function calcDeduct(rec){
-    return n(rec.laborInsurance) + n(rec.healthInsurance) + n(rec.dependentInsurance) + n(rec.laborPension) + n(rec.otherDeduction);
+    // insExtraDeduct：員工自願提高投保級距時，公司多付的差額（只有部分工時月薪的人會有，其他人是 0）
+    return n(rec.laborInsurance) + n(rec.healthInsurance) + n(rec.dependentInsurance) + n(rec.laborPension) + n(rec.otherDeduction) + n(rec.insExtraDeduct);
   }
 
   // 本月正常工時（跳過休假/isHourly；跨店以 recBelongsTo 認人；按日去重）。ctx={scheduleData,currentMonth}
@@ -90,7 +91,8 @@ window.SalaryCalc = (function(){
 
   // 純算術：給定 role / totalH / hourlySupportAmt / rph → 應發薪資（與 salary.html calcGross 逐字一致）
   function grossFromParts(rec, parts){
-    const { role, totalH, hourlySupportAmt, rph } = parts || {};
+    const { role, totalH, hourlySupportAmt, rph, ptmParts } = parts || {};
+    if(rec.ptm && ptmParts) return ptmBreakdown(rec, ptmParts).gross; // 部分工時月薪：照合約另算（見下方 ptmBreakdown）
     const isPart = role === ROLE_PART;
     if(isPart){
       const wage = n(rec.wage);
@@ -222,6 +224,85 @@ window.SalaryCalc = (function(){
     return Math.round(autoH * 10) / 10;
   }
 
+  // ===== 部分工時月薪（2026-11 新增）=====
+  // 合約：每月約定 N 天（例 15 天）×8 小時，月薪固定；日薪＝月薪÷N，時薪＝日薪÷8。
+  // 多上一天加一日薪、少一天扣一日薪（店家自己沒排滿的天數店長可標「不扣」）；
+  // 特休、補休當天算出勤；病假、事假照合約跟沒上班一樣扣。
+  // 一天超過 8 小時：第 9～10 小時 × 4/3，第 11～12 小時 × 5/3；國定假日出勤另加一日薪。
+  // 主檔設定 emp.ptMonthly = { agreedDays: 15, monthly: [{ from: 'YYYY-MM', amount }] }；
+  // 每月薪資紀錄存 rec.ptm = { monthly, agreedDays, waiveDays }，發布後不再跟主檔連動（歷史不可變）。
+
+  // 某月適用的月薪：monthly 依生效月份排，取最後一筆 from <= ym
+  function ptmMonthlyFor(cfg, ym){
+    const list = ((cfg && cfg.monthly) || []).filter(x => x && x.from && x.from <= ym).sort((a, b) => a.from.localeCompare(b.from));
+    return list.length ? n(list[list.length - 1].amount) : 0;
+  }
+
+  // 本月出勤明細（跨店支援也算；同一天只算一次；時薪另計的班不算）。ctx={scheduleData,currentMonth,holidays}
+  function calcPtmParts(empName, ctx){
+    const cm = Number((ctx.currentMonth || '').split('-')[1]);
+    const dayH = new Map(), leave = new Set();
+    Object.entries(ctx.scheduleData || {}).forEach(([ws, recs]) => {
+      (recs || []).forEach(r => {
+        const md = recMonthDay(ws, r);
+        if(!md || md[0] !== cm) return;
+        const key = `${md[0]}/${md[1]}`;
+        if((r.shift === '特休' || r.shift === '補休') && r.name === empName) { leave.add(key); return; }
+        if(!recBelongsTo(r, empName) || !isWorkShift(r) || r.isHourly) return;
+        if(!dayH.has(key)) dayH.set(key, n(r.actualHours));
+      });
+    });
+    let workH = 0, ot1 = 0, ot2 = 0;
+    dayH.forEach(h => {
+      workH += Math.min(h, 8);
+      ot1 += Math.min(Math.max(h - 8, 0), 2);
+      ot2 += Math.min(Math.max(h - 10, 0), 2);
+    });
+    leave.forEach(k => { if(dayH.has(k)) leave.delete(k); }); // 同一天又上班又請假，以上班算
+    const holidayDays = detectHolidayWork(empName, ctx.currentMonth, ctx).length;
+    const r1 = x => Math.round(x * 10) / 10;
+    return { workDays: dayH.size, workH: r1(workH), leaveDays: leave.size, ot1: r1(ot1), ot2: r1(ot2), holidayDays };
+  }
+
+  // 依合約算出每一項（給薪資頁、薪資單、員工端顯示用；gross 就是這些加總）
+  function ptmBreakdown(rec, parts){
+    const p = parts || {};
+    const cfg = rec.ptm || {};
+    const monthly = n(cfg.monthly), agreed = n(cfg.agreedDays) || 15;
+    const dayRate = monthly / agreed, hourRate = dayRate / 8;
+    const creditH = n(p.workH) + n(p.leaveDays) * 8;            // 算出勤的時數
+    const extraH = Math.max(0, creditH - agreed * 8);
+    const shortH = Math.max(0, agreed * 8 - creditH);
+    const waiveH = Math.min(shortH, n(cfg.waiveDays) * 8);       // 店家沒排、不扣
+    const items = [
+      { key: 'monthly', label: `月薪（約定 ${agreed} 天）`, amt: monthly },
+      extraH > 0 && { key: 'extra', label: `多出勤 ${r1d(extraH / 8)} 天`, amt: Math.round(extraH * hourRate) },
+      shortH - waiveH > 0 && { key: 'short', label: `少出勤 ${r1d((shortH - waiveH) / 8)} 天`, amt: -Math.round((shortH - waiveH) * hourRate) },
+      n(p.ot1) > 0 && { key: 'ot1', label: `延長工時 ${p.ot1}h × 4/3`, amt: Math.round(n(p.ot1) * hourRate * 4 / 3) },
+      n(p.ot2) > 0 && { key: 'ot2', label: `延長工時 ${p.ot2}h × 5/3`, amt: Math.round(n(p.ot2) * hourRate * 5 / 3) },
+      n(p.holidayDays) > 0 && { key: 'holiday', label: `國定假日出勤 ${p.holidayDays} 天加給`, amt: Math.round(n(p.holidayDays) * dayRate) },
+      n(rec.extraHours) !== 0 && { key: 'manual', label: `手動調整 ${rec.extraHours}h`, amt: Math.round(n(rec.extraHours) * hourRate) },
+    ].filter(Boolean);
+    // 其他加項（津貼、獎金、休息日加班、特補休結算）照表單填的金額
+    [['roleBonus', '職務津貼'], ['laborAllowance', '勞務津貼'], ['performance', '績效津貼'], ['nightAllowance', '夜點費'],
+     ['otherBonus', rec.otherBonusNote ? `其他獎金/津貼（${rec.otherBonusNote}）` : '其他獎金/津貼'], ['restDayOtPay', '休息日加班'],
+     ['annualLeaveEncash', '特休折現'], ['compLeaveEncash', '補休折現']]
+      .forEach(([k, label]) => { if(n(rec[k]) > 0) items.push({ key: k, label, amt: Math.round(n(rec[k])) }); });
+    if(n(rec.personalSickLeave) !== 0) items.push({ key: 'sick', label: '事病假扣款', amt: -Math.abs(Math.round(n(rec.personalSickLeave))) });
+    const gross = Math.max(0, items.reduce((s, x) => s + x.amt, 0));
+    return { items, gross, dayRate: Math.round(dayRate * 100) / 100, hourRate: Math.round(hourRate * 100) / 100,
+      agreed, creditDays: r1d(creditH / 8), shortDays: r1d(shortH / 8), waivedDays: r1d(waiveH / 8), parts: p };
+  }
+  function r1d(x){ return Math.round(x * 10) / 10; }
+
+  // 勞健保自願提高級距：公司因此多付的（勞保＋健保＋勞退）差額由員工負擔（合約第 6 條第 3 款）
+  function insExtraFor(chosen, base){
+    if(!chosen || !base) return 0;
+    const er = g => n(g.laborEr) + n(g.healthEr) + n(g.pension);
+    return Math.max(0, Math.round(er(chosen) - er(base)));
+  }
+
   return { ROLE_PART, getWeekDatesFromStr, recBelongsTo, hourlyRate, calcDeduct, calcEmpHours, calcHourlySupportHours, grossFromParts,
-    effSalaryRole, monthHolidays, week1MondayOf, weekStrOfDate, monthWeeks, calcMonthOffDays, detectHolidayWork, calcEmpHolidayHours };
+    effSalaryRole, monthHolidays, week1MondayOf, weekStrOfDate, monthWeeks, calcMonthOffDays, detectHolidayWork, calcEmpHolidayHours,
+    ptmMonthlyFor, calcPtmParts, ptmBreakdown, insExtraFor };
 })();
