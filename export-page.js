@@ -199,7 +199,8 @@ const calcGross = (rec, role) => {
     const w=n(rec.wage), h=n(rec.hours||0);
     return Math.max(0,
       Math.round(w*h)+Math.round(w*n(rec.holidayHours))+
-      n(rec.roleBonus)+Math.round(n(rec.extraHours)*w)-
+      n(rec.roleBonus)+Math.round(n(rec.extraHours)*w)+
+      (rec.nightMode ? n(rec.nightAllowance) : 0)-   // 夜班津貼：設定過發法才算（同 salary-calc）
       Math.abs(n(rec.personalSickLeave)));
   }
   const mgmt=['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+n(rec[k]),0);
@@ -892,6 +893,7 @@ function buildSalaryRow(seq,emp,rec,NC){
   } else {
     row[5]=n(rec.hours||0)||'';
     row[6]=Math.round(n(rec.wage)*n(rec.hours||0))||'';
+    if(rec.nightMode) row[11]=n(rec.nightAllowance)||'';
     row[13]=n(rec.roleBonus)||'';
   }
   row[14]=n(rec.annualLeaveEncash)||'';

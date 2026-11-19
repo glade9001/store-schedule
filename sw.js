@@ -1,7 +1,7 @@
 // ===== 莉學商行 Service Worker =====
 // 策略：HTML 永遠走網路，靜態資源才快取
 
-const CACHE_NAME = 'lixue-static-v18';   // v18（2026-11-11）：清掉被誤存的雲端函式回應（分享連結卡在舊週）
+const CACHE_NAME = 'lixue-static-v19';   // v19（2026-11-19）：夜班津貼（shift-utils／salary-calc 新函式）
 
 // 快取靜態資源（相對於 sw.js 位置，故 web.app 與 github.io 皆適用）
 const STATIC_ASSETS = [

@@ -55,11 +55,14 @@
     if(rec.grossAmt != null) return n(rec.grossAmt); // ✅ 讀 salary.html 存的實發快照
     if(role==='工讀'){
       const w=n(rec.wage),h=n(rec.hours||0);
-      return Math.max(0, Math.round(w*h)+Math.round(w*n(rec.holidayHours))+n(rec.roleBonus)+Math.round(n(rec.extraHours)*w)-Math.abs(n(rec.personalSickLeave)));
+      const night = rec.nightMode ? n(rec.nightAllowance) : 0; // 夜班津貼：設定過發法才算（同 salary-calc grossFromParts）
+      return Math.max(0, Math.round(w*h)+Math.round(w*n(rec.holidayHours))+n(rec.roleBonus)+night+Math.round(n(rec.extraHours)*w)-Math.abs(n(rec.personalSickLeave)));
     }
     const mgmt=['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+n(rec[k]),0);
     return Math.max(0, n(rec.baseSalary)+n(rec.fullAttendBonus)+mgmt+n(rec.laborAllowance)+n(rec.performance)+n(rec.nightAllowance)+n(rec.roleBonus)+n(rec.otherBonus)+n(rec.annualLeaveEncash)+n(rec.compLeaveEncash)+calcOtPay(rec)+n(rec.restDayOtPay)+n(rec.holidayOtPay)+n(rec.hourlySupportAmt||0)-Math.round(calcHourlyRate(rec)/60*n(rec.lateMinutes))-Math.abs(n(rec.personalSickLeave)));
   };
+  // 單一支援班的夜班津貼成本（salary-calc.js／shift-utils.js 沒載入時當 0）
+  const nightCostOf = (rec, shift) => (window.SalaryCalc && SalaryCalc.nightCostOfShift) ? SalaryCalc.nightCostOfShift(rec, shift) : 0;
   const calcDeduct = rec => rec.deductAmt != null ? n(rec.deductAmt) : (n(rec.laborInsurance)+n(rec.healthInsurance)+n(rec.dependentInsurance)+n(rec.laborPension)+n(rec.otherDeduction));
   const calcNet = (rec,role) => calcGross(rec,role)-calcDeduct(rec);
   const calcPension = (rec,role) => (rec.insuranceGrade!=null)?n(rec.pensionEr||0):(role==='工讀'?0:Math.round((n(rec.baseSalary)+n(rec.fullAttendBonus))*0.06));
@@ -220,6 +223,7 @@
                   fromStore: homeStore,  // 員工的本店
                   toStore: store,        // 去支援的門市（此記錄所在門市）
                   hours: parseFloat(r.actualHours||0),
+                  shift: r.shift,
                   day: r.day
                 });
               });
@@ -402,7 +406,8 @@
           const attend = n(empRec?.fullAttendBonus || 0) || n(empData?.fullAttendBonus || 0);
           const wage = n(empRec?.wage || 0) || n(empData?.wage || 0);
           const hrRate = isPart ? wage : (base + attend) / 30 / 8;
-          const amt = Math.round(hrRate * s.hours);
+          // 夜班津貼（每晚／每小時發法）成本歸實際上班那店，同薪資頁 getSupportOut／getSupportIn
+          const amt = Math.round(hrRate * s.hours) + nightCostOf(empRec, s.shift);
           const activeAtFrom = isPaidByStoreInMonth(empName, s.fromStore, ym, allEmps);
           const activeAtTo = isPaidByStoreInMonth(empName, s.toStore, ym, allEmps);
           if (activeAtFrom && fs.includes(s.fromStore)) outM[s.fromStore][ym] = (outM[s.fromStore][ym] || 0) + amt;
@@ -535,7 +540,7 @@
       e.otH += n(rec.otHours); e.otPay += calcOtPay(rec);
       e.holH += n(rec.holidayHours); e.holPay += role === '工讀' ? Math.round(n(rec.wage) * n(rec.holidayHours)) : n(rec.holidayOtPay);
       if (ym >= e.lastYm) { e.lastYm = ym; e.store = rec._store; e.role = (emp && emp.role) || rec.role || ''; e.part = part; e.hrRate = part ? n(rec.wage) : (n(rec.baseSalary) + n(rec.fullAttendBonus)) / 30 / 8; }
-      (supportMap[ym]?.[nm] || []).forEach(s => { e.supH += s.hours; e.supCost += Math.round((part ? n(rec.wage) : (n(rec.baseSalary) + n(rec.fullAttendBonus)) / 30 / 8) * s.hours); });
+      (supportMap[ym]?.[nm] || []).forEach(s => { e.supH += s.hours; e.supCost += Math.round((part ? n(rec.wage) : (n(rec.baseSalary) + n(rec.fullAttendBonus)) / 30 / 8) * s.hours) + nightCostOf(rec, s.shift); });
     }));
     // 排班工時：每人每週明細（發薪歸屬店）加總區間內的週
     const r0 = ST.range.start + '-01';

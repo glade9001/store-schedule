@@ -66,6 +66,29 @@ function shiftIsOvernight(shiftStr) {
 }
 
 /**
+ * 夜班判定（夜班津貼用）：某一段班「整段蓋住凌晨 00:00–06:00」才算一晚。
+ *   算：23-07、23.5-07.5、23-08、00-08、20.5-07、21.5-09.5
+ *   不算：聯鑫晚班 16-00、17-01、18-03、18-05（2026-11-19 使用者確認）
+ * 一個 00-08 這種「當天凌晨開始」的班，視為前一晚延續（時刻 +24 再判斷）。
+ * nightH＝落在 23:00–07:00 的時數（只算符合的那幾段），給「每小時」發法用。
+ * ⚠️ 後端 functions/salary.js 有一份同語意副本（perfSnapshot 支援成本用），改這裡請一併改那邊。
+ * @returns {{isNight:boolean, nightH:number}}
+ */
+function shiftNightInfo(shiftStr) {
+  var segs = parseShiftSegs(shiftStr);
+  var isNight = false, nightH = 0;
+  for (var i = 0; i < segs.length; i++) {
+    var a = segs[i].startH, b = segs[i].endH;
+    if (a < 7 && b <= 24) { a += 24; b += 24; } // 凌晨開始的班 → 當成前一晚延續
+    if (a <= 24 && b >= 30) {
+      isNight = true;
+      nightH += Math.max(0, Math.min(b, 31) - Math.max(a, 23));
+    }
+  }
+  return { isNight: isNight, nightH: Math.round(nightH * 100) / 100 };
+}
+
+/**
  * 台北時區絕對毫秒：dateStr 當日 00:00 起算第 hours 小時
  * hours 可含小數、可 > 24（跨夜班的下班時刻）
  */

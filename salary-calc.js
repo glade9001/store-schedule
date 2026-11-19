@@ -89,6 +89,73 @@ window.SalaryCalc = (function(){
     return Math.round(total * 10) / 10;
   }
 
+  // ===== 夜班津貼（2026-11-19）=====
+  // 發法 rec.nightMode：'' 或沒有＝舊資料（nightAllowance 是手填的固定金額）／'none' 沒有／
+  //   'fixed' 固定每月 nightRate／'perNight' 每晚 nightRate／'perHour' 每小時 nightRate（只算 23:00–07:00）
+  // 夜班認定用 shift-utils.js 的 shiftNightInfo（整段蓋住凌晨 0–6 點才算一晚）。
+  // 跨店支援的夜班也算進本人（recBelongsTo），同一天只算一次。ctx={scheduleData,currentMonth}
+  const NIGHT_MODES = { none: '沒有', fixed: '固定每月', perNight: '每晚', perHour: '每小時' };
+  function nightInfoOf(shift){
+    return (typeof shiftNightInfo === 'function') ? shiftNightInfo(shift) : { isNight: false, nightH: 0 };
+  }
+  function calcNightShifts(empName, ctx){
+    const cm = parseInt((ctx.currentMonth||'').split('-')[1], 10);
+    const byDay = {};
+    Object.entries(ctx.scheduleData || {}).forEach(([ws, weekRecs]) => {
+      (weekRecs || []).forEach(r => {
+        if(!recBelongsTo(r, empName)) return;
+        // 去別店支援的班要已核准才算（同成本頁 getSupportOut 的條件）
+        if(r.name !== empName && r.supportEmp && r.approvalStatus !== 'approved') return;
+        const info = nightInfoOf(r.shift);
+        if(!info.isNight) return;
+        const dIdx = DAY.indexOf(r.day);
+        if(dIdx < 0) return;
+        const dateStr = getWeekDatesFromStr(ws)[dIdx];
+        if(!dateStr) return;
+        const [dm] = dateStr.split('/').map(Number);
+        if(dm !== cm) return;
+        // 同一天同一晚有兩筆（舊式「支援X」顯示格＋對方店正式格）只算一次，取夜間時數較多的。
+        // 00-08 這種凌晨開始的班是「前一晚」，跟當天 23-07 是不同的兩晚，key 要分開（Codex 審查 2026-11-19）。
+        // 月份仍照班表那一天歸（與工時、薪資同一把尺）。
+        const segs = (typeof parseShiftSegs === 'function') ? parseShiftSegs(r.shift) : [];
+        const early = segs.length && segs[0].startH < 7 && segs[0].endH <= 24;
+        const key = dateStr + (early ? '<' : '>');
+        if(!byDay[key] || info.nightH > byDay[key].h)
+          byDay[key] = { date: dateStr, store: r._store || '', shift: r.shift, h: info.nightH };
+      });
+    });
+    const list = Object.values(byDay).sort((a, b) => {
+      const [am, ad] = a.date.split('/').map(Number), [bm, bd] = b.date.split('/').map(Number);
+      return am - bm || ad - bd;
+    });
+    return { days: list.length, hours: Math.round(list.reduce((s, x) => s + x.h, 0) * 100) / 100, list };
+  }
+  // 依發法算金額；舊資料（沒有 nightMode）照原本手填的金額
+  function nightAmount(rec, info){
+    const mode = rec.nightMode, rate = n(rec.nightRate);
+    if(!mode) return n(rec.nightAllowance);
+    if(mode === 'fixed') return Math.round(rate);
+    if(mode === 'perNight') return Math.round(rate * n(info && info.days));
+    if(mode === 'perHour') return Math.round(rate * n(info && info.hours));
+    return 0;
+  }
+  // 單一班的夜班津貼（跨店支援成本歸上班那店用）：固定每月的人不因單一班多花錢
+  function nightCostOfShift(rec, shift){
+    if(!rec) return 0;
+    const info = nightInfoOf(shift);
+    if(!info.isNight) return 0;
+    if(rec.nightMode === 'perNight') return Math.round(n(rec.nightRate));
+    if(rec.nightMode === 'perHour') return Math.round(n(rec.nightRate) * info.nightH);
+    return 0;
+  }
+  // 薪資單／明細的文字說明
+  function nightLabel(rec){
+    const mode = rec.nightMode, rate = n(rec.nightRate);
+    if(mode === 'perNight') return `夜班津貼（${n(rec.nightDays)} 晚 × $${rate}）`;
+    if(mode === 'perHour') return `夜班津貼（${n(rec.nightHours)} 小時 × $${rate}）`;
+    return '夜班津貼';
+  }
+
   // 純算術：給定 role / totalH / hourlySupportAmt / rph → 應發薪資（與 salary.html calcGross 逐字一致）
   function grossFromParts(rec, parts){
     const { role, totalH, hourlySupportAmt, rph, ptmParts } = parts || {};
@@ -96,7 +163,9 @@ window.SalaryCalc = (function(){
     const isPart = role === ROLE_PART;
     if(isPart){
       const wage = n(rec.wage);
-      const gross = Math.round(wage * (n(totalH) + n(rec.extraHours)) + wage * n(rec.holidayHours) * 1 + n(rec.roleBonus));
+      // 夜班津貼：只有設定過發法的人才算進來（2026-11-19 新功能）。舊資料維持原本公式，已發布月份重算不變。
+      const night = rec.nightMode ? n(rec.nightAllowance) : 0;
+      const gross = Math.round(wage * (n(totalH) + n(rec.extraHours)) + wage * n(rec.holidayHours) * 1 + n(rec.roleBonus) + night);
       return Math.max(0, gross - Math.abs(n(rec.personalSickLeave)));
     } else {
       const base = n(rec.baseSalary), attend = n(rec.fullAttendBonus);
@@ -284,7 +353,7 @@ window.SalaryCalc = (function(){
       n(rec.extraHours) !== 0 && { key: 'manual', label: `手動調整 ${rec.extraHours}h`, amt: Math.round(n(rec.extraHours) * hourRate) },
     ].filter(Boolean);
     // 其他加項（津貼、獎金、休息日加班、特補休結算）照表單填的金額
-    [['roleBonus', '職務津貼'], ['laborAllowance', '勞務津貼'], ['performance', '績效津貼'], ['nightAllowance', '夜點費'],
+    [['roleBonus', '職務津貼'], ['laborAllowance', '勞務津貼'], ['performance', '績效津貼'], ['nightAllowance', nightLabel(rec)],
      ['otherBonus', rec.otherBonusNote ? `其他獎金/津貼（${rec.otherBonusNote}）` : '其他獎金/津貼'], ['restDayOtPay', '休息日加班'],
      ['annualLeaveEncash', '特休折現'], ['compLeaveEncash', '補休折現']]
       .forEach(([k, label]) => { if(n(rec[k]) > 0) items.push({ key: k, label, amt: Math.round(n(rec[k])) }); });
@@ -302,7 +371,7 @@ window.SalaryCalc = (function(){
     return Math.max(0, Math.round(er(chosen) - er(base)));
   }
 
-  return { ROLE_PART, getWeekDatesFromStr, recBelongsTo, hourlyRate, calcDeduct, calcEmpHours, calcHourlySupportHours, grossFromParts,
+  return { ROLE_PART, NIGHT_MODES, calcNightShifts, nightAmount, nightCostOfShift, nightLabel, getWeekDatesFromStr, recBelongsTo, hourlyRate, calcDeduct, calcEmpHours, calcHourlySupportHours, grossFromParts,
     effSalaryRole, monthHolidays, week1MondayOf, weekStrOfDate, monthWeeks, calcMonthOffDays, detectHolidayWork, calcEmpHolidayHours,
     ptmMonthlyFor, calcPtmParts, ptmBreakdown, insExtraFor };
 })();

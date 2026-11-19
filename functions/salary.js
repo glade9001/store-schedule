@@ -240,6 +240,32 @@ exports.onPnlSubmitted = onDocumentWritten(
   }
 );
 
+// ===== 夜班判定（與前端 shift-utils.js shiftNightInfo 同語意，改一邊請一併改另一邊）=====
+// 一段班整段蓋住凌晨 00:00–06:00 才算一晚；00-08 這種凌晨開始的班當成前一晚延續。nightH＝落在 23:00–07:00 的時數。
+function shiftNightInfoSrv(shiftStr) {
+  const s = String(shiftStr == null ? "" : shiftStr).trim();
+  if (!s || !/\d/.test(s)) return { isNight: false, nightH: 0 };
+  let isNight = false, nightH = 0;
+  for (const seg of s.split(",")) {
+    const m = seg.trim().match(/^(\d{1,2}(?:\.\d+)?)-(\d{1,2}(?:\.\d+)?)$/);
+    if (!m) return { isNight: false, nightH: 0 };
+    let a = parseFloat(m[1]), b = parseFloat(m[2]);
+    if (b <= a) b += 24;
+    if (a < 7 && b <= 24) { a += 24; b += 24; }
+    if (a <= 24 && b >= 30) { isNight = true; nightH += Math.max(0, Math.min(b, 31) - Math.max(a, 23)); }
+  }
+  return { isNight, nightH };
+}
+// 單一支援班的夜班津貼成本（每晚／每小時發法才有；固定每月不跟班走）＝ 前端 SalaryCalc.nightCostOfShift
+function nightCostOfShiftSrv(e, shift) {
+  if (!e || !e.nightMode) return 0;
+  const info = shiftNightInfoSrv(shift);
+  if (!info.isNight) return 0;
+  if (e.nightMode === "perNight") return Math.round(e.nightRate || 0);
+  if (e.nightMode === "perHour") return Math.round((e.nightRate || 0) * info.nightH);
+  return 0;
+}
+
 // ===== 經營績效月快照：某月薪資發布 → 重算該月「全門市」perfSnapshot（含支援成本/工時）=====
 async function computeMonthSnapshots(db, month) {
   const [y, mo] = month.split("-").map(Number);
@@ -259,6 +285,7 @@ async function computeMonthSnapshots(db, month) {
       (sd.data().records || []).forEach((r) => {
         g += (r.grossAmt || 0); er += (r.laborEr || 0) + (r.healthEr || 0) + (r.pensionEr || 0);
         rate[s][r.empName] = rate[s][r.empName] || {}; rate[s][r.empName].role = r.role;
+        if (r.nightMode) { rate[s][r.empName].nightMode = r.nightMode; rate[s][r.empName].nightRate = Number(r.nightRate || 0); }
         if (/正職|店長|副店長|加盟主/.test(String(r.role || ""))) rate[s][r.empName].h = ((r.baseSalary || 0) + (r.fullAttendBonus || 0)) / 240;
       });
       ownPay[s] = g + er;
@@ -280,7 +307,9 @@ async function computeMonthSnapshots(db, month) {
         const h = parseFloat(r.actualHours || 0);
         if (String(r.name || "").startsWith("🆘") && r.supportEmp) {
           const i = r.supportEmp.indexOf("-"); const home = r.supportEmp.slice(0, i), per = r.supportEmp.slice(i + 1);
-          const c = hourly(home, per) * h; supIn[s].h += h; supIn[s].c += c;
+          // 夜班津貼（每晚／每小時）成本歸實際上班那店（2026-11-19）
+          // 夜班津貼只算已核准的支援（同前端 getSupportOut／calcNightShifts）
+          const c = hourly(home, per) * h + (r.approvalStatus === "approved" ? nightCostOfShiftSrv(rate[home] && rate[home][per], r.shift) : 0); supIn[s].h += h; supIn[s].c += c;
           if (supOut[home]) { supOut[home].h += h; supOut[home].c += c; }
         } else if (!String(r.name || "").startsWith("🆘")) {
           const loc = r.location || ""; if (loc && loc !== "本店") continue;

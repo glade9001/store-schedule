@@ -1272,6 +1272,8 @@ function buildPayslipRows(rec, emp, rate, isPartTime) {
       rows.push([`額外時數 ${rec.extraHours}h`, `$${Math.round(wage*(rec.extraHours||0)).toLocaleString()}`, '', '']);
     if(parseFloat(rec.roleBonus||0)>0)
       rows.push(['職務津貼', `$${parseFloat(rec.roleBonus).toLocaleString()}`, '', '']);
+    if(rec.nightMode && parseFloat(rec.nightAllowance||0)>0)
+      rows.push([SalaryCalc.nightLabel(rec), `$${parseFloat(rec.nightAllowance).toLocaleString()}`, '', '']);
     if(parseFloat(rec.otherBonus||0)>0)
       rows.push([rec.otherBonusNote ? `其他津貼（${rec.otherBonusNote}）` : '其他津貼', `$${parseFloat(rec.otherBonus).toLocaleString()}`, '', '']);
     if(parseFloat(rec.personalSickLeave||0)>0)
@@ -1299,7 +1301,7 @@ function buildPayslipRows(rec, emp, rate, isPartTime) {
     if(parseFloat(rec.laborAllowance||0)>0)
       rows.push(['勞務津貼', `$${parseFloat(rec.laborAllowance).toLocaleString()}`, '', '']);
     if(parseFloat(rec.nightAllowance||0)>0)
-      rows.push(['夜點費', `$${parseFloat(rec.nightAllowance).toLocaleString()}`, '', '']);
+      rows.push([SalaryCalc.nightLabel(rec), `$${parseFloat(rec.nightAllowance).toLocaleString()}`, '', '']);
     if(parseFloat(rec.otherBonus||0)>0)
       rows.push([rec.otherBonusNote ? `其他獎金/津貼（${rec.otherBonusNote}）` : '其他獎金/津貼', `$${parseFloat(rec.otherBonus).toLocaleString()}`, '', '']);
     if(parseFloat(rec.annualLeaveEncash||0)>0)
@@ -1358,9 +1360,21 @@ function buildAttendanceInfo(rec, emp, isPartTime) {
   }
 }
 
+// 夜班津貼：設定過發法的人，草稿月份依班表即時算（晚數／時數／金額存進 rec 當快照）；已發布月份不動。
+// 沒設定發法（舊資料）＝ nightAllowance 照原本手填的金額，不碰。
+function calcNightShifts(empName) { return SalaryCalc.calcNightShifts(empName, { scheduleData, currentMonth }); }
+function syncNightAllowance(rec) {
+  if(!rec || !rec.nightMode || salaryData.status === 'published') return;
+  const info = calcNightShifts(rec.empName || rec.name || '');
+  rec.nightDays = info.days;
+  rec.nightHours = info.hours;
+  rec.nightAllowance = SalaryCalc.nightAmount(rec, info);
+}
+
 function calcGross(rec) {
   // 已發布月份：讀凍結快照(=員工端/實發一致)，不重算，守歷史不可變；草稿仍即時算
   if(salaryData.status === 'published' && rec.grossAmt != null) return rec.grossAmt;
+  syncNightAllowance(rec);
   // 職稱以 empList 最新為準（rec.role 可能舊）；工時/支援費即時算後交給共用純公式
   const empObj = empList.find(e => e.name === (rec.empName || rec.name || ''));
   const role = effSalaryRole(empObj, rec);
@@ -2615,6 +2629,14 @@ function updateFieldModal(empName, key, val) {
   
   if(key === 'otherDeductionNote' || key === 'otherBonusNote') {
     rec[key] = val; // 文字欄位
+  } else if(key === 'nightMode') {
+    // 第一次從舊資料（手填金額）改發法：固定每月先帶原本的金額，免得重打
+    if(!rec.nightMode && val === 'fixed' && !parseFloat(rec.nightRate||0)) rec.nightRate = parseFloat(rec.nightAllowance||0) || 0;
+    rec.nightMode = val;
+    if(val === 'none') rec.nightRate = 0;
+  } else if(key === 'nightRate') {
+    rec.nightRate = parseFloat(val) || 0;
+    if(!rec.nightMode) rec.nightMode = 'fixed'; // 舊資料直接改金額 → 視為固定每月
   } else {
     rec[key] = parseFloat(val) || 0; // 數字欄位
     // otHours 手動修改 → 設旗標，避免開 Modal 時被自動覆蓋
@@ -2644,6 +2666,12 @@ function getSalaryRecord(empName) {
   return salaryData.records.find(r => r.empName === empName);
 }
 
+// 夜班津貼發法跟著上個月往下帶（金額本月依班表重算）；沒設定過的人不帶任何欄位＝照原本
+function nightCarry(prev) {
+  if(!prev || !prev.nightMode) return {};
+  return { nightMode: prev.nightMode, nightRate: prev.nightRate || 0 };
+}
+
 function buildDefaultRecord(emp) {
   const prev = prevSalaryData.find(r => r.empName === emp.name) || {};
   const { totalH, otH } = calcEmpHours(emp.name);
@@ -2659,6 +2687,7 @@ function buildDefaultRecord(emp) {
       ...base,
       wage: prev.wage !== undefined ? prev.wage : (emp.wage || 0),
       roleBonus: prev.roleBonus !== undefined ? prev.roleBonus : 0,
+      ...nightCarry(prev),
       hours: totalH,
       holidayHours: prev.holidayHours !== undefined ? prev.holidayHours : 0,
       extraHours: 0, // 額外時數每月手動填寫，不從上月帶入
@@ -2685,6 +2714,7 @@ function buildDefaultRecord(emp) {
       roleBonus: prev.roleBonus || 0,
       mgmtOps: prev.mgmtOps || 0, mgmtQuality: prev.mgmtQuality || 0, mgmtKPI: prev.mgmtKPI || 0, mgmtAccount: prev.mgmtAccount || 0, mgmtLeader: prev.mgmtLeader || 0,
       laborAllowance: prev.laborAllowance || 0, performance: prev.performance || 0, nightAllowance: prev.nightAllowance || 0, otherBonus: prev.otherBonus || 0,
+      ...nightCarry(prev),
       lateMinutes: 0, otHours: otH, restDayOtHours: 0, restDayOtPay: 0, personalSickLeave: 0,
       laborInsurance: prev.laborInsurance !== undefined ? prev.laborInsurance : (emp.laborInsurance || 0),
       healthInsurance: prev.healthInsurance !== undefined ? prev.healthInsurance : (emp.healthInsurance || 0),
@@ -2697,6 +2727,32 @@ function buildDefaultRecord(emp) {
       otherDeduction: 0, otherDeductionNote: '', otherBonusNote: ''
     };
   }
+}
+
+// 夜班津貼欄位：選發法＋金額；每晚／每小時寫出本月班表算到幾晚
+function renderNightField(emp, rec, ro) {
+  const mode = rec.nightMode || (parseFloat(rec.nightAllowance||0) > 0 ? 'fixed' : 'none');
+  const rate = rec.nightMode ? parseFloat(rec.nightRate||0) : parseFloat(rec.nightAllowance||0);
+  const amt = parseFloat(rec.nightAllowance||0);
+  const info = salaryData.status === 'published'
+    ? { days: rec.nightDays || 0, hours: rec.nightHours || 0, list: [] }
+    : calcNightShifts(emp.name);
+  const unit = { fixed: '每月', perNight: '每晚', perHour: '每小時' }[mode];
+  const cnt = mode === 'perHour' ? `${info.hours} 小時` : `${info.days} 晚`;
+  let detail = '';
+  if(mode === 'perNight' || mode === 'perHour') detail = `本月班表夜班 ${cnt} × $${rate} = <b>$${amt.toLocaleString()}</b>`;
+  else if(info.days > 0) detail = `本月班表夜班 ${info.days} 晚`;
+  const dates = (info.list || []).map(x => `${x.date}${x.store && x.store !== currentStore ? `（${x.store}）` : ''}`).join('、');
+  const hint = detail ? `<div style="font-size:12px;color:var(--text-muted);margin:2px 0 6px;">${detail}${dates ? `<details style="font-size:11px;"><summary style="cursor:pointer;">看日期</summary>${dates}</details>` : ''}</div>` : '';
+  if(ro) return `<div class="salary-row"><span class="salary-row-label">夜班津貼${mode !== 'none' && rec.nightMode ? `（${SalaryCalc.NIGHT_MODES[mode]}）` : ''}</span><span class="salary-row-val">${amt > 0 ? `$${amt.toLocaleString()}` : '-'}</span></div>${hint}`;
+  const opts = Object.entries(SalaryCalc.NIGHT_MODES).map(([k, t]) => `<option value="${k}"${k === mode ? ' selected' : ''}>${t}</option>`).join('');
+  return `<div class="salary-row">
+      <span class="salary-row-label">夜班津貼</span>
+      <span style="display:flex;gap:6px;align-items:center;">
+        <select class="salary-input" style="width:auto;" onchange="updateFieldModal('${emp.name}','nightMode',this.value)">${opts}</select>
+        ${mode !== 'none' ? `<input class="salary-input" style="width:90px;" type="number" min="0" value="${rate || ''}" placeholder="${unit}金額" aria-label="${unit}金額" onchange="updateFieldModal('${emp.name}','nightRate',this.value)">` : ''}
+      </span>
+    </div>${hint}`;
 }
 
 function renderSalaryForm(emp, rec, idx, readonly) {
@@ -2784,7 +2840,7 @@ function renderSalaryForm(emp, rec, idx, readonly) {
   
   col1 += inp('laborAllowance', rec.laborAllowance, '勞務津貼');
   col1 += inp('performance', rec.performance, '績效津貼');
-  col1 += inp('nightAllowance', rec.nightAllowance, '夜點費金額');
+  col1 += renderNightField(emp, rec, ro);
   col1 += inp('otherBonus', rec.otherBonus, '其他獎金/津貼');
   // 備註欄（比照「其他扣款」既有做法）：其他獎金常常是結清差額、特殊加班補差之類的一次性項目，
   // 只印金額的話事後查不出依據，勞檢或員工詢問時說不清楚。
@@ -3583,6 +3639,7 @@ function computePayHash(rec){
 }
 function stampPayHashes(){
   (salaryData.records||[]).forEach(rec => {
+    syncNightAllowance(rec); // 夜班津貼先依班表更新，指紋才會包含它（已發布月份不動）
     if(rec.ptm && salaryData.status !== 'published') syncInsExtra(rec); // 差額先更新，指紋才會包含它
     rec.payHash = computePayHash(rec);
     // 存實發金額快照：my-salary／analytics 直接讀「發給員工多少」，不再各自重算（免飄移/四捨五入分歧）
@@ -3915,8 +3972,10 @@ function getSupportOut() {
       const role = roleOfMonth(salRec, emp, salaryData.status === 'published');
       const ovr = supportRateOverrideOf(currentStore, empName);
       const hrRate = supportHourlyRate(role, salRec, emp, ovr);
-      result.push({ empName, role, targetStore, date: wDates[dIdx], hours, hrRate, isOverride: ovr != null,
-                    cost: hrRate == null ? null : Math.round(hrRate * hours) });
+      // 夜班津貼（每晚／每小時發法）跟著班走：成本歸實際上班那家店（2026-11-19 使用者決定）
+      const nightCost = SalaryCalc.nightCostOfShift(salRec, r.shift);
+      result.push({ empName, role, targetStore, date: wDates[dIdx], hours, hrRate, isOverride: ovr != null, nightCost,
+                    cost: hrRate == null ? null : Math.round(hrRate * hours) + nightCost });
     });
   });
   return result;
@@ -3943,7 +4002,7 @@ function getSupportIn() {
       // 被支援者若本月已由本店發薪（出現在本店員工名單），其成本已計入本店薪資，
       // 不重複列入「被支援費用」（例：原以支援身分排班、後來調回本店計薪者，如楷岳）
       if(empList.some(e => e.name === empName)) return;
-      result.push({ empName, fromStore: homeStore, date: wDates[dIdx], hours: parseFloat(r.actualHours||0), hrRate: null, cost: null, role: '' });
+      result.push({ empName, fromStore: homeStore, date: wDates[dIdx], hours: parseFloat(r.actualHours||0), shift: r.shift, hrRate: null, cost: null, nightCost: 0, role: '' });
     });
   });
   return result;
@@ -3985,7 +4044,8 @@ async function fetchSupportInRates(supportInList) {
     const ovr = supportRateOverrideOf(s.fromStore, s.empName);
     s.isOverride = ovr != null;
     s.hrRate = supportHourlyRate(s.role, salRec, empData, ovr);
-    s.cost = s.hrRate == null ? null : Math.round(s.hrRate * s.hours);
+    s.nightCost = SalaryCalc.nightCostOfShift(salRec, s.shift); // 夜班津貼成本歸上班那店（本店）
+    s.cost = s.hrRate == null ? null : Math.round(s.hrRate * s.hours) + s.nightCost;
   });
 }
 
@@ -4009,6 +4069,7 @@ function _renderSalaryBreakdown(empName) {
     if(extraH) rows.push([`其他工時（${extraH}h × $${wage}）`, fmt(Math.round(wage * extraH))]);
     if(holH) rows.push([`國假加給（${holH}h × $${wage}）`, fmt(Math.round(wage * holH))]);
     if(roleBonus) rows.push(['職務津貼', fmt(roleBonus)]);
+    if(rec.nightMode && pf(rec.nightAllowance)) rows.push([SalaryCalc.nightLabel(rec), fmt(pf(rec.nightAllowance))]);
     if(sick) rows.push(['病假扣款', `<span class="cost-br-val deduct">-$${sick.toLocaleString()}</span>`]);
   } else {
     const isMgr = role === ROLE_MANAGER;
@@ -4033,7 +4094,7 @@ function _renderSalaryBreakdown(empName) {
     if(roleBonus) rows.push(['職務津貼', fmt(roleBonus)]);
     if(laborAllow) rows.push(['勞工保險補貼', fmt(laborAllow)]);
     if(perf) rows.push(['表現獎金', fmt(perf)]);
-    if(night) rows.push(['夜班津貼', fmt(night)]);
+    if(night) rows.push([SalaryCalc.nightLabel(rec), fmt(night)]);
     if(otherBonus) rows.push(['其他獎金', fmt(otherBonus)]);
     if(annualEncash) rows.push(['年假折現', fmt(annualEncash)]);
     if(compEncash) rows.push(['補休折現', fmt(compEncash)]);
@@ -4178,7 +4239,7 @@ function renderCostModal(supportOut, supportIn, frozen) {
     supportIn.forEach(s => {
       const badge = `<span class="cost-support-badge" style="background:${_costStoreColor(s.fromStore)};">${s.fromStore}</span>`;
       const ovrTag = s.isOverride ? `<span style="font-size:9.5px;font-weight:800;color:#c2410c;background:#fff7ed;border:1px solid #fed7aa;border-radius:4px;padding:1px 4px;margin-left:4px;">指定</span>` : '';
-      const rateStr = (s.hrRate != null ? `$${Math.round(s.hrRate)}/h × ${s.hours}h = <strong>$${comma(s.cost)}</strong>` : `${s.hours}h（時薪待確認）`) + ovrTag;
+      const rateStr = (s.hrRate != null ? `$${Math.round(s.hrRate)}/h × ${s.hours}h${s.nightCost ? ` ＋夜班津貼 $${comma(s.nightCost)}` : ''} = <strong>$${comma(s.cost)}</strong>` : `${s.hours}h（時薪待確認）`) + ovrTag;
       html += `<div class="cost-support-row">${badge}<strong>${getDisplayName(s.empName)}</strong><span style="color:var(--text-muted);font-size:10px;margin-left:4px;">${s.role}</span>　${s.date}　${rateStr}</div>`;
     });
     if(supportIn.some(s => s.cost == null))
@@ -4199,7 +4260,7 @@ function renderCostModal(supportOut, supportIn, frozen) {
     supportOut.forEach(s => {
       const badge = `<span class="cost-support-badge" style="background:${_costStoreColor(s.targetStore)};">${s.targetStore}</span>`;
       const ovrTag = s.isOverride ? `<span style="font-size:9.5px;font-weight:800;color:#c2410c;background:#fff7ed;border:1px solid #fed7aa;border-radius:4px;padding:1px 4px;margin-left:4px;">指定</span>` : '';
-      const rateStr = (s.hrRate != null ? `$${Math.round(s.hrRate)}/h × ${s.hours}h = <strong>$${comma(s.cost)}</strong>` : `${s.hours}h（時薪待確認）`) + ovrTag;
+      const rateStr = (s.hrRate != null ? `$${Math.round(s.hrRate)}/h × ${s.hours}h${s.nightCost ? ` ＋夜班津貼 $${comma(s.nightCost)}` : ''} = <strong>$${comma(s.cost)}</strong>` : `${s.hours}h（時薪待確認）`) + ovrTag;
       html += `<div class="cost-support-row"><strong>${getDisplayName(s.empName)}</strong><span style="color:var(--text-muted);font-size:10px;margin-left:4px;">${s.role}</span> → ${badge}　${s.date}　${rateStr}</div>`;
     });
     if(supportOut.some(s => s.cost == null))

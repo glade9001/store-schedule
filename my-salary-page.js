@@ -564,7 +564,8 @@ function renderSalaryForm(emp, rec, idx, readonly) {
       return fieldIfExist('平日加班費', Math.ceil(otRate * otMult * parseFloat(rec.otHours||0)));
     })()}
     ${fieldIfExist('時薪支援費', Math.round(calcHourlySupportHours(rec.empName||emp.name||'') * parseFloat(rec.hourlySupportRate||0)))}
-    ${fieldIfExist('補貼/其他', (parseFloat(rec.nightAllowance||0) + parseFloat(rec.laborAllowance||0) + parseFloat(rec.otherBonus||0)))}`}
+    ${(!isPart || rec.nightMode) ? fieldIfExist(SalaryCalc.nightLabel(rec), parseFloat(rec.nightAllowance||0)) : ''}
+    ${fieldIfExist('補貼/其他', (parseFloat(rec.laborAllowance||0) + parseFloat(rec.otherBonus||0)))}`}
     <div class="salary-total-row">
       <span class="salary-total-label">應發薪資總計</span>
       <span class="salary-total-val" style="color:var(--primary);">$${gross.toLocaleString()}</span>
