@@ -196,12 +196,18 @@ function unworkedPendingDays(empName) {
 function settleCaseOf(emp) {
   if(!emp) return null;
   if(emp.leaveSettledAt) return null;                       // 已結清過
+  // ⚠️ 目標月（或它的下個月）都要出現（2026-11-19 修死路）：
+  //    目標月薪資已發布時，結清視窗會叫人「切到下個月再結清」，但原本下個月不出現橫幅／按鈕
+  //    → 永遠結不了（某正職 11/1 轉工讀，10 月已發布，11 月找不到結清入口）。
+  const hit = t => t === currentMonth || settleNextMonth(t) === currentMonth;
   if(emp.status === '離職' && emp.retireDate) {
-    if(settleTargetMonth(emp.retireDate) === currentMonth) return { kind:'離職', effectDate:emp.retireDate };
+    const t = settleTargetMonth(emp.retireDate);
+    if(hit(t)) return { kind:'離職', effectDate:emp.retireDate, targetMonth:t };
   }
   // 轉工讀：pendingRole 已生效或 payAsPartTime 生效日落在本月目標
-  if(emp.partTimeFrom && settleTargetMonth(emp.partTimeFrom) === currentMonth) {
-    return { kind:'轉工讀', effectDate:emp.partTimeFrom };
+  if(emp.partTimeFrom) {
+    const t = settleTargetMonth(emp.partTimeFrom);
+    if(hit(t)) return { kind:'轉工讀', effectDate:emp.partTimeFrom, targetMonth:t };
   }
   return null;
 }
@@ -231,7 +237,10 @@ function renderLeaveSettleBanner() {
 function buildSettleCalc(empName) {
   const emp = empList.find(e => e.name === empName);
   const c = settleCaseOf(emp);
-  const rec = getSalaryRecord(empName);
+  // 日薪用「舊身分最後一個月」的薪資：延到下個月結清時，本月已經是新身分（例：轉工讀後沒有底薪），
+  // 要改讀上個月（＝目標月）那筆，否則日薪算成 0 或工讀基準。
+  const late = c && c.targetMonth && c.targetMonth !== currentMonth;
+  const rec = late ? (prevSalaryData.find ? prevSalaryData.find(r => r.empName === empName) : null) : getSalaryRecord(empName);
   const monthWage = parseFloat(rec?.baseSalary||0) + parseFloat(rec?.fullAttendBonus||0);
   const comp = compDataMap[empName];
   return calcLeaveSettle({
