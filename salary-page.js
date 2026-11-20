@@ -316,10 +316,6 @@ async function openLeaveSettleModal(empName) {
   const c = _lsCalc;
   const zero = c.totalDays <= 0;
 
-  // ⚠️ 資料完整性防呆：比例制高於週年制，通常代表「本年度的特休批次還沒發放」。
-  //    實例（2026-08-28 用正式資料驗到）：某員工到職 2025-07-01、9/1 離職＝滿 14 個月，
-  //    系統只有一筆 3 天批次且已用完；滿 12 個月該發的 7 天批次從未發放。
-  //    若直接採比例制只會算出 2 天 → 少付 5 天。寧可擋下來讓人先補批次，也不要靜靜少算。
   // 🚫 硬擋：應休未休沒處理就不能結清。
   //    當月的補休是在薪資頁手動發放的（_doGrantUnworked），你按下發放前那幾天根本不存在，
   //    先結清就會少折發，而且結清後餘額歸零、不可自動復原 → 錢就這樣少給了。
@@ -333,15 +329,16 @@ async function openLeaveSettleModal(empName) {
       ⚠️ 有 ${c.totalDays} 天可結清，但日薪算出來是 0（本月底薪＋全勤為 0）。<br>
       請先確認這位員工本月的薪資欄位已填寫，否則結清金額會是 0 元。</div>`;
   }
-  if(c.proportional > c.annualByBatch) {
-    warnBlock = `<div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:10px 12px;margin:12px 0;font-size:12px;color:#92400e;font-weight:700;line-height:1.7;">
-      ⚠️ 比例制（${c.proportional} 天）高於現有批次剩餘（${c.annualByBatch} 天）。<br>
-      常見原因是<b>本年度的特休批次尚未發放</b>——年資已滿 ${c.totalMonths} 個月，請先到「員工特補休」確認批次是否完整，再回來結清，否則可能少付。</div>`;
+  if(c.notGranted > 0) {
+    // 2026-11-20 使用者定案：批次沒發放的天數不自動計入，只提示，由人決定要不要先建批次。
+    warnBlock += `<div style="background:#f1f5f9;border-radius:10px;padding:10px 12px;margin:12px 0;font-size:12px;color:#475569;font-weight:700;line-height:1.7;">
+      依年資可得 ${c.statutory} 天特休，其中 ${c.notGranted} 天批次未發放，不計入結清。<br>
+      要結算這 ${c.notGranted} 天，請先到「員工特補休」建立批次再回來。</div>`;
   }
   document.getElementById('lsBody').innerHTML = `
     <div class="modal-sub">${_lsCase ? `${_lsCase.kind}生效日 ${_lsCase.effectDate}` : ''}　結清應計入 <b>${currentMonth}</b> 薪資</div>
     <div style="background:#f8fafc;border-radius:10px;padding:12px;font-size:13px;line-height:1.9;">
-      <div style="display:flex;justify-content:space-between;"><span>特休可結清（${c.basis}擇優）</span><b>${c.annualDays} 天</b></div>
+      <div style="display:flex;justify-content:space-between;"><span>特休可結清（${c.basis}）</span><b>${c.annualDays} 天</b></div>
       <div style="display:flex;justify-content:space-between;"><span>補休剩餘</span><b>${c.compDays} 天</b></div>
       <div style="display:flex;justify-content:space-between;border-top:1px solid #e2e8f0;margin-top:6px;padding-top:6px;"><span>合計</span><b>${c.totalDays} 天 × 日薪 ${c.dailyWage.toLocaleString()}</b></div>
     </div>
@@ -490,12 +487,12 @@ async function _confirmLeaveSettle() {
       records: firebase.firestore.FieldValue.arrayUnion({ ts: Date.now(),
         date:now, type:'settle', days:c.totalDays,
         note:`${note}：特休 ${c.annualDays} 天（${c.basis}）、補休 ${c.compDays} 天，計 $${amount.toLocaleString()}`
-          + (c.uncovered>0 ? `｜其中 ${c.uncovered} 天無對應批次（該年度批次未發放）` : '')
+          + (c.notGranted>0 ? `｜另有 ${c.notGranted} 天批次未發放、未計入` : '')
           + (diff>0 ? `｜系統試算 $${c.amount.toLocaleString()}，調整 -$${diff.toLocaleString()}：${diffReason.trim()}` : ''),
         calcAmount: c.amount, actualAmount: amount, diffAmount: diff,
         diffReason: diff>0 ? diffReason.trim() : '',
         calcAnnualDays: c.annualDays, calcCompDays: c.compDays, calcDailyWage: c.dailyWage,
-        uncoveredDays: c.uncovered || 0,
+        notGrantedDays: c.notGranted || 0,
         savedBy: currentUser.displayName || currentUser.empName
       })
     }, { merge:true });

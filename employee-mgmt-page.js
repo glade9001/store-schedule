@@ -1158,7 +1158,7 @@ async function showSettlePrompt(store, empName, effectDate, kind) {
   const head = `${kind}生效日 ${effectDate}\n結清應計入 ${targetYM} 月薪資\n`;
   if(!calc) { alert(head + '\n特補休資料讀取失敗，請直接到薪資系統該月辦理結清。'); return; }
   const body = calc.totalDays > 0
-    ? `\n特休 ${calc.annualDays} 天（${calc.basis}擇優）\n補休 ${calc.compDays} 天\n合計 ${calc.totalDays} 天\n試算金額 約 $${calc.amount.toLocaleString()}（以薪資頁實際底薪為準，可修改）\n`
+    ? `\n特休 ${calc.annualDays} 天（${calc.basis}）${calc.notGranted>0?`\n（另有 ${calc.notGranted} 天批次未發放，不計入）`:''}\n補休 ${calc.compDays} 天\n合計 ${calc.totalDays} 天\n試算金額 約 $${calc.amount.toLocaleString()}（以薪資頁實際底薪為準，可修改）\n`
     : `\n目前無未休特休／補休，結清金額 0 元。\n（若當月「應休未休補休」尚未發放，請先發放再結清）\n`;
   if(confirm(`🧾 ${dn} 特補休結清\n\n${head}${body}\n要現在前往 ${targetYM} 月薪資頁完成結清嗎？`)) {
     location.href = `salary.html?month=${targetYM}`;
