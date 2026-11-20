@@ -66,7 +66,7 @@ async function annualBatches() {
   const add = (ds, m) => { const d = new Date(ds + 'T00:00:00'); d.setMonth(d.getMonth() + m); return d; };
   const today = new Date(), late = [];
   for (const s of STORES) for (const e of await list(`stores/${s}/employees`)) {
-    const x = e.data; if (['離職', '調走'].includes(x.status) || x.payAsPartTime || String(x.role || '').includes('工讀')) continue;
+    const x = e.data; if (['離職', '調走'].includes(x.status) || x.retireDate || x.partTimeFrom || x.payAsPartTime || String(x.role || '').includes('工讀')) continue;
     const h = hire[e.id] || x.startDate; if (!h) continue;
     for (const m of [6, ...Array.from({ length: 30 }, (_, i) => 12 * (i + 1))]) {
       const a = add(h, m); if (a > today) break;

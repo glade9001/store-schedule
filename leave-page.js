@@ -315,10 +315,11 @@ function getBooks(empName) {
   const emp = empList.find(e=>e.name===empName) || {};
   const hire = getHireDate(empName);
   const isPT = (emp.role||'').includes('工讀');   // 工讀特休規則未定案 → 不列「週年沒建批次」
+  const exiting = lvInExitTransition(emp);         // 辦離職／轉工讀的人也不列（2026-11-20 使用者定案）
   const todayStr = today();
   return {
     annual: pbAnnualBook({ batches: batchesAll[empName]||[], usage: annUsageAll[empName]||[], logs: leaveLogAll[empName]||[],
-      schedule: (hire && !isPT) ? calcBatchSchedule(hire) : [], today: todayStr }),
+      schedule: (hire && !isPT && !exiting) ? calcBatchSchedule(hire) : [], today: todayStr }),
     comp: pbCompBook({ logs: leaveLogAll[empName]||[], usage: compUsageAll[empName]||[], prev: compPrevAll[empName]||{},
       year: todayStr.slice(0,4), today: todayStr }),
   };

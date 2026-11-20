@@ -152,8 +152,9 @@ async function loadPendingItems() {
             //    （查到 2 位正職 7/1 該新增的批次沒有）。正職改成：週年後 180 天內、還沒有對應批次（取得日差 31 天內）就一直提醒。
             //    工讀維持只在當天提醒（工讀幾乎都沒建特休批次，是否要追蹤待使用者決定）。
             const isPT = lvIsPayPartTime(emp);
+            const exiting = lvInExitTransition(emp);   // 辦離職／轉工讀的人不提醒補建批次（2026-11-20）
             const hasBatchNear = d => batches.some(b => b.grantDate && Math.abs((new Date(b.grantDate) - new Date(d)) / 86400000) <= 31);
-            const dueNow = d => isPT ? d === todayStr
+            const dueNow = d => exiting ? false : isPT ? d === todayStr
               : (d <= todayStr && (new Date(todayStr) - new Date(d)) / 86400000 <= 180 && !hasBatchNear(d));
             const whenTxt = d => d === todayStr ? '今天' : `${+d.slice(5,7)}/${+d.slice(8,10)} 已`;
             // 滿6個月

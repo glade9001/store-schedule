@@ -38,6 +38,16 @@ function lvIsPayPartTime(emp) {
 }
 
 /**
+ * 正在辦離職或轉工讀（含已生效）：不再提醒「週年到了要建特休批次」。
+ * 使用者 2026-11-20 定案：離職／轉工讀時沒發放的特休，系統不自動發放、也不提醒補建，
+ * 否則店長照提醒按「建立」，結清時就會被算進去。
+ */
+function lvInExitTransition(emp) {
+  return !!emp && (emp.status === '離職' || !!emp.retireDate || !!emp.partTimeFrom
+    || String(emp.pendingRole || '').indexOf('工讀') >= 0);
+}
+
+/**
  * 當月還沒處理的缺卡天數（劃休提醒與擋的依據，使用者 2026-11-01）：只算 ym 這個月，隔月自然歸零；
  * 該補的卡都已送出補登（待審或已核准）的那天不算。判斷法同 my-attendance 的待補清單。
  */
