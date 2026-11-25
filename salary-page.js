@@ -1894,6 +1894,10 @@ function buildSinglePayslipHtml(emp, y, m, sig) {
     : (typeof _li2.earnedComp==='number' && typeof _li2.usedComp==='number')
       ? _li2.earnedComp - _li2.usedComp : '--';
   const _fmt2 = v => v === '--' ? '--' : String(v);
+  // 考勤欄（2026-11-25 使用者：特休、已休、未休都要列，正職工讀一樣）：[標籤, 值] × 5 格
+  const _kq2 = isPartTime
+    ? [['工時', totalH + 'h'], ['時薪', `$${rec.wage||0}`], ['特休', _fmt2(_annualDays2)], ['特休已休', _fmt2(_usedAnnual2)], ['特休未休', _fmt2(_remainAnnual2)]]
+    : [['特休', _fmt2(_annualDays2)], ['特休已休', _fmt2(_usedAnnual2)], ['特休未休', _fmt2(_remainAnnual2)], ['剩餘補休天數', _fmt2(_remainComp2)], ['', '']];
 
   // 加班費計算基礎是否顯示
   const showOtBasis = !isPartTime && !isMgr && (
@@ -1901,6 +1905,8 @@ function buildSinglePayslipHtml(emp, y, m, sig) {
     parseFloat(rec.holidayOtPay||0)>0 || parseFloat(rec.lateMinutes||0)>0
   );
   const companyPension = Math.round(pensionBase * 0.06);
+  // 公司提撥退休金（原本只印「金額」兩個字、沒填數字）：有設投保級距用級距的雇主提撥，沒設：正職（底薪＋全勤）×6%、工讀 0（跟公司負擔合計同一規則）
+  const _pensionEr2 = (rec.insuranceGrade != null) ? Math.round(parseFloat(rec.pensionEr || 0)) : (isPartTime ? 0 : companyPension);   // 與「公司負擔合計」同一規則
   const _supH2 = calcHourlySupportHours(emp.name);
   const _supRate2 = parseFloat(rec.hourlySupportRate||0);
   const _supAmt2 = Math.round(_supH2 * _supRate2);
@@ -1993,37 +1999,39 @@ function buildSinglePayslipHtml(emp, y, m, sig) {
         <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${isPartTime ? `$${Math.round((rec.wage||0)*totalH).toLocaleString()}` : `$${(rec.baseSalary||0).toLocaleString()}`}</td>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">勞保費</td>
         <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">$${(rec.laborInsurance||0).toLocaleString()}</td>
-        <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">${isPartTime?'工時':'年度特休天數'}</td>
-        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${isPartTime?totalH+'h':_fmt2(_annualDays2)}</td>
+        <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">${_kq2[0][0]}</td>
+        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${_kq2[0][1]}</td>
       </tr>
       <tr>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">全勤獎金</td>
         <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">$${(rec.fullAttendBonus||0).toLocaleString()}</td>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">健保費</td>
         <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">$${((rec.healthInsurance||0)+(rec.dependentInsurance||0)).toLocaleString()}</td>
-        <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">${isPartTime?'時薪':'已用特休天數'}</td>
-        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${isPartTime?`$${rec.wage||0}`:_fmt2(_usedAnnual2)}</td>
+        <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">${_kq2[1][0]}</td>
+        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${_kq2[1][1]}</td>
       </tr>
       <tr>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">${role===ROLE_MANAGER?'管理責任獎金':role===ROLE_FULL?'職務津貼':'職務津貼'}</td>
         <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${role===ROLE_MANAGER?`$${['mgmtOps','mgmtQuality','mgmtKPI','mgmtAccount','mgmtLeader'].reduce((s,k)=>s+parseFloat(rec[k]||0),0).toLocaleString()}`:`$${(rec.roleBonus||0).toLocaleString()}`}</td>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">勞退個人自提</td>
         <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">$${(rec.laborPension||0).toLocaleString()}</td>
-        <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">剩餘特休天數</td>
-        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${isPartTime?'--':_fmt2(_remainAnnual2)}</td>
+        <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">${_kq2[2][0]}</td>
+        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${_kq2[2][1]}</td>
       </tr>
       <tr>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">績效獎金</td>
         <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">$${(rec.performance||0).toLocaleString()}</td>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">其他扣款</td>
         <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">$0</td>
-        <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">剩餘補休天數</td>
-        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${isPartTime?'--':_fmt2(_remainComp2)}</td>
+        <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">${_kq2[3][0]}</td>
+        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${_kq2[3][1]}</td>
       </tr>
       <tr>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">其他獎金/津貼</td>
         <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">$${(rec.otherBonus||0).toLocaleString()}</td>
-        <td colspan="6" style="padding:3px 6px;border:1px solid #ccc;">&nbsp;</td>
+        <td colspan="3" style="padding:3px 6px;border:1px solid #ccc;">&nbsp;</td>
+        <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">${_kq2[4][0] || '&nbsp;'}</td>
+        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;">${_kq2[4][1]}</td>
       </tr>
       ${_supRate2 > 0 ? `<tr>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">時薪支援 ${_supH2}h</td>
@@ -2050,7 +2058,8 @@ function buildSinglePayslipHtml(emp, y, m, sig) {
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">遲到扣款</td>
         <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;color:#d93025;">-$${lateDeductAmt.toLocaleString()}</td>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;background:#d9e1f2;font-weight:800;">公司提撥退休金</td>
-        <td style="padding:3px 6px;border:1px solid #ccc;font-weight:800;" colspan="4">金額</td>
+        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;font-weight:800;">$${_pensionEr2.toLocaleString()}</td>
+        <td colspan="3" style="padding:3px 6px;border:1px solid #ccc;">&nbsp;</td>
       </tr>
       <tr>
         <td colspan="2" style="padding:4px 6px;border:1px solid #ccc;background:#d9e1f2;font-weight:800;">應發薪資</td>
