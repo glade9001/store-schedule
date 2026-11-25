@@ -130,6 +130,23 @@
   </div>
 </div>
 
+<!-- ════════ 從排班表帶入：對照 ════════ -->
+<div class="modal" id="importModal">
+  <div class="modal-box">
+    <div class="modal-title">📥 從排班表帶入</div>
+    <div class="modal-body">
+      <div class="field"><label>抓哪家店的排班表</label><select id="impStore" onchange="onImpStoreChange()"></select></div>
+      <div class="sub-title">每位人員抓排班表上的誰</div>
+      <div id="impMap"></div>
+      <div class="hint" style="margin:8px 0 4px;">只填空白格，已經填的不會被蓋掉。選過的下次會自動帶出。</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-cancel" onclick="closeImport()">取消</button>
+      <button class="btn-primary" onclick="confirmImport()">帶入</button>
+    </div>
+  </div>
+</div>
+
 <!-- ════════ 人員編輯 ════════ -->
 <div class="modal" id="empModal">
   <div class="modal-box">
