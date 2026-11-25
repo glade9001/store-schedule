@@ -1048,21 +1048,24 @@ async function onImpStoreChange() {
   _impEmps = [];
   try {
     const snap = await window.db.collection('stores').doc(store).collection('employees').get();
+    // 顯示名字（account.displayName，畫面上看到的名字）——對照一律用它（使用者 2026-11-25）
+    const disp = {};
+    try { (await window.db.collection('account').where('store', '==', store).get()).forEach(d => { const a = d.data(); if (a.empName && a.displayName) disp[a.empName] = a.displayName; }); } catch (e) {}
     const list = [];
     snap.forEach(d => {
       if (d.id.startsWith('🆘')) return;
       const x = d.data() || {};
-      list.push({ nick: d.id, full: x.name || '', status: x.status || '在職', sortKey: x.sortKey ?? 999 });
+      list.push({ nick: d.id, full: disp[d.id] || x.name || d.id, status: x.status || '在職', sortKey: x.sortKey ?? 999 });
     });
     // 在職的排前面；離職／調走的也列（盤點的月份可能他還在）
     list.sort((a, b) => (a.status === '在職' ? 0 : 1) - (b.status === '在職' ? 0 : 1) || a.sortKey - b.sortKey);
-    _impEmps = list.map(x => ({ nick: x.nick, label: (x.full && x.full !== x.nick ? `${x.full}（${x.nick}）` : x.nick) + (x.status !== '在職' ? `・${x.status}` : '') , full: x.full }));
+    _impEmps = list.map(x => ({ nick: x.nick, label: x.full + (x.status !== '在職' ? `・${x.status}` : ''), full: x.full }));
   } catch (e) { box.innerHTML = `<div class="grade-warn">讀不到 ${esc(store)} 的人員：${esc(e.message || e)}</div>`; return; }
   const used = new Set();
   box.innerHTML = (sheet.employees || []).map(e => {
     // 預選：上次選過的 → 名字剛好一樣的 → 不帶
     let pick = (sheet.importStore === store && e.srcName && _impEmps.some(x => x.nick === e.srcName)) ? e.srcName : '';
-    if (!pick) { const m = _impEmps.find(x => x.nick === e.name.trim() || x.full === e.name.trim()); if (m) pick = m.nick; }
+    if (!pick) { const nm = e.name.trim(); const m = _impEmps.find(x => x.full === nm) || _impEmps.find(x => x.nick === nm); if (m) pick = m.nick; }
     if (pick) used.add(pick);
     return `<div class="imp-row" style="display:flex;align-items:center;gap:8px;margin:6px 0;">
       <span style="flex:1;font-weight:700;">${esc(e.name)}<span style="color:#64748b;font-weight:500;font-size:12px;">（${e.role}）</span></span>
