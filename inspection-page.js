@@ -33,7 +33,14 @@ let insuranceGrades = null;   // settings/insuranceGrades，與薪資系統同�
 
 const DEFAULT_WAGE = 196;       // 工讀時薪（盤點預設值）
 const OFF = '休';               // 休假在班表與出勤表上的表示法（例假／休息日從這裡挑）
-const HOL = '國';               // 國定假日沒上班（勞基法 §37 休假，不可拿來當例假或休息日）
+const HOL = '國';               // 國定假日沒上班：只在產出時顯示（排班不用選，使用者 2026-11-25）
+// 國定假日（勞基法 §37 休假）不是例假、也不是休息日：沒上班的那天不管排班格是空白還是「休」，產出一律印「國」，
+// 也不算進當月「休」的天數。當天有上班＝工資加倍（薪資單自動算），當月「休」照樣要等於六日天數。
+const isHolOff = (empId, d) => {
+  if (!isHoliday(d)) return false;
+  const v = (sheet.schedule[d] || {})[empId] || '';
+  return !(v && v !== OFF && v !== HOL && shiftTotalHours(v) > 0);
+};
 const DAY_NAMES = ['週一', '週二', '週三', '週四', '週五', '週六', '週日'];
 
 // ===== 權限 =====
@@ -809,8 +816,8 @@ function checkOffDays(emp) {
   months.forEach(ym => {
     const days = monthDays(ym);
     if (!days.every(d => inSet.has(d))) return;          // 月份沒填滿就不比，否則一定是假警報
-    const off = days.filter(d => (sheet.schedule[d] || {})[emp.id] === OFF).length;
-    const blank = days.filter(d => !(sheet.schedule[d] || {})[emp.id]).length;
+    const off = days.filter(d => !isHoliday(d) && (sheet.schedule[d] || {})[emp.id] === OFF).length;
+    const blank = days.filter(d => !isHoliday(d) && !(sheet.schedule[d] || {})[emp.id]).length;
     const need = monthWeekendDays(ym).total;
     const m = +ym.split('-')[1];
     if (blank) {
@@ -819,7 +826,7 @@ function checkOffDays(emp) {
     } else if (off !== need) {
       const diff = off - need;
       out.push({ level: 'error', rule: 'offDays', emp: emp.name, cells: ['name|' + emp.id + '|' + ym],
-        msg: `${m} 月排「休」${off} 天，與當月六日天數 ${need} 天${diff > 0 ? `不符（多休 ${diff} 天）` : `不符（少休 ${-diff} 天）`}（國定假日「國」另計，不算在內）` });
+        msg: `${m} 月排「休」${off} 天，與當月六日天數 ${need} 天${diff > 0 ? `不符（多休 ${diff} 天）` : `不符（少休 ${-diff} 天）`}（國定假日不算在內）` });
     }
   });
   return out;
@@ -843,7 +850,7 @@ function checkConsecutive(emp) {
     if (i > 0 && d !== shiftDateAdd(dates[i - 1], 1)) flush();
     const v = (sheet.schedule[d] || {})[emp.id];
     if (worksOn(emp, d)) run.push(d);
-    else if (v === HOL) { run.push(d); hasHol = true; }
+    else if (isHolOff(emp.id, d)) { run.push(d); hasHol = true; }
     else flush();
   });
   flush();
@@ -874,32 +881,11 @@ function checkRestGaps(emp) {
   return out;
 }
 
-/**
- * ④ 國定假日（勞基法 §37、§39；勞動部 103.5.21 勞動條3字第1030130894號令）
- *    國定假日是「休假」，不是例假、也不是休息日：沒上班要填「國」，不能填「休」頂替例假／休息日。
- *    當天有上班＝經勞工同意出勤，工資加倍（薪資單已自動算），當月「休」的天數照樣要等於六日天數，不用多排。
- *    「國」只能出現在國定假日（目前不做國定假日調移）。
- */
-function checkHolidays(emp) {
-  const out = [];
-  checkDates().forEach(d => {
-    const v = (sheet.schedule[d] || {})[emp.id];
-    if (isHoliday(d) && v === OFF) {
-      out.push({ level: 'error', rule: 'holiday', emp: emp.name, cells: [d + '|' + emp.id],
-        msg: `${mdOf(d)} ${holidayMap[d]} 排成「休」：國定假日不能當例假或休息日，沒上班請改「國」，「休」另排一天` });
-    } else if (!isHoliday(d) && v === HOL) {
-      out.push({ level: 'error', rule: 'holiday', emp: emp.name, cells: [d + '|' + emp.id],
-        msg: `${mdOf(d)} 不是國定假日，不能填「國」` });
-    }
-  });
-  return out;
-}
-
-/** 四項一起跑，依人分組 */
+/** 三項一起跑，依人分組（國定假日不另檢查：沒上班一律當「國」，已反映在休假天數與七休一） */
 function runComplianceChecks() {
   const out = [];
   (sheet.employees || []).forEach(e => {
-    out.push(...checkOffDays(e), ...checkConsecutive(e), ...checkRestGaps(e), ...checkHolidays(e));
+    out.push(...checkOffDays(e), ...checkConsecutive(e), ...checkRestGaps(e));
   });
   return out;
 }
@@ -916,7 +902,7 @@ function renderCompliancePanel() {
   if (!(sheet.employees || []).length) { box.innerHTML = ''; return; }
   const issues = runComplianceChecks();
   if (!issues.length) {
-    box.innerHTML = `<div class="law-ok">✅ 檢查通過：休假日數、七休一、輪班間隔 11 小時、國定假日都沒問題</div>`;
+    box.innerHTML = `<div class="law-ok">✅ 檢查通過：休假日數、七休一、輪班間隔 11 小時都沒問題</div>`;
     return;
   }
   const errs = issues.filter(i => i.level === 'error');
@@ -929,7 +915,7 @@ function renderCompliancePanel() {
       <div class="law-emp"><b>${esc(nm)}</b>
         ${list.map(i => `<div class="law-item ${i.level}">・${esc(i.msg)}</div>`).join('')}
       </div>`).join('')}
-    <div class="law-foot">檢查項目：正職「休」的天數＝當月六日天數、連續 7 天要有一天「休」、前後班休息 ≥ 11 小時、國定假日沒上班要填「國」</div>
+    <div class="law-foot">檢查項目：正職「休」的天數＝當月六日天數、連續 7 天要有一天「休」、前後班休息 ≥ 11 小時（國定假日沒上班產出時自動印「國」，不算例假／休息日）</div>
   </div>`;
 }
 
@@ -967,7 +953,7 @@ function renderSchedule() {
         const isBad = bad.has(d + '|' + e.id);
         const cls = (v === OFF || v === HOL ? 'off' : v ? 'has' : '') + (isBad ? ' law-bad' : '');
         const dim = inScope(d) ? '' : ' style="opacity:.45;"';
-        const cellOpts = isHoliday(d) ? [...opts, HOL] : opts.slice();
+        const cellOpts = opts.slice();
         if (v && !cellOpts.includes(v)) cellOpts.push(v);   // 帶入的班別不在選單裡也要顯示得出來
         html += `<td${dim}${isBad ? ' style="background:#fde2e1;"' : ''}><select class="${cls}"${isBad ? ' style="color:#c5221f;font-weight:900;border-color:#c5221f;"' : ''} onchange="setShift('${d}','${e.id}',this.value)">
           ${cellOpts.map(o => `<option value="${o}"${o === v ? ' selected' : ''}>${o || '—'}</option>`).join('')}
@@ -1079,7 +1065,7 @@ async function importFromSchedule() {
           const work = mine.find(r => shiftTotalHours(r.shift || '') > 0);
           let v = '';
           if (work) v = work.shift;
-          else if (mine.some(r => r.shift === '排休' || r.shift === '指休')) v = isHoliday(d) ? HOL : OFF;
+          else if (mine.some(r => r.shift === '排休' || r.shift === '指休')) v = OFF;
           else if (mine.some(r => r.shift)) { leave++; return; }   // 特休、補休等
           if (!v) return;
           if ((sheet.schedule[d] || {})[e.id]) { kept++; return; }
@@ -1177,7 +1163,7 @@ bulk.innerHTML = workRows.length ? `
       return;
     }
     if (!r.hours) {
-      html += `<tr class="off"><td class="d">${mdOf(r.date)}</td><td>${wd}</td><td colspan="5">${r.shift === OFF ? OFF : r.shift === HOL ? '國定假日' : '未排班'}</td></tr>`;
+      html += `<tr class="off"><td class="d">${mdOf(r.date)}</td><td>${wd}</td><td colspan="5">${isHoliday(r.date) ? '國定假日（產出印「國」）' : r.shift === OFF ? OFF : '未排班'}</td></tr>`;
       return;
     }
     const over = shiftIsOvernight(r.shift);
@@ -1471,7 +1457,7 @@ function renderReady() {
   // 輪班表期間的排班覆蓋率
   const rDays = dateList(sheet.rangeStart, sheet.rangeEnd);
   let blank = 0;
-  rDays.forEach(d => emps.forEach(e => { if (!(sheet.schedule[d] || {})[e.id]) blank++; }));
+  rDays.forEach(d => emps.forEach(e => { if (!isHoliday(d) && !(sheet.schedule[d] || {})[e.id]) blank++; }));
   blank ? no(`輪班表期間有 ${blank} 格未填（空白格會印成空白）`) : ok('輪班表期間已填滿');
 
   // 出勤時間填寫率
@@ -1591,7 +1577,8 @@ function buildShiftDoc() {
     const records = [];
     (sheet.employees || []).forEach(e => {
       week.forEach(d => {
-        const v = (sheet.schedule[d] || {})[e.id];
+        let v = (sheet.schedule[d] || {})[e.id];
+        if (isHolOff(e.id, d)) v = HOL;
         if (!v) return;
         records.push({
           name: e.name,
@@ -1623,7 +1610,7 @@ function attendRestLabels(emp) {
   const md = monthDays(sheet.salaryMonth);
   const rg = rdWeekRange(md[0], md[md.length - 1]);
   const days = [];
-  for (let d = rg.from; d <= rg.to; d = shiftDateAdd(d, 1)) days.push({ date: d, rest: ((sheet.schedule[d] || {})[emp.id] || '') === OFF });
+  for (let d = rg.from; d <= rg.to; d = shiftDateAdd(d, 1)) days.push({ date: d, rest: !isHoliday(d) && ((sheet.schedule[d] || {})[emp.id] || '') === OFF });
   rdLabelWeeks(days);
   const out = {};
   days.forEach(x => { out[x.date] = x.restLabel; });
@@ -1704,7 +1691,7 @@ function drawAttendanceCanvas(canvas, emp) {
       ctx.fillText('—', colX[2] + COLS[2].w / 2, cy);
     } else if (!h.eff) {
       ctx.fillStyle = '#555';
-      ctx.fillText(rl[d] || (shift === OFF ? OFF : shift === HOL ? HOL : ''), colX[2] + COLS[2].w / 2, cy);
+      ctx.fillText(isHolOff(emp.id, d) ? HOL : (rl[d] || (shift === OFF ? OFF : '')), colX[2] + COLS[2].w / 2, cy);
     } else {
       ctx.fillText(shift, colX[2] + COLS[2].w / 2, cy);
       const tIn = punchTime(p, 'in'), tOut = punchTime(p, 'out');
