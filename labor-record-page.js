@@ -55,14 +55,17 @@ async function lrLoad(store, ym) {
   const { from: rFirst, to: rLast } = rdWeekRange(first, last);
   const stores = (lrConfig.stores || []).filter(s => s && s !== '人力支援');
 
-  // 人員：這個月有在職過的本店員工。已離職的不列（使用者 2026-09-28）；月中調走的照列（人還在公司）
+  // 人員：這個月有在職過一天的本店員工都列（使用者 2026-11-25 改：月中離職的也要列，原本 09-28 是離職就不列）
+  // ⚠️ 離職日／調走日＝「第一天不在本店」（1 號離職＝當月沒上班，同 resignAccessUntil 的定義）→ 那天（含）以後算未在職
+  //    離職卻沒有日期的：看不出哪個月走的，不列（避免把很久以前離職的人列進每個月）
   const empSnap = await window.db.collection('stores').doc(store).collection('employees').get();
   const emps = [];
   empSnap.forEach(d => {
     const e = d.data();
-    if (d.id.startsWith('🆘') || e.status === '離職') return;
+    if (d.id.startsWith('🆘')) return;
     const eff = e.departDate || e.retireDate || e.transferDate || '';
-    if (['離職', '調走'].includes(e.status) && eff && eff < first) return;
+    if (e.status === '離職' && !eff) return;
+    if (['離職', '調走'].includes(e.status) && eff && eff <= first) return;
     if (e.startDate && e.startDate > last) return;
     emps.push({ name: d.id, role: e.role || '', pt: e.role === '工讀' || !!e.payAsPartTime, sortKey: e.sortKey ?? 999, status: e.status || '', eff: ['離職', '調走'].includes(e.status) ? eff : '', startDate: e.startDate || '' });
   });
@@ -139,7 +142,7 @@ function lrBuildEmp(D, emp) {
   });
   if (open) put(gd(open), { in: open, out: null });
 
-  const employed = ds => (!emp.startDate || ds >= emp.startDate) && (!emp.eff || ds <= emp.eff);
+  const employed = ds => (!emp.startDate || ds >= emp.startDate) && (!emp.eff || ds < emp.eff); // eff＝第一天不在本店
   const all = []; // 讀取範圍內（完整的週）每一天
   for (let ds = D.rFirst; ds <= D.rLast; ds = shiftDateAdd(ds, 1)) {
     const wd = LR_WD[new Date(ds + 'T00:00:00').getDay()];
