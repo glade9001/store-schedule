@@ -165,15 +165,33 @@ function lrBuildEmp(D, emp) {
     const pairs = pairsBy[ds] || [];
     const spans = pairs.map(pr => ({ a: pr.in ? t(pr.in) : null, b: pr.out ? t(pr.out) : null })).filter(x => x.a != null && x.b != null && x.b > x.a);
     let hours = 0, complete = 0;
-    // 時數（使用者 2026-09-28）：原則上依排定班別整點計算；遲到／早退依實際（取較少者）；
-    // 已核准加班依實際；沒有對應班別（例：排休日出勤）只能依實際。跟出勤管理的「有效工時」同一套算法。
+    // 時數（使用者 2026-11-25 改）：有排定班別＝依排班給足（跟薪資一致：薪資照班表時數發，遲到不扣時數），
+    //   遲到／早退的分鐘只寫在備註；已核准加班、沒有對應班別（例：排休日出勤）才依實際打卡。
+    // ⚠️ 原本是 min(實際, 排班)：遲到 8 分＋晚走 4 分被互相抵掉變成 7 小時 56 分，跟發薪、跟寫的規則都對不上。
     const cells = pairs.map(pr => {
       const a = pr.in ? t(pr.in) : null, b = pr.out ? t(pr.out) : null;
       const actual = (a != null && b != null && b > a) ? (b - a) / 3600000 : null;
-      const sc = shiftTotalHours((pr.in && pr.in.shift) || (pr.out && pr.out.shift) || '');
+      const shiftStr = (pr.in && pr.in.shift) || (pr.out && pr.out.shift) || '';
+      // 兩頭班一天兩組卡：每組只給它對到的那一段（離上班卡最近的班段），不能每組都給整天時數
+      const segs = parseShiftSegs(shiftStr);
+      let seg = null;
+      if (segs.length && a != null) seg = segs.reduce((x, y) => Math.abs(shiftTimeMs(ds, y.startH) - a) < Math.abs(shiftTimeMs(ds, x.startH) - a) ? y : x);
+      else if (segs.length) seg = segs[0];
+      const sc = seg ? seg.durH : 0;
       const otOk = (pr.in && pr.in.otStatus === 'approved') || (pr.out && pr.out.otStatus === 'approved');
-      const h = actual == null ? null : (sc > 0 && !otOk ? Math.min(actual, sc) : actual);
+      const h = actual == null ? null : (sc > 0 && !otOk ? sc : actual);
       if (h != null) { hours += h; complete++; }
+      // 下班晚超過 30 分鐘（＝打卡頁會跳「加班或私事」的同一條門檻）又沒核准加班 → 備註寫清楚，避免被認定有加班事實
+      if (seg && b != null && !otOk) {
+        const over = Math.round((b - shiftTimeMs(ds, seg.endH)) / 60000);
+        if (over > 30) {
+          const o = pr.out || {};
+          const why = o.otStatus === 'pending' ? '加班申請待審，核准後才計工時'
+            : o.otStatus === 'rejected' ? '加班申請未核准，不計工時'
+              : (o.otIntent === 'private' ? '本人申報為私事，' : '未申請加班，') + '超時為個人因素停留，不計工時';
+          notes.push(`下班 ${lrHm(b)}（超過排定 ${over} 分）：${why}`);
+        }
+      }
       return { in: a != null ? lrHm(a) : '', out: b != null ? lrHm(b) : '', outNext: b != null && lrYmd(new Date(b)) !== ds, h };
     });
     // 每一筆打卡的註記（跟著配對走：跨夜的下班卡註記在上班那天）
@@ -317,8 +335,8 @@ function lrPrint() {
     </table>
     <div class="sh-sum">出勤天數：${x.sum.days} 天　總時數：${lrHrs(x.sum.hours)}　遲到：${x.sum.late} 次（${x.sum.lateMin} 分）　缺卡未補：${x.sum.miss}　國定假日出勤：${x.sum.holDays} 天${x.emp.pt ? '' : `　本月休假：${x.sum.rest} 天（週六日 ${x.sum.satSun} 天）`}</div>
     ${x.sum.noRest ? `<div class="sh-norest">⚠️ 有 ${x.sum.noRest} 週整週無休（例假出勤）</div>` : ''}
-    <div class="sh-foot">例假／休息日：每週一～週日，最後一個休假日為例假、倒數第二個為休息日（特休、補休不計入）。時數＝依排定班別計算，遲到／早退依實際打卡扣除，已核准加班及無排班出勤依實際打卡；上下班時間照實記載至分鐘；資料取自打卡系統，列印時間 ${lrYmd(new Date())} ${lrHm(Date.now())}。</div>
-    <div class="sh-confirm">本人確認上列出勤紀錄及時數正確無誤。排定班別以外於店內停留而未依規定申請加班者，係本人個人因素之非工作停留（如用餐、休息、等候交通等），非屬延長工作時間。</div>
+    <div class="sh-foot">例假／休息日：每週一～週日，最後一個休假日為例假、倒數第二個為休息日（特休、補休不計入）。時數＝依排定班別計算（與薪資一致；遲到／早退分鐘記於備註）；已核准加班、無排班出勤者依實際打卡計算；下班超過排定時間 30 分鐘且未經核准加班者，於備註註明；上下班時間照實記載至分鐘；資料取自打卡系統，列印時間 ${lrYmd(new Date())} ${lrHm(Date.now())}。</div>
+    <div class="sh-confirm">本人確認上列出勤紀錄及時數正確無誤。排定班別以外於店內停留而未依規定申請加班者，係本人個人因素之非工作停留（如用餐、休息、等候交通等），非屬延長工作時間。工作時間達 4 小時以上者，均已依法安排 30 分鐘以上休息時間（採輪休制且照常計薪）。</div>
     <div class="sh-sign"><div><span></span>員工簽名</div><div><span></span>日期</div><div><span></span>店長</div></div>
   </section>`).join('');
   window.print();
