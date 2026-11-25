@@ -1905,8 +1905,9 @@ function buildSinglePayslipHtml(emp, y, m, sig) {
     parseFloat(rec.holidayOtPay||0)>0 || parseFloat(rec.lateMinutes||0)>0
   );
   const companyPension = Math.round(pensionBase * 0.06);
-  // 公司提撥退休金（原本只印「金額」兩個字、沒填數字）：有設投保級距用級距的雇主提撥，沒設：正職（底薪＋全勤）×6%、工讀 0（跟公司負擔合計同一規則）
-  const _pensionEr2 = (rec.insuranceGrade != null) ? Math.round(parseFloat(rec.pensionEr || 0)) : (isPartTime ? 0 : companyPension);   // 與「公司負擔合計」同一規則
+  // 公司提撥退休金（原本只印「金額」兩個字、沒填數字）
+  // 使用者 2026-11-25：沒設投保級距就顯示 --（不推算）；工讀照樣有提撥（勞退條例 §6），有級距就印級距的雇主提撥
+  const _pensionEr2 = (rec.insuranceGrade != null) ? Math.round(parseFloat(rec.pensionEr || 0)) : null;
   const _supH2 = calcHourlySupportHours(emp.name);
   const _supRate2 = parseFloat(rec.hourlySupportRate||0);
   const _supAmt2 = Math.round(_supH2 * _supRate2);
@@ -2058,7 +2059,7 @@ function buildSinglePayslipHtml(emp, y, m, sig) {
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;">遲到扣款</td>
         <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;color:#d93025;">-$${lateDeductAmt.toLocaleString()}</td>
         <td colspan="2" style="padding:3px 6px;border:1px solid #ccc;background:#d9e1f2;font-weight:800;">公司提撥退休金</td>
-        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;font-weight:800;">$${_pensionEr2.toLocaleString()}</td>
+        <td style="padding:3px 6px;border:1px solid #ccc;text-align:right;font-weight:800;">${_pensionEr2 == null ? '--' : '$' + _pensionEr2.toLocaleString()}</td>
         <td colspan="3" style="padding:3px 6px;border:1px solid #ccc;">&nbsp;</td>
       </tr>
       <tr>
