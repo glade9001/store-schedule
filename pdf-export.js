@@ -93,7 +93,8 @@ function pdfxReadyDialog(file, blob) {
  */
 function pdfxPreview(html, title) {
   const ov = document.createElement('div');
-  ov.style.cssText = 'position:fixed;inset:0;z-index:100000;background:#e5e7eb;display:flex;flex-direction:column;';
+  // -webkit-text-size-adjust：iPhone 會把縮小顯示的寬版面裡某些字自動放大（「溝通事項」變超大、半頁被擠到裁掉），要關掉
+  ov.style.cssText = 'position:fixed;inset:0;z-index:100000;background:#e5e7eb;display:flex;flex-direction:column;-webkit-text-size-adjust:100%;text-size-adjust:100%;';
   const safe = String(title || '預覽').replace(/[<>&]/g, '');
   ov.innerHTML = `<div style="flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:10px 14px;padding-top:max(10px, env(safe-area-inset-top));background:#0f766e;color:#fff;">
       <div style="flex:1;font-size:16px;font-weight:800;">👀 ${safe}</div>
@@ -102,9 +103,14 @@ function pdfxPreview(html, title) {
       <div data-k="paper" style="width:794px;transform-origin:top left;"></div></div>`;
   const paper = ov.querySelector('[data-k=paper]');
   paper.innerHTML = html;
-  // 每一頁畫成一張白紙（列印用的固定高度拿掉，才不會被裁）
-  paper.querySelectorAll('.sheet, .payslip-page').forEach(p => {
-    p.style.cssText += ';background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.18);padding:24px 28px;margin:0 0 14px;height:auto;overflow:visible;box-sizing:border-box;';
+  // 每一頁畫成一張 A4（210×297mm），四邊留白同列印（使用者 2026-11-25：要看到印出來的樣子）
+  //   出勤紀錄表（.sheet）：上下 8mm、左右 9mm；薪資單（.payslip-page）：四邊 8mm、內容高 277mm（兩人一頁）
+  //   ⚠️ 不可改高度：薪資單半頁有固定高度，改掉就不是印出來的樣子
+  paper.querySelectorAll('.sheet').forEach(p => {
+    p.style.cssText += ';background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.18);width:210mm;min-height:297mm;padding:8mm 9mm;margin:0 0 14px;box-sizing:border-box;';
+  });
+  paper.querySelectorAll('.payslip-page').forEach(p => {
+    p.style.cssText += ';background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.18);width:210mm;height:297mm;padding:8mm;margin:0 0 14px;box-sizing:border-box;';
   });
   const fit = () => { const w = ov.querySelector('[data-k=scroll]').clientWidth - 24; paper.style.zoom = String(Math.min(1, w / 794)); };
   ov.addEventListener('click', e => { if (e.target.getAttribute && e.target.getAttribute('data-k') === 'close') { window.removeEventListener('resize', fit); ov.remove(); } });

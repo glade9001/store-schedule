@@ -1,5 +1,5 @@
 /* 出勤紀錄表（一人一張）共用樣式：勞檢出勤表列印、查看薪水的出勤記錄表分頁（2026-11-25 從 labor-record-page.css 拆出） */
-.sheet{padding:0;color:#000;font-size:10.5pt;}
+.sheet{padding:0;color:#000;font-size:10.5pt;-webkit-text-size-adjust:100%;text-size-adjust:100%;}   /* iPhone 縮小顯示時不要自動放大字 */
 .sh-title{text-align:center;font-size:16pt;font-weight:900;margin-bottom:6px;}
 .sh-sub{display:flex;justify-content:space-between;gap:10px;font-size:10.5pt;margin-bottom:6px;}
 .sh-table{width:100%;border-collapse:collapse;table-layout:fixed;border:1.5pt solid #000;}

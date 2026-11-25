@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#1a73e8">
-<title>🗃️ 勞檢出勤表</title>
+<title>🗃️ 勞檢資料</title>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
@@ -21,7 +21,7 @@
 
 <div class="header no-print">
   <button class="header-back" onclick="lrBack()">← 返回</button>
-  <div class="header-title">🗃️ 勞檢出勤表</div>
+  <div class="header-title">🗃️ 勞檢資料</div>
 </div>
 
 <div class="wrap no-print">
@@ -41,6 +41,7 @@
 <div id="lrPrint"></div>
 <div id="toast" class="no-print"></div>
 
+<script src="schedule-draw.js"></script>
 <script src="pdf-export.js"></script>
 <script src="labor-record-core.js"></script>
 <script src="labor-record-page.js"></script>

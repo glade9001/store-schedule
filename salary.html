@@ -28,6 +28,14 @@
 <body>
 <div id="loadingOverlay"><div class="spinner"></div><div id="loadingText">載入薪資系統...</div></div>
 
+<script>if(new URLSearchParams(location.search).get('embed')==='1')document.documentElement.classList.add('embed');</script>
+<style>
+/* 勞檢資料嵌入（2026-11-25）：只顯示薪資單視窗，不要頁首、員工列表與關閉按鈕 */
+html.embed #appShell > *:not(.modal-overlay){display:none!important;}
+html.embed #payslipModal{position:static;background:none;opacity:1;pointer-events:auto;align-items:stretch;}
+html.embed #payslipModal .modal-box{max-width:none;border-radius:0;max-height:none;box-shadow:none;}
+html.embed #payslipModal .modal-handle,html.embed #payslipModal button[onclick*="closeModal('payslipModal')"]{display:none!important;}
+</style>
 <div id="appShell">
   <div id="salaryPreviewBanner" style="display:none; background:linear-gradient(135deg,#9334e6,#6a1bb5); color:white; padding:8px 16px; font-size:12px; font-weight:700; text-align:center; cursor:pointer; flex-shrink:0;" onclick="window.location.href='home.html'">
     🎭 預覽模式 — 點此返回首頁切換角色

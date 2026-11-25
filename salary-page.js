@@ -1770,7 +1770,10 @@ const EMAILJS_TEMPLATE = 'template_9ghp6s9';
 
 // 開啟薪資單 Modal（含 email 欄位）
 function openPayslipModal() {
-  if(!canApprove()) return;
+  if(!canApprove() && !(_embedPayslip && (salaryData.status || 'draft') === 'published')) {
+    if(_embedPayslip) document.getElementById('appShell').insertAdjacentHTML('afterbegin', '<div style="padding:16px;font-weight:700;">這個月薪資還沒發布，發布後才看得到薪資單</div>');
+    return;
+  }
   const sel = document.getElementById('payslipEmpSelect');
   sel.innerHTML = empList.map(e =>
     `<option value="${e.name}">${e.name}（${e.role||''}）</option>`
@@ -3882,6 +3885,11 @@ window.onload = async () => {
       sel.style.display = 'block';
     }
     currentStore = currentUser.store || appConfig.stores[0] || '';
+    // ?store=門市：勞檢資料嵌入用（加盟主以上任一店；店長只能自己的店）
+    try {
+      const qs = new URLSearchParams(location.search).get('store');
+      if(qs && (appConfig.stores || []).includes(qs) && (canApprove() || qs === currentUser.store)) currentStore = qs;
+    } catch(e) {}
     sel.value = currentStore;
 
     // 確認 currentStore 有值
@@ -3912,11 +3920,21 @@ window.onload = async () => {
     if(previewBanner) previewBanner.style.display = isPreview ? 'block' : 'none';
     hideLoading();
     await loadSalaryData();
+    // ?payslip=員工：勞檢資料嵌入用 → 直接打開這個人的薪資單（2026-11-25）
+    const qp = new URLSearchParams(location.search).get('payslip');
+    if(qp) {
+      _embedPayslip = qp;
+      openPayslipModal();
+      const ps = document.getElementById('payslipEmpSelect');
+      if(ps && [...ps.options].some(o => o.value === qp)) { ps.value = qp; renderPayslip(); }
+    }
   } catch(e) {
     hideLoading();
     alert('載入失敗：' + e.message);
   }
 };
+/** 勞檢資料嵌入時要打開的員工；店長在嵌入模式下也能看已發布月份的薪資單（勞檢資料本來就是店長以上用） */
+let _embedPayslip = '';
 
 
 if('serviceWorker' in navigator) {

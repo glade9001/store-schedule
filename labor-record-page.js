@@ -1,4 +1,4 @@
-// ===== 勞檢出勤表（2026-09-28）=====
+// ===== 勞檢資料（原「勞檢出勤表」2026-09-28；2026-11-25 改成單一入口：選月份 → 每個人的薪資單、出勤記錄表、該月輪班表）=====
 // 從打卡系統的實際紀錄產出「一人一張」的月出勤紀錄表（列印後紙本簽名）與 Excel 明細。
 // 使用者定案：只給店長以上（店長只看自己的店）、員工看不到、不做線上簽名；版面參考盤點資料的出勤記錄表。
 // ⚠️ 跟盤點資料（inspection.html，時間人工填寫）不同：這裡只讀 stores/{店}/attendance 的實際打卡，
@@ -8,6 +8,7 @@
 //   員工端也看得到自己的出勤表並電子簽名（推翻 09-28「員工看不到、不做線上簽名」，使用者 2026-11-25 定案）。
 
 let lrUser = null, lrData = null;   // lrConfig 在 labor-record-core.js
+let lrSel = null;   // 個人頁：{ name, tab: 'att'|'pay'|'sched', mode: 'esign'|'blank' }
 
 function lrToast(m) { const t = document.getElementById('toast'); t.textContent = m; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2600); }
 function lrLoading(m) { document.getElementById('loadingText').textContent = m || '載入中…'; document.getElementById('loadingOverlay').classList.remove('hidden'); }
@@ -38,7 +39,7 @@ window.onload = async () => {
   mSel.innerHTML = opts.map((m, i) => `<option value="${m}"${i === 1 ? ' selected' : ''}>${m.replace('-', ' 年 ')} 月${i === 0 ? '（本月，尚未結束）' : ''}</option>`).join('');
 };
 
-function lrReset() { lrData = null; document.getElementById('lrResult').innerHTML = ''; }
+function lrReset() { lrData = null; lrSel = null; document.getElementById('lrResult').innerHTML = ''; }
 // ───────── 畫面 ─────────
 async function lrLoadAndShow() {
   const store = document.getElementById('lrStore').value, ym = document.getElementById('lrMonth').value;
@@ -100,7 +101,7 @@ function lrRender() {
   document.getElementById('lrResult').innerHTML = `<div class="card">
     <div class="sum-title">${lrEsc(D.store)}　${D.ym.replace('-', ' 年 ')} 月　共 ${list.length} 人</div>
     <table class="sum-table"><thead><tr><th>姓名</th><th>出勤天數</th><th>時數</th><th>遲到</th><th>缺卡未補</th><th>休假／六日</th><th>＊週</th><th>勞基法</th><th>電子簽名</th><th>員工端出勤表</th></tr></thead><tbody>
-    ${list.map(x => `<tr><td>${lrEsc(x.name)}<small>${lrEsc(x.emp.role)}${x.emp.status && x.emp.status !== '在職' ? '・' + lrEsc(x.emp.status) : ''}</small></td>
+    ${list.map(x => `<tr class="lr-row${lrSel && lrSel.name === x.emp.name ? ' on' : ''}"><td><button class="lr-name" onclick="lrOpenPerson('${lrEsc(x.emp.name).replace(/'/g, '&#39;')}')">${lrEsc(x.name)} ›</button><small>${lrEsc(x.emp.role)}${x.emp.status && x.emp.status !== '在職' ? '・' + lrEsc(x.emp.status) : ''}</small></td>
       <td>${x.sum.days}</td><td>${lrHrs(x.sum.hours)}</td><td>${x.sum.late ? x.sum.late + ' 次／' + x.sum.lateMin + ' 分' : '—'}</td>
       <td class="${x.sum.miss ? 'warn' : ''}">${x.sum.miss || '—'}</td>
       <td>${x.emp.pt ? '—' : `${x.sum.rest}／${x.sum.satSun}`}</td>
@@ -113,25 +114,27 @@ function lrRender() {
       ${list.filter(x => x.law.length).map(x => `<div style="margin-top:4px;"><b>${lrEsc(x.name)}</b>${x.law.map(m => `<div>・${lrEsc(m)}</div>`).join('')}</div>`).join('')}
       <div style="color:#7f1d1d;font-size:11.5px;margin-top:4px;">檢查：正職「休」＝當月六日天數（國定假日不算）、連續 7 天要有一天休、前後班休息 ≥ 11 小時。國定假日沒上班寫「國」，不當例假或休息日。</div>
     </div>` : '<div class="meta" style="color:#137333;font-weight:700;">✅ 勞基法檢查通過</div>'}
-    <div class="btns"><button class="btn-primary" onclick="lrPrint('esign', true)">👀 預覽（電子簽名版）</button><button class="btn-outline" onclick="lrPrint('blank', true)">👀 預覽（空白版，手簽）</button></div>
+    <div class="meta">點姓名看這個人的<b>薪資單、出勤記錄表、該月輪班表</b>。</div>
+    <div class="btns"><button class="btn-primary" onclick="lrPack('esign')">📦 整月打包預覽（電子簽名版）</button><button class="btn-outline" onclick="lrPack('blank')">📦 整月打包預覽（空白版）</button></div>
+    <div class="meta">打包＝該月每週輪班表＋每個人的出勤記錄表（照摘要表順序）；薪資單在個人頁或薪資頁「🧾 薪資單」看全店。</div>
+    <div class="btns"><button class="btn-outline" onclick="lrPrint('esign', true)">👀 出勤表預覽（電子簽名版）</button><button class="btn-outline" onclick="lrPrint('blank', true)">👀 出勤表預覽（空白版）</button></div>
     <div class="btns"><button class="btn-outline" onclick="lrPrint('esign')">🖨️ 列印（電子簽名版）</button><button class="btn-outline" onclick="lrPrint('blank')">🖨️ 列印（空白版）</button><button class="btn-outline" onclick="lrExcel()">📊 下載 Excel</button></div>
     <div class="meta">手機請用「預覽」直接看（手機從主畫面開的 App 不支援「列印」）；要印紙本請用電腦按「列印」。</div>
     <div class="meta">電子簽名版：已電子簽署的印出簽名與簽署時間（到分鐘），沒簽或簽後有異動的印出狀態，請手簽；店長欄一律手簽。空白版＝全部手簽。列印對話框可以只選某幾頁。</div>
     ${D.ym >= LR_ESIGN_START ? '<div class="meta">員工端出勤表：沒有勞基法紅字的，薪資發布後員工就看得到並一起簽名；有紅字的先暫緩，修正後自動開放，或確認無誤後按「開放給員工」。員工端看不到紅字內容。</div>' : ''}
     <div class="star-help">「例假＊」＝該週只休一天：那天是例假，另外有一天是<b>休息日出勤</b>（需本人同意、並給付休息日加班費）。這個說明<b>不會印在紙上</b>，請員工在有「＊」的那一列旁手寫簽名確認。</div>
-  </div>`;
+  </div><div id="lrPerson"></div>`;
+  if (lrSel) lrRenderPerson();
 }
 
 // ───────── 列印（一人一頁；版面參考盤點資料的出勤記錄表）─────────
 // mode：'esign'＝電子簽名版（簽了且內容沒變的印簽名＋時間到分鐘；其餘印狀態字留給手簽）；'blank'＝空白版（全部手簽）
 // asPdf：產生 PDF 檔（手機從主畫面開的 App 不支援列印，2026-11-25）
-async function lrPrint(mode, asPdf) {
-  if (!lrData) return;
-  const { D, list, acks } = lrData;
-  const sigs = {};
-  if (mode === 'esign') {
-    lrLoading('讀取電子簽名…');
-    await Promise.all(list.map(async x => {
+/** 電子簽名版的簽名欄：empName → {img, at, account, ver} 或 {text}；讀過的記在 lrData.sigs 不重讀 */
+async function lrLoadSigs(xs) {
+  const { D, acks } = lrData;
+  const sigs = lrData.sigs = lrData.sigs || {};
+  await Promise.all(xs.filter(x => !sigs[x.emp.name]).map(async x => {
       const ack = acks[x.emp.name], ver = lrAttHash(x), st = lrAttSignState(D.ym, ack, ver);
       if (!st.ok) { sigs[x.emp.name] = { text: st.text }; return; }
       try {
@@ -141,9 +144,14 @@ async function lrPrint(mode, asPdf) {
         const img = sd.exists && sd.data().signatureDataUrl;
         sigs[x.emp.name] = img ? { img, at: st.at, account: (ud.exists && (ud.data().ID || ud.data().username)) || '', ver } : { text: '找不到簽名圖，請手簽' };
       } catch (e) { sigs[x.emp.name] = { text: '讀不到簽名，請手簽' }; }
-    }));
-    lrLoaded();
-  }
+  }));
+  return sigs;
+}
+async function lrPrint(mode, asPdf) {
+  if (!lrData) return;
+  const { D, list } = lrData;
+  let sigs = {};
+  if (mode === 'esign') { lrLoading('讀取電子簽名…'); sigs = await lrLoadSigs(list); lrLoaded(); }
   const html = list.map(x => lrSheetHtml(D, x, mode === 'esign' ? sigs[x.emp.name] : null)).join('');
   if (asPdf) {   // 預覽（手機用；使用者 2026-11-25：不用 PDF，直接預覽）
     pdfxPreview(html, `${D.store} ${D.ym.replace('-', ' 年 ')} 月 出勤紀錄表${mode === 'esign' ? '（電子簽名版）' : '（空白版）'}`);
@@ -152,6 +160,108 @@ async function lrPrint(mode, asPdf) {
   document.getElementById('lrPrint').innerHTML = html;
   window.print();
 }
+// ───────── 個人頁：薪資單｜出勤記錄表｜班表 ─────────
+function lrOpenPerson(name) {
+  lrSel = { name, tab: (lrSel && lrSel.tab) || 'att', mode: (lrSel && lrSel.mode) || 'esign' };
+  lrRender();
+  const el = document.getElementById('lrPerson'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function lrPersonTab(t) { lrSel.tab = t; lrRenderPerson(); }
+function lrPersonMode(m) { lrSel.mode = m; lrRenderPerson(); }
+async function lrRenderPerson() {
+  const box = document.getElementById('lrPerson'); if (!box || !lrData || !lrSel) return;
+  const { D, list } = lrData;
+  const x = list.find(v => v.emp.name === lrSel.name);
+  if (!x) { box.innerHTML = ''; return; }
+  const q = s => lrEsc(s).replace(/'/g, '&#39;');
+  const tab = (k, t) => `<button class="lr-tab${lrSel.tab === k ? ' on' : ''}" onclick="lrPersonTab('${k}')">${t}</button>`;
+  let body = '';
+  if (lrSel.tab === 'att') {
+    const seg = (k, t) => `<button class="lr-seg${lrSel.mode === k ? ' on' : ''}" onclick="lrPersonMode('${k}')">${t}</button>`;
+    body = `<div class="lr-bar">${seg('esign', '電子簽名版')}${seg('blank', '空白版')}
+      <button class="btn-mini" onclick="lrPersonPreview()">👀 全螢幕預覽</button></div>
+      <div class="lr-paper-wrap"><div class="lr-paper" id="lrPaper">讀取中…</div></div>`;
+  } else if (lrSel.tab === 'pay') {
+    const src = `salary.html?embed=1&store=${encodeURIComponent(D.store)}&month=${encodeURIComponent(D.ym)}&payslip=${encodeURIComponent(x.emp.name)}`;
+    body = `<div class="meta">跟薪資頁的薪資單同一份（直接嵌入薪資頁）；上方可選預覽電子簽名版或空白版。</div>
+      <iframe class="lr-frame" src="${src}" title="${lrEsc(x.name)} 薪資單"></iframe>`;
+  } else {
+    body = `<div class="meta">該月每週的全店輪班表（跟排班系統印出來的一樣），點圖可放大。</div><div id="lrWeeks">讀取班表中…</div>`;
+  }
+  box.innerHTML = `<div class="card lr-person">
+    <div class="lr-person-head"><b>${lrEsc(x.name)}</b><small>${lrEsc(x.emp.role || '')}・${D.ym.replace('-', ' 年 ')} 月</small>
+      <button class="btn-mini" onclick="lrSel=null;lrRender();">關閉</button></div>
+    <div class="lr-tabs">${tab('pay', '薪資單')}${tab('att', '出勤記錄表')}${tab('sched', '班表')}</div>${body}</div>`;
+  if (lrSel.tab === 'att') {
+    const sig = lrSel.mode === 'esign' ? (await lrLoadSigs([x]))[x.emp.name] : null;
+    const paper = document.getElementById('lrPaper'); if (!paper) return;
+    paper.innerHTML = lrSheetHtml(D, x, sig);
+    lrFitPaper(paper);
+  } else if (lrSel.tab === 'sched') {
+    const imgs = await lrWeekImages();
+    const w = document.getElementById('lrWeeks'); if (!w) return;
+    w.innerHTML = imgs.length ? imgs.map(im => `<img class="lr-week" src="${im.src}" alt="${lrEsc(im.label)} 輪班表" onclick="this.classList.toggle('zoom')">`).join('') : '<div class="meta">這個月沒有班表資料</div>';
+  }
+}
+/** A4 寬（794px）縮到容器寬 */
+function lrFitPaper(paper) {
+  paper.style.width = '794px';
+  paper.style.zoom = String(Math.min(1, (paper.parentElement.clientWidth - 4) / 794));
+}
+async function lrPersonPreview() {
+  const { D, list } = lrData;
+  const x = list.find(v => v.emp.name === lrSel.name);
+  const sig = lrSel.mode === 'esign' ? (await lrLoadSigs([x]))[x.emp.name] : null;
+  pdfxPreview(lrSheetHtml(D, x, sig), `${x.name} ${D.ym.replace('-', ' 年 ')} 月 出勤紀錄表${lrSel.mode === 'esign' ? '（電子簽名版）' : '（空白版）'}`);
+}
+
+/**
+ * 該月每週的全店輪班表圖片（用排班系統同一支 drawScheduleCanvas 畫，格式完全一樣）
+ * 回傳 [{label, src(dataURL)}]；同一個門市月份只畫一次
+ */
+async function lrWeekImages() {
+  if (lrData.weekImgs) return lrData.weekImgs;
+  const { D } = lrData;
+  const stores = (lrConfig.stores || []).filter(s => s && s !== '人力支援');
+  const weeks = [];
+  for (let d = D.first; d <= D.last; d = shiftDateAdd(d, 1)) { const w = shiftWeekStr(d); if (!weeks.includes(w)) weeks.push(w); }
+  const out = [];
+  for (const wk of weeks) {
+    const snaps = await Promise.all(stores.map(st => window.db.collection('stores').doc(st).collection('weeks').doc(wk).get().then(s => [st, s]).catch(() => [st, null])));
+    const mine = snaps.find(([st]) => st === D.store);
+    const records = (mine && mine[1] && mine[1].exists) ? (mine[1].data().records || []) : [];
+    if (!records.length) continue;
+    const all = [];
+    snaps.forEach(([st, s]) => { if (s && s.exists) (s.data().records || []).forEach(r => all.push({ ...r, _store: st })); });
+    const emps = D.emps.map(e => ({ name: e.name, role: e.role }));
+    records.forEach(r => { if (r.name && !emps.some(e => e.name === r.name) && String(r.name).startsWith('🆘')) emps.push({ name: r.name, role: '待補' }); });
+    // 週一～週日的「M/D」（同排班頁 getWeekDates）
+    let mon = null;
+    for (let d = shiftDateAdd(D.first, -6); d <= D.last; d = shiftDateAdd(d, 1)) { if (shiftWeekStr(d) === wk && shiftDayName(d) === '週一') { mon = d; break; } }
+    if (!mon) continue;
+    const dates = Array.from({ length: 7 }, (_, i) => { const d = shiftDateAdd(mon, i); return `${+d.slice(5, 7)}/${+d.slice(8, 10)}`; });
+    const cv = document.createElement('canvas');
+    try { drawScheduleCanvas(cv, D.store, wk, records, emps, dates, all); } catch (e) { continue; }
+    out.push({ label: `${dates[0]}～${dates[6]}`, src: cv.toDataURL('image/png') });
+  }
+  lrData.weekImgs = out;
+  return out;
+}
+
+/** 整月打包預覽：每週輪班表＋每個人的出勤記錄表 */
+async function lrPack(mode) {
+  if (!lrData) return;
+  const { D, list } = lrData;
+  lrLoading('整理資料中…');
+  try {
+    const [imgs, sigs] = await Promise.all([lrWeekImages(), mode === 'esign' ? lrLoadSigs(list) : Promise.resolve({})]);
+    const weeksHtml = imgs.map(im => `<section class="sheet"><div class="sh-title">${lrEsc(D.store)}　職員輪班表　${lrEsc(im.label)}</div><img src="${im.src}" alt="" style="width:100%;display:block;"></section>`).join('');
+    const sheets = list.map(x => lrSheetHtml(D, x, mode === 'esign' ? sigs[x.emp.name] : null)).join('');
+    lrLoaded();
+    pdfxPreview(weeksHtml + sheets, `${D.store} ${D.ym.replace('-', ' 年 ')} 月 勞檢資料${mode === 'esign' ? '（電子簽名版）' : '（空白版）'}`);
+  } catch (e) { lrLoaded(); lrToast('整理失敗：' + e.message); }
+}
+
 // ───────── Excel ─────────
 function lrExcel() {
   if (!lrData || typeof XLSX === 'undefined') { lrToast('Excel 元件還沒載入，請稍候再試'); return; }

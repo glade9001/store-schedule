@@ -168,3 +168,4 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 .ms-att-wrap{background:#fff;border:1px solid #cbd5e1;border-radius:6px;padding:10px;overflow:auto;}
 .ms-chk{display:flex;gap:10px;align-items:flex-start;font-size:14px;line-height:1.6;margin:0 0 8px;cursor:pointer;}
 .ms-chk input[type=checkbox]{width:20px;height:20px;margin:2px 0 0;flex:0 0 auto;}
+.ms-att-wrap,.lr-paper-wrap{-webkit-text-size-adjust:100%;text-size-adjust:100%;}
