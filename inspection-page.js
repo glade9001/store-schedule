@@ -240,7 +240,7 @@ function openEditor() {
   sel.value = sheet.salaryMonth || prevMonthOf(sheet.auditDate);
   renderEmps();
   gotoStep(1);
-  autoFillHireDates();
+  autoFillHireDates().then(refreshAnnualBases);
   renderRange();
   applyReadonlyUI();
 }
@@ -490,7 +490,7 @@ async function autoFillHireDates() {
 function annTag(e) {
   const a = annualInfo(e);
   if (!a) return '・<span style="color:#c2410c;">沒到職日</span>';
-  return `・特休 ${a.entTxt}${e.annualUsed == null ? '（已休未填）' : `／未休 ${a.remainTxt}`}`;
+  return `・特休 ${a.entTxt}${a.estimated ? '<span style="color:#c2410c;">（推估）</span>' : ''}${e.annualUsed == null ? '（已休未填）' : `／未休 ${a.remainTxt}`}`;
 }
 function renderEmps() {
   const box = document.getElementById('empList');
@@ -579,7 +579,7 @@ function onAnnInput() {
   const a = annualInfo(e);
   document.getElementById('eAnnHint').innerHTML = !a ? '填到職日，特休日數會自動算（已休自己填）。'
     : a.ent === 0 ? `年資 ${a.ageTxt}，未滿 6 個月還沒有特休。`
-      : `年資 ${a.ageTxt}：特休 <b>${a.entTxt}</b>${a.isPart ? `（全職 ${a.fullDays} 日 × 每週 ${a.weekH} 小時 ÷ 40）` : ''}，已休 ${a.usedTxt}、未休 <b>${a.remainTxt}</b>`;
+      : `年資 ${a.ageTxt}：特休 <b>${a.entTxt}</b>${a.isPart ? `（${a.how}）<br><span style="color:#64748b;">工時依據：${esc(a.src)}</span>` : ''}，已休 ${a.usedTxt}、未休 <b>${a.remainTxt}</b>`;
 }
 
 /**
@@ -602,11 +602,98 @@ function annualInfo(e) {
     return { isPart, months, ageTxt, fullDays, ent: fullDays, used, remain: left,
       entTxt: fullDays + ' 日', usedTxt: used + ' 日', remainTxt: left + ' 日' };
   }
-  const weekH = e.weekHours != null && e.weekHours > 0 ? e.weekHours : avgWeekHours(e);
-  const ent = Math.round(fullDays * 8 * Math.min(weekH, 40) / 40 * 10) / 10;
+  // 平均每週工時的來源（優先序）：手填 → 正式排班表該期間實際工時（annualBasis）→ 這份盤點班表的平均
+  const b = e.annualBasis && e.annualBasis.key === annualKey(e) ? e.annualBasis : null;
+  let weekH, src, ent, sameDays = false;
+  if (e.weekHours != null && e.weekHours > 0) { weekH = e.weekHours; src = '手填的平均每週工時'; }
+  else if (b && b.weekH != null) {
+    weekH = b.weekH;
+    src = `${b.from.slice(5).replace('-', '/')}~${b.to.slice(5).replace('-', '/')} 實際班表（平均每週 ${b.weekH} 小時、${b.daysPerWeek} 天）` + (b.estimated ? `；⚠️ 應看 ${b.fullFrom}~${b.fullTo}，系統 ${SCHED_DATA_START} 起才有班表，用有資料的部分推估` : '');
+    // 每週上班天數跟正職一樣（5 天）只是每天較短 → 依 §38 給足日數，每日以他平常的時數計（勞動部說明）
+    if (b.daysPerWeek >= 5 && b.dailyH > 0) sameDays = true;
+  } else { weekH = avgWeekHours(e); src = '這份盤點班表的平均（正式班表沒資料或還沒算）'; }
+  if (sameDays) ent = Math.round(fullDays * b.dailyH * 10) / 10;
+  else ent = Math.round(fullDays * 8 * Math.min(weekH, 40) / 40 * 10) / 10;
   const left = Math.round((ent - used) * 10) / 10;
-  return { isPart, months, ageTxt, fullDays, weekH, ent, used, remain: left,
+  const how = sameDays ? `每週上 ${b.daysPerWeek} 天同正職，給足 ${fullDays} 日 × 每日 ${b.dailyH} 小時`
+    : `全職 ${fullDays} 日 × 8 × 每週 ${weekH} 小時 ÷ 40`;
+  return { isPart, months, ageTxt, fullDays, weekH, ent, used, remain: left, src, how, estimated: !!(b && b.estimated && !(e.weekHours > 0)),
     entTxt: ent + ' 小時', usedTxt: used + ' 小時', remainTxt: left + ' 小時' };
+}
+
+// ===== 工讀特休的工時比例：從正式排班表算（使用者 2026-11-25）=====
+// 勞動部「部分工時勞工應如何計給特別休假」：滿 6 個月未滿 1 年 → 到職起 6 個月的工時比例；滿 1 年以上 → 前一年（最近一次週年日往前 12 個月）。
+// ⚠️ 三家店排班表 2026-W14（3/30）才開始有資料：期間有一段在這之前 → 只用有資料的部分推估，並標「推估」。2027/3/30 以後週年的人就不用推估。
+const SCHED_DATA_START = '2026-03-30';
+const addMonthsYmd = (ymd, k) => {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const t = new Date(y, m - 1 + k, 1);
+  const last = new Date(t.getFullYear(), t.getMonth() + 1, 0).getDate();
+  return `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(Math.min(d, last))}`;
+};
+const annualKey = e => `${e.hireDate}|${sheet.salaryMonth}|${e.srcName || ''}`;
+/** 該員這一期特休要看的工時期間 [from, to)；未滿 6 個月回 null */
+function annualWindow(e) {
+  const a = annualInfoMonths(e);
+  if (a == null || a < 6) return null;
+  if (a < 12) return { from: e.hireDate, to: addMonthsYmd(e.hireDate, 6) };
+  const anniv = addMonthsYmd(e.hireDate, Math.floor(a / 12) * 12);
+  return { from: addMonthsYmd(anniv, -12), to: anniv };
+}
+function annualInfoMonths(e) {
+  if (!e || !e.hireDate || !sheet.salaryMonth) return null;
+  const md = monthDays(sheet.salaryMonth), ref = md[md.length - 1];
+  const [hY, hM, hD] = e.hireDate.split('-').map(Number), [eY, eM, eD] = ref.split('-').map(Number);
+  return Math.max(0, (eY - hY) * 12 + (eM - hM) - (eD < hD ? 1 : 0));
+}
+let _annBusy = false;
+const _weekCache = {};   // `${店}|${週}` → records（同一頁面內共用，避免每個人重讀）
+async function refreshAnnualBases() {
+  if (_annBusy || !sheet || !canEditSheet()) return;
+  const todo = (sheet.employees || []).filter(e => e.role === '工讀' && e.srcName && e.hireDate && !(e.annualBasis && e.annualBasis.key === annualKey(e)));
+  if (!todo.length) return;
+  _annBusy = true;
+  const sid = sheet.id;
+  try {
+    const stores = impStores();
+    const today = lvLocalYmd();
+    for (const e of todo) {
+      const w = annualWindow(e);
+      const key = annualKey(e);
+      if (!w) { e.annualBasis = { key, weekH: null }; continue; }
+      const from = w.from > SCHED_DATA_START ? w.from : SCHED_DATA_START;
+      const toEx = w.to < today ? w.to : today;
+      if (from >= toEx) { e.annualBasis = { key, weekH: null, fullFrom: w.from, fullTo: shiftDateAdd(w.to, -1) }; continue; }
+      const days = dateList(from, shiftDateAdd(toEx, -1));
+      let hours = 0, workDays = 0;
+      for (const mon of [...new Set(days.map(mondayOf))]) {
+        const wk = weekStrOfDate(parseD(mon));
+        await Promise.all(stores.map(async st => {
+          const k = st + '|' + wk;
+          if (_weekCache[k]) return;
+          try { const d = await window.db.collection('stores').doc(st).collection('weeks').doc(wk).get(); _weekCache[k] = d.exists ? (d.data().records || []) : []; }
+          catch (er) { _weekCache[k] = []; }
+        }));
+      }
+      days.forEach(d => {
+        const wk = weekStrOfDate(parseD(mondayOf(d))), dn = DAY_NAMES[dayIdx(d)];
+        let h = 0;
+        stores.forEach(st => (_weekCache[st + '|' + wk] || []).forEach(r => {
+          if (r.day !== dn) return;
+          const mine = r.name === e.srcName || (r.approvalStatus === 'approved' && String(r.supportEmp || '').replace(/^[^-]+-/, '') === e.srcName);
+          if (mine) h = Math.max(h, shiftTotalHours(String(r.shift || '').trim()));
+        }));
+        if (h > 0) { hours += h; workDays++; }
+      });
+      const wks = days.length / 7;
+      const winDays = dateList(w.from, shiftDateAdd(w.to, -1)).length;
+      e.annualBasis = { key, from, to: shiftDateAdd(toEx, -1), fullFrom: w.from, fullTo: shiftDateAdd(w.to, -1),
+        weekH: Math.round(hours / wks * 10) / 10, daysPerWeek: Math.round(workDays / wks * 10) / 10,
+        dailyH: workDays ? Math.round(hours / workDays * 10) / 10 : 0, estimated: days.length < winDays };
+    }
+    if (!sheet || sheet.id !== sid) return;
+    markDirty(); renderEmps(); applyReadonlyUI();
+  } finally { _annBusy = false; }
 }
 /** 這份盤點班表（輪班期間∪薪資月）的平均每週工時，小數一位 */
 function avgWeekHours(e) {
@@ -681,6 +768,7 @@ function saveEmp() {
     sheet.employees.push(data);
   }
   closeEmpEdit(); renderEmps(); markDirty();
+  refreshAnnualBases();   // 到職日或職稱改了 → 特休工時期間要重算（key 會變）
 }
 
 /**
@@ -1180,6 +1268,7 @@ async function confirmPickEmps() {
       });
     });
     renderEmps(); markDirty(); applyReadonlyUI();
+    refreshAnnualBases();
     alert(`已加入 ${picked.length} 人。\n薪資項目與投保級距：${gotSal} 人已從薪資系統帶入${noSal.length ? `\n找不到薪資紀錄、要自己填：${noSal.join('、')}` : ''}\n帶入的是複本，改這裡不影響正式薪資。`);
   } catch (e) { toast('加入失敗：' + (e.message || e)); }
   finally { hideLoad(); }
@@ -1269,6 +1358,7 @@ async function confirmImport() {
     markDirty(); renderSchedule();
     const errs = runComplianceChecks().filter(x => x.level === 'error').length;
     renderEmps();
+    refreshAnnualBases();
     const msg = [`從三家店排班表帶入 ${filled} 格`];
     if (hireFilled) msg.push(`補上 ${hireFilled} 人的到職日（特休自動算）`);
     if (kept) msg.push(`${kept} 格原本有填、沒動（要整份重帶請先按「清空全部」）`);
