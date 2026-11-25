@@ -120,7 +120,7 @@ function lrRender() {
       <button class="lr-big" onclick="lrShowSched()">📋 職員輪班表<span>每週一張</span></button>
       <button class="lr-big" onclick="lrPrint(lrMode, true)">🗂️ 出勤記錄表<span>一人一張</span></button>
       <button class="lr-big" onclick="lrShowPay()">💰 薪資單<span>兩人一頁</span></button>
-      <div class="meta">按下去直接預覽印出來的樣子。要印紙本請用電腦：<button class="btn-mini" onclick="lrPrint(lrMode)">🖨️ 列印出勤記錄表</button> <button class="btn-mini" onclick="lrExcel()">📊 下載 Excel</button>（輪班表、薪資單在預覽裡用瀏覽器列印，或到排班、薪資頁列印）</div>
+      <div class="meta">按下去直接預覽印出來的樣子，右上角「🖨️ 列印 / 存 PDF」可以印或存成 PDF（列印對話框選「另存為 PDF」）。<button class="btn-mini" onclick="lrExcel()">📊 下載 Excel</button></div>
     </div>
     <div class="meta">電子簽名版：已電子簽署的印出簽名與簽署時間（到分鐘），沒簽或簽後有異動的印出狀態，請手簽；店長欄一律手簽。空白版＝全部手簽。列印對話框可以只選某幾頁。</div>
     ${D.ym >= LR_ESIGN_START ? '<div class="meta">員工端出勤表：沒有勞基法紅字的，薪資發布後員工就看得到並一起簽名；有紅字的先暫緩，修正後自動開放，或確認無誤後按「開放給員工」。員工端看不到紅字內容。</div>' : ''}

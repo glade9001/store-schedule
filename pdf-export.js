@@ -92,12 +92,15 @@ function pdfxReadyDialog(file, blob) {
  * @param html 要預覽的 HTML（各頁自己的 <style> 也可以放進來）  @param title 標題
  */
 function pdfxPreview(html, title) {
+  pdfxPrintCss();
   const ov = document.createElement('div');
+  ov.className = 'pdfx-ov';
   // -webkit-text-size-adjust：iPhone 會把縮小顯示的寬版面裡某些字自動放大（「溝通事項」變超大、半頁被擠到裁掉），要關掉
   ov.style.cssText = 'position:fixed;inset:0;z-index:100000;background:#e5e7eb;display:flex;flex-direction:column;-webkit-text-size-adjust:100%;text-size-adjust:100%;';
   const safe = String(title || '預覽').replace(/[<>&]/g, '');
-  ov.innerHTML = `<div style="flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:10px 14px;padding-top:max(10px, env(safe-area-inset-top));background:#0f766e;color:#fff;">
+  ov.innerHTML = `<div data-k="bar" style="flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:10px 14px;padding-top:max(10px, env(safe-area-inset-top));background:#0f766e;color:#fff;">
       <div style="flex:1;font-size:16px;font-weight:800;">👀 ${safe}</div>
+      <button data-k="print" style="min-height:40px;padding:0 14px;border:0;border-radius:10px;background:#fbbf24;color:#1c2321;font-size:15px;font-weight:800;">🖨️ 列印 / 存 PDF</button>
       <button data-k="close" style="min-height:40px;padding:0 16px;border:0;border-radius:10px;background:#fff;color:#0f766e;font-size:15px;font-weight:800;">關閉</button></div>
     <div data-k="scroll" style="flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:12px;">
       <div data-k="paper" style="width:794px;transform-origin:top left;"></div></div>`;
@@ -113,8 +116,37 @@ function pdfxPreview(html, title) {
     p.style.cssText += ';background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.18);width:210mm;height:297mm;padding:8mm;margin:0 0 14px;box-sizing:border-box;';
   });
   const fit = () => { const w = ov.querySelector('[data-k=scroll]').clientWidth - 24; paper.style.zoom = String(Math.min(1, w / 794)); };
-  ov.addEventListener('click', e => { if (e.target.getAttribute && e.target.getAttribute('data-k') === 'close') { window.removeEventListener('resize', fit); ov.remove(); } });
+  ov.addEventListener('click', e => {
+    const k = e.target.getAttribute && e.target.getAttribute('data-k');
+    if (k === 'print') window.print();   // 同盤點資料：列印對話框裡可以選「另存為 PDF」
+    if (k === 'close') { window.removeEventListener('resize', fit); ov.remove(); document.body.classList.remove('pdfx-open'); }
+  });
   window.addEventListener('resize', fit);
   document.body.appendChild(ov);
+  document.body.classList.add('pdfx-open');
   fit();
+}
+
+/**
+ * 預覽開著時的列印樣式（比照盤點資料 inspection-page.css 的 @media print）：只印預覽裡的頁，一頁一張 A4、原尺寸。
+ * ⚠️ 只在 body.pdfx-open 時生效：不能影響頁面原本的列印（勞檢頁電腦版「列印」用的是 #lrPrint）。
+ */
+function pdfxPrintCss() {
+  if (document.getElementById('pdfx-print-css')) return;
+  const st = document.createElement('style');
+  st.id = 'pdfx-print-css';
+  st.textContent = `@media print{
+  @page{size:A4 portrait;margin:0;}
+  body.pdfx-open>*:not(.pdfx-ov){display:none!important;}
+  body.pdfx-open .pdfx-ov{position:static!important;inset:auto!important;background:none!important;display:block!important;}
+  body.pdfx-open .pdfx-ov [data-k=bar]{display:none!important;}
+  body.pdfx-open .pdfx-ov [data-k=scroll]{overflow:visible!important;padding:0!important;}
+  body.pdfx-open .pdfx-ov [data-k=paper]{zoom:1!important;width:auto!important;}
+  body.pdfx-open .pdfx-ov .sheet,body.pdfx-open .pdfx-ov .payslip-page{box-shadow:none!important;margin:0!important;break-after:page;page-break-after:always;}
+  body.pdfx-open .pdfx-ov .sheet{min-height:0!important;}
+  body.pdfx-open .pdfx-ov .payslip-page{height:296mm!important;}
+  body.pdfx-open .pdfx-ov .sheet:last-child,body.pdfx-open .pdfx-ov .payslip-page:last-child{break-after:auto;page-break-after:auto;}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+}`;
+  document.head.appendChild(st);
 }
