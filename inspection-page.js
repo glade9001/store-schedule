@@ -3,9 +3,9 @@
  *
  * 盤點前產出三份文件：職員輪班表、出勤記錄表、薪資單（PDF）。
  *
- * ⚠️ 與正式資料完全隔離：只讀寫 inspectionSheets/{id}，
- *    不碰 stores/{店}/weeks、attendance、salary，也不進任何成本／績效統計。
- *    班別清單是唯一的例外（唯讀 config/shifts，讓選項跟門市一致）。
+ * ⚠️ 與正式資料隔離：只寫 inspectionSheets/{id}，不寫 stores/{店}/weeks、attendance、salary，
+ *    也不進任何成本／績效統計。唯讀的例外：config/shifts（班別選項）、
+ *    「從排班表帶入」唯讀 stores/{店}/weeks＋employees，帶進來的是複本，之後怎麼改都不影響排班系統。
  *
  * ⚠️ 檔名為什麼叫 inspection 而不是 audit/stocktake：
  *    「盤點」在本專案已經有兩個既有意思 —— pnl-loss.js 的盤點＝存貨盤點／盤損，
@@ -32,7 +32,8 @@ let myUid = '';
 let insuranceGrades = null;   // settings/insuranceGrades，與薪資系統同一份
 
 const DEFAULT_WAGE = 196;       // 工讀時薪（盤點預設值）
-const OFF = '休';               // 休假在班表與出勤表上的表示法
+const OFF = '休';               // 休假在班表與出勤表上的表示法（例假／休息日從這裡挑）
+const HOL = '國';               // 國定假日沒上班（勞基法 §37 休假，不可拿來當例假或休息日）
 const DAY_NAMES = ['週一', '週二', '週三', '週四', '週五', '週六', '週日'];
 
 // ===== 權限 =====
@@ -536,6 +537,53 @@ function onRoleChange() {
   const isPart = document.getElementById('eRole').value === '工讀';
   document.getElementById('fullFields').style.display = isPart ? 'none' : 'block';
   document.getElementById('partFields').style.display = isPart ? 'block' : 'none';
+  document.getElementById('eAnnUsedLabel').textContent = isPart ? '特休已休（小時）' : '特休已休（日）';
+  onAnnInput();
+}
+/** 人員視窗裡即時顯示「應有特休」 */
+function onAnnInput() {
+  const g = id => document.getElementById(id).value;
+  const e = { role: g('eRole'), hireDate: g('eHire'), annualUsed: g('eAnnUsed') === '' ? null : n(g('eAnnUsed')),
+    weekHours: g('eWeekH') === '' ? null : n(g('eWeekH')), id: editingEmpId };
+  const a = annualInfo(e);
+  document.getElementById('eAnnHint').innerHTML = !a ? '填到職日，特休日數會自動算（已休自己填）。'
+    : a.ent === 0 ? `年資 ${a.ageTxt}，未滿 6 個月還沒有特休。`
+      : `年資 ${a.ageTxt}：特休 <b>${a.entTxt}</b>${a.isPart ? `（全職 ${a.fullDays} 日 × 每週 ${a.weekH} 小時 ÷ 40）` : ''}，已休 ${a.usedTxt}、未休 <b>${a.remainTxt}</b>`;
+}
+
+/**
+ * 特休（勞基法 §38，週年制）：年資算到薪資月份最後一天，天數表用 leave-rules.js 的 lvAnnualDays（跟薪資系統同一份）。
+ * 工讀（部分工時）：依「僱用部分時間工作勞工應行注意事項」按工時比例計給
+ *   ＝ 全職特休日數 × 8 小時 × 平均每週工時 ÷ 40，以小時呈現；平均每週工時沒填就用這份盤點班表的平均。
+ * 已休一律人工填（盤點資料不讀正式的特休存摺）。
+ */
+function annualInfo(e) {
+  if (!e || !e.hireDate || !sheet.salaryMonth) return null;
+  const md = monthDays(sheet.salaryMonth), ref = md[md.length - 1];
+  const [hY, hM, hD] = e.hireDate.split('-').map(Number), [eY, eM, eD] = ref.split('-').map(Number);
+  const months = Math.max(0, (eY - hY) * 12 + (eM - hM) - (eD < hD ? 1 : 0));
+  const fullDays = lvAnnualDays(months);
+  const ageTxt = months >= 12 ? `${Math.floor(months / 12)} 年 ${months % 12} 個月` : `${months} 個月`;
+  const isPart = e.role === '工讀';
+  const used = n(e.annualUsed);
+  if (!isPart) {
+    const left = fullDays - used;
+    return { isPart, months, ageTxt, fullDays, ent: fullDays, used, remain: left,
+      entTxt: fullDays + ' 日', usedTxt: used + ' 日', remainTxt: left + ' 日' };
+  }
+  const weekH = e.weekHours != null && e.weekHours > 0 ? e.weekHours : avgWeekHours(e);
+  const ent = Math.round(fullDays * 8 * Math.min(weekH, 40) / 40 * 10) / 10;
+  const left = Math.round((ent - used) * 10) / 10;
+  return { isPart, months, ageTxt, fullDays, weekH, ent, used, remain: left,
+    entTxt: ent + ' 小時', usedTxt: used + ' 小時', remainTxt: left + ' 小時' };
+}
+/** 這份盤點班表（輪班期間∪薪資月）的平均每週工時，小數一位 */
+function avgWeekHours(e) {
+  if (!e || !e.id) return 0;
+  const dates = checkDates();
+  if (!dates.length) return 0;
+  const tot = dates.reduce((a, d) => a + dayHours(e, d).eff, 0);
+  return Math.round(tot / (dates.length / 7) * 10) / 10;
 }
 
 function openEmpEdit(id) {
@@ -546,6 +594,10 @@ function openEmpEdit(id) {
   document.getElementById('empDelBtn').style.display = id ? 'block' : 'none';
   const set = (el, v) => { document.getElementById(el).value = (v == null || v === 0) ? (v === 0 ? 0 : '') : v; };
   document.getElementById('eName').value = e.name || '';
+  document.getElementById('eHire').value = e.hireDate || '';
+  document.getElementById('eAnnUsed').value = e.annualUsed == null ? '' : e.annualUsed;
+  document.getElementById('eWeekH').value = e.weekHours == null ? '' : e.weekHours;
+  ['eHire', 'eAnnUsed', 'eWeekH'].forEach(id => { document.getElementById(id).oninput = onAnnInput; });
   document.getElementById('eRole').value = e.role || '正職';
   set('eBase', e.baseSalary); set('eAttend', e.fullAttendBonus); set('eMgmt', e.mgmtBonus);
   set('eLaborAllow', e.laborAllowance); set('ePerf', e.performance); set('eOther', e.otherBonus);
@@ -572,6 +624,9 @@ function saveEmp() {
   const isPart = role === '工讀';
   const data = {
     name, role,
+    hireDate: g('eHire') || '',
+    annualUsed: g('eAnnUsed') === '' ? null : Math.abs(n(g('eAnnUsed'))),
+    weekHours: isPart && g('eWeekH') !== '' ? Math.abs(n(g('eWeekH'))) : null,
     baseSalary: isPart ? 0 : n(g('eBase')),
     fullAttendBonus: isPart ? 0 : n(g('eAttend')),
     mgmtBonus: isPart ? 0 : n(g('eMgmt')),
@@ -763,29 +818,33 @@ function checkOffDays(emp) {
         msg: `${m} 月還有 ${blank} 天沒排，休假日數還算不準（目前休 ${off} 天／應休 ${need} 天）` });
     } else if (off !== need) {
       const diff = off - need;
-      out.push({ level: 'error', rule: 'offDays', emp: emp.name,
-        msg: `${m} 月休假 ${off} 天，與當月六日天數 ${need} 天${diff > 0 ? `不符（多休 ${diff} 天）` : `不符（少休 ${-diff} 天）`}` });
+      out.push({ level: 'error', rule: 'offDays', emp: emp.name, cells: ['name|' + emp.id + '|' + ym],
+        msg: `${m} 月排「休」${off} 天，與當月六日天數 ${need} 天${diff > 0 ? `不符（多休 ${diff} 天）` : `不符（少休 ${-diff} 天）`}（國定假日「國」另計，不算在內）` });
     }
   });
   return out;
 }
 
-/** ② 連續上班天數（達 7 天即違反七休一） */
+/** ② 連續上班天數（達 7 天即違反七休一）
+ *  ⚠️ 國定假日（國）是 §37 的休假，不是 §36 的例假：夾在中間不能把連續天數斷開，否則 6 天班＋國＋6 天班會被當成合法 */
 function checkConsecutive(emp) {
   const dates = checkDates();
   const out = [];
-  let run = [];
+  let run = [], hasHol = false;
   const flush = () => {
     if (run.length > MAX_CONSECUTIVE_DAYS()) {
-      out.push({ level: 'error', rule: 'consecutive', emp: emp.name,
-        msg: `${mdOf(run[0])}~${mdOf(run[run.length - 1])} 連續上班 ${run.length} 天（七休一）` });
+      out.push({ level: 'error', rule: 'consecutive', emp: emp.name, cells: run.map(d => d + '|' + emp.id),
+        msg: `${mdOf(run[0])}~${mdOf(run[run.length - 1])} 連續 ${run.length} 天沒有排「休」（七休一${hasHol ? '；國定假日不算例假' : ''}）` });
     }
-    run = [];
+    run = []; hasHol = false;
   };
   dates.forEach((d, i) => {
     // 日期不連續（範圍有斷）也要把目前這串收掉，不能誤接成一長串
     if (i > 0 && d !== shiftDateAdd(dates[i - 1], 1)) flush();
-    if (worksOn(emp, d)) run.push(d); else flush();
+    const v = (sheet.schedule[d] || {})[emp.id];
+    if (worksOn(emp, d)) run.push(d);
+    else if (v === HOL) { run.push(d); hasHol = true; }
+    else flush();
   });
   flush();
   return out;
@@ -810,18 +869,45 @@ function checkRestGaps(emp) {
       : g === 0
         ? `${mdOf(prevD)} 下班後直接接 ${mdOf(curD)} 的班（中間 0 小時休息）`
         : `${mdOf(prevD)} → ${mdOf(curD)} 只隔 ${g} 小時（未達 11 小時休息）`;
-    out.push({ level: 'error', rule: 'rest11h', emp: emp.name, msg });
+    out.push({ level: 'error', rule: 'rest11h', emp: emp.name, msg, cells: [prevD + '|' + emp.id, curD + '|' + emp.id] });
   }
   return out;
 }
 
-/** 三項一起跑，依人分組 */
+/**
+ * ④ 國定假日（勞基法 §37、§39；勞動部 103.5.21 勞動條3字第1030130894號令）
+ *    國定假日是「休假」，不是例假、也不是休息日：沒上班要填「國」，不能填「休」頂替例假／休息日。
+ *    當天有上班＝經勞工同意出勤，工資加倍（薪資單已自動算），當月「休」的天數照樣要等於六日天數，不用多排。
+ *    「國」只能出現在國定假日（目前不做國定假日調移）。
+ */
+function checkHolidays(emp) {
+  const out = [];
+  checkDates().forEach(d => {
+    const v = (sheet.schedule[d] || {})[emp.id];
+    if (isHoliday(d) && v === OFF) {
+      out.push({ level: 'error', rule: 'holiday', emp: emp.name, cells: [d + '|' + emp.id],
+        msg: `${mdOf(d)} ${holidayMap[d]} 排成「休」：國定假日不能當例假或休息日，沒上班請改「國」，「休」另排一天` });
+    } else if (!isHoliday(d) && v === HOL) {
+      out.push({ level: 'error', rule: 'holiday', emp: emp.name, cells: [d + '|' + emp.id],
+        msg: `${mdOf(d)} 不是國定假日，不能填「國」` });
+    }
+  });
+  return out;
+}
+
+/** 四項一起跑，依人分組 */
 function runComplianceChecks() {
   const out = [];
   (sheet.employees || []).forEach(e => {
-    out.push(...checkOffDays(e), ...checkConsecutive(e), ...checkRestGaps(e));
+    out.push(...checkOffDays(e), ...checkConsecutive(e), ...checkRestGaps(e), ...checkHolidays(e));
   });
   return out;
+}
+/** 有違反勞基法的格子（紅字用）："日期|人員id" */
+function badCellSet(issues) {
+  const set = new Set();
+  (issues || runComplianceChecks()).forEach(i => { if (i.level === 'error') (i.cells || []).forEach(c => set.add(c)); });
+  return set;
 }
 
 function renderCompliancePanel() {
@@ -830,7 +916,7 @@ function renderCompliancePanel() {
   if (!(sheet.employees || []).length) { box.innerHTML = ''; return; }
   const issues = runComplianceChecks();
   if (!issues.length) {
-    box.innerHTML = `<div class="law-ok">✅ 檢查通過：休假日數、七休一、輪班間隔 11 小時都沒問題</div>`;
+    box.innerHTML = `<div class="law-ok">✅ 檢查通過：休假日數、七休一、輪班間隔 11 小時、國定假日都沒問題</div>`;
     return;
   }
   const errs = issues.filter(i => i.level === 'error');
@@ -838,11 +924,12 @@ function renderCompliancePanel() {
   issues.forEach(i => { (byEmp[i.emp] = byEmp[i.emp] || []).push(i); });
   box.innerHTML = `<div class="law-box">
     <div class="law-title">⚠️ 排班檢查：${errs.length} 項不符${issues.length - errs.length ? `、${issues.length - errs.length} 項待確認` : ''}</div>
+    ${errs.length ? '<div class="law-item error" style="font-weight:800;">紅字改好之前，輪班表、出勤記錄表、薪資單都不能產出。</div>' : ''}
     ${Object.entries(byEmp).map(([nm, list]) => `
       <div class="law-emp"><b>${esc(nm)}</b>
         ${list.map(i => `<div class="law-item ${i.level}">・${esc(i.msg)}</div>`).join('')}
       </div>`).join('')}
-    <div class="law-foot">檢查項目：正職休假日數＝當月六日天數、連續上班不得達 7 天、前後班休息 ≥ 11 小時</div>
+    <div class="law-foot">檢查項目：正職「休」的天數＝當月六日天數、連續 7 天要有一天「休」、前後班休息 ≥ 11 小時、國定假日沒上班要填「國」</div>
   </div>`;
 }
 
@@ -855,6 +942,7 @@ function renderSchedule() {
   if (!emps.length) { wrap.innerHTML = '<div class="empty">請先到「② 人員」新增被盤點人員</div>'; return; }
   const b = scopeBounds();
   const opts = ['', ...shiftOptions, OFF];
+  const bad = badCellSet();
   let html = '';
   weekBlocks(b.start, b.end).forEach((week, wi) => {
     const used = week.some(inScope);
@@ -872,13 +960,17 @@ function renderSchedule() {
     emps.forEach(e => {
       const worked = week.filter(d => { const s = (sheet.schedule[d] || {})[e.id]; return s && s !== OFF && shiftTotalHours(s) > 0; }).length;
       const warn = worked >= 7 ? ' <span style="color:#c5221f;">⚠ 無休</span>' : '';
-      html += `<tr><td class="namecol">${esc(e.name)}${warn}</td>`;
+      const nameBad = [...new Set(week.map(d => d.slice(0, 7)))].some(ym => bad.has('name|' + e.id + '|' + ym));
+      html += `<tr><td class="namecol"${nameBad ? ' style="color:#c5221f;font-weight:900;background:#fde2e1;"' : ''}>${esc(e.name)}${warn}${nameBad ? '<br><span style="font-size:10px;">休假天數不符</span>' : ''}</td>`;
       week.forEach(d => {
         const v = (sheet.schedule[d] || {})[e.id] || '';
-        const cls = v === OFF ? 'off' : v ? 'has' : '';
+        const isBad = bad.has(d + '|' + e.id);
+        const cls = (v === OFF || v === HOL ? 'off' : v ? 'has' : '') + (isBad ? ' law-bad' : '');
         const dim = inScope(d) ? '' : ' style="opacity:.45;"';
-        html += `<td${dim}><select class="${cls}" onchange="setShift('${d}','${e.id}',this.value)">
-          ${opts.map(o => `<option value="${o}"${o === v ? ' selected' : ''}>${o || '—'}</option>`).join('')}
+        const cellOpts = isHoliday(d) ? [...opts, HOL] : opts.slice();
+        if (v && !cellOpts.includes(v)) cellOpts.push(v);   // 帶入的班別不在選單裡也要顯示得出來
+        html += `<td${dim}${isBad ? ' style="background:#fde2e1;"' : ''}><select class="${cls}"${isBad ? ' style="color:#c5221f;font-weight:900;border-color:#c5221f;"' : ''} onchange="setShift('${d}','${e.id}',this.value)">
+          ${cellOpts.map(o => `<option value="${o}"${o === v ? ' selected' : ''}>${o || '—'}</option>`).join('')}
         </select></td>`;
       });
       html += `<td><select onchange="fillWeek('${week[0]}','${e.id}',this.value);this.value='';">
@@ -940,6 +1032,75 @@ function clearSchedule() {
   if (!confirm('清空這份盤點的所有排班與已填的出勤時間？')) return;
   sheet.schedule = {}; sheet.punches = {};
   markDirty(); renderSchedule();
+}
+
+/**
+ * 從排班系統帶入班表（唯讀 stores/{店}/weeks，寫進這份盤點的複本）
+ * - 門市：門市名稱裡有哪家店就用哪家，否則用登入者的門市
+ * - 對人：盤點人員姓名＝排班表上的名字，或＝員工主檔的全名（stores/{店}/employees 的 name）
+ * - 時間班別照抄；排休／指休 → 休；國定假日沒上班 → 國；特休、補休等假別不帶（留空，請自己決定怎麼填）
+ * - 只填空白格，已經填的不動；帶完立刻跑勞基法檢查，違反的格子標紅、不能產出
+ */
+async function importFromSchedule() {
+  if (!canEditSheet()) { toast('唯讀模式'); return; }
+  const emps = sheet.employees || [];
+  if (!emps.length) { toast('請先到「② 人員」新增人員'); gotoStep(2); return; }
+  const stores = (appConfig.stores || []).filter(x => x !== '人力支援');
+  const store = stores.find(x => (sheet.storeName || '').includes(x)) || currentUser.store;
+  if (!store) { toast('找不到要帶入的門市'); return; }
+  const b = scopeBounds();
+  if (!confirm(`從「${store}」排班表帶入 ${b.start} ~ ${b.end} 的班。\n只填空白格，已經填的不會被蓋掉。`)) return;
+  showLoad();
+  try {
+    const ref = window.db.collection('stores').doc(store);
+    const empSnap = await ref.collection('employees').get();
+    const alias = {};                                   // 盤點姓名 → 排班表名字
+    empSnap.forEach(d => { alias[d.id] = d.id; const full = (d.data() || {}).name; if (full) alias[full] = d.id; });
+    const nickOf = {};
+    const unmatched = [];
+    emps.forEach(e => { const k = alias[e.name.trim()]; if (k) nickOf[e.id] = k; else unmatched.push(e.name); });
+
+    let filled = 0, kept = 0, leave = 0, weekMiss = 0;
+    const blocks = weekBlocks(b.start, b.end).filter(w => w.some(inScope));
+    for (const week of blocks) {
+      const wk = weekStrOfDate(parseD(week[0]));
+      // 週次公式自我檢查：換算回來的第一天必須等於這週的週一，對不上就不帶（寧可空白也不要錯一週）
+      if (getWeekDates(wk)[0] !== `${+week[0].slice(5, 7)}/${+week[0].slice(8, 10)}`) { weekMiss++; continue; }
+      const snap = await ref.collection('weeks').doc(wk).get();
+      if (!snap.exists) { weekMiss++; continue; }
+      const recs = snap.data().records || [];
+      week.forEach((d, i) => {
+        if (!inScope(d)) return;
+        emps.forEach(e => {
+          const nick = nickOf[e.id];
+          if (!nick) return;
+          const mine = recs.filter(r => r.name === nick && r.day === DAY_NAMES[i]);
+          if (!mine.length) return;
+          const work = mine.find(r => shiftTotalHours(r.shift || '') > 0);
+          let v = '';
+          if (work) v = work.shift;
+          else if (mine.some(r => r.shift === '排休' || r.shift === '指休')) v = isHoliday(d) ? HOL : OFF;
+          else if (mine.some(r => r.shift)) { leave++; return; }   // 特休、補休等
+          if (!v) return;
+          if ((sheet.schedule[d] || {})[e.id]) { kept++; return; }
+          sheet.schedule[d] = sheet.schedule[d] || {};
+          sheet.schedule[d][e.id] = v;
+          filled++;
+        });
+      });
+    }
+    markDirty(); renderSchedule();
+    const errs = runComplianceChecks().filter(x => x.level === 'error').length;
+    const msg = [`已帶入 ${filled} 格`];
+    if (kept) msg.push(`${kept} 格原本有填、沒動`);
+    if (leave) msg.push(`${leave} 格是特休／補休等假別，留空`);
+    if (weekMiss) msg.push(`${weekMiss} 週排班表沒有資料`);
+    if (unmatched.length) msg.push(`對不到排班表的人：${unmatched.join('、')}`);
+    if (errs) msg.push(`⚠️ ${errs} 項違反勞基法（紅字），改好才能產出`);
+    alert(msg.join('\n'));
+  } catch (e) {
+    toast('帶入失敗：' + (e.message || e));
+  } finally { hideLoad(); }
 }
 
 // ===== 步驟 4：出勤時間（人工填寫）=====
@@ -1016,7 +1177,7 @@ bulk.innerHTML = workRows.length ? `
       return;
     }
     if (!r.hours) {
-      html += `<tr class="off"><td class="d">${mdOf(r.date)}</td><td>${wd}</td><td colspan="5">${r.shift === OFF ? OFF : '未排班'}</td></tr>`;
+      html += `<tr class="off"><td class="d">${mdOf(r.date)}</td><td>${wd}</td><td colspan="5">${r.shift === OFF ? OFF : r.shift === HOL ? '國定假日' : '未排班'}</td></tr>`;
       return;
     }
     const over = shiftIsOvernight(r.shift);
@@ -1336,6 +1497,9 @@ function renderReady() {
     });
   });
   if (warns.length) items.push(`<div class="ready-item"><span class="ready-no">⚠</span><span>整週無休息日：${warns.map(esc).join('、')}</span></div>`);
+  const lawErr = runComplianceChecks().filter(i => i.level === 'error').length;
+  lawErr ? items.push(`<div class="ready-item"><span class="ready-no">✕</span><span style="color:#c5221f;font-weight:800;">排班有 ${lawErr} 項違反勞基法，回「③ 排班」把紅字改好才能產出</span></div>`)
+    : ok('排班檢查通過（勞基法）');
 
   document.getElementById('readyBox').innerHTML = items.join('');
 
@@ -1366,6 +1530,8 @@ function closePdf() {
 function buildOutput(kind) {
   if (!sheet.storeName) { toast('請先填門市名稱'); gotoStep(1); return; }
   if (!(sheet.employees || []).length) { toast('請先新增人員'); gotoStep(2); return; }
+  const errs = runComplianceChecks().filter(i => i.level === 'error');
+  if (errs.length) { toast(`排班有 ${errs.length} 項違反勞基法（紅字），改好才能產出`); gotoStep(3); return; }
   flushSave();
   if (kind === 'shift') openPdf('職員輪班表', buildShiftDoc());
   if (kind === 'attend') openPdf('出勤記錄表', buildAttendDoc());
@@ -1538,7 +1704,7 @@ function drawAttendanceCanvas(canvas, emp) {
       ctx.fillText('—', colX[2] + COLS[2].w / 2, cy);
     } else if (!h.eff) {
       ctx.fillStyle = '#555';
-      ctx.fillText(rl[d] || (shift === OFF ? OFF : ''), colX[2] + COLS[2].w / 2, cy);
+      ctx.fillText(rl[d] || (shift === OFF ? OFF : shift === HOL ? HOL : ''), colX[2] + COLS[2].w / 2, cy);
     } else {
       ctx.fillText(shift, colX[2] + COLS[2].w / 2, cy);
       const tIn = punchTime(p, 'in'), tOut = punchTime(p, 'out');
@@ -1565,7 +1731,6 @@ function drawAttendanceCanvas(canvas, emp) {
 
     // 備註
     const notes = [];
-    if (isAudit) notes.push('盤點日，不列出勤紀錄');
     if (hol && h.eff) notes.push(holidayMap[d] + '出勤');
     else if (hol) notes.push(holidayMap[d]);
     if (h.eff && h.actual == null) notes.push('未填簽到／簽退，工時依排定班別');
@@ -1648,6 +1813,7 @@ function buildOnePayslip(e, y, m) {
   const hd = txt => `<td colspan="2" style="padding:3px 6px;border:1px solid #ccc;background:#d9e1f2;font-weight:800;">${txt}</td>`;
   const blank = span => `<td colspan="${span}" style="padding:3px 6px;border:1px solid #ccc;">&nbsp;</td>`;
   const rowBase = isPart ? money(c.basePay) : money(n(e.baseSalary));
+  const ann = annualInfo(e);
 
   return `<div class="payslip-half">
     <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:6px;">
@@ -1691,21 +1857,22 @@ function buildOnePayslip(e, y, m) {
       </tr>
       <tr>
         ${td('勞務津貼')}${tdR(isPart ? '--' : money(n(e.laborAllowance)))}
-        ${blank(6)}
+        ${blank(3)}
+        ${hd('到職日')}${tdR(e.hireDate ? e.hireDate.replace(/-/g, '/') : '--')}
       </tr>
       <tr>
         ${td('其他獎金/津貼')}${tdR(isPart ? '--' : money(n(e.otherBonus)))}
-        ${blank(3)}
+        ${hd('特休' + (ann && ann.isPart ? '（時數）' : ''))}${tdR(ann ? ann.entTxt : '--')}
         ${hd('平日加班時數')}${tdR(isPart ? '--' : n(e.otHours) + 'h')}
       </tr>
       <tr>
         ${td('平日加班' + (isPart ? '' : `<br><span style="font-size:9px;color:#64748b;">$${Math.ceil(c.rph)}×1.34×${n(e.otHours)}h</span>`))}${tdR(isPart ? '--' : '+' + money(c.otPay))}
-        ${blank(3)}
+        ${hd('特休已休')}${tdR(ann ? ann.usedTxt : '--')}
         ${hd('遲到分鐘數')}${tdR((isPart ? 0 : n(e.lateMinutes)) + '分')}
       </tr>
       <tr>
         ${td('國定假日加給' + (c.holDays ? `<br><span style="font-size:9px;color:#64748b;">${isPart ? `$${c.wage}×${c.holHours.toFixed(1)}h×1` : `一日工資 $${comma(c.dayWage)}×${c.holDays}日`}</span>` : ''))}${tdR(c.holPay ? '+' + money(c.holPay) : '$0')}
-        ${blank(3)}
+        ${hd('特休未休')}${tdR(ann ? ann.remainTxt : '--')}
         ${hd(isPart ? '' : '加班費計算基礎')}${tdR(isPart ? '' : '$' + Math.round(c.rph))}
       </tr>
       <tr>
