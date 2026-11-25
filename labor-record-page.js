@@ -67,7 +67,8 @@ function lrSignCell(x) {
 function lrReleaseCell(x) {
   const { D, rel } = lrData;
   if (D.ym < LR_ESIGN_START) return '<td>—</td>';
-  if (lrVisibleToEmp(x, rel)) return `<td style="color:#137333;font-weight:700;">已開放${x.law.length ? '<small>店長確認</small>' : ''}</td>`;
+  if (!x.law.length) return '<td style="color:#137333;font-weight:700;">已開放</td>';
+  if (rel[x.emp.name]) return `<td><span style="color:#137333;font-weight:700;">已開放</span><small>店長確認</small> <button class="btn-mini" onclick="lrUnrelease('${lrEsc(x.emp.name).replace(/'/g, '&#39;')}')">取消開放</button></td>`;
   return `<td><span style="color:#9a3412;font-weight:700;">暫緩中</span> <button class="btn-mini" onclick="lrRelease('${lrEsc(x.emp.name).replace(/'/g, '&#39;')}')">開放給員工</button></td>`;
 }
 async function lrRelease(name) {
@@ -81,6 +82,18 @@ async function lrRelease(name) {
     lrRender();
     lrToast('已開放給員工');
   } catch (e) { lrToast('開放失敗：' + e.message); }
+}
+async function lrUnrelease(name) {
+  const { D, list } = lrData;
+  const x = list.find(v => v.emp.name === name);
+  if (!x) return;
+  if (!confirm(`取消開放「${x.name}」${D.ym.replace('-', ' 年 ')} 月的出勤記錄表？\n員工端會回到「店長確認中」。已經簽過的簽名不會被刪除。`)) return;
+  try {
+    await lrUnsetRelease(D.store, D.ym, name);
+    lrData.rel = await lrLoadRelease(D.store, D.ym);
+    lrRender();
+    lrToast('已取消開放');
+  } catch (e) { lrToast('取消失敗：' + e.message); }
 }
 function lrRender() {
   const { D, list } = lrData;
@@ -100,7 +113,9 @@ function lrRender() {
       ${list.filter(x => x.law.length).map(x => `<div style="margin-top:4px;"><b>${lrEsc(x.name)}</b>${x.law.map(m => `<div>・${lrEsc(m)}</div>`).join('')}</div>`).join('')}
       <div style="color:#7f1d1d;font-size:11.5px;margin-top:4px;">檢查：正職「休」＝當月六日天數（國定假日不算）、連續 7 天要有一天休、前後班休息 ≥ 11 小時。國定假日沒上班寫「國」，不當例假或休息日。</div>
     </div>` : '<div class="meta" style="color:#137333;font-weight:700;">✅ 勞基法檢查通過</div>'}
-    <div class="btns"><button class="btn-primary" onclick="lrPrint('esign')">🖨️ 列印（電子簽名版）</button><button class="btn-outline" onclick="lrPrint('blank')">🖨️ 列印（空白版，手簽）</button><button class="btn-outline" onclick="lrExcel()">📊 下載 Excel</button></div>
+    <div class="btns"><button class="btn-primary" onclick="lrPrint('esign', true)">📄 PDF（電子簽名版）</button><button class="btn-outline" onclick="lrPrint('blank', true)">📄 PDF（空白版，手簽）</button></div>
+    <div class="btns"><button class="btn-outline" onclick="lrPrint('esign')">🖨️ 列印（電子簽名版）</button><button class="btn-outline" onclick="lrPrint('blank')">🖨️ 列印（空白版）</button><button class="btn-outline" onclick="lrExcel()">📊 下載 Excel</button></div>
+    <div class="meta">手機請用 PDF：產好會跳出分享選單，可以直接列印、存到檔案或傳 LINE（手機從主畫面開的 App 不支援「列印」）。</div>
     <div class="meta">電子簽名版：已電子簽署的印出簽名與簽署時間（到分鐘），沒簽或簽後有異動的印出狀態，請手簽；店長欄一律手簽。空白版＝全部手簽。列印對話框可以只選某幾頁。</div>
     ${D.ym >= LR_ESIGN_START ? '<div class="meta">員工端出勤表：沒有勞基法紅字的，薪資發布後員工就看得到並一起簽名；有紅字的先暫緩，修正後自動開放，或確認無誤後按「開放給員工」。員工端看不到紅字內容。</div>' : ''}
     <div class="star-help">「例假＊」＝該週只休一天：那天是例假，另外有一天是<b>休息日出勤</b>（需本人同意、並給付休息日加班費）。這個說明<b>不會印在紙上</b>，請員工在有「＊」的那一列旁手寫簽名確認。</div>
@@ -109,7 +124,8 @@ function lrRender() {
 
 // ───────── 列印（一人一頁；版面參考盤點資料的出勤記錄表）─────────
 // mode：'esign'＝電子簽名版（簽了且內容沒變的印簽名＋時間到分鐘；其餘印狀態字留給手簽）；'blank'＝空白版（全部手簽）
-async function lrPrint(mode) {
+// asPdf：產生 PDF 檔（手機從主畫面開的 App 不支援列印，2026-11-25）
+async function lrPrint(mode, asPdf) {
   if (!lrData) return;
   const { D, list, acks } = lrData;
   const sigs = {};
@@ -128,7 +144,17 @@ async function lrPrint(mode) {
     }));
     lrLoaded();
   }
-  document.getElementById('lrPrint').innerHTML = list.map(x => lrSheetHtml(D, x, mode === 'esign' ? sigs[x.emp.name] : null)).join('');
+  const html = list.map(x => lrSheetHtml(D, x, mode === 'esign' ? sigs[x.emp.name] : null)).join('');
+  if (asPdf) {
+    lrLoading('產生 PDF…');
+    try {
+      await pdfxFromHtml(html, '.sheet', `${D.store}_${D.ym}_出勤紀錄表${mode === 'esign' ? '_電子簽名版' : ''}.pdf`,
+        (i, n) => { document.getElementById('loadingText').textContent = `產生 PDF… ${i}/${n}`; });
+    } catch (e) { lrToast('PDF 產生失敗：' + e.message); }
+    lrLoaded();
+    return;
+  }
+  document.getElementById('lrPrint').innerHTML = html;
   window.print();
 }
 // ───────── Excel ─────────

@@ -10,7 +10,7 @@ async function call(method,path,uid,body,mask){const h={'Content-Type':'applicat
 const seed=async()=>{await call('PATCH','users/pre1','ADMIN',{fields:{permission:{stringValue:'employee'},store:{stringValue:'美德'},preStartUntil:{timestampValue:'2099-01-01T00:00:00Z'}}});await call('PATCH','users/pre2','ADMIN',{fields:{permission:{stringValue:'employee'},store:{stringValue:'美德'},preStartUntil:{timestampValue:'2020-01-01T00:00:00Z'}}});await call('PATCH','storeMemos/m1','ADMIN',F({store:'美德',status:0}));await call('PATCH','cityRecipes/r1','ADMIN',F({x:'1'}));await call('PATCH','gb_orders/o1','ADMIN',F({store:'x'}));await call('PATCH','users/emp1/notifications/n1','ADMIN',F({title:'t',read:false}));for(const [uid,perm,store] of [['emp1','employee','美德'],['mgr1','manager','美德'],['own1','owner','美德']])await call('PATCH',`users/${uid}`,'ADMIN',F({permission:perm,store,empName:uid}));
  await call('PATCH','employees/員工甲/leaveLog/2026-10','ADMIN',F({x:'1'}));await call('PATCH','settings/holidays/years/2026','ADMIN',F({x:'1'}));
  await call('PATCH','settings/globalConfig','ADMIN',F({stores:'美德',clockIn:{geo:{lat:'1'},tolByStore:{美德:5}}}));
- await call('PATCH','salaryAck/emp1_2026-09','ADMIN',F({m:'1'}));await call('PATCH','salaryAck/mgr1_2026-09','ADMIN',F({m:'1'}));await call('PATCH','todos/t1','ADMIN',F({x:'1'}));
+ await call('PATCH','salaryAck/emp1_2026-09','ADMIN',F({m:'1'}));await call('PATCH','salaryAck/mgr1_2026-09','ADMIN',F({m:'1'}));await call('PATCH','todos/t1','ADMIN',F({x:'1'}));await call('PATCH','stores/美德/attRelease/2026-10','ADMIN',F({names:{x:{by:'s'}}}));await call('PATCH','stores/美德/attendance/a1','ADMIN',F({x:'1'}));
  await call('PATCH','salaryEditLog/美德__2026-10','ADMIN',F({store:'美德',month:'2026-10'}));await call('PATCH','salaryEditLog/錦花__2026-10','ADMIN',F({store:'錦花',month:'2026-10'}));};
 const T=[ // [說明, method, path, uid, body, mask, 預期通過?]
  ['到職前讀門市備忘','GET','storeMemos/m1','pre1',null,null,false],
@@ -43,6 +43,14 @@ const T=[ // [說明, method, path, uid, body, mask, 預期通過?]
  ['店長改打卡座標','PATCH','settings/globalConfig','mgr1',F({clockIn:{geo:{lat:'9'}}}),['clockIn.geo'],false],
  ['店長改門市清單','PATCH','settings/globalConfig','mgr1',F({stores:'X'}),['stores'],false],
  ['員工改打卡容許分鐘','PATCH','settings/globalConfig','emp1',F({clockIn:{geo:{lat:'1'},tolByStore:{美德:9}}}),['clockIn.tolByStore.`美德`'],false],
+ ['員工自己開放出勤表','PATCH','stores/美德/attRelease/2026-11','emp1',F({names:{emp1:{by:'x'}}}),null,false],
+ ['員工刪開放紀錄','DELETE','stores/美德/attRelease/2026-10','emp1',null,null,false],
+ ['員工讀開放狀態','GET','stores/美德/attRelease/2026-10','emp1',null,null,true],
+ ['未登入讀開放狀態','GET','stores/美德/attRelease/2026-10',null,null,null,false],
+ ['店長開放本店','PATCH','stores/美德/attRelease/2026-11','mgr1',F({names:{emp1:{by:'m'}}}),null,true],
+ ['店長開放別店','PATCH','stores/錦花/attRelease/2026-11','mgr1',F({names:{emp1:{by:'m'}}}),null,false],
+ ['加盟主開放別店','PATCH','stores/錦花/attRelease/2026-11','own1',F({names:{emp1:{by:'o'}}}),null,true],
+ ['員工照常讀本店打卡','GET','stores/美德/attendance/a1','emp1',null,null,true],
  ['員工簽自己的薪資','PATCH','salaryAck/emp1_2026-10','emp1',F({s:'1'}),null,true],
  ['員工讀自己的簽收','GET','salaryAck/emp1_2026-09','emp1',null,null,true],
  ['員工讀別人的簽收','GET','salaryAck/mgr1_2026-09','emp1',null,null,false],

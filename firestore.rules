@@ -165,9 +165,17 @@ service cloud.firestore {
       allow create: if request.auth != null && request.resource.data.get('source', '') != 'app';
     }
     match /stores/{st}/{sub}/{rest=**} {
-      allow read, update, delete: if request.auth != null && sub != 'salary';
-      allow create: if request.auth != null && sub != 'salary' && request.resource.data.get('source', '') != 'app'
+      allow read, update, delete: if request.auth != null && sub != 'salary' && sub != 'attRelease';
+      allow create: if request.auth != null && sub != 'salary' && sub != 'attRelease' && request.resource.data.get('source', '') != 'app'
                     && (sub != 'attendanceRequests' || notPreStart());
+    }
+    // ── attRelease：勞檢出勤表「開放給員工」（當月有勞基法紅字者的出勤表，店長確認後才給員工看與簽名）──
+    // 2026-11-25：原本跟其他門市子集合一樣「登入就能寫」＝員工可以自己開放；改成店長只能開本店、加盟主／admin 不限。
+    // 讀：員工要知道自己有沒有被開放（查看薪水頁），登入即可讀。
+    // ⚠️ 上面那條通用規則必須排除 'attRelease'，否則「任一條允許就允許」會讓這裡的限制失效。
+    match /stores/{st}/attRelease/{ym} {
+      allow read: if request.auth != null;
+      allow write: if isOwnerOrAdmin() || (myPerm() == 'manager' && st == myStore());
     }
     // ── salary：一個月一份、records[] 含全店員工薪資 ──
     // 原本走 catch-all＝任何登入者都能讀（員工開 console 就看得到全店同事薪資）、甚至能改。

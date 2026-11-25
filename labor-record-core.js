@@ -293,6 +293,11 @@ async function lrSetRelease(store, ym, name, by) {
   await window.db.collection('stores').doc(store).collection('attRelease').doc(ym)
     .set({ names: { [name]: { by: by || '', at: new Date().toISOString() } } }, { merge: true });
 }
+/** 取消開放（使用者 2026-11-25）：員工端回到「店長確認中」；已經簽過的簽名不會被刪 */
+async function lrUnsetRelease(store, ym, name) {
+  await window.db.collection('stores').doc(store).collection('attRelease').doc(ym)
+    .update(new firebase.firestore.FieldPath('names', name), firebase.firestore.FieldValue.delete());
+}
 /** 員工端看不看得到：沒紅字＝看得到；有紅字＝店長開放才看得到 */
 function lrVisibleToEmp(x, rel) { return !x.law.length || !!rel[x.emp.name]; }
 

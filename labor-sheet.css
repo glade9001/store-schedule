@@ -15,7 +15,7 @@
 .sh-sum{font-weight:800;margin:8px 0 4px;font-size:10.5pt;}
 .sh-foot{font-size:8.5pt;color:#333;}
 .sh-confirm{font-size:9.5pt;line-height:1.6;margin-top:10pt;padding:5pt 7pt;border:0.8pt solid #000;}
-.sh-sign{display:flex;gap:28pt;margin-top:24pt;}
+.sh-sign{display:flex;gap:28pt;margin-top:24pt;align-items:flex-end;}   /* 靠底對齊：員工欄上方多了簽名圖或狀態字，三條底線仍在同一高度 */
 .sh-sign div{flex:1;text-align:center;font-size:10pt;}
 .sh-sign div span{display:block;border-bottom:1pt solid #000;height:1px;margin-bottom:4pt;}
 /* 電子簽名版 */

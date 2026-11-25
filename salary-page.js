@@ -2080,8 +2080,8 @@ function buildSinglePayslipHtml(emp, y, m, sig) {
 }
 
 // 全店列印：mode 'esign'＝電子簽名版（使用者 2026-11-25；簽了且薪資沒再改的印簽名＋簽署時間到分鐘，其餘印狀態留給手簽）
-async function printAllPayslips(mode) {
-  const win = window.open('', '_blank');   // 先開視窗（等讀簽名再開會被瀏覽器當成彈出視窗擋掉）
+async function printAllPayslips(mode, asPdf) {
+  const win = asPdf ? null : window.open('', '_blank');   // 先開視窗（等讀簽名再開會被瀏覽器當成彈出視窗擋掉）
   let sigMap = null;
   if(mode === 'esign') {
     showLoading('讀取電子簽名...');
@@ -2089,6 +2089,13 @@ async function printAllPayslips(mode) {
     hideLoading();
   }
   const html = buildAllPayslipsHtml(sigMap);
+  if(asPdf) {   // 手機從主畫面開的 App 不支援列印 → 直接產生 PDF（2026-11-25）
+    showLoading('產生 PDF...');
+    try { await pdfxFromHtml(html, '.payslip-page', `${currentStore}_${currentMonth}_薪資單${mode === 'esign' ? '_電子簽名版' : ''}.pdf`); }
+    catch(e) { showToast('❌ PDF 產生失敗：' + e.message); }
+    hideLoading();
+    return;
+  }
   win.document.write(`<!DOCTYPE html><html><head>
     <meta charset="UTF-8"><title>${currentStore} ${getMonthLabel(currentMonth)} 薪資單</title>
   </head><body>${html}<script>window.onload=()=>window.print();<\/script></body></html>`);
