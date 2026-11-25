@@ -284,7 +284,6 @@ async function flushSave() {
     auditDate: sheet.auditDate, weeks: +sheet.weeks || 6,
     rangeStart: sheet.rangeStart, rangeEnd: sheet.rangeEnd, salaryMonth: sheet.salaryMonth,
     employees: sheet.employees || [], schedule: sheet.schedule || {}, punches: sheet.punches || {},
-    importStore: sheet.importStore || '',
     createdAt: sheet.createdAt, createdBy: sheet.createdBy || me,
     ownerUid: sheet.ownerUid || myUid,
     updatedAt: now, updatedBy: me,
@@ -1022,51 +1021,44 @@ function clearSchedule() {
 }
 
 /**
- * 從排班系統帶入班表（唯讀 stores/{店}/weeks，寫進這份盤點的複本）
- * ⚠️ 盤點資料的人名、門市名稱通常是假的（使用者 2026-11-25），不能靠名字對 → 先跳對照視窗：
- *    選要抓哪家店，再替每位盤點人員選「抓排班表上的誰」。選過的記在 sheet.importStore／employee.srcName，下次自動帶出。
+ * 從排班系統帶入班表（唯讀三家店的 stores/{店}/weeks，寫進這份盤點的複本）
+ * ⚠️ 盤點資料的人名、門市名稱通常是假的（使用者 2026-11-25），不能靠名字對 → 先跳對照視窗，
+ *    替每位盤點人員選「抓誰的班」。名單是三家店的人一起列、用顯示名字（account.displayName）；
+ *    選過的記在 employee.srcName（＝排班表上的名字，全系統同一把 key），下次自動帶出。
+ * - 三家店的排班表都抓：本店的班＋調店前後在別店的班＋去別店支援（他店 🆘 格核准給這個人）的班
  * - 時間班別照抄；排休／指休 → 休（國定假日沒上班，產出時自動印「國」）；特休、補休等假別不帶（留空）
  * - 只填空白格，已經填的不動；帶完立刻跑勞基法檢查，違反的格子標紅、不能產出
  */
-let _impEmps = [];   // 對照視窗：目前門市的排班表人員 [{nick, label}]
+let _impEmps = [];   // 對照視窗：三家店的人 [{nick, label, full}]
+const impStores = () => (appConfig.stores || []).filter(x => x && x !== '人力支援');
+
 async function importFromSchedule() {
   if (!canEditSheet()) { toast('唯讀模式'); return; }
   if (!(sheet.employees || []).length) { toast('請先到「② 人員」新增人員'); gotoStep(2); return; }
-  const stores = (appConfig.stores || []).filter(x => x !== '人力支援');
-  const def = sheet.importStore || stores.find(x => (sheet.storeName || '').includes(x)) || currentUser.store || stores[0] || '';
-  const sel = document.getElementById('impStore');
-  sel.innerHTML = stores.map(x => `<option value="${esc(x)}"${x === def ? ' selected' : ''}>${esc(x)}</option>`).join('');
   document.getElementById('importModal').classList.add('open');
-  await onImpStoreChange();
-}
-function closeImport() { document.getElementById('importModal').classList.remove('open'); }
-
-async function onImpStoreChange() {
-  const store = document.getElementById('impStore').value;
   const box = document.getElementById('impMap');
-  box.innerHTML = '<div class="hint">讀取人員中…</div>';
-  _impEmps = [];
+  box.innerHTML = '<div class="hint">讀取三家店人員中…</div>';
+  const stores = impStores();
+  const disp = {}, byNick = {};
   try {
-    const snap = await window.db.collection('stores').doc(store).collection('employees').get();
-    // 顯示名字（account.displayName，畫面上看到的名字）——對照一律用它（使用者 2026-11-25）
-    const disp = {};
-    try { (await window.db.collection('account').where('store', '==', store).get()).forEach(d => { const a = d.data(); if (a.empName && a.displayName) disp[a.empName] = a.displayName; }); } catch (e) {}
-    const list = [];
-    snap.forEach(d => {
+    try { (await window.db.collection('account').get()).forEach(d => { const a = d.data(); if (a.empName && a.displayName) disp[a.empName] = a.displayName; }); } catch (e) {}
+    const snaps = await Promise.all(stores.map(st => window.db.collection('stores').doc(st).collection('employees').get().then(q => [st, q])));
+    snaps.forEach(([st, q]) => q.forEach(d => {
       if (d.id.startsWith('🆘')) return;
-      const x = d.data() || {};
-      list.push({ nick: d.id, full: disp[d.id] || x.name || d.id, status: x.status || '在職', sortKey: x.sortKey ?? 999 });
-    });
-    // 在職的排前面；離職／調走的也列（盤點的月份可能他還在）
-    list.sort((a, b) => (a.status === '在職' ? 0 : 1) - (b.status === '在職' ? 0 : 1) || a.sortKey - b.sortKey);
-    _impEmps = list.map(x => ({ nick: x.nick, label: x.full + (x.status !== '在職' ? `・${x.status}` : ''), full: x.full }));
-  } catch (e) { box.innerHTML = `<div class="grade-warn">讀不到 ${esc(store)} 的人員：${esc(e.message || e)}</div>`; return; }
-  const used = new Set();
+      const x = d.data() || {}, status = x.status || '在職';
+      const cur = byNick[d.id];
+      // 同一個人在好幾家店都有紀錄（調店）→ 以在職的那家為準
+      if (cur && cur.status === '在職') return;
+      byNick[d.id] = { nick: d.id, full: disp[d.id] || x.name || d.id, store: st, status, sortKey: x.sortKey ?? 999 };
+    }));
+  } catch (e) { box.innerHTML = `<div class="grade-warn">讀不到人員：${esc(e.message || e)}</div>`; return; }
+  const list = Object.values(byNick).sort((a, b) =>
+    (a.status === '在職' ? 0 : 1) - (b.status === '在職' ? 0 : 1) || stores.indexOf(a.store) - stores.indexOf(b.store) || a.sortKey - b.sortKey);
+  _impEmps = list.map(x => ({ nick: x.nick, full: x.full, label: `${x.full}（${x.store}${x.status !== '在職' ? '・' + x.status : ''}）` }));
   box.innerHTML = (sheet.employees || []).map(e => {
-    // 預選：上次選過的 → 名字剛好一樣的 → 不帶
-    let pick = (sheet.importStore === store && e.srcName && _impEmps.some(x => x.nick === e.srcName)) ? e.srcName : '';
+    // 預選：上次選過的 → 顯示名字一樣的 → 排班表名字一樣的 → 不帶
+    let pick = e.srcName && _impEmps.some(x => x.nick === e.srcName) ? e.srcName : '';
     if (!pick) { const nm = e.name.trim(); const m = _impEmps.find(x => x.full === nm) || _impEmps.find(x => x.nick === nm); if (m) pick = m.nick; }
-    if (pick) used.add(pick);
     return `<div class="imp-row" style="display:flex;align-items:center;gap:8px;margin:6px 0;">
       <span style="flex:1;font-weight:700;">${esc(e.name)}<span style="color:#64748b;font-weight:500;font-size:12px;">（${e.role}）</span></span>
       <span style="color:#94a3b8;">←</span>
@@ -1076,20 +1068,19 @@ async function onImpStoreChange() {
       </select></div>`;
   }).join('');
 }
+function closeImport() { document.getElementById('importModal').classList.remove('open'); }
 
 async function confirmImport() {
-  const store = document.getElementById('impStore').value;
   const nickOf = {};
   document.querySelectorAll('#impMap select[data-emp]').forEach(el => { if (el.value) nickOf[el.dataset.emp] = el.value; });
   if (!Object.keys(nickOf).length) { toast('請至少替一位人員選要帶入誰'); return; }
+  const stores = impStores();
   const b = scopeBounds();
   closeImport();
   showLoad();
   try {
-    const ref = window.db.collection('stores').doc(store);
     const emps = sheet.employees || [];
     emps.forEach(e => { e.srcName = nickOf[e.id] || ''; });
-    sheet.importStore = store;
 
     let filled = 0, kept = 0, leave = 0, weekMiss = 0;
     const blocks = weekBlocks(b.start, b.end).filter(w => w.some(inScope));
@@ -1097,17 +1088,28 @@ async function confirmImport() {
       const wk = weekStrOfDate(parseD(week[0]));
       // 週次公式自我檢查：換算回來的第一天必須等於這週的週一，對不上就不帶（寧可空白也不要錯一週）
       if (getWeekDates(wk)[0] !== `${+week[0].slice(5, 7)}/${+week[0].slice(8, 10)}`) { weekMiss++; continue; }
-      const snap = await ref.collection('weeks').doc(wk).get();
-      if (!snap.exists) { weekMiss++; continue; }
-      const recs = snap.data().records || [];
+      const snaps = await Promise.all(stores.map(st => window.db.collection('stores').doc(st).collection('weeks').doc(wk).get().then(q => [st, q])));
+      const recs = [];   // [{nick, day, shift}]：三家店合在一起
+      snaps.forEach(([st, q]) => {
+        if (!q.exists) return;
+        (q.data().records || []).forEach(r => {
+          if (!String(r.name || '').startsWith('🆘')) recs.push({ nick: r.name, day: r.day, shift: String(r.shift || '').trim() });
+          // 他店 🆘 待補格核准給某人＝那個人去支援（supportEmp＝「原店-名字」）
+          if (r.approvalStatus === 'approved' && r.supportEmp) {
+            const who = String(r.supportEmp).replace(/^[^-]+-/, '');
+            recs.push({ nick: who, day: r.day, shift: String(r.shift || '').trim() });
+          }
+        });
+      });
+      if (!snaps.some(([, q]) => q.exists)) { weekMiss++; continue; }
       week.forEach((d, i) => {
         if (!inScope(d)) return;
         emps.forEach(e => {
           const nick = nickOf[e.id];
           if (!nick) return;
-          const mine = recs.filter(r => r.name === nick && r.day === DAY_NAMES[i]);
+          const mine = recs.filter(r => r.nick === nick && r.day === DAY_NAMES[i]);
           if (!mine.length) return;
-          const work = mine.find(r => shiftTotalHours(r.shift || '') > 0);
+          const work = mine.find(r => shiftTotalHours(r.shift) > 0);
           let v = '';
           if (work) v = work.shift;
           else if (mine.some(r => r.shift === '排休' || r.shift === '指休')) v = OFF;
@@ -1122,7 +1124,7 @@ async function confirmImport() {
     }
     markDirty(); renderSchedule();
     const errs = runComplianceChecks().filter(x => x.level === 'error').length;
-    const msg = [`從「${store}」帶入 ${filled} 格`];
+    const msg = [`從三家店排班表帶入 ${filled} 格`];
     if (kept) msg.push(`${kept} 格原本有填、沒動（要整份重帶請先按「清空全部」）`);
     if (leave) msg.push(`${leave} 格是特休／補休等假別，留空`);
     if (weekMiss) msg.push(`${weekMiss} 週排班表沒有資料`);
