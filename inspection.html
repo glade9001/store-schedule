@@ -75,6 +75,7 @@
       <div class="card-title">② 被盤點人員</div>
       <div class="hint">姓名自行輸入（印在表單上的名字）。正職請填實際薪資項目；工讀預設時薪 196 元。</div>
       <div id="empList"></div>
+      <button class="btn-outline edit-only" onclick="openPickEmps()">👥 從員工名單選（可複選）</button>
       <button class="btn-outline edit-only" onclick="openEmpEdit('')">＋ 新增人員</button>
     </div>
     <div class="step-nav"><button class="btn-back" onclick="gotoStep(1)">← 上一步</button><button class="btn-next" onclick="gotoStep(3)">下一步：排班 →</button></div>
@@ -127,6 +128,21 @@
       <div id="holidayBox"></div>
     </div>
     <div class="step-nav"><button class="btn-back" onclick="gotoStep(4)">← 上一步</button><span></span></div>
+  </div>
+</div>
+
+<!-- ════════ 從員工名單選人（複選）════════ -->
+<div class="modal" id="pickModal">
+  <div class="modal-box">
+    <div class="modal-title">👥 從員工名單選</div>
+    <div class="modal-body">
+      <div class="hint">三家店的人都列。會帶入姓名（顯示名字）、職稱、到職日、工讀時薪；正職薪資項目與投保級距請加入後再填。</div>
+      <div id="pickList"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-cancel" onclick="closePickEmps()">取消</button>
+      <button class="btn-primary" onclick="confirmPickEmps()">加入勾選的人</button>
+    </div>
   </div>
 </div>
 

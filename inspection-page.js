@@ -1032,29 +1032,86 @@ function clearSchedule() {
 let _impEmps = [];   // 對照視窗：三家店的人 [{nick, label, full}]
 const impStores = () => (appConfig.stores || []).filter(x => x && x !== '人力支援');
 
+/** 三家店的人（唯讀）：[{nick, full(顯示名字), store, status, role, startDate, wage, label}]，在職排前面 */
+async function loadAllStorePeople() {
+  const stores = impStores();
+  const disp = {}, byNick = {};
+  try { (await window.db.collection('account').get()).forEach(d => { const a = d.data(); if (a.empName && a.displayName) disp[a.empName] = a.displayName; }); } catch (e) {}
+  const snaps = await Promise.all(stores.map(st => window.db.collection('stores').doc(st).collection('employees').get().then(q => [st, q])));
+  snaps.forEach(([st, q]) => q.forEach(d => {
+    if (d.id.startsWith('🆘')) return;
+    const x = d.data() || {}, status = x.status || '在職';
+    const cur = byNick[d.id];
+    // 同一個人在好幾家店都有紀錄（調店）→ 以在職的那家為準
+    if (cur && cur.status === '在職') return;
+    byNick[d.id] = { nick: d.id, full: disp[d.id] || x.name || d.id, store: st, status, sortKey: x.sortKey ?? 999,
+      role: x.role || '', startDate: x.startDate || '', wage: n(x.wage) };
+  }));
+  return Object.values(byNick).sort((a, b) =>
+    (a.status === '在職' ? 0 : 1) - (b.status === '在職' ? 0 : 1) || stores.indexOf(a.store) - stores.indexOf(b.store) || a.sortKey - b.sortKey)
+    .map(x => ({ ...x, label: `${x.full}（${x.store}${x.status !== '在職' ? '・' + x.status : ''}）` }));
+}
+
+// ===== 人員：從員工名單選（複選）=====
+// 帶入：姓名＝顯示名字、職稱（工讀／其餘算正職）、到職日（年資起點 leaves/{今年}.hireDate，沒有才用本店 startDate）、
+//       工讀時薪（主檔 wage；⚠️正職的 wage 是月薪，不帶）、srcName（之後「從排班表帶入」自動對到這個人）。
+//       薪資項目、投保級距仍請自己填。已經加過的人（srcName 相同）打勾且不能再選。
+let _pickPeople = [];
+async function openPickEmps() {
+  if (!canEditSheet()) { toast('唯讀模式'); return; }
+  const box = document.getElementById('pickList');
+  box.innerHTML = '<div class="hint">讀取三家店人員中…</div>';
+  document.getElementById('pickModal').classList.add('open');
+  try { _pickPeople = await loadAllStorePeople(); }
+  catch (e) { box.innerHTML = `<div class="grade-warn">讀不到人員：${esc(e.message || e)}</div>`; return; }
+  const have = new Set((sheet.employees || []).map(e => e.srcName).filter(Boolean));
+  let lastStore = '';
+  box.innerHTML = _pickPeople.map((x, i) => {
+    const head = x.store !== lastStore && x.status === '在職' ? `<div class="sub-title" style="margin-top:10px;">${esc(x.store)}</div>` : '';
+    if (x.status === '在職') lastStore = x.store;
+    const got = have.has(x.nick);
+    return `${head}<label class="chk-line" style="margin:4px 0;${got ? 'opacity:.5;' : ''}">
+      <input type="checkbox" data-i="${i}"${got ? ' checked disabled' : ''}>
+      <span>${esc(x.label)}　<span style="color:#64748b;">${esc(x.role || '')}</span>${got ? '（已加入）' : ''}</span></label>`;
+  }).join('');
+}
+function closePickEmps() { document.getElementById('pickModal').classList.remove('open'); }
+async function confirmPickEmps() {
+  const picked = [...document.querySelectorAll('#pickList input[type=checkbox]:checked:not(:disabled)')].map(el => _pickPeople[+el.dataset.i]).filter(Boolean);
+  if (!picked.length) { toast('還沒勾選任何人'); return; }
+  closePickEmps(); showLoad();
+  const yr = (sheet.salaryMonth || lvLocalYmd()).slice(0, 4);
+  try {
+    const hires = await Promise.all(picked.map(x => window.db.collection('employees').doc(x.nick).collection('leaves').doc(yr).get()
+      .then(d => (d.exists && d.data().hireDate) || '').catch(() => '')));
+    sheet.employees = sheet.employees || [];
+    picked.forEach((x, k) => {
+      const part = /工讀/.test(x.role);
+      sheet.employees.push({
+        id: 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        name: x.full, role: part ? '工讀' : '正職', srcName: x.nick,
+        hireDate: hires[k] || x.startDate || '', annualUsed: null, weekHours: null,
+        baseSalary: 0, fullAttendBonus: 0, mgmtBonus: 0, laborAllowance: 0, performance: 0, otherBonus: 0,
+        otHours: 0, lateMinutes: 0, wage: part ? (x.wage > 0 && x.wage < 1000 ? x.wage : DEFAULT_WAGE) : 0,
+        personalSickLeave: 0, laborPension: 0, otherDeduction: 0,
+        insuranceGrade: null, dependentCount: 0, healthUninsured: false,
+        laborInsurance: 0, healthInsurance: 0, dependentInsurance: 0, laborEr: 0, healthEr: 0, pensionEr: 0,
+      });
+    });
+    renderEmps(); markDirty(); applyReadonlyUI();
+    toast(`已加入 ${picked.length} 人；正職的薪資項目與投保級距請點進去填`);
+  } catch (e) { toast('加入失敗：' + (e.message || e)); }
+  finally { hideLoad(); }
+}
+
 async function importFromSchedule() {
   if (!canEditSheet()) { toast('唯讀模式'); return; }
   if (!(sheet.employees || []).length) { toast('請先到「② 人員」新增人員'); gotoStep(2); return; }
   document.getElementById('importModal').classList.add('open');
   const box = document.getElementById('impMap');
   box.innerHTML = '<div class="hint">讀取三家店人員中…</div>';
-  const stores = impStores();
-  const disp = {}, byNick = {};
-  try {
-    try { (await window.db.collection('account').get()).forEach(d => { const a = d.data(); if (a.empName && a.displayName) disp[a.empName] = a.displayName; }); } catch (e) {}
-    const snaps = await Promise.all(stores.map(st => window.db.collection('stores').doc(st).collection('employees').get().then(q => [st, q])));
-    snaps.forEach(([st, q]) => q.forEach(d => {
-      if (d.id.startsWith('🆘')) return;
-      const x = d.data() || {}, status = x.status || '在職';
-      const cur = byNick[d.id];
-      // 同一個人在好幾家店都有紀錄（調店）→ 以在職的那家為準
-      if (cur && cur.status === '在職') return;
-      byNick[d.id] = { nick: d.id, full: disp[d.id] || x.name || d.id, store: st, status, sortKey: x.sortKey ?? 999 };
-    }));
-  } catch (e) { box.innerHTML = `<div class="grade-warn">讀不到人員：${esc(e.message || e)}</div>`; return; }
-  const list = Object.values(byNick).sort((a, b) =>
-    (a.status === '在職' ? 0 : 1) - (b.status === '在職' ? 0 : 1) || stores.indexOf(a.store) - stores.indexOf(b.store) || a.sortKey - b.sortKey);
-  _impEmps = list.map(x => ({ nick: x.nick, full: x.full, label: `${x.full}（${x.store}${x.status !== '在職' ? '・' + x.status : ''}）` }));
+  try { _impEmps = await loadAllStorePeople(); }
+  catch (e) { box.innerHTML = `<div class="grade-warn">讀不到人員：${esc(e.message || e)}</div>`; return; }
   box.innerHTML = (sheet.employees || []).map(e => {
     // 預選：上次選過的 → 顯示名字一樣的 → 排班表名字一樣的 → 不帶
     let pick = e.srcName && _impEmps.some(x => x.nick === e.srcName) ? e.srcName : '';
