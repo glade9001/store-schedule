@@ -1717,9 +1717,10 @@ function calcPay(emp) {
   const base = n(emp.baseSalary), attend = n(emp.fullAttendBonus), other = n(emp.otherBonus);
   const mgmt = n(emp.mgmtBonus), la = n(emp.laborAllowance), perf = n(emp.performance);
   const recur = base + attend + mgmt + la + perf + other;
-  const rph = (base + attend + other) / 30 / 8;
+  // 加班費計算基礎（時薪）＝經常性給與全部 ÷ 30 ÷ 8（含管理獎金、勞務津貼、績效；使用者 2026-11-25，跟國定假日一日工資同一個基礎）
+  //   遲到扣款也用它（同一個時薪，扣與加才一致）
+  const rph = recur / 30 / 8;
   // 國定假日加發的一日工資＝經常性給與全部 ÷ 30（含管理獎金、勞務津貼、績效；使用者 2026-11-25）
-  // ⚠️ 加班費計算基礎 rph 沒跟著改（仍是底薪＋全勤＋其他），要不要一起改待使用者決定
   const dayWage = Math.round(recur / 30);
   const holPay = dayWage * st.holDays;
   const otPay = Math.ceil(Math.ceil(rph) * 1.34 * n(emp.otHours));
