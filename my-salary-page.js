@@ -17,7 +17,7 @@ let scheduleData = {};
 let prevSalaryData = {}; 
 let salaryData = {};
 let myAck = null; // 本人本月簽收狀態（salaryAck）
-// 本人本月出勤記錄表（2026-11-25）：跟勞檢出勤表同一張（labor-record-core.js）。{D, x, hash, visible} 或 null（早於 LR_ESIGN_START、未發布、讀不到）
+// 本人本月出勤記錄表（2026-11-25）：跟勞檢出勤表同一張（labor-record-core.js）。{D, x, hash, visible} 或 null（早於 LR_VIEW_START、未發布、讀不到）
 let myAtt = null;
 let myTab = 'salary';   // 薪資單 salary／出勤記錄表 att
 const SALARY_ACK_START = '2026-06'; // 薪資簽收制度啟動月（此月起才需簽收；home.html 需同值）
@@ -386,7 +386,7 @@ let _lrHolSynced = false;
 async function loadMyAttendance() {
   myAtt = null;
   if((salaryData.status||'draft') !== 'published' || typeof lrLoad !== 'function') return;
-  if(currentMonth < LR_ESIGN_START) return;
+  if(currentMonth < LR_VIEW_START) return;
   try {
     lrConfig = appConfig;
     if(!_lrHolSynced) { await syncHolidayMapInto(LR_HOL, [new Date().getFullYear() - 1, new Date().getFullYear(), new Date().getFullYear() + 1]); _lrHolSynced = true; }
@@ -398,7 +398,7 @@ async function loadMyAttendance() {
   } catch(e) { console.warn('出勤記錄表讀取失敗', e); myAtt = null; }
 }
 /** 這次簽名要不要連出勤一起簽：有出勤表、而且已開放 */
-function attNeedsSign() { return !!(myAtt && myAtt.x && myAtt.visible); }
+function attNeedsSign() { return !!(myAtt && myAtt.x && myAtt.visible && currentMonth >= LR_ESIGN_START); }   // 10 月只能看不用簽
 // 簽收狀態：na(不需簽)/unsigned/signed/resign(薪資已更新需重簽)/resignAtt(出勤有異動或剛開放，要重簽)
 function getAckState(rec) {
   if((salaryData.status||'draft') !== 'published') return 'na';
@@ -449,7 +449,7 @@ function renderEmpList() {
     return;
   }
 
-  // 分頁：有出勤表（LR_ESIGN_START 起的已發布月份）才出現「出勤記錄表」
+  // 分頁：有出勤表（LR_VIEW_START 起的已發布月份；LR_ESIGN_START 起才一起簽）才出現「出勤記錄表」
   const tabs = myAtt && myAtt.x ? `<div class="ms-tabs">
       <button class="ms-tab${myTab === 'salary' ? ' on' : ''}" onclick="setMyTab('salary')">薪資單</button>
       <button class="ms-tab${myTab === 'att' ? ' on' : ''}" onclick="setMyTab('att')">出勤記錄表</button></div>` : '';
@@ -463,12 +463,14 @@ function renderEmpList() {
         <div style="font-size:12px;margin-top:6px;color:var(--text-muted);">需要出勤紀錄副本，可以直接跟店長申請。</div></div>${signBlock}</div>`;
       return;
     }
-    const sig = myAck && myAck.signedAttHash === myAtt.hash ? null : { text: myAck && myAck.signedAttHash ? '簽署後內容有異動，需重簽' : '尚未電子簽署' };
-    el.innerHTML = tabs + `<div class="ms-att-hint">跟勞檢列印的同一張表；雙指可放大，往下捲看整個月。</div>
+    const preSign = currentMonth < LR_ESIGN_START;   // 電子簽名開始前的月份：只能看
+    const sig = preSign ? { text: '出勤紀錄未經電子簽署' }
+      : myAck && myAck.signedAttHash === myAtt.hash ? null : { text: myAck && myAck.signedAttHash ? '簽署後內容有異動，需重簽' : '尚未電子簽署' };
+    el.innerHTML = tabs + `<div class="ms-att-hint">跟勞檢列印的同一張表；雙指可放大，往下捲看整個月。${preSign ? `<br>${+LR_ESIGN_START.slice(5)} 月起薪資和出勤一起簽名；這個月只能看，不用簽。` : ''}</div>
       <div class="ms-att-wrap"><div class="ms-att-paper" id="msAttPaper">${lrSheetHtml(myAtt.D, myAtt.x, sig)}</div></div>
       <div class="emp-salary-card" style="margin-top:10px;">${signBlock}</div>`;
     fitAttPaper();
-    if(myAck && myAck.signedAttHash === myAtt.hash) fillAttSignature();
+    if(!preSign && myAck && myAck.signedAttHash === myAtt.hash) fillAttSignature();
     return;
   }
 

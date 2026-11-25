@@ -8,6 +8,8 @@
 var lrConfig = { stores: [] };   // 頁面載入時換成 settings/globalConfig（lrLoad 要 stores 讀三店打卡）
 // 電子簽名從這個薪資月開始（使用者 2026-11-25：「下一次發布的薪資月份」＝11 月）；之前的月份出勤表一律「未經電子簽署」
 const LR_ESIGN_START = '2026-11';
+// 員工在「查看薪水」看得到出勤記錄表的起始月（使用者 2026-11-25：10 月也要看得到）；早於 LR_ESIGN_START 的月份只能看、不用簽
+const LR_VIEW_START = '2026-10';
 
 function lrEsc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 const lrPad = n => String(n).padStart(2, '0');
