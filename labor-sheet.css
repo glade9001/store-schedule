@@ -24,3 +24,9 @@
 .sh-sigtxt{display:block;font-style:normal;font-weight:800;color:#b3261e;font-size:9pt;margin-bottom:2pt;}
 .sh-sigat{display:block;font-size:10pt;margin-bottom:2pt;}
 .sh-esign{font-size:7.5pt;color:#444;margin-top:4pt;}
+/* 螢幕上縮小顯示（預覽、查看薪水的出勤分頁）時 0.6pt 細線會縮到不到 1 像素、iPhone 直接不畫 → 螢幕上加粗；列印維持原本細線（2026-11-25） */
+@media screen{
+  .sh-table{border-width:3px;}
+  .sh-table th,.sh-table td{border-width:1.6px;border-color:#555;}
+  .sh-table tr + tr td{border-top-color:#333;}
+}
