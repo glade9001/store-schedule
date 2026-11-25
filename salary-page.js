@@ -1156,6 +1156,7 @@ function renderPayslip() {
   const rate = isPartTime ? 0 : hourlyRate(rec);
 
   // 特補休資料
+  const _li = leaveDataMap[empName] || {};   // ⚠️ 補休那段還要用（2026-11-25 改特休時誤刪 → 薪資單按了沒反應）
   const _pa = payslipAnnual(empName);   // 特休三個數字：跟存摺同一套（leave-passbook.js），不讀 leaves.annualDays（會過時）
   const _annualDays = _pa ? _pa.annual : '--';
   const _usedAnnual = _pa ? _pa.used : '--';
