@@ -62,3 +62,5 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto S
 .lr-week.zoom{width:1500px;max-width:none;cursor:zoom-out;}
 #lrWeeks{overflow:auto;}
 .ms-att-wrap,.lr-paper-wrap{-webkit-text-size-adjust:100%;text-size-adjust:100%;}
+/* iPhone 縮小顯示寬版面（出勤表、薪資單 A4 預覽）時會自動把部分文字放大，整頁關掉（2026-11-25） */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;}

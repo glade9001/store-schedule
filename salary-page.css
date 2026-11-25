@@ -156,3 +156,5 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 .cost-support-badge{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:800;color:white;margin-right:4px;}
 .cost-holiday-row{display:flex;align-items:center;padding:7px 0;border-bottom:1px solid #f8fafc;font-size:13px;}
 .cost-holiday-row:last-child{border-bottom:none;}
+/* iPhone 縮小顯示寬版面（出勤表、薪資單 A4 預覽）時會自動把部分文字放大，整頁關掉（2026-11-25） */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;}

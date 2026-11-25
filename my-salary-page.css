@@ -169,3 +169,5 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 .ms-chk{display:flex;gap:10px;align-items:flex-start;font-size:14px;line-height:1.6;margin:0 0 8px;cursor:pointer;}
 .ms-chk input[type=checkbox]{width:20px;height:20px;margin:2px 0 0;flex:0 0 auto;}
 .ms-att-wrap,.lr-paper-wrap{-webkit-text-size-adjust:100%;text-size-adjust:100%;}
+/* iPhone 縮小顯示寬版面（出勤表、薪資單 A4 預覽）時會自動把部分文字放大，整頁關掉（2026-11-25） */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;}
