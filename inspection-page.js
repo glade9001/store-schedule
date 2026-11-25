@@ -1055,7 +1055,9 @@ async function loadAllStorePeople() {
 // ===== 人員：從員工名單選（複選）=====
 // 帶入：姓名＝顯示名字、職稱（工讀／其餘算正職）、到職日（年資起點 leaves/{今年}.hireDate，沒有才用本店 startDate）、
 //       工讀時薪（主檔 wage；⚠️正職的 wage 是月薪，不帶）、srcName（之後「從排班表帶入」自動對到這個人）。
-//       薪資項目、投保級距仍請自己填。已經加過的人（srcName 相同）打勾且不能再選。
+//       薪資項目與投保級距（使用者 2026-11-25）：唯讀正式薪資 stores/{店}/salary/{薪資月份}.records，
+//       該月沒有就退一個月；三家店都找（調店的人薪資可能在舊店）。投保級距是同一份 settings/insuranceGrades 的索引，直接沿用。
+//       已經加過的人（srcName 相同）打勾且不能再選。
 let _pickPeople = [];
 async function openPickEmps() {
   if (!canEditSheet()) { toast('唯讀模式'); return; }
@@ -1075,6 +1077,44 @@ async function openPickEmps() {
       <span>${esc(x.label)}　<span style="color:#64748b;">${esc(x.role || '')}</span>${got ? '（已加入）' : ''}</span></label>`;
   }).join('');
 }
+/** 正式薪資紀錄（唯讀）：{ nick: { rec, from:'店 YYYY-MM' } }；薪資月份沒有就退一個月，三家店都找 */
+async function salaryRecsFor(nicks) {
+  const out = {};
+  const ym0 = sheet.salaryMonth || prevMonthOf(lvLocalYmd());
+  const [y, m] = ym0.split('-').map(Number);
+  const ym1 = m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
+  const stores = impStores();
+  for (const ym of [ym0, ym1]) {
+    const left = nicks.filter(k => !out[k]);
+    if (!left.length) break;
+    const snaps = await Promise.all(stores.map(st => window.db.collection('stores').doc(st).collection('salary').doc(ym).get().then(d => [st, d]).catch(() => [st, null])));
+    snaps.forEach(([st, d]) => {
+      if (!d || !d.exists) return;
+      (d.data().records || []).forEach(r => { if (left.includes(r.empName) && !out[r.empName]) out[r.empName] = { rec: r, from: `${st} ${ym}` }; });
+    });
+  }
+  return out;
+}
+/** 薪資紀錄 → 盤點人員欄位（只取盤點薪資單有的欄位） */
+function salaryToSheet(r, part) {
+  const v = k => n(r[k]);
+  const o = {
+    personalSickLeave: Math.abs(v('personalSickLeave')), laborPension: v('laborPension'), otherDeduction: v('otherDeduction'),
+    insuranceGrade: r.insuranceGrade == null ? null : +r.insuranceGrade,
+    dependentCount: v('dependentCount'),
+    healthUninsured: r.insuranceGrade != null && r.insuranceGrade >= 0 && v('healthInsurance') === 0,
+    laborInsurance: v('laborInsurance'), healthInsurance: v('healthInsurance'), dependentInsurance: v('dependentInsurance'),
+    laborEr: v('laborEr'), healthEr: v('healthEr'), pensionEr: v('pensionEr'),
+  };
+  if (part) return o;
+  return Object.assign(o, {
+    baseSalary: v('baseSalary'), fullAttendBonus: v('fullAttendBonus'),
+    mgmtBonus: ['mgmtOps', 'mgmtQuality', 'mgmtKPI', 'mgmtAccount', 'mgmtLeader'].reduce((a, k) => a + v(k), 0),
+    laborAllowance: v('laborAllowance'), performance: v('performance'),
+    otherBonus: v('otherBonus') + v('roleBonus') + v('nightAllowance'),   // 盤點薪資單只有一格「其他津貼」：職務津貼、夜班津貼併進來
+    otHours: v('otHours'), lateMinutes: v('lateMinutes'),
+  });
+}
 function closePickEmps() { document.getElementById('pickModal').classList.remove('open'); }
 async function confirmPickEmps() {
   const picked = [...document.querySelectorAll('#pickList input[type=checkbox]:checked:not(:disabled)')].map(el => _pickPeople[+el.dataset.i]).filter(Boolean);
@@ -1084,9 +1124,14 @@ async function confirmPickEmps() {
   try {
     const hires = await Promise.all(picked.map(x => window.db.collection('employees').doc(x.nick).collection('leaves').doc(yr).get()
       .then(d => (d.exists && d.data().hireDate) || '').catch(() => '')));
+    const sal = await salaryRecsFor(picked.map(x => x.nick));
     sheet.employees = sheet.employees || [];
+    let gotSal = 0;
+    const noSal = [];
     picked.forEach((x, k) => {
       const part = /工讀/.test(x.role);
+      const sr = sal[x.nick];
+      if (sr) gotSal++; else noSal.push(x.full);
       sheet.employees.push({
         id: 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
         name: x.full, role: part ? '工讀' : '正職', srcName: x.nick,
@@ -1096,10 +1141,12 @@ async function confirmPickEmps() {
         personalSickLeave: 0, laborPension: 0, otherDeduction: 0,
         insuranceGrade: null, dependentCount: 0, healthUninsured: false,
         laborInsurance: 0, healthInsurance: 0, dependentInsurance: 0, laborEr: 0, healthEr: 0, pensionEr: 0,
+        ...(sr ? salaryToSheet(sr.rec, part) : {}),
+        ...(sr ? { salaryFrom: sr.from } : {}),
       });
     });
     renderEmps(); markDirty(); applyReadonlyUI();
-    toast(`已加入 ${picked.length} 人；正職的薪資項目與投保級距請點進去填`);
+    alert(`已加入 ${picked.length} 人。\n薪資項目與投保級距：${gotSal} 人已從薪資系統帶入${noSal.length ? `\n找不到薪資紀錄、要自己填：${noSal.join('、')}` : ''}\n帶入的是複本，改這裡不影響正式薪資。`);
   } catch (e) { toast('加入失敗：' + (e.message || e)); }
   finally { hideLoad(); }
 }
