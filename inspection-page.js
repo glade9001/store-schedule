@@ -468,6 +468,12 @@ function renderRange() {
 }
 
 // ===== 步驟 2：人員 =====
+/** 人員列上的特休摘要：特休自動算、已休人工填 */
+function annTag(e) {
+  const a = annualInfo(e);
+  if (!a) return '・<span style="color:#c2410c;">沒到職日</span>';
+  return `・特休 ${a.entTxt}${e.annualUsed == null ? '（已休未填）' : `／未休 ${a.remainTxt}`}`;
+}
 function renderEmps() {
   const box = document.getElementById('empList');
   const emps = sheet.employees || [];
@@ -481,7 +487,7 @@ function renderEmps() {
       <span class="emp-ord">${i + 1}</span>
       <span class="emp-name">${esc(e.name)}</span>
       <span class="emp-badge ${e.role === '工讀' ? 'badge-part' : 'badge-full'}">${e.role}</span>
-      <span class="emp-money">${money}${e.insuranceGrade === -1 ? '・未投保' : e.insuranceGrade == null ? '・未設級距' : ''}</span>
+      <span class="emp-money">${money}${e.insuranceGrade === -1 ? '・未投保' : e.insuranceGrade == null ? '・未設級距' : ''}${annTag(e)}</span>
       <span class="emp-move edit-only">
         <button class="ord-btn" ${i === 0 ? 'disabled' : ''} onclick="event.stopPropagation();moveEmp('${e.id}',-1)">↑</button>
         <button class="ord-btn" ${i === emps.length - 1 ? 'disabled' : ''} onclick="event.stopPropagation();moveEmp('${e.id}',1)">↓</button>
@@ -1059,6 +1065,17 @@ async function loadAllStorePeople() {
 //       該月沒有就退一個月；三家店都找（調店的人薪資可能在舊店）。投保級距是同一份 settings/insuranceGrades 的索引，直接沿用。
 //       已經加過的人（srcName 相同）打勾且不能再選。
 let _pickPeople = [];
+/**
+ * 到職日（年資起點，算特休用）：employees/{名字}/leaves/{年}.hireDate（薪資月份那年，沒有再找今年），
+ * 都沒有才退回本店主檔 startDate（⚠️ 調店的人 startDate 是調入日，不是年資起點，所以排最後）
+ */
+async function hireDateOf(nick, startDate) {
+  const yrs = [...new Set([(sheet.salaryMonth || lvLocalYmd()).slice(0, 4), lvLocalYmd().slice(0, 4)])];
+  for (const y of yrs) {
+    try { const d = await window.db.collection('employees').doc(nick).collection('leaves').doc(y).get(); if (d.exists && d.data().hireDate) return d.data().hireDate; } catch (e) { }
+  }
+  return startDate || '';
+}
 async function openPickEmps() {
   if (!canEditSheet()) { toast('唯讀模式'); return; }
   const box = document.getElementById('pickList');
@@ -1122,8 +1139,7 @@ async function confirmPickEmps() {
   closePickEmps(); showLoad();
   const yr = (sheet.salaryMonth || lvLocalYmd()).slice(0, 4);
   try {
-    const hires = await Promise.all(picked.map(x => window.db.collection('employees').doc(x.nick).collection('leaves').doc(yr).get()
-      .then(d => (d.exists && d.data().hireDate) || '').catch(() => '')));
+    const hires = await Promise.all(picked.map(x => hireDateOf(x.nick, '')));
     const sal = await salaryRecsFor(picked.map(x => x.nick));
     sheet.employees = sheet.employees || [];
     let gotSal = 0;
@@ -1185,6 +1201,12 @@ async function confirmImport() {
   try {
     const emps = sheet.employees || [];
     emps.forEach(e => { e.srcName = nickOf[e.id] || ''; });
+    // 到職日沒填的順便補上（特休自動算要用）
+    const needHire = emps.filter(e => e.srcName && !e.hireDate);
+    const people = needHire.length ? _impEmps : [];
+    const hires = await Promise.all(needHire.map(e => hireDateOf(e.srcName, (people.find(x => x.nick === e.srcName) || {}).startDate)));
+    let hireFilled = 0;
+    needHire.forEach((e, k) => { if (hires[k]) { e.hireDate = hires[k]; hireFilled++; } });
 
     let filled = 0, kept = 0, leave = 0, weekMiss = 0;
     const blocks = weekBlocks(b.start, b.end).filter(w => w.some(inScope));
@@ -1228,7 +1250,9 @@ async function confirmImport() {
     }
     markDirty(); renderSchedule();
     const errs = runComplianceChecks().filter(x => x.level === 'error').length;
+    renderEmps();
     const msg = [`從三家店排班表帶入 ${filled} 格`];
+    if (hireFilled) msg.push(`補上 ${hireFilled} 人的到職日（特休自動算）`);
     if (kept) msg.push(`${kept} 格原本有填、沒動（要整份重帶請先按「清空全部」）`);
     if (leave) msg.push(`${leave} 格是特休／補休等假別，留空`);
     if (weekMiss) msg.push(`${weekMiss} 週排班表沒有資料`);
