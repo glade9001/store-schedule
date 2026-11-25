@@ -188,9 +188,12 @@ function lrShowPay() {
   ov.style.cssText = 'position:fixed;inset:0;z-index:100000;background:#e5e7eb;display:flex;flex-direction:column;';
   ov.innerHTML = `<div style="flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:10px 14px;padding-top:max(10px, env(safe-area-inset-top));background:#0f766e;color:#fff;">
       <div style="flex:1;font-size:16px;font-weight:800;">👀 ${lrEsc(D.store)} ${D.ym.replace('-', ' 年 ')} 月 薪資單${lrMode === 'esign' ? '（電子簽名版）' : '（空白版）'}</div>
-      <button style="min-height:40px;padding:0 16px;border:0;border-radius:10px;background:#fff;color:#0f766e;font-size:15px;font-weight:800;">關閉</button></div>
+      <button data-k="print" style="min-height:40px;padding:0 14px;border:0;border-radius:10px;background:#fbbf24;color:#1c2321;font-size:15px;font-weight:800;">🖨️ 列印 / 存 PDF</button>
+      <button data-k="close" style="min-height:40px;padding:0 16px;border:0;border-radius:10px;background:#fff;color:#0f766e;font-size:15px;font-weight:800;">關閉</button></div>
     <iframe src="${src}" title="薪資單" style="flex:1;width:100%;border:0;background:#e5e7eb;"></iframe>`;
-  ov.querySelector('button').onclick = () => ov.remove();
+  // 只留外層這一條標題列（裡面薪資頁的預覽標題列在嵌入時隱藏）；列印＝印裡面那頁的預覽（它自己的列印樣式只印薪資單）
+  ov.querySelector('[data-k=close]').onclick = () => ov.remove();
+  ov.querySelector('[data-k=print]').onclick = () => { try { ov.querySelector('iframe').contentWindow.print(); } catch (e) { lrToast('還在載入，請稍候再按'); } };
   document.body.appendChild(ov);
 }
 
