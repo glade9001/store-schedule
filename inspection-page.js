@@ -240,6 +240,7 @@ function openEditor() {
   sel.value = sheet.salaryMonth || prevMonthOf(sheet.auditDate);
   renderEmps();
   gotoStep(1);
+  autoFillHireDates();
   renderRange();
   applyReadonlyUI();
 }
@@ -468,6 +469,23 @@ function renderRange() {
 }
 
 // ===== 步驟 2：人員 =====
+/**
+ * 打開盤點資料時：已對到正式員工（srcName）但到職日空白的，自動補（使用者 2026-11-25：對好的人不該還要再按一次帶入）
+ * 只補空白、不蓋已填；唯讀檢視他人的盤點不動
+ */
+async function autoFillHireDates() {
+  if (!sheet || !canEditSheet()) return;
+  const need = (sheet.employees || []).filter(e => e.srcName && !e.hireDate);
+  if (!need.length) return;
+  const sid = sheet.id;
+  const hires = await Promise.all(need.map(e => hireDateOf(e.srcName, '')));
+  if (!sheet || sheet.id !== sid) return;            // 等的時候換了一份，不能寫錯份
+  let cnt = 0;
+  need.forEach((e, k) => { if (hires[k] && !e.hireDate) { e.hireDate = hires[k]; cnt++; } });
+  if (!cnt) return;
+  markDirty(); renderEmps(); applyReadonlyUI();
+  toast(`已自動補上 ${cnt} 人的到職日，特休已重算`);
+}
 /** 人員列上的特休摘要：特休自動算、已休人工填 */
 function annTag(e) {
   const a = annualInfo(e);
