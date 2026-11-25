@@ -113,9 +113,9 @@ function lrRender() {
       ${list.filter(x => x.law.length).map(x => `<div style="margin-top:4px;"><b>${lrEsc(x.name)}</b>${x.law.map(m => `<div>・${lrEsc(m)}</div>`).join('')}</div>`).join('')}
       <div style="color:#7f1d1d;font-size:11.5px;margin-top:4px;">檢查：正職「休」＝當月六日天數（國定假日不算）、連續 7 天要有一天休、前後班休息 ≥ 11 小時。國定假日沒上班寫「國」，不當例假或休息日。</div>
     </div>` : '<div class="meta" style="color:#137333;font-weight:700;">✅ 勞基法檢查通過</div>'}
-    <div class="btns"><button class="btn-primary" onclick="lrPrint('esign', true)">📄 PDF（電子簽名版）</button><button class="btn-outline" onclick="lrPrint('blank', true)">📄 PDF（空白版，手簽）</button></div>
+    <div class="btns"><button class="btn-primary" onclick="lrPrint('esign', true)">👀 預覽（電子簽名版）</button><button class="btn-outline" onclick="lrPrint('blank', true)">👀 預覽（空白版，手簽）</button></div>
     <div class="btns"><button class="btn-outline" onclick="lrPrint('esign')">🖨️ 列印（電子簽名版）</button><button class="btn-outline" onclick="lrPrint('blank')">🖨️ 列印（空白版）</button><button class="btn-outline" onclick="lrExcel()">📊 下載 Excel</button></div>
-    <div class="meta">手機請用 PDF：產好會跳出分享選單，可以直接列印、存到檔案或傳 LINE（手機從主畫面開的 App 不支援「列印」）。</div>
+    <div class="meta">手機請用「預覽」直接看（手機從主畫面開的 App 不支援「列印」）；要印紙本請用電腦按「列印」。</div>
     <div class="meta">電子簽名版：已電子簽署的印出簽名與簽署時間（到分鐘），沒簽或簽後有異動的印出狀態，請手簽；店長欄一律手簽。空白版＝全部手簽。列印對話框可以只選某幾頁。</div>
     ${D.ym >= LR_ESIGN_START ? '<div class="meta">員工端出勤表：沒有勞基法紅字的，薪資發布後員工就看得到並一起簽名；有紅字的先暫緩，修正後自動開放，或確認無誤後按「開放給員工」。員工端看不到紅字內容。</div>' : ''}
     <div class="star-help">「例假＊」＝該週只休一天：那天是例假，另外有一天是<b>休息日出勤</b>（需本人同意、並給付休息日加班費）。這個說明<b>不會印在紙上</b>，請員工在有「＊」的那一列旁手寫簽名確認。</div>
@@ -145,13 +145,8 @@ async function lrPrint(mode, asPdf) {
     lrLoaded();
   }
   const html = list.map(x => lrSheetHtml(D, x, mode === 'esign' ? sigs[x.emp.name] : null)).join('');
-  if (asPdf) {
-    lrLoading('產生 PDF…');
-    try {
-      await pdfxFromHtml(html, '.sheet', `${D.store}_${D.ym}_出勤紀錄表${mode === 'esign' ? '_電子簽名版' : ''}.pdf`,
-        (i, n) => { document.getElementById('loadingText').textContent = `產生 PDF… ${i}/${n}`; });
-    } catch (e) { lrToast('PDF 產生失敗：' + e.message); }
-    lrLoaded();
+  if (asPdf) {   // 預覽（手機用；使用者 2026-11-25：不用 PDF，直接預覽）
+    pdfxPreview(html, `${D.store} ${D.ym.replace('-', ' 年 ')} 月 出勤紀錄表${mode === 'esign' ? '（電子簽名版）' : '（空白版）'}`);
     return;
   }
   document.getElementById('lrPrint').innerHTML = html;

@@ -2089,11 +2089,8 @@ async function printAllPayslips(mode, asPdf) {
     hideLoading();
   }
   const html = buildAllPayslipsHtml(sigMap);
-  if(asPdf) {   // 手機從主畫面開的 App 不支援列印 → 直接產生 PDF（2026-11-25）
-    showLoading('產生 PDF...');
-    try { await pdfxFromHtml(html, '.payslip-page', `${currentStore}_${currentMonth}_薪資單${mode === 'esign' ? '_電子簽名版' : ''}.pdf`); }
-    catch(e) { showToast('❌ PDF 產生失敗：' + e.message); }
-    hideLoading();
+  if(asPdf) {   // 預覽（手機從主畫面開的 App 不支援列印；使用者 2026-11-25：不用 PDF，直接預覽）
+    pdfxPreview(html, `${currentStore} ${getMonthLabel(currentMonth)} 薪資單${mode === 'esign' ? '（電子簽名版）' : '（空白版）'}`);
     return;
   }
   win.document.write(`<!DOCTYPE html><html><head>

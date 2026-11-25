@@ -47,14 +47,68 @@ async function pdfxFromHtml(html, pageSel, filename, onProgress) {
     }
     const blob = pdf.output('blob');
     const file = new File([blob], filename, { type: 'application/pdf' });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      try { await navigator.share({ files: [file], title: filename }); return 'shared'; }
-      catch (e) { if (e && e.name === 'AbortError') return 'cancel'; }
-    }
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = filename;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+    // ⚠️ iPhone 的分享一定要在「手指按下的當下」呼叫：產 PDF 要好幾秒，等完再叫分享會被系統默默拒絕，
+    //    改下載在主畫面 App 裡也常沒反應 → 使用者看到「按了沒反應」（2026-11-25）。
+    //    所以能分享的裝置（手機）一律跳出「PDF 已產生」，讓使用者再按一次（新的手指動作）才分享。
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { box.remove(); return pdfxReadyDialog(file, blob); }
+    pdfxDownload(blob, filename);
     return 'saved';
   } finally { box.remove(); }
+}
+function pdfxDownload(blob, filename) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+}
+/** 「PDF 已產生」：分享（列印、存檔案、傳 LINE）／下載／關閉 */
+function pdfxReadyDialog(file, blob) {
+  return new Promise(resolve => {
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100000;display:flex;align-items:flex-end;justify-content:center;';
+    ov.innerHTML = `<div style="background:#fff;width:100%;max-width:520px;border-radius:18px 18px 0 0;padding:20px 18px 26px;font-family:inherit;box-sizing:border-box;">
+      <div style="font-size:17px;font-weight:800;margin-bottom:4px;">📄 PDF 已產生</div>
+      <div style="font-size:13px;color:#555;margin-bottom:14px;word-break:break-all;">${file.name.replace(/[<>&]/g, '')}（${Math.max(1, Math.round(file.size / 1024))} KB）</div>
+      <button data-k="share" style="width:100%;min-height:48px;border:0;border-radius:12px;background:#0f766e;color:#fff;font-size:16px;font-weight:800;margin-bottom:8px;">📤 分享／列印／存到檔案</button>
+      <button data-k="dl" style="width:100%;min-height:44px;border:1px solid #cbd5e1;border-radius:12px;background:#fff;color:#1c2321;font-size:15px;font-weight:700;margin-bottom:8px;">⬇️ 下載</button>
+      <button data-k="close" style="width:100%;min-height:40px;border:0;background:none;color:#555;font-size:14px;">關閉</button></div>`;
+    const done = r => { ov.remove(); resolve(r); };
+    ov.addEventListener('click', async e => {
+      const k = e.target && e.target.getAttribute && e.target.getAttribute('data-k');
+      if (e.target === ov || k === 'close') return done('cancel');
+      if (k === 'dl') { pdfxDownload(blob, file.name); return done('saved'); }
+      if (k === 'share') {
+        try { await navigator.share({ files: [file], title: file.name }); done('shared'); }
+        catch (er) { if (!(er && er.name === 'AbortError')) { pdfxDownload(blob, file.name); done('saved'); } }
+      }
+    });
+    document.body.appendChild(ov);
+  });
+}
+
+/**
+ * 全螢幕預覽（使用者 2026-11-25：手機不用 PDF，直接預覽就好）
+ * 一頁一張按 A4 寬（794px）排版，縮到螢幕寬（雙指可再放大）；右上角關閉。
+ * @param html 要預覽的 HTML（各頁自己的 <style> 也可以放進來）  @param title 標題
+ */
+function pdfxPreview(html, title) {
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;z-index:100000;background:#e5e7eb;display:flex;flex-direction:column;';
+  const safe = String(title || '預覽').replace(/[<>&]/g, '');
+  ov.innerHTML = `<div style="flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:10px 14px;padding-top:max(10px, env(safe-area-inset-top));background:#0f766e;color:#fff;">
+      <div style="flex:1;font-size:16px;font-weight:800;">👀 ${safe}</div>
+      <button data-k="close" style="min-height:40px;padding:0 16px;border:0;border-radius:10px;background:#fff;color:#0f766e;font-size:15px;font-weight:800;">關閉</button></div>
+    <div data-k="scroll" style="flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:12px;">
+      <div data-k="paper" style="width:794px;transform-origin:top left;"></div></div>`;
+  const paper = ov.querySelector('[data-k=paper]');
+  paper.innerHTML = html;
+  // 每一頁畫成一張白紙（列印用的固定高度拿掉，才不會被裁）
+  paper.querySelectorAll('.sheet, .payslip-page').forEach(p => {
+    p.style.cssText += ';background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.18);padding:24px 28px;margin:0 0 14px;height:auto;overflow:visible;box-sizing:border-box;';
+  });
+  const fit = () => { const w = ov.querySelector('[data-k=scroll]').clientWidth - 24; paper.style.zoom = String(Math.min(1, w / 794)); };
+  ov.addEventListener('click', e => { if (e.target.getAttribute && e.target.getAttribute('data-k') === 'close') { window.removeEventListener('resize', fit); ov.remove(); } });
+  window.addEventListener('resize', fit);
+  document.body.appendChild(ov);
+  fit();
 }
