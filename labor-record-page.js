@@ -198,34 +198,86 @@ function lrShowPay() {
 }
 
 /**
- * 該月每週的全店輪班表圖片（用排班系統同一支 drawScheduleCanvas 畫，格式完全一樣）
+ * 該月每週的全店輪班表圖片——跟「查看班表」（schedule-v2-emp.js renderEmpCanvas）同一套（使用者 2026-11-25）：
+ *   ・人員：照那一週誰在職（尚未到職不列；離職日當週以前列；調走依調店日）、依 sortKey 排
+ *   ・別店來支援本店（他店格子 supportEmp＝「本店-名字」且核准）：班別併進本店、地點寫「來自○○」，人排在本店員工後面
+ *   ・🆘 待補列、跨店紀錄（本店員工去他店支援）一樣帶進去；名字用顯示名字（account.displayName）
  * 回傳 [{label, src(dataURL)}]；同一個門市月份只畫一次
  */
 async function lrWeekImages() {
   if (lrData.weekImgs) return lrData.weekImgs;
   const { D } = lrData;
+  const store = D.store;
   const stores = (lrConfig.stores || []).filter(s => s && s !== '人力支援');
+  const others = stores.filter(s => s !== store);
+  const empDocs = [];
+  try { (await window.db.collection('stores').doc(store).collection('employees').get()).forEach(d => { if (!d.id.startsWith('🆘')) empDocs.push({ name: d.id, ...d.data() }); }); } catch (e) {}
   const weeks = [];
   for (let d = D.first; d <= D.last; d = shiftDateAdd(d, 1)) { const w = shiftWeekStr(d); if (!weeks.includes(w)) weeks.push(w); }
   const out = [];
-  for (const wk of weeks) {
-    const snaps = await Promise.all(stores.map(st => window.db.collection('stores').doc(st).collection('weeks').doc(wk).get().then(s => [st, s]).catch(() => [st, null])));
-    const mine = snaps.find(([st]) => st === D.store);
-    const records = (mine && mine[1] && mine[1].exists) ? (mine[1].data().records || []) : [];
-    if (!records.length) continue;
-    const all = [];
-    snaps.forEach(([st, s]) => { if (s && s.exists) (s.data().records || []).forEach(r => all.push({ ...r, _store: st })); });
-    const emps = D.emps.map(e => ({ name: e.name, role: e.role }));
-    records.forEach(r => { if (r.name && !emps.some(e => e.name === r.name) && String(r.name).startsWith('🆘')) emps.push({ name: r.name, role: '待補' }); });
-    // 週一～週日的「M/D」（同排班頁 getWeekDates）
-    let mon = null;
-    for (let d = shiftDateAdd(D.first, -6); d <= D.last; d = shiftDateAdd(d, 1)) { if (shiftWeekStr(d) === wk && shiftDayName(d) === '週一') { mon = d; break; } }
-    if (!mon) continue;
-    const dates = Array.from({ length: 7 }, (_, i) => { const d = shiftDateAdd(mon, i); return `${+d.slice(5, 7)}/${+d.slice(8, 10)}`; });
-    const cv = document.createElement('canvas');
-    try { drawScheduleCanvas(cv, D.store, wk, records, emps, dates, all); } catch (e) { continue; }
-    out.push({ label: `${dates[0]}～${dates[6]}`, src: cv.toDataURL('image/png') });
-  }
+  const prevName = window.getDisplayName;
+  window.getDisplayName = n => (D.disp && D.disp[n]) || n;   // 產圖用顯示名字（同查看班表）
+  try {
+    for (const wk of weeks) {
+      const [mySnap, ...otherSnaps] = await Promise.all([store, ...others].map(st =>
+        window.db.collection('stores').doc(st).collection('weeks').doc(wk).get().catch(() => null)));
+      const data = mySnap && mySnap.exists ? mySnap.data() : {};
+      const records = data.records || [];
+      if (!records.length) continue;
+      // 這週的週一～週日
+      let mon = null;
+      for (let d = shiftDateAdd(D.first, -6); d <= D.last; d = shiftDateAdd(d, 1)) { if (shiftWeekStr(d) === wk && shiftDayName(d) === '週一') { mon = d; break; } }
+      if (!mon) continue;
+      const sun = shiftDateAdd(mon, 6);
+      const published = !!data.published;
+      // 人員（逐字照 schedule-v2-emp.js 的規則）
+      const emps = [];
+      empDocs.forEach(e => {
+        const status = e.status;
+        if (!['離職', '調走'].includes(status)) {
+          const dep = e.departDate, st = e.startDate;
+          if (dep && st && dep < st) {
+            if (mon >= st) emps.push({ ...e });
+            else if (sun < dep) emps.push({ ...e });
+            else if (dep >= mon && dep <= sun) emps.push({ ...e, _transferThisWeek: true });
+            return;
+          }
+          if (st && sun < st) return;
+          emps.push({ ...e }); return;
+        }
+        if (status === '離職') { if (e.retireDate && mon < e.retireDate) emps.push({ ...e }); return; }
+        const eff = e.transferDate;
+        if (!eff) return;
+        if (published && eff >= mon) emps.push({ ...e });
+        else if (eff > sun) emps.push({ ...e });
+        else if (eff >= mon && eff <= sun) emps.push({ ...e, _transferThisWeek: true });
+      });
+      emps.sort((a, b) => (a.sortKey || 0) - (b.sortKey || 0));
+      // 別店來支援本店
+      const supportRecords = [], supportKeys = new Set();
+      otherSnaps.forEach((snap, idx) => {
+        if (!snap || !snap.exists) return;
+        (snap.data().records || []).forEach(r => {
+          if (r.supportEmp === `${store}-${r.name}` && r.approvalStatus === 'approved') { supportRecords.push({ ...r, _fromStore: others[idx] }); supportKeys.add(`${others[idx]}-${r.name}`); }
+        });
+      });
+      const supportEmps = [];
+      supportKeys.forEach(k => { const [from, nm] = k.split('-'); if (!emps.find(e => e.name === nm)) supportEmps.push({ name: nm, _isSupport: true, _fromStore: from, sortKey: 9999 }); });
+      const merged = [...records];
+      supportRecords.forEach(sr => {
+        if (!merged.find(r => r.name === sr.name && r.day === sr.day)) merged.push({ name: sr.name, day: sr.day, week: sr.week, shift: sr.shift, location: `來自${sr._fromStore}`,
+          note: sr.note || '', actualHours: sr.actualHours || 0, isOT: sr.isOT || false, supportEmp: '', approvalStatus: 'approved', requestOff: false });
+      });
+      const crossRecs = [];
+      otherSnaps.forEach((snap, idx) => { if (snap && snap.exists) (snap.data().records || []).forEach(r => crossRecs.push({ ...r, _store: others[idx], week: wk })); });
+      const allEmps = [...emps, ...supportEmps];
+      [...new Set(merged.map(r => r.name).filter(n => n && String(n).startsWith('🆘')))].forEach(n => { if (!allEmps.find(e => e.name === n)) allEmps.push({ name: n, role: '待補' }); });
+      const dates = Array.from({ length: 7 }, (_, i) => { const d = shiftDateAdd(mon, i); return `${+d.slice(5, 7)}/${+d.slice(8, 10)}`; });
+      const cv = document.createElement('canvas');
+      try { drawScheduleCanvas(cv, store, wk, merged, allEmps, dates, [...merged, ...crossRecs]); } catch (e) { continue; }
+      out.push({ label: `${dates[0]}～${dates[6]}`, src: cv.toDataURL('image/png') });
+    }
+  } finally { window.getDisplayName = prevName; }
   lrData.weekImgs = out;
   return out;
 }

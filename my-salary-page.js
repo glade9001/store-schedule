@@ -466,7 +466,7 @@ function renderEmpList() {
     const preSign = currentMonth < LR_ESIGN_START;   // 電子簽名開始前的月份：只能看
     const sig = preSign ? { text: '出勤紀錄未經電子簽署' }
       : myAck && myAck.signedAttHash === myAtt.hash ? null : { text: myAck && myAck.signedAttHash ? '簽署後內容有異動，需重簽' : '尚未電子簽署' };
-    el.innerHTML = tabs + `<div class="ms-att-hint">跟勞檢列印的同一張表；雙指可放大，往下捲看整個月。${preSign ? `<br>${+LR_ESIGN_START.slice(5)} 月起薪資和出勤一起簽名；這個月只能看，不用簽。` : ''}</div>
+    el.innerHTML = tabs + `${preSign ? `<div class="ms-att-hint">${+LR_ESIGN_START.slice(5)} 月起薪資和出勤一起簽名；這個月只能看，不用簽。</div>` : ''}
       <div class="ms-att-wrap"><div class="ms-att-paper" id="msAttPaper">${lrSheetHtml(myAtt.D, myAtt.x, sig)}</div></div>
       <div class="emp-salary-card" style="margin-top:10px;">${signBlock}</div>`;
     fitAttPaper();
@@ -496,10 +496,13 @@ function renderEmpList() {
 }
 
 function setMyTab(t) { myTab = t; renderEmpList(); }
+window.addEventListener('resize', () => { if(myTab === 'att') fitAttPaper(); });
 /** 出勤表按 A4 寬度畫，縮到螢幕寬（雙指可再放大） */
 function fitAttPaper() {
   const paper = document.getElementById('msAttPaper'); if(!paper) return;
-  const W = 760, avail = paper.parentElement.clientWidth || 360;
+  // ⚠️ clientWidth 含外框左右內距（各 10px），要扣掉，否則縮完還多出一點寬、要左右滑（2026-11-25）
+  const W = 794, wrap = paper.parentElement, cs = getComputedStyle(wrap);
+  const avail = (wrap.clientWidth || 360) - parseFloat(cs.paddingLeft || 0) - parseFloat(cs.paddingRight || 0) - 1;
   paper.style.width = W + 'px';
   paper.style.zoom = String(Math.min(1, avail / W));
 }
