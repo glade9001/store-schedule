@@ -1,3 +1,21 @@
+/**
+ * 匯出的特休「年度／已用」改用存摺同一套（pbPayslipAnnual，算到匯出月份最後一天），只改記憶體裡的 stat、不寫回資料庫。
+ * 原本讀 leaves/{年}.annualDays：週年發新批次後不會更新（2026-11-25 發現多數正職不對）。沒有批次就保留原值。
+ */
+async function exportPayAnnual(name, year, month, statMap) {
+  if(typeof pbPayslipAnnual !== 'function') return;
+  try {
+    const [bSnap, uSnap] = await Promise.all([
+      window.db.collection('employees').doc(name).collection('leaveBatches').get(),
+      window.db.collection('employees').doc(name).collection('annualUsage').get()]);
+    const bs = [], ds = [];
+    bSnap.forEach(d => bs.push({ id: d.id, ...d.data() }));
+    uSnap.forEach(d => ds.push((d.data() || {}).date || d.id));
+    const mm = parseInt(month, 10);
+    const r = pbPayslipAnnual(bs, ds, `${year}-${String(mm).padStart(2, '0')}-${String(new Date(+year, mm, 0).getDate()).padStart(2, '0')}`);
+    if(r) statMap[name] = { ...statMap[name], annualDays: r.annual, usedAnnual: r.used };
+  } catch(e) { /* 讀不到就保留原值 */ }
+}
 // 2026-10-10 薪資匯出併入薪資管理：本頁只在薪資管理的「📤 月結與匯出」面板裡（?embed=1）使用；
 // 直接打開舊網址就轉到薪資管理並自動打開面板。
 var EXPORT_EMBED = new URLSearchParams(location.search).get('embed') === '1';
@@ -421,6 +439,7 @@ async function startExport() {
         try{
           const lSnap=await window.db.collection('employees').doc(emp.name).collection('leaves').doc(year).get();
           leaveStatMap[emp.name]=lSnap.exists?lSnap.data():{};
+          await exportPayAnnual(emp.name, year, month, leaveStatMap);
           const cSnap=await window.db.collection('employees').doc(emp.name).collection('comp').doc(year).get();
           compStatMap[emp.name]=cSnap.exists?cSnap.data():{earned:0,used:0};
           const bSnap=await window.db.collection('employees').doc(emp.name).collection('leaveBatches').get();
@@ -971,6 +990,7 @@ async function startPdfPreview() {
         try {
           const lSnap = await window.db.collection('employees').doc(emp.name).collection('leaves').doc(year).get();
           leaveStatMap[emp.name] = lSnap.exists ? lSnap.data() : {};
+          await exportPayAnnual(emp.name, year, month, leaveStatMap);
           const cSnap = await window.db.collection('employees').doc(emp.name).collection('comp').doc(year).get();
           compStatMap[emp.name] = cSnap.exists ? cSnap.data() : { earned:0, used:0 };
           const bSnap = await window.db.collection('employees').doc(emp.name).collection('leaveBatches').get();

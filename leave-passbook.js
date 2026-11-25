@@ -215,3 +215,28 @@ function pbCompSourceText(r) {
   if (r.source === 'unworked') return { title: '應休未休', sub: '薪資頁發放' };
   return { title: '補休取得', sub: [note, r.savedBy].filter(Boolean).join('・') };
 }
+
+/**
+ * 薪資單上的特休三個數字（2026-11-25）：算到 asOf（薪資月份最後一天），跟特休存摺同一套（先拿到先用）。
+ * 原本薪資單讀 leaves/{年}.annualDays：週年發新批次後沒更新 → 15 位正職多數顯示錯、還有「剩 −2」。
+ *   年度特休＝已取得、沒結清、而且（還沒到期 或 到期了還有剩沒處理）的批次天數——用完又過期的舊批次不算
+ *   剩餘＝這些批次照帳本扣完還剩幾天（超用的天數再扣掉，會是負數）
+ *   已用＝年度 − 剩餘（三個數字一定對得起來）
+ * 沒建任何批次 → 回 null（畫面顯示 --，不可當 0）
+ * @param batches leaveBatches  @param usageDates annualUsage 的日期陣列  @param asOf YYYY-MM-DD
+ */
+function pbPayslipAnnual(batches, usageDates, asOf) {
+  var bs = (batches || []).filter(function (b) { return !b._legacy && b.grantDate && b.grantDate <= asOf; });
+  if (!bs.length) return null;
+  var bk = pbAnnualBook({ batches: bs, usage: (usageDates || []).filter(function (d) { return d && d <= asOf; }).map(function (d) { return { date: d }; }),
+    logs: [], schedule: [], today: asOf });
+  var over = bk.rows.filter(function (r) { return r.kind === 'use' && r.over; }).length;
+  var annual = 0, remain = 0;
+  bs.forEach(function (b) {
+    if (b.settled) return;
+    var r = bk.batchRem[b.id] || 0, exp = pbExpireOf(b);
+    if ((exp && exp >= asOf) || r > 0) { annual += parseFloat(b.days) || 0; remain += r; }
+  });
+  remain -= over;
+  return { annual: annual, used: annual - remain, remain: remain };
+}

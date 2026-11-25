@@ -6,6 +6,7 @@ const TW_HOLIDAYS = builtinHolidayMap();
 let currentUser = null;
 let appConfig = { stores: [] };
 let currentMonth = ''; 
+let payAnnualMap = {};   // 薪資單特休三個數字（pbPayslipAnnual）
 let currentStore = '';
 let leaveDataMap = {}; 
 let displayNameMap = {}; 
@@ -196,13 +197,21 @@ async function loadLeaveData() {
   compDataMap = {};
   try {
     await Promise.all(empList.map(async emp => {
-      const [leaveSnap, batchSnap, compSnap, compPrevSnap] = await Promise.all([
+      const [leaveSnap, batchSnap, compSnap, compPrevSnap, annUseSnap] = await Promise.all([
         window.db.collection('employees').doc(emp.name).collection('leaves').doc(year).get().catch(()=>null),
         window.db.collection('employees').doc(emp.name).collection('leaveBatches').get().catch(()=>null),
         window.db.collection('employees').doc(emp.name).collection('comp').doc(year).get().catch(()=>null),
-        window.db.collection('employees').doc(emp.name).collection('comp').doc(prevYear).get().catch(()=>null)
+        window.db.collection('employees').doc(emp.name).collection('comp').doc(prevYear).get().catch(()=>null),
+        window.db.collection('employees').doc(emp.name).collection('annualUsage').get().catch(()=>null)
       ]);
       if(leaveSnap?.exists) leaveDataMap[emp.name] = leaveSnap.data();
+      // 特休三個數字：跟存摺同一套算到本月最後一天（leaves.annualDays 會過時，不用）
+      if(typeof pbPayslipAnnual === 'function') {
+        const ds = []; if(annUseSnap) annUseSnap.forEach(d => ds.push((d.data()||{}).date || d.id));
+        const bs = []; if(batchSnap) batchSnap.forEach(d => bs.push({id:d.id,...d.data()}));
+        const [yy, mm] = currentMonth.split('-').map(Number);
+        payAnnualMap[emp.name] = pbPayslipAnnual(bs, ds, `${currentMonth}-${String(new Date(yy, mm, 0).getDate()).padStart(2,'0')}`);
+      }
       let batches = [];
       if(batchSnap) batchSnap.forEach(d => batches.push({id:d.id,...d.data()}));
       batchDataMap[emp.name] = batches.sort((a,b)=>(a.grantDate||'').localeCompare(b.grantDate||''));
@@ -530,9 +539,10 @@ function renderSalaryForm(emp, rec, idx, readonly) {
   // --- 欄位 1：考勤 ---
   const leaveInfo = leaveDataMap[emp.name] || {};
   const remainComp = (typeof leaveInfo.earnedComp==='number') ? (leaveInfo.earnedComp-leaveInfo.usedComp) : '--';
-  const annualDays = leaveInfo.annualDays ?? '--';
-  const usedAnnual = leaveInfo.usedAnnual ?? '--';
-  const remainAnnual = (typeof annualDays==='number' && typeof usedAnnual==='number') ? annualDays-usedAnnual : '--';
+  const _pa = payAnnualMap[emp.name];
+  const annualDays = _pa ? _pa.annual : '--';
+  const usedAnnual = _pa ? _pa.used : '--';
+  const remainAnnual = _pa ? _pa.remain : '--';
   
   let col1 = `<div class="col-card">
     <div class="col-header c3">1. 考勤紀錄與餘額</div>

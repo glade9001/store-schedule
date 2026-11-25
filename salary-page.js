@@ -554,6 +554,11 @@ function expiryMonthEnd() {
   const [y, m] = currentMonth.split('-').map(Number);
   return `${currentMonth}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`;
 }
+/** 薪資單特休三個數字（算到本薪資月最後一天）；沒批次回 null */
+function payslipAnnual(empName) {
+  if(typeof pbPayslipAnnual !== 'function') return null;
+  return pbPayslipAnnual(batchDataMap[empName] || [], annualUseMap[empName] || [], expiryMonthEnd());
+}
 function expiryItemsOf(empName) {
   const emp = empList.find(e => e.name === empName);
   if(!emp || settleCaseOf(emp) || emp.leaveSettledAt) return [];
@@ -1151,10 +1156,10 @@ function renderPayslip() {
   const rate = isPartTime ? 0 : hourlyRate(rec);
 
   // 特補休資料
-  const _li = leaveDataMap[empName] || {};
-  const _annualDays = _li.annualDays ?? '--';
-  const _usedAnnual = _li.usedAnnual ?? '--';
-  const _remainAnnual = (typeof _annualDays==='number' && typeof _usedAnnual==='number') ? _annualDays - _usedAnnual : '--';
+  const _pa = payslipAnnual(empName);   // 特休三個數字：跟存摺同一套（leave-passbook.js），不讀 leaves.annualDays（會過時）
+  const _annualDays = _pa ? _pa.annual : '--';
+  const _usedAnnual = _pa ? _pa.used : '--';
+  const _remainAnnual = _pa ? _pa.remain : '--';
   const _compBatches = compLogMap[empName] || [];
   const _remainComp = _compBatches.length > 0
     ? _compBatches.reduce((s, b) => s + Math.max(0, b.days - b.used), 0)
@@ -1874,9 +1879,10 @@ function buildSinglePayslipHtml(emp, y, m) {
 
   // 特補休資料
   const _li2 = leaveDataMap[emp.name] || {};
-  const _annualDays2 = _li2.annualDays ?? '--';
-  const _usedAnnual2 = _li2.usedAnnual ?? '--';
-  const _remainAnnual2 = (typeof _annualDays2==='number' && typeof _usedAnnual2==='number') ? _annualDays2 - _usedAnnual2 : '--';
+  const _pa2 = payslipAnnual(emp.name);
+  const _annualDays2 = _pa2 ? _pa2.annual : '--';
+  const _usedAnnual2 = _pa2 ? _pa2.used : '--';
+  const _remainAnnual2 = _pa2 ? _pa2.remain : '--';
   const _compBatches2 = compLogMap[emp.name] || [];
   const _remainComp2 = _compBatches2.length > 0
     ? _compBatches2.reduce((s, b) => s + Math.max(0, b.days - b.used), 0)
@@ -2934,9 +2940,10 @@ function renderSalaryForm(emp, rec, idx, readonly) {
 
   // === 第 2.5 欄 + 第三欄：考勤紀錄 ===
   const leaveInfo = leaveDataMap[emp.name] || {};
-  const annualDays = leaveInfo.annualDays ?? '--';
-  const usedAnnual = leaveInfo.usedAnnual ?? '--';
-  const remainAnnual = (typeof annualDays==='number' && typeof usedAnnual==='number') ? annualDays-usedAnnual : '--';
+  const _pa3 = payslipAnnual(emp.name);
+  const annualDays = _pa3 ? _pa3.annual : '--';
+  const usedAnnual = _pa3 ? _pa3.used : '--';
+  const remainAnnual = _pa3 ? _pa3.remain : '--';
   // 優先用 compLogMap（從 leaveLog 即時計算）作為補休餘額來源，避免 leaves/{year} 文件過時造成顯示錯誤
   const _compBatchesForRemain = compLogMap[emp.name] || [];
   const remainComp = _compBatchesForRemain.length > 0
