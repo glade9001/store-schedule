@@ -103,9 +103,9 @@
     <div class="card">
       <div class="card-title">④ 出勤記錄表的簽到／簽退時間</div>
       <div class="note-warn">
-        按「📥 一鍵帶入打卡時間」把<b>所有人員</b>的簽到／簽退從打卡系統帶進來（三家店都抓）。沒打卡的日子留空，可自己補；已填的不會被蓋掉。
+        這一欄是<b>人工填寫</b>：請依該員當日實際到班與離店時間填入，系統不會自動產生時間。<br>
+        未來接上打卡系統後，此欄改由真實打卡紀錄帶入，表單格式不變。
       </div>
-      <div class="tool-row edit-only"><button class="btn-mini" onclick="importPunches()">📥 一鍵帶入打卡時間（所有人員）</button></div>
       <div class="field"><label>填寫對象</label><select id="fPunchEmp" onchange="renderPunch()"></select></div>
       <div class="tool-row edit-only" id="bulkRow"></div>
       <div id="punchWrap"></div>

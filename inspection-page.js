@@ -12,7 +12,8 @@
  *    data-audit.html 的資料健檢又佔掉 audit 這個字。為了不讓後人把三者搞混，
  *    程式一律用 inspection，介面文案才叫「盤點資料」。
  *
- * ⚠️ 出勤時間：從打卡系統帶入（importPunchesCore，唯讀三家店 attendance），沒打卡的可人工補；系統不會「編」出時間。
+ * ⚠️ 出勤時間一律人工填寫，系統不會自動產生任何打卡時間。
+ *    未來接打卡系統時，只要把 punches 的來源改成真實紀錄，表單格式不用動。
  */
 
 // ===== 狀態 =====
@@ -1293,59 +1294,6 @@ async function importFromSchedule() {
         ${_impEmps.map(x => `<option value="${esc(x.nick)}"${x.nick === pick ? ' selected' : ''}>${esc(x.label)}</option>`).join('')}
       </select></div>`;
   }).join('');
-}
-/**
- * 出勤時間從打卡系統帶入（唯讀三家店 stores/{店}/attendance；使用者 2026-11-25）
- * - 只帶薪資月份、這份盤點有排班的日子（盤點日不列）；對人用 employee.srcName（選人或從排班表帶入時記下的）
- * - 同一個班別日：最早的上班卡＝簽到、最晚的下班卡＝簽退；註銷的卡不算，補登核准寫入的卡照算
- * - 只填空白的格子（簽到、簽退各自判斷），已經填的不動
- */
-async function importPunchesCore() {
-  const emps = (sheet.employees || []).filter(e => e.srcName);
-  const out = { filled: 0, missing: 0, people: emps.length };
-  if (!emps.length || !sheet.salaryMonth) return out;
-  const md = monthDays(sheet.salaryMonth), first = md[0], last = md[md.length - 1];
-  const nicks = new Set(emps.map(e => e.srcName));
-  const recs = [];
-  await Promise.all(impStores().map(async st => {
-    try {
-      const q = await window.db.collection('stores').doc(st).collection('attendance').where('date', '>=', first).where('date', '<=', shiftDateAdd(last, 1)).get();
-      q.forEach(d => { const r = d.data(); if (nicks.has(r.empName)) recs.push(r); });
-    } catch (e) { /* 讀不到某家店就略過，其他店照帶 */ }
-  }));
-  const tsOf = r => (typeof r.tsMs === 'number' ? r.tsMs : Date.parse(r.deviceTs || r.ts || ''));
-  const hm = ms => { const t = new Date(ms + 8 * 3600000); return { h: t.getUTCHours(), m: t.getUTCMinutes() }; };   // 台灣時間
-  sheet.punches = sheet.punches || {};
-  emps.forEach(e => {
-    md.forEach(d => {
-      if (d === sheet.auditDate || !dayHours(e, d).sched) return;
-      const day = recs.filter(r => r.empName === e.srcName && (r.shiftDate || r.date) === d && !r.voided && r.status !== '缺卡' && isFinite(tsOf(r)));
-      const ins = day.filter(r => r.type === '上班').map(tsOf), outs = day.filter(r => r.type === '下班').map(tsOf);
-      if (!ins.length && !outs.length) { out.missing++; return; }
-      const rec = (sheet.punches[d] || {})[e.id] || {};
-      let changed = false;
-      if (ins.length && !punchTime(rec, 'in')) { const t = hm(Math.min(...ins)); delete rec.in; rec.inH = t.h; rec.inM = t.m; changed = true; }
-      if (outs.length && !punchTime(rec, 'out')) { const t = hm(Math.max(...outs)); delete rec.out; rec.outH = t.h; rec.outM = t.m; changed = true; }
-      if (changed) { sheet.punches[d] = sheet.punches[d] || {}; sheet.punches[d][e.id] = rec; out.filled++; }
-    });
-  });
-  return out;
-}
-/** 第 ④ 步的按鈕：單獨重抓打卡 */
-async function importPunches() {
-  if (!canEditSheet()) { toast('唯讀模式'); return; }
-  if (!(sheet.employees || []).some(e => e.srcName)) { toast('請先用「② 從員工名單選」或「③ 從排班表帶入」對好人'); return; }
-  showLoad('讀取打卡紀錄…');
-  try {
-    const r = await importPunchesCore();
-    markDirty(); renderPunch();
-    const skipped = (sheet.employees || []).filter(e => !e.srcName).map(e => e.name);
-    alert([`打卡帶入 ${r.people} 人、${r.filled} 天的簽到／簽退`,
-      r.missing ? `${r.missing} 天有排班但沒有打卡紀錄，留空（可自己補）` : '',
-      skipped.length ? `還沒對到正式員工、沒帶：${skipped.join('、')}（先到「③ 從排班表帶入」對好）` : '',
-      '已經填過的格子沒有動；沒排班卻有打卡的日子不帶（盤點班表上沒有那個班）'].filter(Boolean).join('\n'));
-  } catch (e) { toast('帶入失敗：' + (e.message || e)); }
-  finally { hideLoad(); }
 }
 function closeImport() { document.getElementById('importModal').classList.remove('open'); }
 
