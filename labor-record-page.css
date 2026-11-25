@@ -29,25 +29,6 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto S
 
 /* ===== 列印：一人一頁（A4 直式）===== */
 #lrPrint{display:none;}
-.sheet{padding:0;color:#000;font-size:10.5pt;}
-.sh-title{text-align:center;font-size:16pt;font-weight:900;margin-bottom:6px;}
-.sh-sub{display:flex;justify-content:space-between;gap:10px;font-size:10.5pt;margin-bottom:6px;}
-.sh-table{width:100%;border-collapse:collapse;table-layout:fixed;border:1.5pt solid #000;}
-.sh-table th,.sh-table td{border:0.6pt solid #000;padding:1pt 3pt;text-align:center;font-size:9pt;line-height:1.2;}
-.sh-table th{background:#eee;font-weight:800;}
-.sh-table td.nt{text-align:left;font-size:7.5pt;line-height:1.15;}
-.sh-table td small{font-size:7pt;margin-left:1pt;}
-.sh-table tr.hol td{background:#fdecea;}
-.sh-table tr.off td{background:#f3f4f6;color:#555;}
-.sh-table tr.norest td{background:#fde2e2;}
-.sh-table td.star{font-weight:900;}
-.sh-norest{font-size:10pt;margin:4px 0;font-weight:900;color:#b3261e;}
-.sh-sum{font-weight:800;margin:8px 0 4px;font-size:10.5pt;}
-.sh-foot{font-size:8.5pt;color:#333;}
-.sh-confirm{font-size:9.5pt;line-height:1.6;margin-top:10pt;padding:5pt 7pt;border:0.8pt solid #000;}
-.sh-sign{display:flex;gap:28pt;margin-top:24pt;}
-.sh-sign div{flex:1;text-align:center;font-size:10pt;}
-.sh-sign div span{display:block;border-bottom:1pt solid #000;height:1px;margin-bottom:4pt;}
 @media print{
   @page{size:A4 portrait;margin:8mm 9mm 8mm 9mm;}
   body{background:#fff;}
@@ -60,3 +41,4 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto S
 }
 
 .star-help{font-size:12px;line-height:1.7;background:#fff7ed;color:#9a3412;border-radius:10px;padding:8px 10px;margin-top:8px;}
+.btn-mini{padding:5px 10px;border:1px solid var(--primary,#0f766e);background:#fff;color:var(--primary,#0f766e);border-radius:8px;font-size:12px;font-weight:800;cursor:pointer;min-height:32px;}

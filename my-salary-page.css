@@ -160,3 +160,11 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:"Noto San
 .sched-off{color:var(--danger);}
 .sched-hours{margin-left:auto;color:var(--text-muted);font-size:11px;}
 .sched-ot{color:var(--accent);font-weight:800;}
+/* 薪資單／出勤記錄表分頁（2026-11-25） */
+.ms-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;background:#e3e8e6;border-radius:10px;padding:4px;margin-bottom:10px;}
+.ms-tab{height:40px;border:0;border-radius:8px;background:transparent;font-size:15px;font-weight:700;color:#3c4643;cursor:pointer;}
+.ms-tab.on{background:#fff;color:var(--primary,#1a73e8);font-weight:800;}
+.ms-att-hint{font-size:12px;color:var(--text-muted);margin:0 2px 6px;}
+.ms-att-wrap{background:#fff;border:1px solid #cbd5e1;border-radius:6px;padding:10px;overflow:auto;}
+.ms-chk{display:flex;gap:10px;align-items:flex-start;font-size:14px;line-height:1.6;margin:0 0 8px;cursor:pointer;}
+.ms-chk input[type=checkbox]{width:20px;height:20px;margin:2px 0 0;flex:0 0 auto;}

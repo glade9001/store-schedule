@@ -183,7 +183,8 @@
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
       <div class="modal-title" style="margin-bottom:0;">🧾 薪資單</div>
       <div style="display:flex;gap:8px;">
-        <button onclick="printAllPayslips()" style="background:#6366f1;color:white;border:none;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer;font-size:13px;">🖨️ 全店列印</button>
+        <button onclick="printAllPayslips('blank')" style="background:#6366f1;color:white;border:none;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer;font-size:13px;">🖨️ 全店列印（空白版）</button>
+        <button onclick="printAllPayslips('esign')" style="background:#0f766e;color:white;border:none;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer;font-size:13px;">🖨️ 電子簽名版</button>
         <button onclick="openModal('emailModal')" style="background:#34a853;color:white;border:none;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer;font-size:13px;">📧 寄送</button>
         <button onclick="closeModal('payslipModal')" style="background:#f1f3f4;border:none;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer;font-size:13px;">關閉</button>
       </div>

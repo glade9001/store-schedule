@@ -17,6 +17,9 @@ let scheduleData = {};
 let prevSalaryData = {}; 
 let salaryData = {};
 let myAck = null; // 本人本月簽收狀態（salaryAck）
+// 本人本月出勤記錄表（2026-11-25）：跟勞檢出勤表同一張（labor-record-core.js）。{D, x, hash, visible} 或 null（早於 LR_ESIGN_START、未發布、讀不到）
+let myAtt = null;
+let myTab = 'salary';   // 薪資單 salary／出勤記錄表 att
 const SALARY_ACK_START = '2026-06'; // 薪資簽收制度啟動月（此月起才需簽收；home.html 需同值）
 let currentEmpModal = null; 
 
@@ -314,7 +317,7 @@ async function loadSalaryData() {
 
     updateStatusBadge();
     await loadLeaveData();
-    await loadMyAck();
+    await Promise.all([loadMyAck(), loadMyAttendance()]);
     renderEmpList();
   } catch(e) {
     console.error('loadSalaryData 失敗:', e);
@@ -375,12 +378,35 @@ async function loadMyAck() {
     if(doc.exists) myAck = doc.data();
   } catch(e) { console.error('loadMyAck 失敗', e); }
 }
-// 簽收狀態：na(不需簽)/unsigned/signed/resign(薪資已更新需重簽)
+/**
+ * 本人本月出勤記錄表（只讀自己的；當月有勞基法紅字而店長還沒開放 → visible=false，員工端只顯示「店長確認中」）
+ * ⚠️ 失敗不擋薪資：讀不到就當沒有出勤表（myAtt=null），薪資照樣可簽
+ */
+let _lrHolSynced = false;
+async function loadMyAttendance() {
+  myAtt = null;
+  if((salaryData.status||'draft') !== 'published' || typeof lrLoad !== 'function') return;
+  if(currentMonth < LR_ESIGN_START) return;
+  try {
+    lrConfig = appConfig;
+    if(!_lrHolSynced) { await syncHolidayMapInto(LR_HOL, [new Date().getFullYear() - 1, new Date().getFullYear(), new Date().getFullYear() + 1]); _lrHolSynced = true; }
+    const D = await lrLoad(currentStore, currentMonth, currentUser.empName);
+    if(!D.emps.length) return;
+    const x = lrBuildEmp(D, D.emps[0]);
+    const rel = await lrLoadRelease(currentStore, currentMonth);
+    myAtt = { D, x, hash: lrAttHash(x), visible: lrVisibleToEmp(x, rel) };
+  } catch(e) { console.warn('出勤記錄表讀取失敗', e); myAtt = null; }
+}
+/** 這次簽名要不要連出勤一起簽：有出勤表、而且已開放 */
+function attNeedsSign() { return !!(myAtt && myAtt.x && myAtt.visible); }
+// 簽收狀態：na(不需簽)/unsigned/signed/resign(薪資已更新需重簽)/resignAtt(出勤有異動或剛開放，要重簽)
 function getAckState(rec) {
   if((salaryData.status||'draft') !== 'published') return 'na';
   if(currentMonth < SALARY_ACK_START) return 'na';
   if(!myAck) return 'unsigned';
-  return (myAck.signedPayHash || '') === (rec.payHash || '') ? 'signed' : 'resign';
+  if((myAck.signedPayHash || '') !== (rec.payHash || '')) return 'resign';
+  if(attNeedsSign() && (myAck.signedAttHash || '') !== myAtt.hash) return 'resignAtt';
+  return 'signed';
 }
 function fmtSignedAt(iso){
   if(!iso) return ''; const d=new Date(iso);
@@ -390,6 +416,8 @@ function renderSignBlock(state){
   const wrap = h => `<div style="padding:10px 14px;border-top:1px solid var(--border);">${h}</div>`;
   if(state === 'signed')
     return wrap(`<div style="font-size:13px;color:#2e7d32;font-weight:700;">✅ 已於 ${fmtSignedAt(myAck.signedAt)} 簽收 <span onclick="event.stopPropagation();viewMySignature()" style="color:#1a73e8;text-decoration:underline;cursor:pointer;margin-left:6px;">看簽名</span></div>`);
+  if(state === 'resignAtt')
+    return wrap(`<div style="font-size:13px;color:#e65100;font-weight:800;margin-bottom:6px;">🟠 ${myAck && myAck.signedAttHash ? '出勤記錄表有更新' : '出勤記錄表已開放'}，請看過後重新簽名</div><button onclick="event.stopPropagation();openSignatureModal()" style="width:100%;padding:11px;background:#e65100;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;cursor:pointer;">✍️ 確認並簽名（薪資＋出勤）</button>`);
   if(state === 'resign')
     return wrap(`<div style="font-size:13px;color:#e65100;font-weight:800;margin-bottom:6px;">🟠 薪資已更新，請重新簽收</div><button onclick="event.stopPropagation();openSignatureModal()" style="width:100%;padding:11px;background:#e65100;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;cursor:pointer;">✍️ 重新簽名簽收</button>`);
   if(state === 'unsigned')
@@ -421,8 +449,31 @@ function renderEmpList() {
     return;
   }
 
+  // 分頁：有出勤表（LR_ESIGN_START 起的已發布月份）才出現「出勤記錄表」
+  const tabs = myAtt && myAtt.x ? `<div class="ms-tabs">
+      <button class="ms-tab${myTab === 'salary' ? ' on' : ''}" onclick="setMyTab('salary')">薪資單</button>
+      <button class="ms-tab${myTab === 'att' ? ' on' : ''}" onclick="setMyTab('att')">出勤記錄表</button></div>` : '';
+  if(myTab === 'att' && myAtt && myAtt.x) {
+    const st = getAckState(getSalaryRecord(emps[0].name) || buildDefaultRecord(emps[0]));
+    const signBlock = renderSignBlock(st);
+    if(!myAtt.visible) {
+      el.innerHTML = tabs + `<div class="emp-salary-card"><div class="empty-state" style="padding:28px 16px;">
+        <div class="empty-icon">🕑</div><div style="font-weight:800;">本月出勤記錄表店長確認中</div>
+        <div style="font-size:13px;margin-top:6px;line-height:1.7;">確認好就會開放，到時候再看並簽名。<br>這個月先簽薪資單就好。</div>
+        <div style="font-size:12px;margin-top:6px;color:var(--text-muted);">需要出勤紀錄副本，可以直接跟店長申請。</div></div>${signBlock}</div>`;
+      return;
+    }
+    const sig = myAck && myAck.signedAttHash === myAtt.hash ? null : { text: myAck && myAck.signedAttHash ? '簽署後內容有異動，需重簽' : '尚未電子簽署' };
+    el.innerHTML = tabs + `<div class="ms-att-hint">跟勞檢列印的同一張表；雙指可放大，往下捲看整個月。</div>
+      <div class="ms-att-wrap"><div class="ms-att-paper" id="msAttPaper">${lrSheetHtml(myAtt.D, myAtt.x, sig)}</div></div>
+      <div class="emp-salary-card" style="margin-top:10px;">${signBlock}</div>`;
+    fitAttPaper();
+    if(myAck && myAck.signedAttHash === myAtt.hash) fillAttSignature();
+    return;
+  }
+
   // 渲染個人卡片
-  el.innerHTML = emps.map((emp, idx) => {
+  el.innerHTML = tabs + emps.map((emp, idx) => {
     let rec = getSalaryRecord(emp.name) || buildDefaultRecord(emp);
     const total = calcTotal(rec);
     const signBlock = renderSignBlock(getAckState(rec));
@@ -442,6 +493,24 @@ function renderEmpList() {
   }).join('');
 }
 
+function setMyTab(t) { myTab = t; renderEmpList(); }
+/** 出勤表按 A4 寬度畫，縮到螢幕寬（雙指可再放大） */
+function fitAttPaper() {
+  const paper = document.getElementById('msAttPaper'); if(!paper) return;
+  const W = 760, avail = paper.parentElement.clientWidth || 360;
+  paper.style.width = W + 'px';
+  paper.style.zoom = String(Math.min(1, avail / W));
+}
+/** 已簽：把自己的簽名圖填回出勤表簽名欄（簽名圖另存在 salaryAckSig，要再讀一次） */
+async function fillAttSignature() {
+  try {
+    const doc = await window.db.collection('salaryAckSig').doc(`${currentUser.uid}_${currentMonth}`).get();
+    const img = doc.exists && doc.data().signatureDataUrl;
+    const paper = document.getElementById('msAttPaper');
+    if(!img || !paper || myTab !== 'att') return;
+    paper.innerHTML = lrSheetHtml(myAtt.D, myAtt.x, { img, at: myAck.attSignedAt || myAck.signedAt, ver: myAtt.hash });
+  } catch(e) {}
+}
 function openEmpModal(empName) {
   currentEmpModal = empName;
   const emp = empList.find(e => e.name === empName);
@@ -467,7 +536,17 @@ function closeEmpModal() {
 
 // ===== 簽名板 =====
 let _sigCtx=null, _sigDrawing=false, _sigHasInk=false;
-function openSignatureModal(){ openModal('signatureModal'); setTimeout(initSigCanvas, 60); }
+function openSignatureModal(){
+  const withAtt = attNeedsSign();
+  document.getElementById('sigTitle').textContent = withAtt ? '✍️ 簽收（薪資＋出勤）' : '✍️ 薪資簽收';
+  document.getElementById('sigAttConfirm').innerHTML = withAtt ? `
+    <label class="ms-chk"><input type="checkbox" id="sigChkPay"><span>我已看過<b>薪資單</b></span></label>
+    <label class="ms-chk"><input type="checkbox" id="sigChkAtt"><span>我已看過<b>出勤記錄表</b>（${myAtt.x.sum.days} 天、${lrHrs(myAtt.x.sum.hours)}）　<a href="#" onclick="event.preventDefault();closeSignatureModal();setMyTab('att')">去看</a></span></label>` : '';
+  document.getElementById('sigHint').textContent = withAtt
+    ? '請在下方簽名。一個簽名同時用在薪資單與出勤記錄表：表示你已核對本月薪資明細及出勤紀錄（含上下班時間及時數）無誤；之後薪資或出勤有異動，會請你重簽。'
+    : '請在下方簽名。簽收即表示你已核對本月薪資明細無誤。';
+  openModal('signatureModal'); setTimeout(initSigCanvas, 60);
+}
 function closeSignatureModal(){ closeModal('signatureModal'); }
 function initSigCanvas(){
   const c=document.getElementById('sigCanvas');
@@ -491,6 +570,8 @@ function clearSignature(){
 }
 async function confirmSignature(){
   if(!_sigHasInk){ alert('請先簽名'); return; }
+  const withAtt = attNeedsSign();
+  if(withAtt && !(document.getElementById('sigChkPay')?.checked && document.getElementById('sigChkAtt')?.checked)) { alert('請先勾選：已看過薪資單與出勤記錄表'); return; }
   const emp=empList.find(e=>e.name===currentUser.empName);
   const rec=emp?getSalaryRecord(emp.name):null;
   if(!rec){ alert('找不到您的薪資紀錄'); return; }
@@ -500,7 +581,9 @@ async function confirmSignature(){
     const id=`${currentUser.uid}_${currentMonth}`;
     await window.db.collection('salaryAck').doc(id).set({
       uid:currentUser.uid, empName:currentUser.empName, store:currentStore, month:currentMonth,
-      signedPayHash: rec.payHash||'', signedAt: new Date().toISOString()
+      signedPayHash: rec.payHash||'', signedAt: new Date().toISOString(),
+      // 出勤記錄表一起簽（2026-11-25）：存當下的內容指紋；暫緩中或沒有出勤表就留空＝出勤沒簽
+      signedAttHash: withAtt ? myAtt.hash : '', attSignedAt: withAtt ? new Date().toISOString() : null
     });
     await window.db.collection('salaryAckSig').doc(id).set({ signatureDataUrl:dataUrl });
     closeSignatureModal();

@@ -1801,7 +1801,8 @@ function previewEmail() {
 }
 
 // 建立全店薪資單 HTML（一張A4兩人）
-function buildAllPayslipsHtml() {
+/** sigMap：電子簽名版才有，empName → {img, at, account} 或 {text}；空白版不給 */
+function buildAllPayslipsHtml(sigMap) {
   const [y, m] = currentMonth.split('-').map(Number);
   let html = `<style>
     @page { size: A4; margin: 8mm; }
@@ -1841,17 +1842,17 @@ function buildAllPayslipsHtml() {
   // 每兩人一頁
   for(let i = 0; i < emps.length; i += 2) {
     html += `<div class="payslip-page">`;
-    html += buildSinglePayslipHtml(emps[i], y, m);
+    html += buildSinglePayslipHtml(emps[i], y, m, sigMap && sigMap[emps[i].name]);
     if(emps[i+1]) {
       html += `<div class="cut-line">✂ ─────────────────────────────</div>`;
-      html += buildSinglePayslipHtml(emps[i+1], y, m);
+      html += buildSinglePayslipHtml(emps[i+1], y, m, sigMap && sigMap[emps[i+1].name]);
     }
     html += `</div>`;
   }
   return html;
 }
 
-function buildSinglePayslipHtml(emp, y, m) {
+function buildSinglePayslipHtml(emp, y, m, sig) {
   const rec = getSalaryRecord(emp.name);
   if(!rec) return '';
   const role = effSalaryRole(emp, rec);
@@ -2065,24 +2066,59 @@ function buildSinglePayslipHtml(emp, y, m) {
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
         <div style="border-top:1px solid #334155;padding-top:4px;">
-          <div style="color:#64748b;margin-bottom:12px;">員工簽名：</div>
+          <div style="color:#64748b;margin-bottom:${sig ? 2 : 12}px;">員工簽名：</div>
+          ${sig && sig.img ? `<img src="${sig.img}" alt="員工電子簽名" style="height:30px;max-width:100%;object-fit:contain;display:block;">`
+            : sig && sig.text ? `<div style="color:#b3261e;font-weight:800;">${sig.text}</div>` : ''}
         </div>
         <div style="border-top:1px solid #334155;padding-top:4px;">
-          <div style="color:#334155;">日期：____年____月____日</div>
+          ${sig && sig.img ? `<div style="color:#334155;">電子簽署時間：<b>${psSignedAtText(sig.at)}</b></div>` : `<div style="color:#334155;">日期：____年____月____日</div>`}
         </div>
       </div>
+      ${sig && sig.img ? `<div style="font-size:8px;color:#64748b;margin-top:3px;">電子簽署：${psSignedAtText(sig.at)}${sig.account ? `・帳號 ${sig.account}` : ''}・薪資版本 ${String(sig.ver || '').slice(0, 10)}</div>` : ''}
     </div>
   </div>`;
 }
 
-// 全店列印
-function printAllPayslips() {
-  const html = buildAllPayslipsHtml();
-  const win = window.open('', '_blank');
+// 全店列印：mode 'esign'＝電子簽名版（使用者 2026-11-25；簽了且薪資沒再改的印簽名＋簽署時間到分鐘，其餘印狀態留給手簽）
+async function printAllPayslips(mode) {
+  const win = window.open('', '_blank');   // 先開視窗（等讀簽名再開會被瀏覽器當成彈出視窗擋掉）
+  let sigMap = null;
+  if(mode === 'esign') {
+    showLoading('讀取電子簽名...');
+    sigMap = await loadPayslipSigs();
+    hideLoading();
+  }
+  const html = buildAllPayslipsHtml(sigMap);
   win.document.write(`<!DOCTYPE html><html><head>
     <meta charset="UTF-8"><title>${currentStore} ${getMonthLabel(currentMonth)} 薪資單</title>
   </head><body>${html}<script>window.onload=()=>window.print();<\/script></body></html>`);
   win.document.close();
+}
+
+/** 簽署時間到分鐘 */
+function psSignedAtText(iso) {
+  if(!iso) return '';
+  const d = new Date(iso), p2 = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}/${p2(d.getMonth()+1)}/${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+}
+/** 本月每個人的薪資單電子簽名：簽收時的薪資指紋＝現在的才算數（薪資改過要重簽，不印舊簽名） */
+async function loadPayslipSigs() {
+  const out = {}, acks = {};
+  try { (await window.db.collection('salaryAck').where('month', '==', currentMonth).get()).forEach(d => { const a = d.data(); if(a.empName) acks[a.empName] = a; }); } catch(e) {}
+  await Promise.all(empList.filter(e => getSalaryRecord(e.name)).map(async e => {
+    const rec = getSalaryRecord(e.name), ack = acks[e.name];
+    if(currentMonth < '2026-06') { out[e.name] = { text: '未經電子簽署' }; return; }   // 薪資簽收制度 2026-06 起（同 my-salary SALARY_ACK_START）
+    if(!ack) { out[e.name] = { text: '尚未電子簽署' }; return; }
+    if((ack.signedPayHash || '') !== (rec.payHash || '')) { out[e.name] = { text: '簽署後薪資有異動，需重簽' }; return; }
+    try {
+      const [sd, ud] = await Promise.all([
+        window.db.collection('salaryAckSig').doc(`${ack.uid}_${currentMonth}`).get(),
+        window.db.collection('users').doc(ack.uid).get()]);
+      const img = sd.exists && sd.data().signatureDataUrl;
+      out[e.name] = img ? { img, at: ack.signedAt, account: (ud.exists && (ud.data().ID || ud.data().username)) || '', ver: rec.payHash || '' } : { text: '找不到簽名圖，請手簽' };
+    } catch(er) { out[e.name] = { text: '讀不到簽名，請手簽' }; }
+  }));
+  return out;
 }
 
 // 壓縮 HTML（移除標籤間多餘空白）
