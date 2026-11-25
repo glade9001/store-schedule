@@ -145,11 +145,11 @@ function openReqModal(){
   syncReqStore();
 }
 async function submitReq(){
-  const req=await buildFixRequest({ fixShiftDate:_fixShiftDate });
-  if(!req) return;
   showLoading('送出中…');
   try{
-    await window.db.collection('stores').doc(req.store).collection('attendanceRequests').add(req.data);
+    const r=await sendFixRequestOnce({ fixShiftDate:_fixShiftDate });
+    if(!r){ hideLoading(); return; }
+    if(r==='dup'){ hideLoading(); alert('這張卡已經有一筆申請在等店長審核，不用再送。\n時間填錯的話，請店長先駁回再重送。'); return; }
     _fixShiftDate='';
     hideLoading();
     document.getElementById('reqModal').style.display='none';

@@ -125,3 +125,38 @@ async function buildFixRequest(opt) {
     }
   };
 }
+
+// ── 送出（2026-11-25 防連點）──
+// 原本兩頁的 submitReq 都是「先 await 整理表單（要查班表、查薪資鎖）→ 才顯示送出中」，
+// 網路慢時員工多按幾下就送出好幾筆：10 月三店 24 組同一人同一天同一張卡、同一分鐘重複送出，最多一次 6 筆，
+// 店長要多審好幾筆，儀表板補登率也被灌高。改成：一按就鎖住、送出前再查一次同一張卡是否已有待審申請。
+var _fixReqBusy = false;
+/**
+ * @param buildOpt 傳給 buildFixRequest 的參數
+ * @returns {Promise<'sent'|'dup'|null>} null＝表單沒過或正在送出中（不用提示）
+ */
+async function sendFixRequestOnce(buildOpt) {
+  if (_fixReqBusy) return null;
+  _fixReqBusy = true;
+  var btns = document.querySelectorAll('[onclick^="submitReq"]');
+  btns.forEach(function (b) { b.disabled = true; b.style.opacity = '.5'; });
+  try {
+    var req = await buildFixRequest(buildOpt);
+    if (!req) return null;
+    var col = window.db.collection('stores').doc(req.store).collection('attendanceRequests');
+    var dup = false;
+    try {
+      var q = await col.where('empName', '==', req.data.empName).get();
+      q.forEach(function (d) {
+        var x = d.data();
+        if (x.status === 'pending' && x.targetDate === req.data.targetDate && x.punchType === req.data.punchType) dup = true;
+      });
+    } catch (e) { /* 查不到就照送：寧可多一筆也不要擋掉真的申請 */ }
+    if (dup) return 'dup';
+    await col.add(req.data);
+    return 'sent';
+  } finally {
+    _fixReqBusy = false;
+    btns.forEach(function (b) { b.disabled = false; b.style.opacity = ''; });
+  }
+}

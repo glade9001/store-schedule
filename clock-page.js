@@ -339,10 +339,10 @@ function openReqModal(){
   syncReqStore();
 }
 async function submitReq(){
-  const req=await buildFixRequest();
-  if(!req) return;
   try{
-    await window.db.collection('stores').doc(req.store).collection('attendanceRequests').add(req.data);
+    const r=await sendFixRequestOnce();
+    if(!r) return;
+    if(r==='dup'){ toast('這張卡已有申請在等審核；時間填錯請店長先駁回再重送'); return; }
     document.getElementById('reqModal').style.display='none';
     toast('✅ 已送出，等店長審核（有開推播會通知你結果）');
   }catch(e){ toast('送出失敗：'+e.message); }

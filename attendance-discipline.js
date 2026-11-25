@@ -25,7 +25,9 @@
       keys.add(a.empName+'|'+day+'|'+a.shift);
       if(a.type==='上班'){ ins++; if(a.status==='遲到') late++; }
     });
-    const req=(reqs||[]).length, shifts=keys.size;
+    // 補登筆數去重（2026-11-25）：同一人、同一天、同一張卡、同一個申請時間只算一次。
+    // 舊的送出按鈕沒防連點，10 月有 24 組重複送出（最多一次 6 筆），不去重的話補登率會被灌高。
+    const req=new Set((reqs||[]).map(r=>[r.empName,r.targetDate,r.punchType,r.requestedTime].join('|'))).size, shifts=keys.size;
     const pct=(a,b)=>b?Math.round(a/b*1000)/10:null;
     return {shifts, miss, missOpen, req, late, ins, app, manual,
       missRate:pct(miss,shifts), reqRate:pct(req,shifts), lateRate:pct(late,ins), appRate:pct(app,app+manual)};
