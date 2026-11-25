@@ -43,24 +43,14 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto S
 .star-help{font-size:12px;line-height:1.7;background:#fff7ed;color:#9a3412;border-radius:10px;padding:8px 10px;margin-top:8px;}
 .btn-mini{padding:5px 10px;border:1px solid var(--primary,#0f766e);background:#fff;color:var(--primary,#0f766e);border-radius:8px;font-size:12px;font-weight:800;cursor:pointer;min-height:32px;}
 
-/* 勞檢資料：個人頁（2026-11-25） */
-.lr-name{border:0;background:none;padding:0;font:inherit;font-weight:800;color:var(--primary,#0f766e);cursor:pointer;text-align:left;min-height:32px;}
-.sum-table tr.lr-row.on td{background:#ecfdf5;}
-.lr-person{margin-top:12px;}
-.lr-person-head{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
-.lr-person-head b{font-size:17px;}
-.lr-person-head small{flex:1;color:#5b6663;}
-.lr-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;background:#e3e8e6;border-radius:10px;padding:4px;margin-bottom:10px;}
-.lr-tab{min-height:40px;border:0;border-radius:8px;background:transparent;font-size:15px;font-weight:700;color:#3c4643;cursor:pointer;}
-.lr-tab.on{background:#fff;color:var(--primary,#0f766e);font-weight:800;}
-.lr-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px;}
-.lr-seg{min-height:36px;padding:0 12px;border:1px solid #c8d2ce;border-radius:8px;background:#fff;font-size:13px;font-weight:700;cursor:pointer;}
+/* 勞檢資料：三個類別按鈕（2026-11-25，比照盤點資料產出頁） */
+.lr-out{margin-top:14px;padding-top:12px;border-top:1px solid #e3e8e6;}
+.lr-out-title{font-size:15px;font-weight:800;margin-bottom:8px;}
+.lr-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:10px;}
+.lr-seg{min-height:38px;padding:0 14px;border:1px solid #c8d2ce;border-radius:8px;background:#fff;font-size:14px;font-weight:700;cursor:pointer;}
 .lr-seg.on{background:var(--primary,#0f766e);color:#fff;border-color:var(--primary,#0f766e);}
-.lr-paper-wrap{background:#fff;border:1px solid #cbd5e1;border-radius:6px;padding:8px;overflow:auto;}
-.lr-frame{width:100%;height:1100px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;}
-.lr-week{width:100%;display:block;margin-bottom:10px;border:1px solid #cbd5e1;border-radius:6px;cursor:zoom-in;}
-.lr-week.zoom{width:1500px;max-width:none;cursor:zoom-out;}
-#lrWeeks{overflow:auto;}
+.lr-big{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:48px;margin-bottom:8px;border:0;border-radius:12px;background:linear-gradient(135deg,var(--primary,#0f766e),#0b544e);color:#fff;font-size:16px;font-weight:800;cursor:pointer;}
+.lr-big span{font-size:12px;font-weight:600;opacity:.85;}
 .ms-att-wrap,.lr-paper-wrap{-webkit-text-size-adjust:100%;text-size-adjust:100%;}
 /* iPhone 縮小顯示寬版面（出勤表、薪資單 A4 預覽）時會自動把部分文字放大，整頁關掉（2026-11-25） */
 html{-webkit-text-size-adjust:100%;text-size-adjust:100%;}

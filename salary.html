@@ -34,6 +34,7 @@
 html.embed #appShell > *:not(.modal-overlay){display:none!important;}
 html.embed #payslipModal{position:static;background:none;opacity:1;pointer-events:auto;align-items:stretch;}
 html.embed #payslipModal .modal-box{max-width:none;border-radius:0;max-height:none;box-shadow:none;}
+html.embed [data-k=close]{display:none!important;}   /* 嵌入時由外層關閉 */
 html.embed #payslipModal .modal-handle,html.embed #payslipModal button[onclick*="closeModal('payslipModal')"]{display:none!important;}
 </style>
 <div id="appShell">

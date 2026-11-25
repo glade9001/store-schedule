@@ -3921,6 +3921,13 @@ window.onload = async () => {
     hideLoading();
     await loadSalaryData();
     // ?payslip=員工：勞檢資料嵌入用 → 直接打開這個人的薪資單（2026-11-25）
+    // ?pack=esign|blank：勞檢資料「💰 薪資單」嵌入用 → 直接產生全店 A4 預覽（兩人一頁）
+    const qpack = new URLSearchParams(location.search).get('pack');
+    if(qpack === 'esign' || qpack === 'blank') {
+      if(!canApprove() && (salaryData.status || 'draft') !== 'published') {
+        document.body.insertAdjacentHTML('afterbegin', '<div style="padding:24px;font-size:16px;font-weight:700;">這個月薪資還沒發布，發布後才看得到薪資單</div>');
+      } else await printAllPayslips(qpack, true);
+    }
     const qp = new URLSearchParams(location.search).get('payslip');
     if(qp) {
       _embedPayslip = qp;
