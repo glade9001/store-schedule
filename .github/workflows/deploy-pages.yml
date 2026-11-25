@@ -15,11 +15,12 @@ concurrency:
   group: pages
   cancel-in-progress: true
 
+# ⚠️ 2026-11-25：原本「上傳」和「發布」擠在同一個 job 連續跑，GitHub 剛上傳的 artifact 幾秒內還查不到
+#    （log：上傳成功、Artifact ID 有了，下一步卻「Found 0 artifact(s)」→ No artifacts named "github-pages"）。
+#    當天 12 次有 8 次第一次失敗、重跑全過。改成官方範本的 build / deploy 兩個 job，
+#    再加「失敗等 30 秒重試一次」，不用再手動 rerun。
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -30,6 +31,22 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: '.'
+
+  deploy:
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url || steps.deployment_retry.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+      - name: 失敗時等 30 秒（artifact 同步延遲）
+        if: steps.deployment.outcome == 'failure'
+        run: sleep 30
+      - name: Deploy to GitHub Pages（重試）
+        id: deployment_retry
+        if: steps.deployment.outcome == 'failure'
         uses: actions/deploy-pages@v4
