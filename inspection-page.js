@@ -1477,7 +1477,9 @@ function calcPay(emp) {
   const mgmt = n(emp.mgmtBonus), la = n(emp.laborAllowance), perf = n(emp.performance);
   const recur = base + attend + mgmt + la + perf + other;
   const rph = (base + attend + other) / 30 / 8;
-  const dayWage = Math.round((base + attend + other) / 30);
+  // 國定假日加發的一日工資＝經常性給與全部 ÷ 30（含管理獎金、勞務津貼、績效；使用者 2026-11-25）
+  // ⚠️ 加班費計算基礎 rph 沒跟著改（仍是底薪＋全勤＋其他），要不要一起改待使用者決定
+  const dayWage = Math.round(recur / 30);
   const holPay = dayWage * st.holDays;
   const otPay = Math.ceil(Math.ceil(rph) * 1.34 * n(emp.otHours));
   const lateDed = Math.round(rph / 60 * n(emp.lateMinutes));
