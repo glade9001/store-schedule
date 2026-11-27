@@ -193,11 +193,11 @@ function invalidateDayViewCache(store) {
 
 /**
  * 🔴 時段沒人紅點（使用者 2026-11-28）：某天有任何 30 分鐘「完全沒有人上班」
- * → 那天的按鈕、和「🏪 三店人力」按鈕加紅點。三店任一家都算（這個檢視本來就是看三店）。
+ * → 那天的按鈕、和「🏪 三店人力」按鈕加紅點。只看目前選的這家店（使用者：看自己家就好）。
  * ・只看「沒人上班」：已有人但同時掛著待補不算（使用者：不是缺人，是沒有人上班）。
  * ・劃休截止（前一週週一 23:59，同劃休頁 getDeadlineForWeek）之後才顯示：之前大家還在劃休、班表還沒排完。
  * ・該週沒排班的門市不算（不然還沒排的店整週都紅）。
- * ・本店本週用畫面上的班表（appData.records，含剛改還沒存的），別店與上週讀 _dayWeekCache。
+ * ・本週用畫面上的班表（appData.records，含剛改還沒存的）；週一看上週日夜班要讀上週（只讀本店一份，有快取）。
  * 資料同三店人力檢視（_dayWeekCache；週一要看上週日的夜班，所以一律多讀上週）。
  */
 let _dvDots = null, _dvDotsTimer = null, _dvDotsSeq = 0;
@@ -210,11 +210,16 @@ async function refreshDayViewDots() {
   const mon = weekStringToDate(weekStr);
   const deadline = mon ? new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() - 7, 23, 59, 59) : null;
   if(!deadline || Date.now() <= deadline.getTime()) { _dvDots = { weekStr, short: null }; applyDayViewDots(); return; }
-  try { await ensureDayViewData(weekStr, true); } catch(e) { return; }
-  if(seq !== _dvDotsSeq) return;   // 讀的時候又換週
   const cur = document.getElementById('storeSelector').value;
-  if(cur && (appData.records || []).length) _dayWeekCache[`${cur}|${weekStr}`] = appData.records.filter(r => r.week === weekStr);
-  const stores = (appConfig.stores || []).filter(x => x && x !== '人力支援');
+  if(!cur) return;
+  const pw = prevWeekStr(weekStr), pk = `${cur}|${pw}`;
+  if(!_dayWeekCache[pk]) {
+    try { const snap = await window.db.collection('stores').doc(cur).collection('weeks').doc(pw).get(); _dayWeekCache[pk] = (snap.exists && snap.data().records) || []; }
+    catch(e) { _dayWeekCache[pk] = []; }
+  }
+  if(seq !== _dvDotsSeq || document.getElementById('storeSelector').value !== cur) return;   // 讀的時候又換週／換店
+  _dayWeekCache[`${cur}|${weekStr}`] = (appData.records || []).filter(r => r.week === weekStr);
+  const stores = [cur];
   const short = dayNames.map((_, i) => stores.filter(st => {
     if(!(_dayWeekCache[`${st}|${weekStr}`] || []).some(r => r.shift && String(r.shift).trim())) return false;
     return dayCoverageOf(daySegmentsOf(st, weekStr, i)).cov.some(c => c === 0);
@@ -234,7 +239,7 @@ function applyDayViewDots() {
       dot.style.cssText = 'position:absolute; top:3px; right:4px; width:9px; height:9px; border-radius:50%; background:#ef4444; box-shadow:0 0 0 2px #fff; pointer-events:none;';
       btn.style.position = 'relative'; btn.appendChild(dot);
     }
-    btn.title = `有時段沒人上班：${stores.join('、')}`;
+    btn.title = '有時段沒人上班';
   };
   put(document.getElementById('viewBtn-day'), d ? [...new Set(d.flat())] : null);
   dayNames.forEach((_, i) => put(document.getElementById('dvDayBtn-' + i), d ? d[i] : null));
