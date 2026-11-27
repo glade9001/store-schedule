@@ -376,10 +376,16 @@ async function confirmLeaveSettle() {
   _lsBusy = true;
   try { await _confirmLeaveSettle(); } finally { _lsBusy = false; }
 }
-/** 這個人這次（同一生效日）是不是已經結清過；是的話回傳說明文字 */
-async function leaveSettledAlready(empName, effectDate) {
+/**
+ * 這個人這次（同一種類＋同一生效日）是不是已經結清過；是的話回傳說明文字
+ * ⚠️ 要連「種類」一起比（2026-11-28 修）：某正職先辦離職（生效 12/01）並結清，後來改成轉工讀、生效日也是 12/01，
+ *    只比生效日會把轉工讀當成同一次而擋掉，永遠結不了。
+ *    已結清的批次與補休都已歸零，第二次只會結清之後新增的部分，不會重複付錢。
+ */
+async function leaveSettledAlready(empName, effectDate, kind) {
   const rec = getSalaryRecord(empName);
-  if(effectDate && rec && rec.leaveSettleFor === effectDate) return `${currentMonth} 薪資已經計入這次結清的金額`;
+  // leaveSettleFor 新格式「種類 生效日」；舊資料只有生效日（不知道種類，照舊擋）
+  if(effectDate && rec && (rec.leaveSettleFor === effectDate || (kind && rec.leaveSettleFor === `${kind} ${effectDate}`))) return `${currentMonth} 薪資已經計入這次結清的金額`;
   const empSnap = await window.db.collection('stores').doc(currentStore).collection('employees').doc(empName).get();
   const ed = empSnap.exists ? empSnap.data() : {};
   if(ed.leaveSettledAt) return `${ed.leaveSettledAt} 已經結清過（計入 ${ed.leaveSettledMonth||'—'} 薪資）`;
@@ -387,9 +393,9 @@ async function leaveSettledAlready(empName, effectDate) {
     const logSnap = await window.db.collection('employees').doc(empName).collection('leaveLog').get();
     let hit = null;
     logSnap.forEach(d => (d.data().records||[]).forEach(r => {
-      if(r && r.type==='settle' && String(r.note||'').includes(`生效日 ${effectDate}`)) hit = r;
+      if(r && r.type==='settle' && String(r.note||'').includes(kind ? `${kind}特補休結清（生效日 ${effectDate}）` : `生效日 ${effectDate}`)) hit = r;
     }));
-    if(hit) return `${hit.date} 已經辦過這次（生效日 ${effectDate}）的結清`;
+    if(hit) return `${hit.date} 已經辦過這次（${kind||''}生效日 ${effectDate}）的結清`;
   }
   return '';
 }
@@ -397,7 +403,7 @@ async function _confirmLeaveSettle() {
   const empName = _lsEmp, c = _lsCalc;
   if(!empName || !c) return;
   try {
-    const done = await leaveSettledAlready(empName, _lsCase && _lsCase.effectDate);
+    const done = await leaveSettledAlready(empName, _lsCase && _lsCase.effectDate, _lsCase && _lsCase.kind);
     if(done) { alert(`不能重複結清：${getDisplayName(empName)} ${done}。\n\n如果金額有誤，請直接修改薪資的「特休折現／補休折現」，不要再結清一次。`); return; }
   } catch(e) { showToast('❌ 讀不到結清紀錄，請稍後再試：' + e.message); return; }
   const amount = Math.round(parseFloat(document.getElementById('lsAmount').value) || 0);
@@ -520,7 +526,7 @@ async function _confirmLeaveSettle() {
       const _compAmt = amount - _annualAmt;
       if(_annualAmt > 0) rec.annualLeaveEncash = (parseFloat(rec.annualLeaveEncash||0)) + _annualAmt;
       if(_compAmt   > 0) rec.compLeaveEncash   = (parseFloat(rec.compLeaveEncash||0))   + _compAmt;
-      if(_lsCase && _lsCase.effectDate) rec.leaveSettleFor = _lsCase.effectDate;   // 防重複第③層
+      if(_lsCase && _lsCase.effectDate) rec.leaveSettleFor = `${_lsCase.kind} ${_lsCase.effectDate}`;   // 防重複第③層（種類＋生效日）
       if(st === 'submitted') {
         salaryData.status = 'draft';
         salaryData.recalledAt = new Date().toISOString();
