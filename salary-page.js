@@ -1439,6 +1439,99 @@ function calcDeduct(rec) {
 
 
 // ===== 代扣區塊渲染（含唯讀控制）=====
+// ===== 月中到職／離職的保費按天數（使用者 2026-11-28）=====
+// 法規：勞保每月以 30 日計（勞保條例施行細則 §28-1）；勞退自到職日起提繳至離職當日止（勞退條例 §16）；
+//       健保投保當月收全月、退保當月免繳（健保法 §30）。
+// 系統的「離職日」＝離職後第一天（當天就不排班）→ 最後投保日＝離職日前一天。
+// 天數：整月 30 天；月中到職＝30－到職日＋1（31 日到職算 1 天）；月中離職＝最後投保日（31 日算 30 天）。
+// 欄位：laborInsurance 等存「按天數算好的」金額（薪資單、儀表板、雲端都直接讀）；整月金額另存 insFull，下個月沿用整月。
+// 手動修正：insManual=true 就不再自動算（畫面可改回自動）。
+// ⚠️ 從別店調進來（transferFrom 且到職日＝調店日）不算新到職，照整月。
+const INS_FIELDS = ['laborInsurance','healthInsurance','dependentInsurance','laborEr','healthEr','pensionEr'];
+function insDayPlan(emp, ym) {
+  if(!emp || !ym) return null;
+  const [y, m] = ym.split('-').map(Number);
+  const last = new Date(y, m, 0).getDate();
+  const first = `${ym}-01`, end = `${ym}-${String(last).padStart(2,'0')}`;
+  let st = emp.startDate || '';
+  if(emp.transferFrom && emp.transferDate && emp.transferDate === st) st = '';
+  const lastIns = emp.retireDate ? shiftDateAdd(emp.retireDate, -1) : '';
+  if(st && st > end) return { laborDays: 0, healthFull: false, why: `${st} 才到職，這個月不用保費` };
+  if(lastIns && lastIns < first) return { laborDays: 0, healthFull: false, why: `${emp.retireDate} 已離職，這個月不用保費` };
+  const joins = !!(st && st > first && st <= end);
+  const leaves = !!(lastIns && lastIns >= first && lastIns < end);
+  if(!joins && !leaves) return null;   // 整月在職
+  const fromD = joins ? +st.slice(8) : 1;
+  const toD = leaves ? Math.min(30, +lastIns.slice(8)) : 30;
+  const days = Math.max(1, Math.min(30, toD - fromD + 1));
+  const md = d => `${+d.slice(5,7)}/${+d.slice(8)}`;
+  const why = joins && leaves ? `${md(st)} 到職、${md(lastIns)} 最後一天`
+    : joins ? `${md(st)} 到職` : `${md(lastIns)} 最後一天（${md(emp.retireDate)} 離職）`;
+  return { laborDays: days, healthFull: !leaves, why };
+}
+/** 依本月到職／離職調整保費；手動修正過就不動 */
+function applyInsProration(rec, emp) {
+  if(!rec || rec.insManual) return;
+  if(rec.insuranceGrade == null || rec.insuranceGrade < 0) { rec.insFull = null; rec.insDays = null; return; }
+  const full = rec.insFull || INS_FIELDS.reduce((o, k) => (o[k] = +rec[k] || 0, o), {});
+  const plan = insDayPlan(emp, currentMonth);
+  if(!plan) { INS_FIELDS.forEach(k => { rec[k] = full[k]; }); rec.insFull = null; rec.insDays = null; return; }
+  rec.insFull = full;
+  rec.insDays = { labor: plan.laborDays, healthFull: plan.healthFull, why: plan.why };
+  const r = v => Math.round(v * plan.laborDays / 30);
+  rec.laborInsurance = r(full.laborInsurance); rec.laborEr = r(full.laborEr); rec.pensionEr = r(full.pensionEr);
+  rec.healthInsurance = plan.healthFull ? full.healthInsurance : 0;
+  rec.healthEr = plan.healthFull ? full.healthEr : 0;
+  rec.dependentInsurance = plan.healthFull ? full.dependentInsurance : 0;
+}
+/** 改了級距／健保／眷屬：畫面上的值是整月 → 整月重記一次再按天數算 */
+function reapplyInsProration(rec, empName) {
+  if(!rec || rec.insManual) return;
+  rec.insFull = null;
+  applyInsProration(rec, empList.find(e => e.name === empName));
+}
+function insSetManual(empName, on) {
+  const rec = getSalaryRecord(empName); if(!rec) return;
+  if(on) rec.insManual = true;
+  else {
+    rec.insManual = false;
+    if(rec.insFull) INS_FIELDS.forEach(k => { rec[k] = rec.insFull[k]; });
+    rec.insFull = null;
+    applyInsProration(rec, empList.find(e => e.name === empName));
+  }
+  _rerenderModal(empName, rec);
+}
+function insManualEdit(empName, field, value) {
+  const rec = getSalaryRecord(empName); if(!rec || !rec.insManual || INS_FIELDS.indexOf(field) < 0) return;
+  rec[field] = Math.max(0, Math.round(parseFloat(value) || 0));
+  _rerenderModal(empName, rec);
+}
+/** 保費說明（按天數時一定顯示；手動時可改數字） */
+function renderInsDaysNote(empName, rec, ro) {
+  if(rec.insuranceGrade == null || rec.insuranceGrade < 0) return '';
+  const d = rec.insDays, f = rec.insFull;
+  if(!d && !rec.insManual) return '';
+  const esc = String(empName).replace(/'/g, "\\'");
+  let h = '<div style="margin:6px 0 8px;padding:8px 10px;border-radius:8px;background:#fff;border:1px dashed #fca5a5;font-size:12px;line-height:1.6;">';
+  if(d) {
+    h += `<b>本月 ${d.why}：保費按天數算</b><br>`
+      + `・勞保、勞退：${d.labor}／30 天${f ? `（整月：勞保個人 $${(+f.laborInsurance).toLocaleString()}、公司 $${(+f.laborEr).toLocaleString()}、勞退 $${(+f.pensionEr).toLocaleString()}，各乘 ${d.labor}/30）` : ''}<br>`
+      + `・健保：${d.healthFull ? '投保當月收全月' : '退保當月免繳'}<br>`
+      + '<span style="color:var(--text-muted);">依據：勞保每月以 30 日計、勞退到職日起算到離職當日、健保投保當月全月／退保當月免繳。</span>';
+  }
+  if(rec.insManual) {
+    h += `${d ? '<br>' : ''}<b style="color:#b45309;">✏️ 已手動修正（不再自動計算）</b>`;
+    if(!ro) {
+      const inp = (k, label) => `<label style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin-top:4px;">${label}<input class="salary-input" type="number" min="0" value="${+rec[k] || 0}" style="width:90px;" onchange="insManualEdit('${esc}','${k}',this.value)"></label>`;
+      h += inp('laborInsurance', '勞保（個人）') + inp('laborEr', '勞保（公司）') + inp('healthInsurance', '健保（個人）') + inp('healthEr', '健保（公司）') + inp('pensionEr', '勞退（公司）')
+        + `<button onclick="insSetManual('${esc}', false)" style="margin-top:6px;border:0;border-radius:6px;padding:4px 10px;background:#e2e8f0;font-weight:700;cursor:pointer;">↩︎ 回到自動計算</button>`;
+    }
+  } else if(!ro) {
+    h += `<br><button onclick="insSetManual('${esc}', true)" style="margin-top:4px;border:0;border-radius:6px;padding:4px 10px;background:#fde68a;font-weight:700;cursor:pointer;">✏️ 手動修正</button>`;
+  }
+  return h + '</div>';
+}
+
 function renderInsuranceSection(empName, rec, idx) {
   const ro = isInsuranceReadonly();
   // insuranceGrade: null=未設定, -1=未投保, 0..N=grades陣列索引
@@ -1549,6 +1642,7 @@ function renderInsuranceSection(empName, rec, idx) {
   return `<div class="salary-section" style="background:#fef2f2;border-radius:10px;padding:12px;">
     <div class="salary-section-title" style="color:#991b1b;">代扣項目${ro&&!canApprove()?'<span style="font-size:10px;font-weight:500;color:#b91c1c;margin-left:6px;">送審後不可修改</span>':''}</div>
     ${gradeSelector}
+    ${renderInsDaysNote(empName, rec, ro)}
     ${laborRow}
     ${healthRow}
     ${depRow}
@@ -1590,6 +1684,7 @@ function onInsuranceGradeChange(empName, value, idx) {
   rec.dependentInsurance = (rec.healthInsurance || 0) * dc;
   rec.hasDependent = dc > 0;
   syncInsExtra(rec);
+  reapplyInsProration(rec, empName);
   _rerenderModal(empName, rec);
 }
 
@@ -1611,6 +1706,7 @@ function toggleHealthUninsured(empName, idx) {
     const dc = rec.dependentCount || 0;
     rec.dependentInsurance = rec.healthInsurance * dc;
   }
+  reapplyInsProration(rec, empName);
   _rerenderModal(empName, rec);
 }
 
@@ -1622,7 +1718,9 @@ function onDependentCountChange(empName, value, idx) {
   const count = Math.max(0, parseInt(value) || 0);
   rec.dependentCount = count;
   rec.hasDependent   = count > 0;
-  rec.dependentInsurance = (rec.healthInsurance || 0) * count;
+  // 按天數時畫面上的健保可能是 0（退保當月免繳）→ 用整月健保費乘，再按天數套一次
+  if(rec.insFull) { rec.insFull.dependentInsurance = (rec.insFull.healthInsurance || 0) * count; applyInsProration(rec, emp); }
+  else rec.dependentInsurance = (rec.healthInsurance || 0) * count;
   _rerenderModal(empName, rec);
 }
 
@@ -2363,6 +2461,11 @@ async function loadSalaryData() {
     salaryData = salSnap.exists ? salSnap.data() : { status: 'draft', records: [] };
     if(!salaryData.records) salaryData.records = [];
     prevSalaryData = prevSalSnap.exists ? (prevSalSnap.data().records || []) : [];
+    // 草稿月份：已存在的紀錄也依到職／離職日套用保費天數（送審、發布後不動）
+    if((salaryData.status || 'draft') === 'draft') salaryData.records.forEach(r => {
+      const e = empList.find(x => x.name === r.empName);
+      if(e) applyInsProration(r, e);
+    });
 
     // 歷史月份鎖定職稱：過去月份且該員當月已有薪資記錄 → 職稱以記錄為準，
     // 避免員工日後升遷/降職（改主檔職稱）回頭污染舊月薪資結構
@@ -2745,7 +2848,14 @@ function nightCarry(prev) {
 }
 
 function buildDefaultRecord(emp) {
-  const prev = prevSalaryData.find(r => r.empName === emp.name) || {};
+  const out = buildDefaultRecordRaw(emp);
+  applyInsProration(out, emp);   // 本月到職／離職 → 勞保、勞退按天數、健保照規則
+  return out;
+}
+function buildDefaultRecordRaw(emp) {
+  const _prev0 = prevSalaryData.find(r => r.empName === emp.name) || {};
+  // 上個月按天數算過（月中到職）→ 沿用整月金額，不把打折後的數字帶過來；手動修正的值不沿用
+  const prev = _prev0.insFull ? { ..._prev0, ..._prev0.insFull } : _prev0;
   const { totalH, otH } = calcEmpHours(emp.name);
   const base = {
     empName: emp.name,
