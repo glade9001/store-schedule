@@ -141,7 +141,7 @@ async function asdGenerate(mode) {
     });
     var res = asGenerateDraft({ weekStr: week, cfg: cfg, emps: emps, weeks: weeks, leaves: leaves, away: away, catalog: catalog,
       holidays: (typeof TW_HOLIDAYS_SCHED !== 'undefined' ? TW_HOLIDAYS_SCHED : typeof builtinHolidayMap === 'function' ? builtinHolidayMap() : {}) /* 排班頁已同步系統設定 */, opt: { keep: keep } });
-    asdLast = { week: week, store: store, res: res, ms: Date.now() - t0, cur: weeks[week], mode: mode, before: curRecs, fixes: fixes, hasPay: hasPay };
+    asdLast = { week: week, store: store, res: res, ms: Date.now() - t0, cur: weeks[week], mode: mode, before: curRecs, fixes: fixes, hasPay: hasPay, otPick: {}, gapSkip: {} };
     hideLoading();
     asdShowPreview();
   } catch (e) {
@@ -262,15 +262,27 @@ function asdShowPreview() {
 
   // 提醒區
   var alerts = [];
-  if (res.gaps.length) alerts.push('<div class="asd-alert red"><b>🆘 補不到最少人數' + (asdIncludeGaps ? '，會開待補 ' : '（這次不開待補）') + res.gaps.length + ' 格：</b><br>' +
-    res.gaps.map(function (g) { return g.day + ' ' + g.shift; }).join('、') + '</div>');
+  if (res.gaps.length) {
+    var gOn = asdActiveGaps(L).length;
+    alerts.push('<div class="asd-alert red"><b>🆘 補不到最少人數' + (asdIncludeGaps ? '，會開待補 ' + gOn + ' 格' + (gOn < res.gaps.length ? '（共 ' + res.gaps.length + ' 格，取消勾選的不開）' : '') : '（這次不開待補）' + res.gaps.length + ' 格') + '：</b><br>' +
+      res.gaps.map(function (g, gi) {
+        var byOt = asdGapCoveredByOt(L, gi);
+        if (!asdIncludeGaps) return g.day + ' ' + g.shift;
+        if (byOt) return '<span class="asd-pick off">' + g.day + ' ' + g.shift + '（加班補）</span>';
+        return '<label class="asd-pick"><input type="checkbox"' + (L.gapSkip[gi] ? '' : ' checked') + ' onchange="asdPickGap(' + gi + ', this.checked)"> ' + g.day + ' ' + g.shift + '</label>';
+      }).join(' ') + '</div>');
+  }
   if (res.soft.length) alerts.push('<div class="asd-alert amber"><b>⚠️ 未達目標人數（在最少人數以上，不開待補）：</b><br>' +
     res.soft.map(function (g) { return g.day + ' ' + g.label; }).join('、') + '</div>');
   res.notes.forEach(function (n) { alerts.push('<div class="asd-alert amber">' + (n.type === 'over' ? '⏱️ ' : '💰 ') + asdEsc(n.msg) + '</div>'); });
-  res.suggestions.forEach(function (s) {
-    alerts.push('<div class="asd-alert blue">💡 ' + s.day + ' ' + asdEsc(s.name) + ' 延長 ' + s.label + ' 可補缺口' +
-      (s.save > 0 ? '，比找工讀約省 $' + s.save : '') + '（正職加班由店長決定，草稿不會自動排）</div>');
+  res.suggestions.forEach(function (s, si) {
+    var can = !!(s.newShift && s.fromShift);
+    alerts.push('<div class="asd-alert blue">' + (can ? '<label class="asd-pick ot"><input type="checkbox"' + (L.otPick[si] ? ' checked' : '') + ' onchange="asdPickOt(' + si + ', this.checked)"> ' : '💡 ') +
+      s.day + ' ' + asdEsc(getDisplayName(s.name)) + ' 延長 ' + s.label + ' 可補缺口' +
+      (can ? '（' + asdEsc(s.tday) + ' ' + asdEsc(s.fromShift) + ' → ' + asdEsc(s.newShift) + '，加班 ' + s.hours + 'h 約 $' + s.otCost + '）' : '') +
+      (s.save > 0 ? '，比找工讀約省 $' + s.save : '') + (can ? '</label>' : '') + '</div>');
   });
+  if (res.suggestions.length) alerts.push('<div class="asd-meta">正職加班由店長決定：打勾才會排進去（標成加班）。</div>');
   h += alerts.join('');
 
   // 表格
@@ -288,10 +300,11 @@ function asdShowPreview() {
       var now = cur || (c ? c.shift : '');
       var chg = L.mode === 'redraft' && was !== now ? ' chg' : '';
       var wasTxt = chg ? '<small>原 ' + asdEsc(was || '空白') + '</small>' : '';
-      if (cur) { h += '<td class="asd-cell locked' + chg + '">' + asdEsc(cur) + wasTxt + '</td>'; return; }
+      if (cur) { var otC = asdOtShiftFor(L, n, d); h += '<td class="asd-cell locked' + chg + (otC ? ' ot' : '') + '">' + asdEsc(otC || cur) + (otC ? '<small>加班</small>' : '') + wasTxt + '</td>'; return; }
       if (!c) { h += '<td class="asd-cell' + chg + '">' + wasTxt + '</td>'; return; }
       var cls = c.shift === '指休' ? 'zhi' : (c.shift === '排休' ? 'off' : (asIsWorkShift(c.shift) ? 'work' : 'off'));
-      h += '<td class="asd-cell new ' + cls + chg + '" title="' + asdEsc(c.why || '') + '">' + asdEsc(c.shift === '指休' ? '休(劃)' : c.shift) + wasTxt + '</td>';
+      var otS = asdOtShiftFor(L, n, d);
+      h += '<td class="asd-cell new ' + cls + chg + (otS ? ' ot' : '') + '" title="' + asdEsc(c.why || '') + '">' + asdEsc(otS || (c.shift === '指休' ? '休(劃)' : c.shift)) + (otS ? '<small>加班</small>' : '') + wasTxt + '</td>';
     });
     h += '<td class="asd-sum">' + pe.hours + 'h<small>休' + pe.offs + (pe.pt ? '' : '／應' + pe.offTarget) + '</small></td></tr>';
   });
@@ -312,7 +325,7 @@ function asdShowPreview() {
     h += '<td class="asd-sum">' + Math.round(hrs * 10) / 10 + 'h</td></tr>';
   });
   // 待補列：現有的（灰＝原本的班、紅＝這次補進去的）＋新開的（紅）
-  asdGapRows(asdIncludeGaps ? res.gaps : [], asdExistingGapRows(L.week)).forEach(function (r) {
+  asdGapRows(asdIncludeGaps ? asdActiveGaps(L) : [], asdExistingGapRows(L.week)).forEach(function (r) {
     var added = Object.keys(r.days).length;
     if (!r.isNew && !added && !Object.keys(r.locked).length) return; // 空的舊待補列而且這次也沒用到 → 不顯示
     var hrs = 0;
@@ -329,7 +342,7 @@ function asdShowPreview() {
   h += '<div class="asd-meta">排班規則：人力優先 → 正職 40 小時、不自動加班、當月應休平均到各週 → 工讀先顧成本再求時數接近。耗時 ' + (L.ms / 1000).toFixed(1) + ' 秒。</div>';
 
   document.getElementById('asdBody').innerHTML = h;
-  document.getElementById('asdApplyBtn').disabled = L.mode !== 'redraft' && newCount === 0 && (!asdIncludeGaps || res.gaps.length === 0);
+  document.getElementById('asdApplyBtn').disabled = L.mode !== 'redraft' && newCount === 0 && (!asdIncludeGaps || asdActiveGaps(L).length === 0) && !asdPickedOts(L).length;
   document.getElementById('asdOverlay').classList.add('show');
 }
 
@@ -407,10 +420,12 @@ async function asdApply() {
   if (store !== L.store || week !== L.week) { showToast('⚠️ 已切換門市或週次，請重新產生草稿'); asdClose(); return; }
   var why = asdBlockReason(store, week); // 預覽期間可能被發布了
   if (why) { showToast('⚠️ ' + why); asdClose(); return; }
-  var gapN = asdIncludeGaps ? L.res.gaps.length : 0;
+  var gapN = asdIncludeGaps ? asdActiveGaps(L).length : 0;
+  var ots = asdPickedOts(L);
   var ask = L.mode === 'redraft'
     ? '依最新劃休重排 ' + week.slice(-3) + '？\n會修正劃休對不上的 ' + (L.fixes || []).length + ' 格、重排草稿排的格子' + (gapN ? '，並開待補 ' + gapN + ' 格' : '') + '。\n店長手動改過的格子、他店已認領的待補不會動。'
     : '把草稿填進 ' + week.slice(-3) + ' 的空白格' + (gapN ? '，並新增 🆘 待補 ' + gapN + ' 格' : '') + '？\n店長已排的格子不會被改。';
+  if (ots.length) ask += '\n\n另外排加班 ' + ots.length + ' 格：\n' + ots.map(function (s) { return s.tday + ' ' + getDisplayName(s.name) + ' ' + s.fromShift + ' → ' + s.newShift; }).join('\n');
   if (!confirm(ask)) return;
 
   syncUIToMemory();
@@ -455,7 +470,15 @@ async function asdApply() {
     if (c.shift === '補休') compCells.push(c);
     if (asIsWorkShift(c.shift)) holidayCells.push(c);
   });
-  var gapRows = asdIncludeGaps ? asdGapRows(L.res.gaps, asdExistingGapRows(week)) : [];
+  // 打勾的加班建議：那一格的班還是預覽時的班才改（之後店長又改過就以店長為準）
+  var otDone = 0;
+  ots.forEach(function (s) {
+    var ex = findRec(s.name, s.tday);
+    if (!ex || String(ex.shift || '').trim() !== s.fromShift) return;
+    ex.shift = s.newShift; ex.actualHours = shiftTotalHours(s.newShift); ex.isOT = true;
+    otDone++;
+  });
+  var gapRows = asdIncludeGaps ? asdGapRows(asdActiveGaps(L), asdExistingGapRows(week)) : [];
   var newRows = 0, gapCells = 0;
   gapRows.forEach(function (r) {
     var ds = Object.keys(r.days);
@@ -482,5 +505,25 @@ async function asdApply() {
     var emp = (appData.employees || []).find(function (e) { return e.name === c.name; });
     await checkHolidayCompOnSave(c.name, shiftDateAdd(mon, c.di), '', c.shift, emp);
   }
-  showToast((L.mode === 'redraft' ? '✅ 已依最新劃休重排：修正 ' + leaveMoves.length + ' 格、' : '✅ ') + '已填入 ' + filled + ' 格' + (gapCells ? '、待補 ' + gapCells + ' 格' + (newRows ? '（新開 ' + newRows + ' 列）' : '（都放進現有待補列）') : '') + '，可再手動調整');
+  showToast((L.mode === 'redraft' ? '✅ 已依最新劃休重排：修正 ' + leaveMoves.length + ' 格、' : '✅ ') + '已填入 ' + filled + ' 格' + (gapCells ? '、待補 ' + gapCells + ' 格' + (newRows ? '（新開 ' + newRows + ' 列）' : '（都放進現有待補列）') : '') + (otDone ? '、加班 ' + otDone + ' 格' : '') + '，可再手動調整');
+}
+
+// ───────── 預覽勾選（使用者 2026-11-28）：加班建議打勾套用、待補格逐格取消 ─────────
+function asdPickedOts(L) { return (L.res.suggestions || []).filter(function (s, i) { return L.otPick[i] && s.newShift && s.fromShift; }); }
+/** 這格待補有沒有被打勾的加班補掉 */
+function asdGapCoveredByOt(L, gi) { return asdPickedOts(L).some(function (s) { return s.gapIdx === gi; }); }
+/** 要開的待補：沒被取消、也沒被加班補掉的 */
+function asdActiveGaps(L) { return L.res.gaps.filter(function (g, gi) { return !L.gapSkip[gi] && !asdGapCoveredByOt(L, gi); }); }
+/** 某人某天打勾加班後的新班別（沒有就回空字串）；同一格多個建議取最後勾的 */
+function asdOtShiftFor(L, name, day) { var x = ''; asdPickedOts(L).forEach(function (s) { if (s.name === name && s.tday === day) x = s.newShift; }); return x; }
+function asdPickGap(gi, on) { if (!asdLast) return; if (on) delete asdLast.gapSkip[gi]; else asdLast.gapSkip[gi] = 1; asdShowPreview(); }
+function asdPickOt(si, on) {
+  if (!asdLast) return;
+  var s = asdLast.res.suggestions[si];
+  if (on) {
+    // 同一個人同一格只能勾一個（不然兩個延長會互相蓋掉）
+    asdLast.res.suggestions.forEach(function (o, oi) { if (oi !== si && o.name === s.name && o.tday === s.tday) delete asdLast.otPick[oi]; });
+    asdLast.otPick[si] = 1;
+  } else delete asdLast.otPick[si];
+  asdShowPreview();
 }

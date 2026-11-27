@@ -46,3 +46,12 @@
 .asd-tpl{display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:800;color:#334155;margin-bottom:8px;}
 .asd-tpl select{padding:6px 10px;border:1.5px solid #c4b5fd;border-radius:9px;font-size:14px;font-weight:800;background:#fff;}
 .asd-manual td{background:#f8fafc;}.asd-manual .asd-name{background:#f1f5f9;color:#64748b;}
+
+/* 預覽勾選（2026-11-28）：待補逐格取消、加班建議打勾 */
+.asd-pick{display:inline-flex;align-items:center;gap:4px;margin:3px 6px 0 0;padding:3px 8px;border-radius:8px;background:#fff;border:1px solid #fecaca;font-weight:700;cursor:pointer;white-space:nowrap;}
+.asd-pick input{width:16px;height:16px;margin:0;}
+.asd-pick.off{border-style:dashed;color:#64748b;cursor:default;}
+.asd-pick.ot{display:flex;white-space:normal;border-color:#bfdbfe;background:transparent;border:0;padding:0;margin:0;align-items:flex-start;}
+.asd-pick.ot input{margin-top:2px;flex:0 0 auto;}
+.asd-cell.ot{outline:2px solid #2563eb;outline-offset:-2px;}
+.asd-cell.ot small{color:#2563eb;font-weight:800;}

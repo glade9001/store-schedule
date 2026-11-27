@@ -875,7 +875,7 @@ function asGenerateDraft(inp) {
   var suggestions = [];
   var ptW = P.filter(function (p) { return p.pt && p.wage > 0; });
   var ptAvgWage = ptW.length ? ptW.reduce(function (a, p) { return a + p.wage; }, 0) / ptW.length : 0;
-  gaps.concat(soft).forEach(function (g) {
+  gaps.concat(soft).forEach(function (g, gi) {
     var len = g.e - g.s;
     if (len > 2) return;
     P.forEach(function (p, pi) {
@@ -894,8 +894,16 @@ function asGenerateDraft(inp) {
       if (!touches) return;
       var otRate = Math.ceil(p.base / 240) * 1.34;
       var ptRate = ptAvgWage * 1.06;
+      // 打勾套用用（使用者 2026-11-28）：要改哪一天的哪一格、改成什麼班；從待補缺口來的記 gapIdx（套用就不開那格待補）
+      var tdi = g.di, newShift;
+      if (viaPrev) {
+        tdi = g.di - 1;
+        var ps = shiftSpan(bestState[pi][tdi]);
+        newShift = asRangeToShift(ps.startH < asAxisStart() ? ps.startH + 24 : ps.startH, g.e + 24);
+      } else newShift = (sE === g.s) ? asRangeToShift(sS, g.e) : asRangeToShift(g.s, sE);
       suggestions.push({ day: g.day, name: p.name, hours: len, label: asHourLabel(g.s) + '～' + asHourLabel(g.e),
-        save: Math.round((ptRate - otRate) * len), otCost: Math.round(otRate * len), viaPrev: viaPrev });
+        save: Math.round((ptRate - otRate) * len), otCost: Math.round(otRate * len), viaPrev: viaPrev,
+        tdi: tdi, tday: days[tdi], fromShift: bestState[pi][tdi], newShift: newShift, gapIdx: gi < gaps.length ? gi : null });
     });
   });
 

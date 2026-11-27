@@ -5,16 +5,30 @@
 function buildCellButton(emp, eIdx, day, store, weekStr, isReadonly) {
   const isVirtual = emp.name.startsWith('🆘');
   // 離職生效日：當天(含)之後的格子鎖死、產出空白，不可排班（存檔即清空該格）
-  if(!isVirtual && emp.retireDate){
-    const cellDate = dayToFullDate(weekStr, day);
-    if(cellDate && cellDate >= emp.retireDate){
+  // 到職日前（含離開到回任之間）也鎖（使用者 2026-11-28：兩種都要上鎖圖示）
+  //   ⚠️ 到職前那格若已有班別／備註（舊資料、到職日後來才改）就不鎖：鎖定格存檔會清空，不可動到過去資料
+  const _cd = !isVirtual ? dayToFullDate(weekStr, day) : null;
+  let _preStart = false;
+  if(_cd && emp.startDate) {
+    const dep = emp.departDate, st = emp.startDate;
+    _preStart = (dep && dep < st) ? (_cd >= dep && _cd < st) : _cd < st;
+    if(_preStart) {
+      const ex = appData.records.find(r => r.name===emp.name && r.day===day && r.week===weekStr);
+      if(ex && (String(ex.shift||'').trim() || ex.note)) _preStart = false;
+    }
+  }
+  if(!isVirtual && (emp.retireDate || _preStart)){
+    const cellDate = _cd;
+    if(cellDate && (_preStart || cellDate >= emp.retireDate)){
       const lb = document.createElement('button');
       lb.className = 'cell-btn locked-off';
       lb.dataset.emp=emp.name; lb.dataset.day=day; lb.dataset.week=weekStr; lb.dataset.eidx=eIdx;
       lb.dataset.shift=''; lb.dataset.hours=0; lb.dataset.loc='本店'; lb.dataset.note='';
       lb.dataset.ot=false; lb.dataset.hourly=false; lb.dataset.support=''; lb.dataset.approval=''; lb.dataset.reqoff=false; lb.dataset.lawoverrides=''; lb.dataset.badges='';
-      lb.innerHTML=''; lb.disabled=true;   // 使用者 2026-11-11：離職後的日期顯示空白
-      lb.title=`${getDisplayName(emp.name)} 已於 ${emp.retireDate} 離職，此日之後不可排班`;
+      lb.innerHTML='<span class="lock-ico" aria-hidden="true">🔒</span>'; lb.disabled=true;   // 使用者 2026-11-11 空白 → 2026-11-28 加上鎖圖示
+      lb.title = _preStart ? `${getDisplayName(emp.name)} ${emp.startDate} 才到職，此日之前不可排班`
+                           : `${getDisplayName(emp.name)} 已於 ${emp.retireDate} 離職，此日之後不可排班`;
+      lb.setAttribute('aria-label', lb.title);
       return lb;
     }
   }
