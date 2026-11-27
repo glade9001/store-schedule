@@ -8,6 +8,7 @@ function renderSchedule() {
   renderIncomingSupportBanner();
   lbRefreshBar();
   if(typeof asdRenderConflicts === 'function') asdRenderConflicts(); // 📋 劃休有變動 → 依最新劃休重排
+  scheduleDayViewDots();   // 🔴 時段缺人紅點（三店人力按鈕＋每天按鈕）
   switch(scheduleViewMode) {
     case 'day': return renderDayView();
     default:    return renderTable();
@@ -125,10 +126,11 @@ async function renderDayView() {
   let html = `<div style="display:flex; gap:4px; overflow-x:auto; padding-bottom:8px; margin-bottom:6px;">`;
   dayNames.forEach((d, i) => {
     const on = i === dayViewDayIdx;
-    html += `<button onclick="setDayViewDay(${i})" style="flex:1; min-width:44px; padding:7px 3px; border:none; border-radius:8px; font-size:13px; font-weight:${on?'800':'600'}; background:${on?'var(--primary)':'#f1f3f4'}; color:${on?'#fff':'var(--text-muted)'}; cursor:pointer; line-height:1.35;">${d.replace('週','')}<br><span style="font-size:10px;">${currentWeekDates[i]||''}</span></button>`;
+    html += `<button id="dvDayBtn-${i}" onclick="setDayViewDay(${i})" style="position:relative; flex:1; min-width:44px; padding:7px 3px; border:none; border-radius:8px; font-size:13px; font-weight:${on?'800':'600'}; background:${on?'var(--primary)':'#f1f3f4'}; color:${on?'#fff':'var(--text-muted)'}; cursor:pointer; line-height:1.35;">${d.replace('週','')}<br><span style="font-size:10px;">${currentWeekDates[i]||''}</span></button>`;
   });
   html += `</div><div id="dayViewStores"></div>`;
   cont.innerHTML = html;
+  applyDayViewDots();
 
   const wrap = document.getElementById('dayViewStores');
   wrap.innerHTML = '<div style="padding:24px; text-align:center; color:var(--text-muted); font-size:13px;">讀取三店班表中…</div>';
@@ -182,7 +184,61 @@ async function ensureDayViewData(weekStr, alsoPrevWeek) {
   if(jobs.length) await Promise.all(jobs);
 }
 /** 存檔後要讓單日檢視重新抓（本店資料已變） */
-function invalidateDayViewCache() { _dayWeekCache = {}; }
+//   傳 store 只清那一店（存班表後用；別店沒變，不用重讀）
+function invalidateDayViewCache(store) {
+  if(!store) { _dayWeekCache = {}; return; }
+  Object.keys(_dayWeekCache).forEach(k => { if(k.startsWith(store + '|')) delete _dayWeekCache[k]; });
+  scheduleDayViewDots();
+}
+
+/**
+ * 🔴 時段沒人紅點（使用者 2026-11-28）：某天有任何 30 分鐘「完全沒有人上班」
+ * → 那天的按鈕、和「🏪 三店人力」按鈕加紅點。三店任一家都算（這個檢視本來就是看三店）。
+ * ・只看「沒人上班」：已有人但同時掛著待補不算（使用者：不是缺人，是沒有人上班）。
+ * ・劃休截止（前一週週一 23:59，同劃休頁 getDeadlineForWeek）之後才顯示：之前大家還在劃休、班表還沒排完。
+ * ・該週沒排班的門市不算（不然還沒排的店整週都紅）。
+ * ・本店本週用畫面上的班表（appData.records，含剛改還沒存的），別店與上週讀 _dayWeekCache。
+ * 資料同三店人力檢視（_dayWeekCache；週一要看上週日的夜班，所以一律多讀上週）。
+ */
+let _dvDots = null, _dvDotsTimer = null, _dvDotsSeq = 0;
+function scheduleDayViewDots() { clearTimeout(_dvDotsTimer); _dvDotsTimer = setTimeout(refreshDayViewDots, 600); }
+async function refreshDayViewDots() {
+  const sel = document.getElementById('weekSelector');
+  const weekStr = sel && sel.value;
+  if(!weekStr || !window.db) return;
+  const seq = ++_dvDotsSeq;
+  const mon = weekStringToDate(weekStr);
+  const deadline = mon ? new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() - 7, 23, 59, 59) : null;
+  if(!deadline || Date.now() <= deadline.getTime()) { _dvDots = { weekStr, short: null }; applyDayViewDots(); return; }
+  try { await ensureDayViewData(weekStr, true); } catch(e) { return; }
+  if(seq !== _dvDotsSeq) return;   // 讀的時候又換週
+  const cur = document.getElementById('storeSelector').value;
+  if(cur && (appData.records || []).length) _dayWeekCache[`${cur}|${weekStr}`] = appData.records.filter(r => r.week === weekStr);
+  const stores = (appConfig.stores || []).filter(x => x && x !== '人力支援');
+  const short = dayNames.map((_, i) => stores.filter(st => {
+    if(!(_dayWeekCache[`${st}|${weekStr}`] || []).some(r => r.shift && String(r.shift).trim())) return false;
+    return dayCoverageOf(daySegmentsOf(st, weekStr, i)).cov.some(c => c === 0);
+  }));
+  _dvDots = { weekStr, short };
+  applyDayViewDots();
+}
+function applyDayViewDots() {
+  const sel = document.getElementById('weekSelector');
+  const d = (_dvDots && sel && _dvDots.weekStr === sel.value) ? _dvDots.short : null;
+  const put = (btn, stores) => {
+    if(!btn) return;
+    let dot = btn.querySelector('.dv-dot');
+    if(!(stores && stores.length)) { if(dot) dot.remove(); btn.removeAttribute('title'); return; }
+    if(!dot) {
+      dot = document.createElement('span'); dot.className = 'dv-dot';
+      dot.style.cssText = 'position:absolute; top:3px; right:4px; width:9px; height:9px; border-radius:50%; background:#ef4444; box-shadow:0 0 0 2px #fff; pointer-events:none;';
+      btn.style.position = 'relative'; btn.appendChild(dot);
+    }
+    btn.title = `有時段沒人上班：${stores.join('、')}`;
+  };
+  put(document.getElementById('viewBtn-day'), d ? [...new Set(d.flat())] : null);
+  dayNames.forEach((_, i) => put(document.getElementById('dvDayBtn-' + i), d ? d[i] : null));
+}
 
 /**
  * 單日檢視的一天資料：把三店當天「實際在店」的時段攤平成時間軸線段

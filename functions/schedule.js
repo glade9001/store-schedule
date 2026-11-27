@@ -175,6 +175,7 @@ exports.onScheduleCellLog = onDocumentWrittenWithAuthContext(
     const auto = shareAutoPublished(weekStr, now);
     // 改之前、改之後都已經是「看得到的班表」才算異動（發布那一下本身不算）
     if (!((before.published === true || auto) && (after.published === true || auto))) return;
+    if (after.autoFillOffAt && after.autoFillOffAt !== before.autoFillOffAt) return; // 自動發布那一刻的填休，不算發布後異動
     const bm = shareCellMap(before.records), am = shareCellMap(after.records);
     const keys = new Set([...bm.keys(), ...am.keys()]);
     const changed = [];
@@ -644,6 +645,51 @@ exports.onSchedulePublishedPush = onDocumentWritten(
 );
 
 // ── 週五 18:00 自動發布：店長沒手動發布的下週班表，前端此時起視為已發布（isAutoPublishedHome）→ 補推 ──
+// ── 自動發布填休（使用者 2026-11-28）：週五 18:00 自動發布時，跟手動發布一樣把空白格填「排休」 ──
+// ・人員與日子照排班頁 schedule-v2-save.js 的週人員規則：尚未到職、離職日（含）以後、調走生效日（含）以後、
+//   離開到回任之間的日子不填；🆘 待補列不填。
+// ・只有備註、沒有班別的格子：保留備註等原有欄位，只填班別（備註不能清掉）。
+// ・支援日在本店本來就記「休」（派出去支援的人在本店是休假，畫面顯示支援班），所以不用排除。
+// ・用交易讀寫，避免蓋掉店長同一刻存的班表；寫入帶 autoFillOffAt，onScheduleCellLog 看到就不記成「發布後異動」。
+function offFillDayOk(e, date) {
+  const status = e.status;
+  if (status === "離職") return !!e.retireDate && date < e.retireDate;
+  if (status === "調走") return !!e.transferDate && date < e.transferDate;
+  const dep = e.departDate, st = e.startDate;
+  if (dep && st && dep < st) return date < dep || date >= st;
+  if (st && date < st) return false;
+  if (e.retireDate && date >= e.retireDate) return false;
+  return true;
+}
+async function autoFillOffForWeek(db, store, weekStr) {
+  const mon = weekMonStrOf(weekStr), dates = WEEK_DAYS.map((_, i) => addDaysStr(mon, i));
+  const empSnap = await db.collection("stores").doc(store).collection("employees").get();
+  const emps = []; empSnap.forEach((d) => { if (!d.id.startsWith("🆘")) emps.push({ name: d.id, ...d.data() }); });
+  const ref = db.collection("stores").doc(store).collection("weeks").doc(weekStr);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return 0;
+    const d = snap.data();
+    if (d.published === true) return 0;
+    const recs = (d.records || []).slice();
+    if (!recs.some((r) => r && r.shift)) return 0; // 空班表不發、也不填
+    let n = 0;
+    for (const e of emps) {
+      WEEK_DAYS.forEach((day, i) => {
+        if (!offFillDayOk(e, dates[i])) return;
+        const idx = recs.findIndex((r) => r && r.name === e.name && r.day === day && r.week === weekStr);
+        const ex = idx !== -1 ? recs[idx] : null;
+        if (ex && ex.shift && String(ex.shift).trim() !== "") return;
+        if (ex) recs[idx] = { ...ex, shift: "排休", location: ex.location || "本店", actualHours: 0, isOT: false, isHourly: false };
+        else recs.push({ week: weekStr, day, name: e.name, shift: "排休", location: "本店", note: "", actualHours: 0, isOT: false, isHourly: false, supportEmp: "", approvalStatus: "", requestOff: false, lawOverrides: [] });
+        n++;
+      });
+    }
+    if (n) tx.update(ref, { records: recs, autoFillOffAt: Date.now() });
+    return n;
+  });
+}
+
 exports.scheduledAutoPublishPush = onSchedule(
   // retryCount：這支也負責國定假日補休同步，失敗要重跑（重跑安全：推播有 pushPublishSent、補休有 holidayCompSync 去重）
   { schedule: "0 18 * * 5", timeZone: "Asia/Taipei", region: "asia-east1", secrets: [VAPID_PRIVATE], retryCount: 3 },
@@ -655,7 +701,16 @@ exports.scheduledAutoPublishPush = onSchedule(
     for (const store of (await getAllStores(db)).filter((s) => s !== "人力支援")) {
       const wd = await db.collection("stores").doc(store).collection("weeks").doc(weekStr).get().catch(() => null);
       if (!wd || !wd.exists) continue;
-      const d = wd.data();
+      let d = wd.data();
+      // 填休要在補休同步之前（同步會看班表）；失敗不擋發布
+      if (d.published !== true) {
+        const n = await autoFillOffForWeek(db, store, weekStr).catch((e) => { console.error("[autoFillOff]", store, weekStr, e); return 0; });
+        if (n) {
+          console.log("[autoFillOff]", store, weekStr, n);
+          const re = await wd.ref.get().catch(() => null);
+          if (re && re.exists) d = re.data();
+        }
+      }
       // 國定假日補休：這週還沒依班表同步過（沒手動發布、或手動發布時同步失敗）→ 自動發布這一刻補做
       const synced = await db.collection("holidayCompSync").doc(`${store}__${weekStr}`).get().catch(() => null);
       if (!synced || !synced.exists) await syncHolidayCompForWeek(db, store, weekStr, "班表自動發布").catch((e) => console.error("[holidayCompSync]", store, weekStr, e));

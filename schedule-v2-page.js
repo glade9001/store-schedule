@@ -367,7 +367,15 @@ function getBlankCellsData(weekStr){
   (appData.employees||[]).forEach(emp=>{
     if(String(emp.name).startsWith('🆘')) return;
     dayNames.forEach(day=>{
-      if(emp.retireDate){ const cd=dayToFullDate(weekStr,day); if(cd && cd>=emp.retireDate) return; } // 離職鎖死格
+      // 不填：尚未到職、離職日（含）以後、調走生效日（含）以後、離開到回任之間（同雲端 offFillDayOk）
+      const cd=dayToFullDate(weekStr,day);
+      if(cd){
+        if(emp.retireDate && cd>=emp.retireDate) return;
+        if(emp.status==='調走' && emp.transferDate && cd>=emp.transferDate) return;
+        const dep=emp.departDate, st=emp.startDate;
+        if(dep && st && dep<st){ if(cd>=dep && cd<st) return; }
+        else if(st && cd<st) return;
+      }
       const rec = appData.records.find(r=>r.name===emp.name && r.day===day && r.week===weekStr);
       if(!(rec && rec.shift && String(rec.shift).trim()!=='')) blanks.push({ name:emp.name, day });
     });
@@ -377,8 +385,9 @@ function getBlankCellsData(weekStr){
 function fillBlanksWithOff(weekStr, blanks){
   blanks.forEach(({name,day})=>{
     const idx = appData.records.findIndex(r=>r.name===name && r.day===day && r.week===weekStr);
-    const data = { week:weekStr, day, name, shift:'排休', location:'本店', note:'', actualHours:0, isOT:false, isHourly:false, supportEmp:'', approvalStatus:'', requestOff:false, lawOverrides:[] };
-    if(idx!==-1) appData.records[idx]=data; else appData.records.push(data);
+    // ⚠️ 只有備註、沒有班別的格子：保留備註等原有欄位，只填班別（使用者 2026-11-28：發布填休不可清掉備註）
+    if(idx!==-1){ const ex = appData.records[idx]; appData.records[idx] = { ...ex, shift:'排休', location: ex.location || '本店', actualHours:0, isOT:false, isHourly:false }; return; }
+    appData.records.push({ week:weekStr, day, name, shift:'排休', location:'本店', note:'', actualHours:0, isOT:false, isHourly:false, supportEmp:'', approvalStatus:'', requestOff:false, lawOverrides:[] });
   });
 }
 

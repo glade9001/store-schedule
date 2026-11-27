@@ -232,7 +232,7 @@ function undoLastAction() {
       const idx=appData.records.findIndex(r=>r.name===o.name&&r.day===o.day&&r.week===o.week);
       if(idx!==-1) appData.records[idx]=o; else appData.records.push(o);
     });
-    invalidateDayViewCache(); renderSchedule(); triggerAutoSave();
+    invalidateDayViewCache(document.getElementById('storeSelector').value); renderSchedule(); triggerAutoSave();
     return;
   }
   const fromShift=l.btn.dataset.shift||''; // 回復前的班別
@@ -299,7 +299,7 @@ function clearWeekShifts() {
     r.shift=''; r.actualHours=0; r.isOT=false; r.lawOverrides=[]; delete r.draft;
   });
   appData.records = appData.records.filter(r => !(targets.includes(r) && !r.note && !r.isHourly));
-  invalidateDayViewCache();
+  invalidateDayViewCache(document.getElementById('storeSelector').value);
   renderSchedule();
   triggerAutoSave();
   showToast(`🧹 已清空 ${targets.length} 格`);

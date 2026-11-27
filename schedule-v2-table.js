@@ -850,7 +850,7 @@ function applyPaintToCell(btn, eIdx) {
     }
   }
   // 局部更新記憶體
-  invalidateDayViewCache();   // 本店資料已變，單日檢視要重抓
+  invalidateDayViewCache(document.getElementById('storeSelector').value);   // 本店資料已變，單日檢視要重抓（別店沒變）
   const week=document.getElementById('weekSelector').value;
   const idx=appData.records.findIndex(r=>r.name===btn.dataset.emp&&r.day===btn.dataset.day&&r.week===week);
   const data={ week, day:btn.dataset.day, name:btn.dataset.emp, shift:btn.dataset.shift||'', location:btn.dataset.loc||'本店', note:btn.dataset.note||'', actualHours:parseFloat(btn.dataset.hours||0), isOT:btn.dataset.ot==='true', isHourly:btn.dataset.hourly==='true', supportEmp:btn.dataset.support||'', approvalStatus:btn.dataset.approval||'', supportUpdatedAt:btn.dataset.supportat||'', requestOff:btn.dataset.reqoff==='true', lawOverrides: btn.dataset.lawoverrides ? JSON.parse(btn.dataset.lawoverrides) : [] };
