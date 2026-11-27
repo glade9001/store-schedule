@@ -366,6 +366,13 @@ async function applyEditPunch(){
   }catch(e){ hideLoading(); alert('失敗：'+e.message); }
 }
 const isAnomRec=r=>['遲到','早退','缺卡'].includes(r.status) && !r.voided;
+// 異常分開算（使用者 2026-11-28：異常要分成缺卡跟遲到）；早退有才顯示
+const anomCounts=recs=>{ const c={缺卡:0,遲到:0,早退:0}; recs.forEach(r=>{ if(isAnomRec(r)) c[r.status]++; }); return c; };
+const anomChipsHtml=c=>['缺卡','遲到','早退'].filter(k=>c[k]).map(k=>` <span style="background:${k==='缺卡'?'var(--danger)':'#d97706'};color:#fff;border-radius:8px;padding:2px 8px;font-size:11px;font-weight:800;">${k} ${c[k]}</span>`).join('');
+const anomSumChips=c=>`<div class="chip"><div class="chip-n" style="color:${c.缺卡?'var(--danger)':'var(--text)'}">${c.缺卡}</div><div class="chip-l">缺卡</div></div>
+    <div class="chip"><div class="chip-n" style="color:${c.遲到?'#d97706':'var(--text)'}">${c.遲到}</div><div class="chip-l">遲到</div></div>`
+  +(c.早退?`<div class="chip"><div class="chip-n" style="color:#d97706">${c.早退}</div><div class="chip-l">早退</div></div>`:'');
+let monthFilter='all';   // 本月異常：按上面的數字只看那一類
 // ===== 📍 定位留意（2026-10-10，只標記不擋）=====
 // 8/1～10/9 資料分析：手機時間竄改 0 筆、不同人共用座標 0 筆，沒有可判定的造假；
 // 但有人反覆打出「跟自己上次完全相同的座標」（最多一個月 21 次）。最可能是 iPhone 室內 Wi-Fi 定位快取，
@@ -534,42 +541,50 @@ async function loadDay(){
     snap.forEach(d=>{ const r={id:d.id,...d.data()}; if(gd(r)===curDate) recs.push(r); });
   }catch(e){ if(list) list.innerHTML=`<div class="empty">讀取失敗：${e.message}</div>`; return; }
   recs.sort((a,b)=>(a.deviceTs||'').localeCompare(b.deviceTs||''));
-  const anomalies=recs.filter(isAnomRec).length, visits=recs.filter(r=>r.status==='到場').length, emps=[...new Set(recs.map(r=>r.empName))];
+  const ac=anomCounts(recs), visits=recs.filter(r=>r.status==='到場').length, emps=[...new Set(recs.map(r=>r.empName))];
   document.getElementById('sum').innerHTML=`<div class="sumbar">
     <div class="chip"><div class="chip-n">${emps.length}</div><div class="chip-l">有打卡人數</div></div>
-    <div class="chip"><div class="chip-n" style="color:${anomalies?'var(--danger)':'var(--text)'}">${anomalies}</div><div class="chip-l">遲到/早退/缺卡</div></div>
+    ${anomSumChips(ac)}
     <div class="chip"><div class="chip-n" style="color:${visits?'var(--primary)':'var(--text)'}">${visits}</div><div class="chip-l">到場記錄</div></div>
   </div>`;
   if(!recs.length){ if(list) list.innerHTML='<div class="empty">這天尚無打卡記錄</div>'; return; }
   const byEmp={}; recs.forEach(r=>{ (byEmp[r.empName]=byEmp[r.empName]||[]).push(r); });
   let html='';
   Object.entries(byEmp).forEach(([emp,list2])=>{
-    const dn=empDisplay(emp); const anomCnt=list2.filter(isAnomRec).length;
-    const anomChip=anomCnt?` <span style="background:var(--danger);color:#fff;border-radius:8px;padding:2px 8px;font-size:11px;font-weight:800;">⚠️ ${anomCnt} 筆異常</span>`:'';
+    const dn=empDisplay(emp); const anomChip=anomChipsHtml(anomCounts(list2));
     html+=`<div class="card"><div class="emp-name">${dn}${anomChip}</div>`;
     list2.forEach(r=>{ html+=punchRow(r,false); });
     html+=`</div>`;
   });
   if(list) list.innerHTML=html;
 }
-async function loadMonth(){
+let _monthRecsCache=null;   // { key:'店|年月', recs }：切篩選不重讀整月
+function setMonthFilter(k){ monthFilter = monthFilter===k ? 'all' : k; loadMonth(true); }
+async function loadMonth(fromCache){
   const list=document.getElementById('list'); list.innerHTML='<div class="empty">載入中…</div>';
   const ym=curDate.slice(0,7);
-  let recs=[]; try{ recs=(await fetchMonth()).filter(r=>String(gd(r)).startsWith(ym)); }catch(e){ list.innerHTML=`<div class="empty">讀取失敗：${e.message}</div>`; return; }
+  const ck=curStore+'|'+ym;
+  let recs=[];
+  if(fromCache && _monthRecsCache && _monthRecsCache.key===ck) recs=_monthRecsCache.recs;
+  else { try{ recs=(await fetchMonth()).filter(r=>String(gd(r)).startsWith(ym)); }catch(e){ list.innerHTML=`<div class="empty">讀取失敗：${e.message}</div>`; return; } _monthRecsCache={key:ck,recs}; }
   const geoNote=geoNoticeCard(computeGeoFlags(recs));
   const anoms=recs.filter(r=>isAnomRec(r) || (r.source==='offline'&&r.needReview&&!r.voided) || (r.otStatus==='pending'&&!r.voided)).sort((a,b)=>(gd(a)+(a.deviceTs||'')).localeCompare(gd(b)+(b.deviceTs||'')));
   const cnt=t=>anoms.filter(r=>r.status===t).length;
   // 2026-09-16 使用者指示：遲到不算「待處理」——它是既成事實，店長做什麼都不會消失；
   // 待處理＝真的要動手的（缺卡未補、離線補傳待複核、加班待審）。遲到照常列在下面清單裡供查看。
   const todo=anoms.filter(r=>r.status!=='遲到');
+  // 缺卡、遲到分開（使用者 2026-11-28）；按數字只看那一類，再按一次回到全部
+  const fchip=(key,n,label,col)=>`<div class="chip" onclick="setMonthFilter('${key}')" style="cursor:pointer;${monthFilter===key?'outline:2px solid '+col+';':''}"><div class="chip-n" style="color:${n?col:'var(--text)'}">${n}</div><div class="chip-l">${label}</div></div>`;
   document.getElementById('sum').innerHTML=`<div class="sumbar">
-    <div class="chip"><div class="chip-n" style="color:${todo.length?'var(--danger)':'var(--text)'}">${todo.length}</div><div class="chip-l">本月待處理</div></div>
-    <div class="chip"><div class="chip-n">${cnt('遲到')}</div><div class="chip-l">遲到</div></div>
-    <div class="chip"><div class="chip-n">${cnt('早退')}</div><div class="chip-l">早退</div></div>
-    <div class="chip"><div class="chip-n">${cnt('缺卡')}</div><div class="chip-l">缺卡</div></div>
+    ${fchip('todo',todo.length,'本月待處理','var(--danger)')}
+    ${fchip('缺卡',cnt('缺卡'),'缺卡','var(--danger)')}
+    ${fchip('遲到',cnt('遲到'),'遲到','#d97706')}
+    ${cnt('早退')?fchip('早退',cnt('早退'),'早退','#d97706'):''}
   </div>`;
   if(!anoms.length){ list.innerHTML=geoNote+'<div class="empty">🎉 本月無異常</div>'; return; }
-  const byDate={}; anoms.forEach(r=>{ const k=gd(r); (byDate[k]=byDate[k]||[]).push(r); });
+  const shown=monthFilter==='all'?anoms:monthFilter==='todo'?todo:anoms.filter(r=>r.status===monthFilter);
+  if(!shown.length){ list.innerHTML=geoNote+`<div class="empty">本月沒有${monthFilter==='todo'?'待處理':monthFilter}</div>`; return; }
+  const byDate={}; shown.forEach(r=>{ const k=gd(r); (byDate[k]=byDate[k]||[]).push(r); });
   let html='';
   Object.keys(byDate).sort().forEach(dt=>{
     html+=`<div class="card"><div class="emp-name">${dayHdr(dt)}</div>`;
@@ -586,10 +601,10 @@ async function loadEmp(){
   let all=[]; try{ all=await fetchMonth(); }catch(e){ list.innerHTML=`<div class="empty">讀取失敗：${e.message}</div>`; return; }
   const recs=all.filter(r=>r.empName===curEmp && String(gd(r)).startsWith(ym));
   computeGeoFlags(recs);
-  const hours=calcHours(recs), anom=recs.filter(isAnomRec).length;
+  const hours=calcHours(recs);
   document.getElementById('sum').innerHTML=`<div class="sumbar">
     <div class="chip"><div class="chip-n" style="color:#137333">${hours.toFixed(1)}</div><div class="chip-l">本月有效工時(h)</div></div>
-    <div class="chip"><div class="chip-n" style="color:${anom?'var(--danger)':'var(--text)'}">${anom}</div><div class="chip-l">異常筆數</div></div>
+    ${anomSumChips(anomCounts(recs))}
   </div>`;
   if(!recs.length){ list.innerHTML='<div class="empty">本月無打卡記錄</div>'; return; }
   const byDate={}; recs.forEach(r=>{ const k=gd(r); (byDate[k]=byDate[k]||[]).push(r); });
